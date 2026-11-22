@@ -131,6 +131,8 @@ const ORCHESTRATOR: RoleSpec = {
     "project.brief",
     "project.plan",
     "project.milestone",
+    // Issue #111: the backlog's items are proposals; only the person decides them.
+    "project.backlog.add",
     "tool.view",
     "tool.search",
     REPLY,

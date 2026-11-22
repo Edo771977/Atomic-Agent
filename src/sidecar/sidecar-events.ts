@@ -24,6 +24,7 @@ export type HostRequestType =
   | "get_provider_restriction"
   | "get_project"
   | "project_decision"
+  | "project_backlog_decision"
   | "list_projects"
   | "forget_project"
   | "resume_project"
@@ -509,6 +510,22 @@ export interface ProjectDecisionPayload {
  */
 export type ProjectDecisionResult =
   | { ok: true; view: ProjectGateView; continueMessage: string | null }
+  | { ok: false; error: { code: string; message: string }; view?: ProjectGateView };
+
+/**
+ * Issue #111 review: `project_backlog_decision`, the person's call on a
+ * backlog item (`promoted`, `dropped`, or `open` to take one back),
+ * between turns only; it moves no gate. Answered like `project_decision`
+ * (a refusal is `ok: false` with the runtime's code), without `continueMessage`.
+ */
+export interface ProjectBacklogDecisionPayload {
+  sessionId: string;
+  item: string;
+  state: "promoted" | "dropped" | "open";
+}
+
+export type ProjectBacklogDecisionResult =
+  | { ok: true; view: ProjectGateView }
   | { ok: false; error: { code: string; message: string }; view?: ProjectGateView };
 
 /**

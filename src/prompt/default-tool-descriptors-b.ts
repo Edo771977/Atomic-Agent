@@ -445,6 +445,15 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     examples: ['{"id":"base","state":"done","summary":"Board, snake and apples work; arrow keys steer; checked in the page run."}'],
   },
   {
+    // Issue #111: mounted with the other project tools.
+    name: "project.backlog.add",
+    summary:
+      "Propose an item for the project's backlog: later work, an idea or a deferred fix that is not in the plan. `source` says who proposed it: you (with `fromPerson: true` when the person said \"add to backlog: …\"), or a worker or reviewer that named it in its reply (then `taskId` is its plan task). With a `condition` it is a seed, shown to the person at each plan and milestone gate. It opens no gate and does not change the plan: only the person promotes or drops it.",
+    argsSchema:
+      "{ title: string, source: 'director' | 'worker' | 'reviewer', fromPerson?: true /* the person asked for it in their message */, note?: string, condition?: string /* when it becomes relevant: a seed */, milestoneId?: string, taskId?: string /* the plan's milestone or task it came from */ }",
+    examples: ['{"title":"Export the report as PDF","source":"director","fromPerson":true,"condition":"when the report page exists","milestoneId":"base"}'],
+  },
+  {
     // Frequent tier: a checklist only helps when the model keeps it from
     // the first step, and a model that must `tool.view` first never
     // starts one (ATO-486). Placed after the git duplicates so their

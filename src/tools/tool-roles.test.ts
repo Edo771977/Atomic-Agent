@@ -125,7 +125,7 @@ describe("tool roles", () => {
   });
 
   it("the project tools (issue #39) are the orchestrator's and full's, never a builder's", () => {
-    for (const name of ["project.brief", "project.plan", "project.milestone"]) {
+    for (const name of ["project.brief", "project.plan", "project.milestone", "project.backlog.add"]) {
       expect(roleAdmits("orchestrator", name), name).toBe(true);
       expect(roleAdmits("full", name), name).toBe(true);
       expect(roleAdmits("builder", name), name).toBe(false);

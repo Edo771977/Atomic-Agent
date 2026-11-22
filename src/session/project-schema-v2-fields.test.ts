@@ -89,7 +89,7 @@ describe("schema v2 fields: shape, caps, validation", () => {
     ];
     raw.brief.decisions.splice(1, 0, { id: "BAD ID", text: "x" }, { id: "d1", text: "repeat" }, "plain text");
     raw.backlog = [
-      ...Array.from({ length: 50 }, (_, i) => item(`b${i + 1}`, i === 0 ? { title: long, note: long, condition: long } : {})),
+      ...Array.from({ length: PROJECT_LIMITS.backlogStored + 18 }, (_, i) => item(`b${i + 1}`, i === 0 ? { title: long, note: long, condition: long } : {})),
     ];
     raw.backlog.splice(1, 0, { id: "b-bad", title: "", source: "director", createdAt: 1 }, { id: "b-src", title: "x", source: "martian", createdAt: 1 });
     raw.decisionStatus = { d1: "informational", d2: "bogus", "BAD ID": "deferred" };
@@ -100,7 +100,7 @@ describe("schema v2 fields: shape, caps, validation", () => {
     expect(read.brief?.decisions).toHaveLength(PROJECT_LIMITS.decisions);
     expect(read.brief?.decisions?.[0]?.text.length).toBe(PROJECT_LIMITS.shortText);
     expect(read.brief?.decisions?.map((d) => d.id).slice(0, 3)).toEqual(["d1", "d2", "d3"]);
-    expect(read.backlog).toHaveLength(PROJECT_LIMITS.backlog);
+    expect(read.backlog).toHaveLength(PROJECT_LIMITS.backlogStored);
     expect(read.backlog?.[0]?.title.length).toBe(PROJECT_LIMITS.title);
     expect(read.backlog?.[0]?.note?.length).toBe(PROJECT_LIMITS.shortText);
     expect(read.backlog?.some((b) => b.id === "b-bad" || b.id === "b-src")).toBe(false);

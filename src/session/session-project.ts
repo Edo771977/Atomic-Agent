@@ -23,6 +23,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, openBacklog, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
@@ -84,7 +85,7 @@ export const PERSON_DECISION_STATUSES: readonly PersonDecisionStatus[] = ["activ
 
 /** Who proposed a backlog item (issue #111). */
 export type ProjectBacklogSource = "person" | "director" | "worker" | "reviewer";
-export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person", "director", "worker", "reviewer"];
+export { PROJECT_BACKLOG_SOURCES };
 
 /**
  * A backlog item (schema v2, issue #111): work not ready for the plan
@@ -101,6 +102,12 @@ export interface ProjectBacklogItem {
   /** A seed's activation condition, free text. */
   condition?: string;
   source: ProjectBacklogSource;
+  /**
+   * Review of #111: the director recorded it from the person's message
+   * (`source: "director"`); shown as "director (from your message)". A
+   * director cannot set `source: "person"`, which nothing proves.
+   */
+  fromPerson?: true;
   createdAt: number;
   /** The milestone or task it came from. */
   origin?: { milestoneId?: string; taskId?: string };
@@ -475,6 +482,18 @@ export interface ProjectState {
   decisionStatus?: Record<string, ProjectDecisionStatus>;
   /** The person's call per backlog item id (issue #111); one not listed is open. Record only. */
   backlogStates?: Record<string, ProjectBacklogState>;
+  /**
+   * What each of the person's backlog calls is bound to (issue #111
+   * review): the item's text hash when they decided, and the plan version
+   * the person approved that took a promoted item in. Record only.
+   */
+  backlogCalls?: Record<string, ProjectBacklogCall>;
+}
+
+/** A backlog call's binding: `hash` of the item's text when decided; `plannedIn`, the approved plan version that took it in. */
+export interface ProjectBacklogCall {
+  hash: string;
+  plannedIn?: number;
 }
 
 /**
@@ -631,7 +650,9 @@ export type ProjectUpdate =
        */
       holdForCorrection?: true;
     }
-  | { kind: "milestone_run"; id: string; runId: string };
+  | { kind: "milestone_run"; id: string; runId: string }
+  /** Issue #111: `project.backlog.add`'s item; opens and moves no gate. */
+  | { kind: "backlog_add"; item: ProjectBacklogDraft };
 
 export interface ProjectUpdateOptions {
   /**
@@ -844,7 +865,8 @@ export type ProjectExpectation =
   | { kind: "draft_plan" }
   | { kind: "run_milestone"; id: string }
   | { kind: "await_person"; gate: Exclude<ProjectGate, { kind: "none" }> }
-  | { kind: "complete" }
+  /** `openBacklog` (issue #111): backlog items still open, said before calling the project complete; absent when none. */
+  | { kind: "complete"; openBacklog?: number }
   | { kind: "cancelled" };
 
 /**
@@ -860,7 +882,9 @@ export function projectExpectation(project: ProjectState | undefined): ProjectEx
   if (project.plan === undefined || project.plan.status !== "approved") return { kind: "draft_plan" };
   const open = project.milestones.find((m) => m.state === "approved" || m.state === "in_progress");
   if (open !== undefined) return { kind: "run_milestone", id: open.id };
-  return project.milestones.every((m) => m.state === "reviewed") ? { kind: "complete" } : { kind: "draft_plan" };
+  if (!project.milestones.every((m) => m.state === "reviewed")) return { kind: "draft_plan" };
+  const openItems = openBacklog(project).length;
+  return openItems === 0 ? { kind: "complete" } : { kind: "complete", openBacklog: openItems };
 }
 
 // ---------------------------------------------------------------- session
@@ -1006,7 +1030,7 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const out: ProjectBacklogItem[] = [];
   for (const b of raw) {
-    if (out.length >= PROJECT_LIMITS.backlog) break;
+    if (out.length >= PROJECT_LIMITS.backlogStored) break;
     if (!isObject(b)) continue;
     const id = normalizeCriterionId(b.id);
     const title = typeof b.title === "string" ? clip(b.title, PROJECT_LIMITS.title) : "";
@@ -1022,11 +1046,23 @@ function readBacklog(raw: unknown): ProjectBacklogItem[] | undefined {
       ...(note.length === 0 ? {} : { note }),
       ...(condition.length === 0 ? {} : { condition }),
       source: b.source as ProjectBacklogSource,
+      ...(b.fromPerson === true && b.source === "director" ? { fromPerson: true as const } : {}),
       createdAt: b.createdAt,
       ...(milestoneId === null && taskId === null ? {} : { origin: { ...(milestoneId === null ? {} : { milestoneId }), ...(taskId === null ? {} : { taskId }) } }),
     });
   }
   return out.length === 0 ? undefined : out;
+}
+
+/** Stored backlog call bindings: only for a recorded call, a 16-hex hash, a version from 1. */
+function readBacklogCalls(raw: unknown, states: Record<string, ProjectBacklogState> | undefined): Record<string, ProjectBacklogCall> | undefined {
+  if (!isObject(raw) || states === undefined) return undefined;
+  const out: Record<string, ProjectBacklogCall> = {};
+  for (const [id, value] of Object.entries(raw)) {
+    if (states[id] === undefined || !isObject(value) || typeof value.hash !== "string" || !/^[0-9a-f]{16}$/.test(value.hash)) continue;
+    out[id] = { hash: value.hash, ...(isVersion(value.plannedIn) ? { plannedIn: value.plannedIn as number } : {}) };
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
 }
 
 /** A stored id → value map read leniently: keys criterion-shaped, values in `allowed`. */
@@ -1042,10 +1078,11 @@ function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): R
 }
 
 /** The backlog and the person's calls on it and on the decisions: carried by every update. */
-function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates"> {
+function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogCalls"> {
   return {
     ...(project?.backlog === undefined ? {} : { backlog: project.backlog }),
     ...(project?.backlogStates === undefined ? {} : { backlogStates: project.backlogStates }),
+    ...(project?.backlogCalls === undefined ? {} : { backlogCalls: project.backlogCalls }),
     ...(!decisionsToo || project?.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
   };
 }
@@ -1516,6 +1553,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
+  const backlogCalls = readBacklogCalls(raw.backlogCalls, backlogStates);
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -1529,6 +1567,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(backlog === undefined ? {} : { backlog }),
     ...(decisionStatus === undefined ? {} : { decisionStatus }),
     ...(backlogStates === undefined ? {} : { backlogStates }),
+    ...(backlogCalls === undefined ? {} : { backlogCalls }),
   };
 }
 
@@ -2235,6 +2274,8 @@ export function applyProjectUpdate(
     case "milestone":
     case "milestone_run":
       return milestoneUpdate(project, update, now, options);
+    case "backlog_add":
+      return applyBacklogAdd(project, update.item, now);
     default:
       return invalid("unknown project update");
   }
@@ -2432,7 +2473,8 @@ function decideProject(
       }
       return {
         ok: true,
-        project: {
+        // Issue #111: the plan the person approves takes in the items they promoted.
+        project: markPromotedPlanned({
           ...project,
           plan: {
             ...withoutResets(project.plan!),
@@ -2449,7 +2491,7 @@ function decideProject(
             const waiting = project.milestones.find(unreviewed);
             return waiting === undefined ? { kind: "none" as const } : { kind: "milestone" as const, id: waiting.id };
           })(),
-        },
+        }, project.plan!.version),
       };
     }
     if (gate.kind === "milestone") {

@@ -8,6 +8,7 @@ import {
   type ProjectState,
 } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
+import { applyBacklogDecision, type ProjectBacklogDecision } from "../../session/project-backlog.js";
 import type { SessionProjectStore } from "../../session/session-project-store.js";
 import { LIVE_SESSION_STATUSES } from "../../session/session-retention.js";
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
@@ -168,6 +169,12 @@ export interface RuntimeProject {
   projectState(sessionId: string): ProjectGateView | null;
   /** The person's decision; between turns only. Persists and emits `project_gate` on success. */
   projectDecision(sessionId: string, decision: ProjectDecision): RuntimeProjectDecisionResult;
+  /**
+   * Issue #111: the person promotes, drops or reopens a backlog item;
+   * between turns only, like a gate decision. No gate moves; no automatic
+   * approval calls this. Persists and emits `project_gate`.
+   */
+  projectBacklogDecision(sessionId: string, decision: ProjectBacklogDecision): RuntimeProjectDecisionResult;
   /** After a turn: emit `project_gate` when the turn moved the gate. */
   noteTurnEnd(sessionId: string, before: ProjectState | undefined, after: ProjectState | undefined): void;
 }
@@ -250,22 +257,48 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       ...(inputs.planReviewerConfigured === undefined ? {} : { planReviewerConfigured: inputs.planReviewerConfigured }),
     });
   };
+  /** Between turns only: a running turn's save would put the old project back. */
+  const betweenTurns = (sessionId: string): { ok: true; session: SessionState } | { ok: false; error: { code: "turn-running" | "no-session" | "project-store"; message: string } } => {
+    const turnRunning = { ok: false as const, error: { code: "turn-running" as const, message: "Wait for the current work to finish, then decide." } };
+    if (deps.isBusy(sessionId)) return turnRunning;
+    const session = deps.loadSession(sessionId);
+    if (session === null) return { ok: false, error: { code: "no-session", message: `There is no session ${sessionId}.` } };
+    // Issue #74: a turn another process on the state dir runs shows only in the stored status.
+    // A status a crashed process left behind does not hold the gate shut (issue #74 review).
+    if (LIVE_SESSION_STATUSES.includes(session.status) && (deps.liveTurnElsewhere?.(sessionId) ?? true)) return turnRunning;
+    if (session.projectProblem !== undefined) return { ok: false, error: { code: "project-store", message: session.projectProblem } };
+    return { ok: true, session };
+  };
   return {
+    projectBacklogDecision(sessionId, decision) {
+      const ready = betweenTurns(sessionId);
+      if (!ready.ok) return ready;
+      const session = ready.session;
+      const result = applyBacklogDecision(session.project, decision);
+      if (!result.ok) return result;
+      let saved: SessionState;
+      if (deps.projectStore === undefined) saved = withProject(session, result.project);
+      else {
+        // The person's call is the record's: written with the project, never into project.json.
+        const written = deps.projectStore.commit(session, result.project);
+        if (!written.ok) return { ok: false, error: { code: "project-store", message: written.problem.message } };
+        saved = written.session;
+      }
+      deps.saveSession(saved);
+      const decided = saved.project ?? result.project;
+      const next = view(saved, decided);
+      deps.emit(sessionId, { type: "project_gate", view: next });
+      return { ok: true, project: decided, view: next };
+    },
     projectState(sessionId) {
       const session = deps.loadSession(sessionId);
       if (session?.project === undefined) return null;
       return view(session, session.project);
     },
     projectDecision(sessionId, decision) {
-      // Between turns only: a running turn's save would put the old project back.
-      const turnRunning = { ok: false as const, error: { code: "turn-running" as const, message: "Wait for the current work to finish, then decide." } };
-      if (deps.isBusy(sessionId)) return turnRunning;
-      const session = deps.loadSession(sessionId);
-      if (session === null) return { ok: false, error: { code: "no-session", message: `There is no session ${sessionId}.` } };
-      // Issue #74: a turn another process on the state dir runs shows only in the stored status.
-      // A status a crashed process left behind does not hold the gate shut (issue #74 review).
-      if (LIVE_SESSION_STATUSES.includes(session.status) && (deps.liveTurnElsewhere?.(sessionId) ?? true)) return turnRunning;
-      if (session.projectProblem !== undefined) return { ok: false, error: { code: "project-store", message: session.projectProblem } };
+      const ready = betweenTurns(sessionId);
+      if (!ready.ok) return ready;
+      const session = ready.session;
       const project = session.project;
       const inputs = deps.liveInputs(session);
       const estimate = project === undefined ? null : estimateFor(project, inputs);

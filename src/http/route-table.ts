@@ -1,4 +1,4 @@
-import { createGetProjectHandler, createProjectDecisionHandler } from "./route-project.js";
+import { createGetProjectHandler, createProjectBacklogHandler, createProjectDecisionHandler } from "./route-project.js";
 import { createForgetProjectHandler, createListProjectsHandler, createResumeProjectHandler } from "./route-projects.js";
 import { createFusionTeamHandler } from "./route-fusion-team.js";
 import { createSessionCompactionHandler } from "./route-compaction.js";
@@ -323,6 +323,8 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // Issue #39: the fusion project gate's view and the person's verdict.
     { method: "GET", path: "/api/project", handler: createGetProjectHandler() },
     { method: "POST", path: "/api/project/decision", handler: createProjectDecisionHandler() },
+    // Issue #111: the person's call on a backlog item.
+    { method: "POST", path: "/api/project/backlog", handler: createProjectBacklogHandler() },
     // Issue #109: the fusion projects this machine knows, forget one, resume one.
     { method: "GET", path: "/api/projects", handler: createListProjectsHandler() },
     { method: "POST", path: "/api/projects/forget", handler: createForgetProjectHandler() },

@@ -23,8 +23,11 @@ import {
   type ProjectMilestone,
   type ProjectMilestoneAttachment,
   type ProjectGameBrief,
+  type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
+import { openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
+import { backlogDataBlock } from "../../prompt/project-digest.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
@@ -58,8 +61,10 @@ import type { PlanReviewFn } from "./plan-reviewer.js";
 export const PROJECT_BRIEF_TOOL = "project.brief";
 export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
+/** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
+export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
 /** In catalog order. */
-export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL] as const;
+export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL] as const;
 
 /** Key of the update in the result's `details`, read by `applyStateEffects`. */
 export const PROJECT_UPDATE_DETAIL = "projectUpdate";
@@ -503,6 +508,14 @@ async function reviewDraft(
       rows: draft.rows,
       planChecks: draft.planChecks,
       ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
+      // Issue #111: the backlog as data; the person's promoted items are this plan's to take in.
+      ...(() => {
+        const backlog = [
+          ...promotedForPlan(project).map((b) => ({ id: b.id, title: b.title, state: "promoted" as const })),
+          ...openBacklog(project).map((b) => ({ id: b.id, title: b.title, state: "open" as const, ...(b.condition === undefined ? {} : { condition: b.condition }) })),
+        ];
+        return backlog.length === 0 ? {} : { backlog };
+      })(),
     },
     sessionId: ctx.sessionId,
     signal: ctx.signal,
@@ -513,6 +526,23 @@ async function reviewDraft(
   // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
   const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
   return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
+}
+
+/** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */
+function backlogLines(project: ProjectState | undefined): string[] {
+  if (project === undefined) return [];
+  const promoted = promotedForPlan(project);
+  const seeds = openSeeds(project);
+  const block = backlogDataBlock([
+    ...promoted.map((b) => `promoted: ${b.id} ${b.title}`),
+    ...seeds.map((b) => `seed: ${b.id} ${b.title} (when: ${b.condition})`),
+  ]);
+  if (block === null) return [];
+  return [
+    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in as a milestone or task; they see it at the gate."]),
+    ...(seeds.length === 0 ? [] : ["Open seeds are shown to the person at the gate: tell them which conditions look met; only they promote one."]),
+    block,
+  ];
 }
 
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
@@ -578,6 +608,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
+        ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
         ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,

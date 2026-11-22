@@ -1,5 +1,6 @@
 import { projectContinueMessage } from "../session/project-continue.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
+import { parseBacklogDecision } from "../session/project-backlog.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
@@ -109,6 +110,57 @@ export function createProjectDecisionHandler(): HttpHandler {
       // What the client sends as the next message when the decision closed
       // the gate on director work (null: nothing to run).
       sendJson(res, 200, { session_id: sessionId, view: outcome.view, continue_message: projectContinueMessage(outcome.view, decision) });
+      return;
+    }
+    const current = ctx.runtime.projectState?.(sessionId) ?? null;
+    sendJson(res, statusFor(outcome.error.code), {
+      error: { message: outcome.error.message, type: "invalid_request_error", code: outcome.error.code },
+      ...(current === null ? {} : { view: current }),
+    });
+  };
+}
+
+/**
+ * Issue #111 review: `POST /api/project/backlog` `{ session, item, state }`,
+ * the person's call on a backlog item (`promoted`, `dropped`, or `open` to
+ * take one back), through `AgentRuntime.projectBacklogDecision` (between
+ * turns only; it moves no gate). Answers `{ session_id, view }`.
+ */
+export function createProjectBacklogHandler(): HttpHandler {
+  return async (req, res, ctx) => {
+    let body: Record<string, unknown>;
+    try {
+      body = await readJsonBody<Record<string, unknown>>(req);
+    } catch (err) {
+      sendError(res, 400, openaiError(`Invalid JSON: ${err instanceof Error ? err.message : String(err)}`));
+      return;
+    }
+    if (!isObject(body) || typeof body.session !== "string" || body.session.length === 0) {
+      sendError(res, 400, openaiError("session is required"));
+      return;
+    }
+    const sessionId = body.session;
+    const decision = parseBacklogDecision(body);
+    if (typeof decision === "string") {
+      sendError(res, 400, openaiError(decision));
+      return;
+    }
+    if (serveWithheld(ctx, sessionId)()) {
+      sendWithheld(res);
+      return;
+    }
+    const decide = ctx.runtime.projectBacklogDecision;
+    if (decide === undefined) {
+      sendError(res, 501, openaiError("this agent takes no project decisions"));
+      return;
+    }
+    if ((ctx.runtime.projectState?.(sessionId) ?? null) === null) {
+      sendError(res, 404, openaiError(`no project on session ${sessionId}`));
+      return;
+    }
+    const outcome = decide.call(ctx.runtime, sessionId, decision);
+    if (outcome.ok) {
+      sendJson(res, 200, { session_id: sessionId, view: outcome.view });
       return;
     }
     const current = ctx.runtime.projectState?.(sessionId) ?? null;

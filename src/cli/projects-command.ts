@@ -6,13 +6,15 @@ import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
-import { openProject, projectFilePath } from "../session/project-store.js";
+import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
+import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
 import { projectAttentionZone, type ProjectAttentionZone } from "../session/project-attention.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
 import { projectStoreForStateDir, readProjectRef, sameProjectFolder, type SessionProjectStore } from "../session/session-project-store.js";
 import { createEmptySessionState, type SessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
+import { LIVE_SESSION_STATUSES } from "../session/session-retention.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { projectGateView } from "../tools/fusion/project-gate-view.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../tools/fusion/run-checkpoint.js";
@@ -39,6 +41,9 @@ const PROJECT_HELP = [
   "",
   "Subcommands:",
   "  verify [folder]      Verify the archived evidence receipts (default: current folder)",
+  "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
+  "      List the project's backlog (default: current folder); --promote, --drop",
+  "      and --reopen are your calls on an item, kept in this computer's record.",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -270,6 +275,21 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
+  if (sub === "backlog") {
+    return backlogCommand(args.slice(1), {
+      stdout,
+      stderr,
+      stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
+      liveTurn: (folder, id) => {
+        const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+        try {
+          return liveTurnOnProject(store, folder, id);
+        } finally {
+          if (deps.sessionStore === undefined) store.close();
+        }
+      },
+    });
+  }
   if (sub !== "resume") {
     stderr(`unknown subcommand: ${sub}\n${PROJECT_HELP}`);
     return 2;
@@ -317,4 +337,111 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
   } finally {
     if (deps.sessionStore === undefined) store.close();
   }
+}
+
+const BACKLOG_CALLS: Readonly<Record<string, ProjectBacklogDecision["state"]>> = { "--promote": "promoted", "--drop": "dropped", "--reopen": "open" };
+
+/**
+ * `atomic-agent project backlog [folder]` (issue #111): the folder's
+ * backlog with the person's call on each item; `--promote`, `--drop` or
+ * `--reopen <id>` is that call, made by the person at the terminal and
+ * written to the project's record in the state dir (never to
+ * `project.json`). No gate moves. 0 done, 1 refused, 2 usage.
+ */
+/**
+ * A chat on `folder`'s project `id` with a turn really running (the gate
+ * path's rule, `runtime.projectDecision`): a stored live status whose
+ * owner is alive. Its id, else null. A director or worker shell could
+ * otherwise run `project backlog --promote` mid-turn and the next step
+ * would read it as the person's call. (The agent sets no marker in the
+ * environment of the shells it runs, so that cannot be checked here.)
+ */
+export function liveTurnOnProject(store: SessionStore, folder: string, id: string): string | null {
+  for (const s of store.listByWorkingDir(folder, 200)) {
+    if (readProjectRef(s)?.id !== id) continue;
+    if (LIVE_SESSION_STATUSES.includes(s.status) && store.liveTurnElsewhere(s.id)) return s.id;
+  }
+  return null;
+}
+
+async function backlogCommand(
+  args: string[],
+  io: { stdout: (t: string) => void; stderr: (t: string) => void; stateDir: () => string; liveTurn: (folder: string, id: string) => string | null },
+): Promise<number> {
+  const usage = () => {
+    io.stderr("Usage: atomic-agent project backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]\n");
+    return 2;
+  };
+  let json = false;
+  let call: ProjectBacklogDecision | undefined;
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i]!;
+    if (a === "--json") json = true;
+    else if (a in BACKLOG_CALLS) {
+      const id = args[i + 1];
+      if (call !== undefined || id === undefined || id.startsWith("-")) return usage();
+      call = { id, state: BACKLOG_CALLS[a]! };
+      i += 1;
+    } else if (a.startsWith("-")) return usage();
+    else positional.push(a);
+  }
+  if (positional.length > 1) return usage();
+  const folder = resolve(positional[0] ?? ".");
+  const stateDir = io.stateDir();
+  const options = { stateDir, records: stateDirProjectRecords(stateDir) };
+  const opened = openProject(folder, options);
+  if (!opened.ok) {
+    io.stderr(`project backlog: ${opened.problem.message}\n`);
+    return 1;
+  }
+  let project = opened.opened.project;
+  if (call !== undefined) {
+    // No record here (another machine, a copied folder): a write would start the project over under a new id.
+    const record = options.records.read(folder);
+    if (!record.ok || record.record === null) {
+      io.stderr(`project backlog: this computer has no record of the project in ${folder}; open this project in a chat first (atomic-agent project resume ${folder}).\n`);
+      return 1;
+    }
+    // Between turns only, as a gate decision.
+    const live = io.liveTurn(folder, record.record.id);
+    if (live !== null) {
+      io.stderr(`project backlog: a turn is running on ${live}, a chat on this project; wait for it to finish, then decide.\n`);
+      return 1;
+    }
+    const decided = applyBacklogDecision(project, call);
+    if (!decided.ok) {
+      io.stderr(`project backlog: ${decided.error.message}\n`);
+      return 1;
+    }
+    const { stored, decisionSeq } = opened.opened;
+    const written = commitProject(folder, stored.id, { revision: stored.revision, decisionSeq }, decided.project, options);
+    if (!written.ok) {
+      io.stderr(`project backlog: ${written.problem.message}\n`);
+      return 1;
+    }
+    project = written.opened.project;
+    io.stdout(`${call.id} is ${call.state} now.\n`);
+  }
+  const items = (project.backlog ?? []).map((b) => {
+    const state = backlogStateOf(project, b.id);
+    const plannedIn = state === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }) };
+  });
+  if (json) {
+    io.stdout(`${JSON.stringify({ folder, open: openBacklog(project).length, items }, null, 2)}\n`);
+    return 0;
+  }
+  if (items.length === 0) {
+    io.stdout("The backlog is empty.\n");
+    return 0;
+  }
+  for (const b of items) {
+    const from = [`from ${backlogSourceLabel(b)}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
+    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? "promoted, not in any plan" : `promoted, taken in by plan v${b.plannedIn}`;
+    io.stdout(`${b.id} ${state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
+    if (b.note !== undefined) io.stdout(`    ${b.note}\n`);
+  }
+  io.stdout(`${openBacklog(project).length} open. Promote, drop or reopen one with --promote, --drop or --reopen <id>.\n`);
+  return 0;
 }

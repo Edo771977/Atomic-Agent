@@ -26,6 +26,8 @@ import type {
   StartSessionPayload,
   GetProjectPayload,
   ProjectDecisionPayload,
+  ProjectBacklogDecisionPayload,
+  ProjectBacklogDecisionResult,
   ProjectDecisionResult,
   ListProjectsResult,
   ForgetProjectPayload,
@@ -42,6 +44,7 @@ import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { projectStoreForStateDir } from "../session/session-project-store.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
+import { parseBacklogDecision } from "../session/project-backlog.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import type { SessionState } from "../session/index.js";
 import { sessionIdError } from "../session/session-id.js";
@@ -549,6 +552,27 @@ export async function bootstrapSidecar(): Promise<{
       if (outcome.ok) {
         return { ok: true, view: outcome.view, continueMessage: projectContinueMessage(outcome.view, decision) };
       }
+      const current = runtime.projectState?.(id) ?? null;
+      return { ok: false, error: outcome.error, ...(current === null ? {} : { view: current }) };
+    },
+  );
+
+  // Issue #111 review: the person's call on a backlog item.
+  router.register<ProjectBacklogDecisionPayload, ProjectBacklogDecisionResult>(
+    "project_backlog_decision",
+    async (request) => {
+      const payload = (request.payload ?? {}) as unknown as Record<string, unknown>;
+      const id = requireSessionId(payload.sessionId);
+      if (!active) throw new Error("no active runtime — call start_session first");
+      const decision = parseBacklogDecision(payload);
+      if (typeof decision === "string") throw new Error(decision);
+      const { runtime } = active;
+      if (runtime.projectBacklogDecision === undefined) throw new Error("this agent takes no project decisions");
+      if ((runtime.projectState?.(id) ?? null) === null) {
+        return { ok: false, error: { code: "no-project", message: `no project on session ${id}` } };
+      }
+      const outcome = runtime.projectBacklogDecision(id, decision);
+      if (outcome.ok) return { ok: true, view: outcome.view };
       const current = runtime.projectState?.(id) ?? null;
       return { ok: false, error: outcome.error, ...(current === null ? {} : { view: current }) };
     },

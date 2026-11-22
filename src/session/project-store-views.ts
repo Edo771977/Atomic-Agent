@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { criterionFactLine } from "./project-gate-text.js";
+import { backlogSourceLabel, backlogStateOf } from "./project-backlog.js";
 import { projectExpectation, type ProjectExpectation, type ProjectState } from "./session-project.js";
 
 /**
@@ -31,7 +32,9 @@ export function describeExpectation(expectation: ProjectExpectation): string {
         ? `you review milestone ${expectation.gate.id}`
         : `you approve the ${expectation.gate.kind}`;
     case "complete":
-      return "nothing: every milestone is reviewed";
+      return expectation.openBacklog === undefined
+        ? "nothing: every milestone is reviewed"
+        : `nothing: every milestone is reviewed; complete with ${expectation.openBacklog} backlog item${expectation.openBacklog === 1 ? "" : "s"} still open`;
     case "cancelled":
       return "nothing: the project was cancelled";
   }
@@ -72,7 +75,7 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
     }
   }
   if ((project.backlog ?? []).length > 0) {
-    briefLines.push("", "## Backlog", "", ...project.backlog!.map((b) => `- \`${b.id}\` ${b.title}${b.condition === undefined ? "" : ` (when: ${b.condition})`}: ${project.backlogStates?.[b.id] ?? "open"}, from ${b.source}`));
+    briefLines.push("", "## Backlog", "", ...project.backlog!.map((b) => `- \`${b.id}\` ${b.title}${b.condition === undefined ? "" : ` (when: ${b.condition})`}: ${backlogStateOf(project, b.id)}, from ${backlogSourceLabel(b)}`));
   }
 
   const plan = project.plan;
