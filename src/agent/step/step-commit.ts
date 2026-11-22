@@ -247,11 +247,14 @@ export function commitStepBatch(args: StepCommitArgs): StepOutcome {
 
   void stepDurationMs; // captured for future cross-call observability hooks
   // Folder projects were saved by the fold. Persist embedded projects
-  // before emitting their receipts, even when this is a local step.
+  // before emitting their receipts. Only cloud steps checkpoint a cancelled batch.
+  if (batchOutcome.cancelled && modelMode !== "cloud") {
+    throw new CancelledError("batch cancelled mid-execution");
+  }
   if (embeddedReports.length > 0 && deps.commitSession && writeReport) {
     deps.commitSession(nextSession);
     for (const [session, id] of embeddedReports) writeReport(session, id);
-  } else if (batchOutcome.cancelled && modelMode === "cloud") {
+  } else if (batchOutcome.cancelled) {
     deps.commitSession?.(nextSession);
   }
   if (batchOutcome.cancelled) {
