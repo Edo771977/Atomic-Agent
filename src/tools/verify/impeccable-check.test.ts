@@ -429,7 +429,7 @@ it("downgrades a file-scoped severe finding only until the operator revokes it",
   };
   expect(await scan("index.html")).toMatchObject({
     artifactStatus: "pass",
-    impeccableFindings: ["warning: low-contrast — index.html (approved by the operator: Brand logo)"],
+    impeccableFindings: ["warning: low-contrast — index.html"],
     impeccableExceptions: ["low-contrast:index.html — approved by the operator: Brand logo"],
   });
   await writeFile(join(root, "other.html"), "<p>Hello</p>");

@@ -104,7 +104,7 @@ function parseReport(text: string, workspace: string, snapshot: string, source: 
     }
     const blocking = exception === undefined && !advisory && (SEVERE_RULES.has(row.antipattern) || ("severity" in row && row.severity === "error"));
     severe ||= blocking;
-    const detail = `${blocking ? "severe" : "warning"}: ${row.antipattern} — ${source}${exception === undefined ? "" : ` (approved by the operator: ${exception.reason})`}`;
+    const detail = `${blocking ? "severe" : "warning"}: ${row.antipattern} — ${source}`;
     chars += detail.length + 1;
     if (chars > MAX_REPORT_CHARS) throw new Error("impeccable findings report exceeds the output limit");
     findings.push(detail);
