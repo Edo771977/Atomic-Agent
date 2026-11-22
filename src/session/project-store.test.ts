@@ -1,11 +1,15 @@
 /**
  * Issue #109: the fusion project's store in the project folder.
  */
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { projectGateView } from "../tools/fusion/project-gate-view.js";
+import { PLAN_REVIEW_DIMENSIONS, planReviewBasis } from "../tools/fusion/plan-review-record.js";
+import { readProjectLessons } from "./project-lessons.js";
+import { projectLessonReviewSelection } from "./project-lesson-projection.js";
 import { stateDirProjectRecords } from "./project-decisions.js";
 import {
   commitProject,
@@ -17,7 +21,7 @@ import {
   readProjectFile,
   type ProjectStoreOptions,
 } from "./project-store.js";
-import { applyProjectDecision, gateVersion, normalizeProject, type ProjectState } from "./session-project.js";
+import { applyProjectDecision, applyProjectUpdate, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
 
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "session-with-embedded-project-109.json"), "utf8")) as {
   session: { project: unknown };
@@ -57,6 +61,48 @@ const created = () => {
 };
 
 describe("project store (issue #109)", () => {
+  it("reopens a saved plan review as stale after a lesson approval", () => {
+    const rows: AssignmentRow[] = [{
+      taskId: "t1", milestoneId: "m1", title: "Build", worker: "local-llama:default",
+      reviewer: null, reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 1000,
+      checks: [{ criteria: ["c1"], cmd: "node", args: ["test.js"] }],
+    }];
+    const draft = applyProjectUpdate({
+      gate: { kind: "none" }, milestones: [],
+      brief: { version: 1, status: "approved", what: "Build", users: "Team", how: "Code",
+        successCriteria: [{ id: "c1", text: "Works" }], draftedAfterUntrusted: false },
+    }, {
+      kind: "plan", milestones: [{ id: "m1", title: "Build", kind: "base" }], rows, detail: "compact",
+      draftedAfterUntrusted: false,
+      planReview: {
+        outcome: "reviewed", reviewer: "local-llama:default", round: 1, sentBack: false, costUsd: null,
+        basis: planReviewBasis(rows, ["m1"]), lessonsBasis: projectLessonReviewSelection([], true).basis,
+        results: PLAN_REVIEW_DIMENSIONS.map((dimension) => ({ dimension, verdict: "pass", detail: "Reviewed", taskIds: [] })),
+      },
+    }, 1);
+    if (!draft.ok) throw new Error(draft.error.message);
+    expect(createProject(folder, draft.project, options).ok).toBe(true);
+    const view = () => {
+      const opened = openProject(folder, options);
+      if (!opened.ok) throw new Error(opened.problem.message);
+      return projectGateView({ sessionId: "chat", project: opened.opened.project, estimate: null,
+        selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+    };
+    expect(view().planReview).toMatchObject({ stale: false, autoApprovable: true });
+
+    const dir = join(projectStoreDir(folder), "lessons");
+    mkdirSync(dir);
+    writeFileSync(join(dir, "storage.md"), "---\nid: storage\ntitle: Storage\nsource: person\ntouches: []\nstatus: active\nalways: true\n---\n## Decided\nKeep storage local\n## Tried and ruled out\n## Watch out\n");
+    const saved = options.records.read(folder);
+    if (!saved.ok || !saved.record) throw new Error("Need project record");
+    const { id, seq, state } = saved.record;
+    const lesson = readProjectLessons(folder).lessons[0]!;
+    expect(options.records.write(folder, id, seq, state, undefined, { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
+    const reopened = view();
+    expect(reopened.planReview).toMatchObject({ stale: true, autoApprovable: false });
+    expect(reopened.hints).toContainEqual(expect.stringMatching(/stale.*the lessons changed/));
+  });
+
   it("writes content only, with a schema version, and readable views", () => {
     created();
     const raw = JSON.parse(readFileSync(projectFilePath(folder), "utf8")) as Record<string, any>;
