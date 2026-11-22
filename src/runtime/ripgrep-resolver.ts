@@ -1,125 +1,90 @@
-import { statSync } from "node:fs";
-import { delimiter, dirname, join } from "node:path";
-
-/**
- * Runtime resolver for the `rg` (ripgrep) binary used by `os.fs.grep`.
- *
- * Lookup order:
- *   1. `process.env.ATOMIC_AGENT_RG_PATH` — explicit override (tests, CI,
- *      exotic layouts).
- *   2. `<dirname(process.execPath)>/vendor/rg[.exe]` — the sidecar file we
- *      ship alongside the SEA bundle.
- *   3. `<cwd>/node_modules/@vscode/ripgrep/bin/rg[.exe]` — automatic dev
- *      mode when the optional `@vscode/ripgrep` dev dependency is installed.
- *   4. Plain `rg` / `rg.exe` resolved via `$PATH`.
- *
- * Results are memoised for the process lifetime. Call `resetRipgrepCache()`
- * from tests to force re-resolution after mutating `process.env.PATH` or
- * `ATOMIC_AGENT_RG_PATH`.
- */
+import { accessSync, constants, realpathSync, statSync } from "node:fs";
+import { posix, win32 } from "node:path";
+import { isSea } from "node:sea";
+import { fileURLToPath } from "node:url";
 
 export interface RipgrepResolverOptions {
-  /** Override `process.execPath` (tests). */
+  /** The active session or plan's project folder. */
+  workingDir?: string;
+  /** Override the runtime and filesystem inputs in tests. */
   execPath?: string;
-  /** Override `process.cwd()` (tests). */
+  moduleDir?: string;
   cwd?: string;
-  /** Override `process.env` (tests). */
   env?: NodeJS.ProcessEnv;
-  /** Override the platform (tests). */
   platform?: NodeJS.Platform;
-  /** Override fs existence check (tests). */
+  sea?: boolean;
   fileExists?: (path: string) => boolean;
+  realPath?: (path: string) => string | null;
 }
 
-let cached: string | null | undefined;
-
-export function resolveRipgrepPath(
-  options: RipgrepResolverOptions = {},
-): string | null {
-  if (Object.keys(options).length === 0 && cached !== undefined) {
-    return cached;
-  }
+/** Resolve again for each search because the untrusted project varies by session. */
+export function resolveRipgrepPath(options: RipgrepResolverOptions = {}): string | null {
   const env = options.env ?? process.env;
-  const execPath = options.execPath ?? process.execPath;
+  const windows = (options.platform ?? process.platform) === "win32";
+  const paths = windows ? win32 : posix;
+  const binaryName = windows ? "rg.exe" : "rg";
+  const realPath = options.realPath ?? defaultRealPath;
+  const fileExists = options.fileExists ?? isExecutableFile;
+
+  // Win32 treats \foo as absolute but still resolves it on the current drive.
+  const absolute = (path: string): boolean =>
+    paths.isAbsolute(path) && (!windows || paths.parse(path).root.length > 1);
+  const inside = (root: string, path: string): boolean => {
+    const relative = paths.relative(root, path);
+    return relative === "" || (relative !== ".." && !relative.startsWith(".." + paths.sep) && !paths.isAbsolute(relative));
+  };
   const cwd = options.cwd ?? process.cwd();
-  const platform = options.platform ?? process.platform;
-  const fileExists = options.fileExists ?? defaultFileExists;
+  const roots = [cwd, paths.resolve(cwd, options.workingDir ?? cwd)];
+  const projectRoots = [...new Set(roots.flatMap((root) => [root, realPath(root) ?? root]))];
+  const inProject = (path: string): boolean => projectRoots.some((root) => inside(root, path));
 
-  const binaryName = platform === "win32" ? "rg.exe" : "rg";
+  const check = (candidate: string): string | null => {
+    if (!absolute(candidate) || inProject(candidate)) return null;
+    const parent = realPath(paths.dirname(candidate));
+    if (parent !== null && inProject(parent)) return null;
+    const canonical = realPath(candidate);
+    if (canonical === null || !absolute(canonical) || inProject(canonical)) return null;
+    if (windows && paths.extname(canonical).toLowerCase() !== ".exe") return null;
+    return fileExists(canonical) ? canonical : null;
+  };
 
-  const override = env.ATOMIC_AGENT_RG_PATH;
-  if (typeof override === "string" && override.length > 0) {
-    if (fileExists(override)) {
-      const result = override;
-      if (Object.keys(options).length === 0) cached = result;
-      return result;
-    }
+  // Only a SEA has the vendor directory beside its executable. In source and
+  // compiled builds the resolver is two directories below the agent's root.
+  const sea = options.sea ?? isSea();
+  const installRoot = sea
+    ? paths.dirname(options.execPath ?? process.execPath)
+    : paths.join(options.moduleDir ?? paths.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const bundled = sea
+    ? paths.join(installRoot, "vendor", binaryName)
+    : paths.join(installRoot, "node_modules", "@vscode", "ripgrep", "bin", binaryName);
+  const installed = check(bundled);
+  if (installed !== null) return installed;
+
+  const searchPath = env.PATH ?? env.Path ?? env.path ?? "";
+  for (const directory of searchPath.split(paths.delimiter)) {
+    if (!absolute(directory)) continue;
+    const found = check(paths.join(directory, binaryName));
+    if (found !== null) return found;
   }
-
-  const bundled = join(dirname(execPath), "vendor", binaryName);
-  if (fileExists(bundled)) {
-    if (Object.keys(options).length === 0) cached = bundled;
-    return bundled;
-  }
-
-  const devModule = join(
-    cwd,
-    "node_modules",
-    "@vscode",
-    "ripgrep",
-    "bin",
-    binaryName,
-  );
-  if (fileExists(devModule)) {
-    if (Object.keys(options).length === 0) cached = devModule;
-    return devModule;
-  }
-
-  const fromPath = lookupOnPath(binaryName, env, platform, fileExists);
-  if (fromPath) {
-    if (Object.keys(options).length === 0) cached = fromPath;
-    return fromPath;
-  }
-
-  if (Object.keys(options).length === 0) cached = null;
   return null;
 }
 
-export function resetRipgrepCache(): void {
-  cached = undefined;
+function defaultRealPath(path: string): string | null {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    return null;
+  }
 }
 
-function defaultFileExists(path: string): boolean {
+function isExecutableFile(path: string): boolean {
   try {
-    const info = statSync(path);
-    return info.isFile();
+    accessSync(path, constants.X_OK);
+    return statSync(path).isFile();
   } catch {
     return false;
   }
 }
 
-function lookupOnPath(
-  binaryName: string,
-  env: NodeJS.ProcessEnv,
-  platform: NodeJS.Platform,
-  fileExists: (path: string) => boolean,
-): string | null {
-  const pathVar = env.PATH ?? env.Path ?? env.path ?? "";
-  if (pathVar.length === 0) return null;
-  const segments = pathVar.split(delimiter);
-  const candidates =
-    platform === "win32"
-      ? [binaryName, "rg.exe", "rg.cmd", "rg.bat"]
-      : [binaryName];
-  for (const segment of segments) {
-    if (segment.length === 0) continue;
-    for (const name of candidates) {
-      const full = join(segment, name);
-      if (fileExists(full)) return full;
-    }
-  }
-  return null;
-}
-
 export const RIPGREP_MISSING_HINT =
-  "ripgrep (`rg`) was not found. Install it via `brew install ripgrep`, `apt install ripgrep`, or `choco install ripgrep`, or set ATOMIC_AGENT_RG_PATH to a binary path.";
+  "ripgrep (`rg`) was not found. Install it via `brew install ripgrep`, `apt install ripgrep`, or `choco install ripgrep`, and put its directory on PATH using an absolute path outside the project.";

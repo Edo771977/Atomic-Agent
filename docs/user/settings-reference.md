@@ -553,7 +553,6 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_GRAMMARS_DIR` | unset | env only | Folder with the tool-call grammars. Unset: the copy shipped next to the binary. |
 | `ATOMIC_AGENT_TOOL_CALL_GRAMMAR` | unset | env only | Path of the tool-call grammar file (tool-call.gbnf) to use instead of the one found next to the binary. |
 | `ATOMIC_AGENT_STARTER_SKILLS_DIR` | unset | env only | Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app. |
-| `ATOMIC_AGENT_RG_PATH` | unset | env only | Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH. |
 | `ATOMIC_AGENT_TREE_SITTER_DIR` | unset | env only | Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline. |
 | `ATOMIC_AGENT_AST_GREP_PATH` | unset | env only | Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH. |
 | `ATOMIC_AGENT_SHARED_SKILLS_DIR` | unset | env only | Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills. |

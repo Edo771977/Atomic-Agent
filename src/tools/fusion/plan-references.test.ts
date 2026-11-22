@@ -94,7 +94,9 @@ describe("plan references (issue #120)", () => {
     const rows = [row("t1", "Use `realThing` and `ghostThing` in `evil.js`", [
       { cmd: "node", args: ["evil.js"] }, { cmd: "sh -c 'node evil.js'" }, { cmd: "curl https://example.invalid" }, { kind: "page", path: "index.html" },
     ])];
-    const report = await checkPlanReferences(rows, { root, deps: { runCommand: spy, resolveRgPath: () => rg ?? "/fake/rg" } });
+    const resolveRgPath = vi.fn(() => rg ?? "/fake/rg");
+    const report = await checkPlanReferences(rows, { root, deps: { runCommand: spy, resolveRgPath } });
+    expect(resolveRgPath).toHaveBeenCalledWith(root);
     expect(existsSync(join(root, "ran"))).toBe(false);
     expect(fetch).not.toHaveBeenCalled();
     expect(calls.length).toBeGreaterThan(0);
