@@ -449,8 +449,9 @@ function pcBacklogSource(item) {
 
 /**
  * The calls an item takes, as [label, state], like the TUI's backlog
- * (project-card-state.ts projectBacklogActions): an open item is promoted
- * or dropped, a decided one reopened. A call made stale outside Atomic
+ * (project-card-state.ts projectBacklogActions): every call but the
+ * item's own (an open item is promoted or dropped, a promoted one dropped
+ * or reopened, a dropped one promoted or reopened). A call made stale outside Atomic
  * Agent (the item reads open) can be made again or let go (`open` clears
  * it); a promoted item removed outside can only be cleared.
  */
@@ -458,7 +459,7 @@ function pcBacklogActions(item, stale) {
   if (stale && stale.reason === 'removed') return [['Clear', 'open']];
   if (stale) return [[stale.state === 'promoted' ? 'Promote again' : 'Promote', 'promoted'], [stale.state === 'dropped' ? 'Drop again' : 'Drop', 'dropped'], ['Keep open', 'open']];
   if (!item) return [];
-  return item.state === 'open' ? [['Promote', 'promoted'], ['Drop', 'dropped']] : [['Reopen', 'open']];
+  return [['Promote', 'promoted'], ['Drop', 'dropped'], ['Reopen', 'open']].filter(([, to]) => to !== item.state);
 }
 
 /** What a promoted item's call stands at, worded as `atomic-agent project backlog`. */

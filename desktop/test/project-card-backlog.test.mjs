@@ -166,7 +166,7 @@ test('the backlog section lists every item with its call, author text as text, a
   assert.match(section.textContent, /promoted, not in any plan/);
   assert.match(section.textContent, /b4 · Sound[\s\S]*dropped/);
   assert.deepEqual(['b1', 'b2', 'b3', 'b4'].map((id) => buttons(section).filter((b) => / b\d$/.test(b.getAttribute('aria-label') || '') && b.getAttribute('aria-label').endsWith(' ' + id)).map((b) => b.textContent)),
-    [['Promote', 'Drop'], ['Promote', 'Drop'], ['Reopen', 'Defer'], ['Reopen']], 'at the plan gate a promoted item waiting for it can be deferred too');
+    [['Promote', 'Drop'], ['Promote', 'Drop'], ['Drop', 'Reopen', 'Defer'], ['Promote', 'Reopen']], 'at the plan gate a promoted item waiting for it can be deferred too');
   // The seed's own hint is drawn by the section, not again as a loose line.
   assert.equal(host.findAll((e) => e.className === 'pc-hint' && /^ℹ seed /.test(e.textContent)).length, 0);
 });
@@ -275,14 +275,14 @@ test('at the plan gate a promoted item not taken in says which tasks cite it, wi
   const section = (v) => draw(C.pcModel(C.pcInitial(v))).findAll((e) => e.className === 'pc-backlog')[0];
   const s = section(view(p));
   assert.match(s.textContent, /b3 · Dark <b>theme<\/b>[\s\S]*No citing tasks/);
-  assert.deepEqual(buttons(s).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Reopen', 'Defer']);
+  assert.deepEqual(buttons(s).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Drop', 'Reopen', 'Defer']);
   assert.match(section(view(cited)).textContent, /Cited by: t1/);
   // Deferred by the person at the plan gate (the core's own edit).
   const r = CORE.applyProjectDecision(p, {gate: p.gate, version: CORE.gateVersion(p), verdict: 'edit', edits: {backlogStatus: {b3: 'deferred'}}}, {now: 5000});
   assert.ok(r.ok, JSON.stringify(r.error));
   const d = section(view(r.project));
   assert.match(d.textContent, /promoted, deferred at the plan gate, not in any plan/);
-  assert.deepEqual(buttons(d).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Reopen', 'Reactivate']);
+  assert.deepEqual(buttons(d).filter((b) => (b.getAttribute('aria-label') || '').endsWith(' b3')).map((b) => b.textContent), ['Drop', 'Reopen', 'Reactivate']);
   // Elsewhere than the plan gate there is no plan to cite it.
   const m = section(view(p, {gate: {kind: 'milestone', id: 'm1'}, allowedVerdicts: ['approve', 'edit', 'cancel']}));
   assert.equal(/Cited by|No citing tasks/.test(m.textContent), false);
@@ -485,4 +485,24 @@ test('a backlog call in flight stays busy across A→B→A, and a second press s
   await tick(); await tick();
   assert.equal(c.last().model.busy, false);
   assert.equal(c.last().model.backlog.items.find((i) => i.id === 'b3').state, 'promoted');
+});
+
+test('a decided item offers every other call directly, as the TUI\'s backlog', async () => {
+  const tui = readFileSync(new URL('../../src/tui/project/project-card-state.ts', import.meta.url), 'utf8');
+  assert.match(tui, /item \? stale \|\| item\.state !== action\.state/, 'the TUI offers each state but the item\'s own');
+  const sent = [];
+  let p = call(call(project(), 'b3', 'promoted'), 'b4', 'dropped');
+  const c = controller({read: () => ({supported: true, ok: true, view: view(p)}), decide: () => ({}),
+    backlog: (body) => { sent.push(body); p = call(p, body.item, body.state); return {supported: true, ok: true, view: view(p)}; }});
+  c.card.follow('ses-1');
+  await tick();
+  const actions = (id) => c.last().model.backlog.items.find((i) => i.id === id).actions.map(([label]) => label);
+  assert.deepEqual(actions('b3'), ['Drop', 'Reopen']);
+  assert.deepEqual(actions('b4'), ['Promote', 'Reopen']);
+  byLabel(draw(c.last().model, c.last().on), 'Drop b3').fire('click');
+  await tick(); await tick();
+  byLabel(draw(c.last().model, c.last().on), 'Promote b4').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'dropped'}, {sessionId: 'ses-1', item: 'b4', state: 'promoted'}]);
+  assert.deepEqual(actions('b3'), ['Promote', 'Reopen']);
 });
