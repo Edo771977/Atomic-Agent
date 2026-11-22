@@ -337,10 +337,12 @@ describe("gate verdict receipts", () => {
       const stdout = vi.fn();
       expect(await projectCommand(["verify", folder], { stateDir: () => dir, stdout })).toBe(0);
       expect(stdout.mock.calls.flat().join("")).toContain("gate-verdict: 2 valid");
+      expect(stdout.mock.calls.flat().join("")).toContain(`Receipt 1: valid (project ${created.session.projectRef?.id})`);
       stdout.mockClear();
       expect(await projectCommand(["verify", "--json", folder], { stateDir: () => dir, stdout })).toBe(0);
       expect(JSON.parse(stdout.mock.calls.flat().join(""))).toEqual([
-        { kind: "gate-verdict", status: "valid" }, { kind: "gate-verdict", status: "valid" },
+        { kind: "gate-verdict", status: "valid", projectId: created.session.projectRef?.id },
+        { kind: "gate-verdict", status: "valid", projectId: created.session.projectRef?.id },
       ]);
 
       const secret = (pem as string | null)?.trim().split("\n")[1];
@@ -364,6 +366,24 @@ describe("gate verdict receipts", () => {
       expect(stdout.mock.calls.flat().join("")).toContain("1 bad-signature");
     } finally {
       rmSync(dir, { recursive: true, force: true });
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("does not archive a different embedded project's decision in a folder already holding a project", () => {
+    const folder = mkdtempSync(join(tmpdir(), "receipt-project-collision-"));
+    try {
+      const projectStore = createSessionProjectStore({ stateDir: folder, records: stateDirProjectRecords(folder) });
+      const first = projectStore.commit(createEmptySessionState({ id: "first", workingDir: folder }), up(undefined, brief));
+      if (!first.ok) throw new Error(first.problem.message);
+      const other = up(undefined, { ...brief, kind: "brief", brief: { what: "Other", users: "Kids", how: "HTML", successCriteria: ["Runs"] } });
+      const writeProjectReceipt = vi.fn();
+      const h = harness({ project: other, folder, projectStore, writeProjectReceipt });
+      expect(h.runtime.projectDecision("s1", decision).ok).toBe(true);
+      expect(h.stored()?.project?.brief).toMatchObject({ what: "Other", status: "approved" });
+      expect(h.stored()?.projectRef).toBeUndefined();
+      expect(writeProjectReceipt).not.toHaveBeenCalled();
+    } finally {
       rmSync(folder, { recursive: true, force: true });
     }
   });

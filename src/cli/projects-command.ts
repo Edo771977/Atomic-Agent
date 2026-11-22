@@ -277,7 +277,10 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       if (json) {
         stdout(JSON.stringify(results, null, 2) + "\n");
       } else {
-        for (const [index, { status }] of results.entries()) stdout(`Receipt ${index + 1}: ${status}\n`);
+        for (const [index, { status, projectId }] of results.entries()) {
+          const project = projectId === null ? "project unspecified" : `project ${projectId}`;
+          stdout(`Receipt ${index + 1}: ${status} (${project})\n`);
+        }
         for (const kind of [...RECEIPT_KINDS, null]) {
           const rows = results.filter(result => result.kind === kind);
           if (rows.length === 0) continue;

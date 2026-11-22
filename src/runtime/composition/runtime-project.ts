@@ -1,6 +1,5 @@
 import { isIncognitoSession } from "../../session/incognito.js";
 import { gateContentHash } from "../../session/project-decisions.js";
-import { projectFolderOf } from "../../session/project-folder.js";
 import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import type { ProjectDecisionActor, RuntimeProjectDecisionResult } from "../project-decision-contract.js";
 import {
@@ -334,7 +333,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       const decided = saved.project ?? result.project;
       if (deps.writeProjectReceipt && project && !isIncognitoSession(saved)) {
         const { gate, version, verdict } = decision;
-        writeEvidenceReceipt(deps.writeProjectReceipt, deps.warnReceipt, projectFolderOf(saved), "gate-verdict", () => {
+        writeEvidenceReceipt(deps.writeProjectReceipt, deps.warnReceipt, saved, "gate-verdict", () => {
           const note = verdict !== "approveOverReview" ? undefined
             : gate.kind === "plan" ? decided.plan?.reviewOverride?.note
             : gate.kind === "milestone" ? decided.milestones.find(m => m.id === gate.id)?.reviewOverride?.note

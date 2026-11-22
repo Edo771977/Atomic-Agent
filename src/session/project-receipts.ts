@@ -3,6 +3,9 @@ import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFi
 import { join } from "node:path";
 
 import type { SecretKeychain } from "../config/secret-store.js";
+import { projectFolderOf } from "./project-folder.js";
+import { projectFilePath } from "./project-store.js";
+import type { SessionState } from "./session-state.js";
 import { projectFolderKey } from "./project-decisions.js";
 import { isReceiptKind, makeReceipt, publicKeyId, verifyReceipt, type ReceiptKind, type ReceiptStatus } from "./receipt-signing.js";
 
@@ -84,12 +87,14 @@ export function createProjectReceiptWriter(stateDir: string, keychain: ReceiptKe
 export function writeEvidenceReceipt(
   writer: ProjectReceiptWriter,
   warn: ((message: string) => void) | undefined,
-  folder: string,
-  kind: ReceiptKind,
-  payload: () => unknown,
+  session: SessionState,
+  kind: "gate-verdict" | "milestone-report",
+  payload: () => Record<string, unknown>,
 ): void {
   try {
-    writer(folder, kind, payload());
+    const folder = session.projectRef?.folder ?? projectFolderOf(session);
+    if (session.projectRef === undefined && lstatSync(projectFilePath(folder), { throwIfNoEntry: false })) return;
+    writer(folder, kind, { ...payload(), projectId: session.projectRef?.id ?? null });
   } catch {
     warn?.("Could not save an evidence receipt. The project archive may be incomplete.");
   }
@@ -97,6 +102,7 @@ export function writeEvidenceReceipt(
 
 export interface ProjectReceiptVerification {
   kind: ReceiptKind | null;
+  projectId: string | null;
   status: ReceiptStatus;
 }
 
@@ -116,8 +122,11 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string): P
         checkFile(path);
         return existsSync(path) ? createPublicKey(readFileSync(path)) : null;
       });
-      return { kind, status };
-    } catch { return { kind, status: "bad-signature" }; }
+      const id: unknown = row.payload?.projectId;
+      const projectId = (kind === "gate-verdict" || kind === "milestone-report") &&
+        (status === "valid" || status === "unsigned") && typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
+      return { kind, status, projectId };
+    } catch { return { kind, status: "bad-signature", projectId: null }; }
   });
 }
 

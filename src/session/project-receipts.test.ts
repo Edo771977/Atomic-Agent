@@ -1,7 +1,8 @@
+import { projectFilePath } from "./project-store.js";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { projectCommand } from "../cli/projects-command.js";
 import { SecretKeychain } from "../config/secret-store.js";
 import { createHash } from "node:crypto";
@@ -60,7 +61,7 @@ it("verifies historical keys and detects tampered payloads and recomputed hashes
   expect(verifyProjectReceipts(dir, dir)).toEqual(["hash-mismatch", "bad-signature", "unknown-key"]);
   let output = "";
   expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout: line => { output += line; } })).toBe(1);
-  expect(output).toMatch(/Receipt 1: hash-mismatch\nReceipt 2: bad-signature\nReceipt 3: unknown-key/);
+  expect(output).toMatch(/Receipt 1: hash-mismatch \(project unspecified\)\nReceipt 2: bad-signature \(project unspecified\)\nReceipt 3: unknown-key/);
   expect(output).toContain("3 receipts, 0 valid, 3 problems");
 });
 it("reports a missing key once and preserves each unsigned record", () => {
@@ -104,6 +105,13 @@ it("signs milestone facts and attachment fingerprints without copying free text 
       attachments: [{ path: shot, caption: "screenshot caption", criteria: ["c1"] }],
     }],
   };
+  const projectFile = projectFilePath(dir);
+  mkdirSync(join(dir, ".atomic", "project"), { recursive: true });
+  writeFileSync(projectFile, "{}");
+  const refused = vi.fn();
+  writeMilestoneReportReceipt(dir, refused, () => {}, session, "m1");
+  expect(refused).not.toHaveBeenCalled();
+  session.projectRef = { folder: dir, id: "test-project", revision: 1, decisionSeq: 1 };
   writeMilestoneReportReceipt(dir, writer, () => {}, session, "m1");
   expect(verifyProjectReceipts(dir, dir)).toEqual(["valid"]);
   const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
@@ -111,7 +119,7 @@ it("signs milestone facts and attachment fingerprints without copying free text 
   expect(JSON.parse(text)).toMatchObject({
     kind: "milestone-report",
     payload: {
-      milestoneId: "m1", state: "done",
+      projectId: "test-project", milestoneId: "m1", state: "done",
       criteriaFacts: [{ id: "c1", state: "passed", whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
       attachments: [{ sha256: createHash("sha256").update("screenshot bytes").digest("hex"), criteria: ["c1"] }],
     },

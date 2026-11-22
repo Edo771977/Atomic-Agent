@@ -3,7 +3,6 @@ import { closeSync, constants, fstatSync, openSync, readSync, realpathSync } fro
 import { join, relative, resolve } from "node:path";
 
 import { isIncognitoSession } from "./incognito.js";
-import { projectFolderOf } from "./project-folder.js";
 import { writeEvidenceReceipt, type ProjectReceiptWriter } from "./project-receipts.js";
 import { receiptHash } from "./receipt-signing.js";
 import { criteriaById, gateVersion, validateMilestoneAttachments } from "./session-project.js";
@@ -54,7 +53,7 @@ export function writeMilestoneReportReceipt(
   const project = session.project;
   const milestone = project?.milestones.find(m => m.id === milestoneId);
   if (!project || !milestone) return;
-  writeEvidenceReceipt(writer, warn, projectFolderOf(session), "milestone-report", () => {
+  writeEvidenceReceipt(writer, warn, session, "milestone-report", () => {
     const criteria = criteriaById(project.brief);
     const attachments = (milestone.attachments ?? []).map(attachment => {
       const checked = validateMilestoneAttachments({ stateDir, milestone, attachments: [attachment] });
