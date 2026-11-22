@@ -45,7 +45,7 @@ const DIMENSION_TEXT: Record<PlanReviewDimension, string> = {
   size: "each task fits the worker it is assigned (a local worker writes a few tokens per second within its time limit): split a task that writes several large files on a local worker.",
   verifiability: "each task has at least one executable check that observes its result (a test, a command, a page or game check); a check that only echoes, or tests something else, does not count.",
   scope: "the plan drops nothing the brief asks for without saying so in a task title; a reduced scope is a fail.",
-  numbers: "every number in the plan (a size, a limit, a speed, a target) comes from the brief or is measured by a check; an invented number is a warn or a fail.",
+  numbers: "every number in the plan (a size, a limit, a speed, a target) comes from the brief or is measured by a check; an invented number is a warn or a fail. A task's runtimeEstimate is computed by the runtime (measured runs or a preset), not a number the plan wrote: do not judge it.",
   decisions: "every active decision of the brief is cited by a task that will honour it, and no task contradicts one.",
 };
 
@@ -79,7 +79,7 @@ export function renderPlanReviewPrompt(input: PlanReviewInput): string {
       title: r.title,
       worker: r.worker,
       local: r.local === true,
-      estMs: r.estMs,
+      runtimeEstimate: { ms: r.estMs, basis: r.basis, samples: r.samples },
       checks: r.checks ?? [],
       decisions: r.decisions ?? [],
     })),
