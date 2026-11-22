@@ -375,7 +375,7 @@ it.each(["folder copy", "git worktree"] as const)("promotes through a symlinked 
   // A macOS /var -> /private/var style alias: the caller names the project through a link.
   const holder = await realpath(await mkdtemp(join(tmpdir(), "atag-candidate-alias-"))); roots.push(holder);
   const alias = join(holder, "alias");
-  await symlink(root, alias, "dir");
+  await symlink(root, alias, process.platform === "win32" ? "junction" : "dir");
   const candidate = await createCandidateIntegration(alias);
   try {
     expect(candidate.dir.startsWith(root)).toBe(false);

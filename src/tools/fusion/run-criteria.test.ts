@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, statSync, symlinkSync, utimesSync, writeFileSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { requireSymlinks } from "../../test-symlink-support.js";
 import { milestoneShotsDir, PROJECT_LIMITS } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
 import { readMilestoneEvidence, writeRunCriteriaFacts } from "./run-criteria.js";
@@ -92,7 +93,8 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(new Set(out.attachments.map((a) => a.caption)).size).toBe(out.attachments.length);
   });
 
-  it.skipIf(process.platform === "win32")("does not attach a symlink in the shots folder", () => {
+  it("does not attach a symlink in the shots folder", (context) => {
+    requireSymlinks(context);
     const state = stateDir();
     const shots = milestoneShotsDir(state, "fr-1");
     mkdirSync(shots, { recursive: true });

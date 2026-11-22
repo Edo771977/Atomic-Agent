@@ -97,7 +97,7 @@ describe("planMoves", () => {
 
   it("refuses a folder moved into itself through a symlinked parent", async () => {
     await mkdir(join(dir, "proj/sub"), { recursive: true });
-    await symlink(join(dir, "proj/sub"), join(dir, "link"));
+    await symlink(join(dir, "proj/sub"), join(dir, "link"), process.platform === "win32" ? "junction" : "dir");
     await expect(plan([{ from: "proj", to: "link/copy" }])).rejects.toThrow("into itself");
   });
 

@@ -554,7 +554,7 @@ describe("removing a workspace tree with read-only directories", () => {
       const tree = join(root, "ws");
       await mkdir(join(tree, "locked", "inner"), { recursive: true });
       await writeFile(join(tree, "locked", "inner", "f.txt"), "x");
-      await symlink(outside, join(tree, "locked", "link"), "dir");
+      await symlink(outside, join(tree, "locked", "link"), process.platform === "win32" ? "junction" : "dir");
       await chmod(join(tree, "locked", "inner"), 0o500);
       await chmod(join(tree, "locked"), 0o500);
       await chmod(outside, 0o500);

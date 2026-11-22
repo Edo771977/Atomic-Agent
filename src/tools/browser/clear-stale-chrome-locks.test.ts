@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { requireSymlinks } from "../../test-symlink-support.js";
 import {
   CHROME_LOCK_BASENAMES,
   clearStaleChromeLocks,
@@ -17,7 +18,8 @@ describe("readChromeSingletonLockPid", () => {
     fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it("parses symlink targets of the form host-pid", () => {
+  it("parses symlink targets of the form host-pid", (context) => {
+    requireSymlinks(context);
     fs.symlinkSync("127.0.0.1-4242", path.join(dir, "SingletonLock"));
     expect(readChromeSingletonLockPid(dir)).toBe(4242);
   });
@@ -61,7 +63,8 @@ describe("clearStaleChromeLocks", () => {
     expect(fs.existsSync(path.join(dir, "SingletonSocket"))).toBe(false);
   });
 
-  it("removes locks when owner pid is dead", () => {
+  it("removes locks when owner pid is dead", (context) => {
+    requireSymlinks(context);
     const deadPid = 2147483000;
     plantLocks(`127.0.0.1-${deadPid}`);
     // Inject the liveness check so the assertion is deterministic regardless
@@ -72,7 +75,8 @@ describe("clearStaleChromeLocks", () => {
     expect(fs.existsSync(path.join(dir, "SingletonLock"))).toBe(false);
   });
 
-  it("keeps locks when the owner pid is a live Chromium process", () => {
+  it("keeps locks when the owner pid is a live Chromium process", (context) => {
+    requireSymlinks(context);
     plantLocks("host-4242");
     const result = clearStaleChromeLocks(dir, {
       isAlive: () => true,
@@ -85,7 +89,8 @@ describe("clearStaleChromeLocks", () => {
     );
   });
 
-  it("clears locks when the owner pid is alive but is not a browser", () => {
+  it("clears locks when the owner pid is alive but is not a browser", (context) => {
+    requireSymlinks(context);
     plantLocks("host-4242");
     const result = clearStaleChromeLocks(dir, {
       isAlive: () => true,
@@ -95,7 +100,8 @@ describe("clearStaleChromeLocks", () => {
     expect(fs.existsSync(path.join(dir, "SingletonLock"))).toBe(false);
   });
 
-  it("fails open: keeps locks when a live pid's identity probe fails", () => {
+  it("fails open: keeps locks when a live pid's identity probe fails", (context) => {
+    requireSymlinks(context);
     // Regression: a failed probe (no /proc, ps timeout) must NOT be read as
     // "not chromium → clear" — a live browser could lose its locks.
     plantLocks("host-4242");
@@ -113,7 +119,8 @@ describe("clearStaleChromeLocks", () => {
     );
   });
 
-  it("keeps locks when owner pid is this process (live) and processLooksLikeChromium is conservative", () => {
+  it("keeps locks when owner pid is this process (live) and processLooksLikeChromium is conservative", (context) => {
+    requireSymlinks(context);
     // We stub processLooksLikeChromium via keep-path by making SingletonLock
     // point at our own PID, then mock kill(0). Our process is alive; on
     // platforms where processLooksLikeChromium returns true for node,
