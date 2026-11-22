@@ -2605,7 +2605,7 @@ function decideProject(
         return {
           ...rest,
           state: "done" as const,
-          summary: clipText(rest.summary === undefined ? line : `${rest.summary}\n${line}`, PROJECT_LIMITS.text),
+          ...reportNotesOf([...(rest.reportNotes ?? []), line].slice(-8)),
           reviewOverride: { note, at: now, blocks },
         };
       }),
