@@ -306,6 +306,15 @@ describe("a provider a newer build added (ATO-1241)", () => {
       expect(disk().llm).toEqual(teamTree().llm);
     });
 
+    it("a plan reviewer on that provider reads as unset and comes back on write (issue #118)", () => {
+      const tree = teamTree();
+      tree.llm.runMode.fusion.team.planReviewer = "future:model-p";
+      writeTree(tree);
+      expect(readUserConfigFileSync(path)!.llm!.runMode!.fusion!.team).toEqual({ directors: ["cloud:model-b"], reviewers: ["cloud:model-d"] });
+      writeUnrelated(readUserConfigFileSync(path)!);
+      expect(disk().llm).toEqual(tree.llm);
+    });
+
     it("a team chosen here replaces the newer one", () => {
       const parsed = readUserConfigFileSync(path)!;
       const llm = parsed.llm!;

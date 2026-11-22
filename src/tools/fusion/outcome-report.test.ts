@@ -392,3 +392,23 @@ describe("worker cost with unpriced tasks (issue #74)", () => {
     expect(text).not.toMatch(/\$0\.10 \(\+/);
   });
 });
+
+describe("plan reviews in fusion report (issue #118)", () => {
+  it("shows the plan reviews' spend as its own line", () => {
+    const records = [
+      { ...turn({ costUsd: 0.05 }), planReviews: { reviews: 2, costUsd: 0.03, unpriced: 0 } },
+      { ...turn({ costUsd: 0.01 }), planReviews: { reviews: 1, costUsd: null, unpriced: 1 } },
+      { ...turn(), planReviews: { reviews: 2, costUsd: 0, unpriced: 0, local: 1, notSent: 1 } },
+      turn(),
+    ];
+    const report = aggregateOutcomes(records);
+    expect(report.planReviews).toEqual({ reviews: 5, costUsd: 0.03, unpriced: 1, local: 1, notSent: 1 });
+    expect(formatFusionReport(report)).toContain("Plan reviews: 5, $0.03 (+1 unpriced, 1 local, 1 not sent)");
+  });
+
+  it("says nothing about plan reviews when none ran", () => {
+    const report = aggregateOutcomes([turn()]);
+    expect(report.planReviews).toEqual({ reviews: 0, costUsd: null, unpriced: 0, local: 0, notSent: 0 });
+    expect(formatFusionReport(report)).not.toContain("Plan reviews");
+  });
+});

@@ -124,6 +124,8 @@ function teamWithoutSetAside(
     if (kept.length > 0) out[key] = kept;
     else delete out[key];
   }
+  // Issue #118: the plan reviewer reads as unset (the first reviewer stands in).
+  if (onSetAside(team.planReviewer)) delete out.planReviewer;
   return out;
 }
 
