@@ -21,7 +21,7 @@ import {
   readProjectFile,
   type ProjectStoreOptions,
 } from "./project-store.js";
-import { applyProjectDecision, applyProjectUpdate, currentProjectLessonsBasis, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
+import { applyProjectDecision, applyProjectUpdate, currentProjectLessons, currentProjectLessonsBasis, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
 
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "session-with-embedded-project-109.json"), "utf8")) as {
   session: { project: unknown };
@@ -166,6 +166,9 @@ describe("project store (issue #109)", () => {
     expect(options.records.write(folder, draft.stored.id, draft.decisionSeq, draft.project, undefined,
       { id: lesson.id, call: { state: "approved", hash: lesson.hash } }).ok).toBe(true);
     expect(coverage(makePlan())).toEqual([expect.stringMatching(/fail.*storage.*build.*verify/)]);
+    const restricted = makePlan(["storage"]);
+    restricted[currentProjectLessons]!.workerGetsLessons = () => false;
+    expect(coverage(restricted)).toContainEqual(expect.stringMatching(/warn.*worker of build.*storage/));
     const undeclared = makePlan(["storage"]);
     delete undeclared.plan!.rows[0]!.files;
     expect(coverage(undeclared)).toContainEqual(expect.stringMatching(/warn.*build.*no declared/));

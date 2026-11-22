@@ -453,6 +453,7 @@ export const currentProjectLessons = Symbol("currentProjectLessons");
 interface ProjectLessonScope {
   active: readonly ProjectLesson[];
   stale?: readonly string[];
+  workerGetsLessons?: (ref: string) => boolean;
   taskPaths: (row: AssignmentRow) => readonly string[];
   matches: (touches: readonly string[], paths: readonly string[]) => boolean;
 }
@@ -1877,6 +1878,12 @@ export function planCheckData(project: BacklogCallsView & LessonCallsView, plan:
       undeclaredLessonTasks: scope !== undefined && hasScopedLessons
         ? plan.rows.filter((row) => !started.has(row.milestoneId) && scope.taskPaths(row).length === 0).map((row) => row.taskId)
         : [],
+      blockedLessonWorkers: plan.rows.flatMap((row) => {
+        if (started.has(row.milestoneId) || scope?.workerGetsLessons?.(row.worker) !== false) return [];
+        const lessonIds = scope.active.filter((lesson) => lesson.always && row.lessons?.includes(lesson.id)
+          && project.lessonDeferred?.[lesson.id] !== lesson.hash).map((lesson) => lesson.id);
+        return lessonIds.length > 0 ? [{ taskId: row.taskId, lessonIds }] : [];
+      }),
       activeLessonIds: project[currentProjectLessons]?.active.map((lesson) => lesson.id) ?? [],
     }),
   };

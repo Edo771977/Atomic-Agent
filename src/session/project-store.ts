@@ -283,9 +283,14 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   });
   const stale = calls.filter(([id, call]) =>
     call.state === "approved" && call.always !== false && byId.get(id)?.hash !== call.hash).map(([id]) => id);
+  const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), projectFolder);
   if (active.length > 0 || stale.length > 0) {
     project[currentProjectLessons] = {
       active, stale,
+      workerGetsLessons: (ref) => {
+        const provider = splitTeamMemberRef(ref)?.providerId;
+        return policy === undefined || (provider !== undefined && policy.allows(provider));
+      },
       taskPaths: (row) => taskReferencePaths(row.files ?? [], row.checks ?? [], projectFolder),
       matches: (touches, paths) => lessonTouchesTask(touches, paths, process.platform),
     };
@@ -296,7 +301,6 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   const review = project.plan?.review;
   if (review?.lessonsBasis !== undefined && review.reviewer !== null) {
     const provider = review.reviewerProviderId ?? splitTeamMemberRef(review.reviewer)?.providerId;
-    const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), projectFolder);
     const allowed = policy === undefined || (provider !== undefined && policy.allows(provider));
     project[currentProjectLessonsBasis] = projectLessonReviewSelection(lessonsForCurrentPlan(active, project.lessonDeferred), allowed).basis;
   }

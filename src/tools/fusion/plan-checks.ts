@@ -24,6 +24,7 @@ export interface PlanCheckOptions {
   activeLessonIds?: readonly string[];
   staleLessonIds?: readonly string[];
   undeclaredLessonTasks?: readonly string[];
+  blockedLessonWorkers?: readonly { taskId: string; lessonIds: string[] }[];
 }
 
 export interface PlanLessonCoverage {
@@ -52,6 +53,10 @@ function lessonCoverage(rows: readonly AssignmentRow[], options: PlanCheckOption
   for (const taskId of options.undeclaredLessonTasks ?? []) results.push({
     dimension: "lesson-coverage", verdict: "warn", taskIds: [taskId],
     detail: `Task ${taskId} has no declared file or check paths for scoped binding lessons.`,
+  });
+  for (const { taskId, lessonIds } of options.blockedLessonWorkers ?? []) results.push({
+    dimension: "lesson-coverage", verdict: "warn", taskIds: [taskId],
+    detail: `Folder policy means the worker of ${taskId} will not receive binding lessons: ${lessonIds.join(", ")}.`,
   });
   const lessons = options.lessons ?? [];
   const missing = lessons.filter((lesson) => !lesson.deferred && lesson.missingFrom.length > 0);
