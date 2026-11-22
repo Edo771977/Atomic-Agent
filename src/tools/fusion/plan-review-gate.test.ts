@@ -6,6 +6,8 @@ import type { ToolContext } from "../tool-registry.js";
 import type { EscalationComplete } from "./escalation.js";
 import { PLAN_REVIEW_DIMENSIONS, type PlanReviewResult } from "./plan-review-record.js";
 import { createPlanReview, type PlanReviewDeps } from "./plan-reviewer.js";
+import { settleProjectGate } from "../../cli/run-project-gate.js";
+import { projectGateView } from "./project-gate-view.js";
 import { PROJECT_UPDATE_DETAIL, buildProjectTools, type ProjectPlanContext, type ProjectToolDeps } from "./project-tools.js";
 
 /**
@@ -165,5 +167,77 @@ describe("plan reviewer at project.plan (issue #118)", () => {
     expect(spent).toHaveLength(1);
     expect(spent[0]).toBeGreaterThan(0);
     expect(update.planReview?.costUsd).toBe(spent[0]);
+  });
+});
+
+describe("plan reviewer at the plan gate (issue #118)", () => {
+  /** A plan whose reviewer still fails after the rounds (0 here): at the person's gate with open notes. */
+  async function atGate(plan: Record<string, unknown> = uncoveredPlan) {
+    const complete = vi.fn(async () => ({ content: passAll() }));
+    return (await draft(approvedBrief(), plan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+  }
+  const decide = (project: ProjectState, verdict: "approve" | "approveOverReview", note?: string) =>
+    applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict, ...(note === undefined ? {} : { edits: { note } }) }, { now: NOW + 1 });
+
+  it("shows the per-dimension notes, offers approve over review, and refuses a plain approve", async () => {
+    const project = await atGate();
+    const view = projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review 1 by cloud:model-r: 7 pass, 0 warn, 1 fail; open notes/));
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review: criteria-coverage: fail: No task check names approved criteria: c2/));
+    expect(view.planReview).toMatchObject({ outcome: "reviewed", stale: false, round: 1, results: expect.arrayContaining([expect.objectContaining({ dimension: "criteria-coverage", verdict: "fail" })]) });
+    expect(view.allowedVerdicts).toContain("approveOverReview");
+    const plain = decide(project, "approve");
+    expect(plain.ok).toBe(false);
+    expect(!plain.ok && plain.error).toMatchObject({ code: "review-open", message: expect.stringMatching(/plan reviewer/), blocks: [expect.objectContaining({ taskId: "plan" })] });
+  });
+
+  it("the person approves over the open notes with a note, recorded on the plan", async () => {
+    const project = await atGate();
+    expect(decide(project, "approveOverReview").ok).toBe(false);
+    const over = decide(project, "approveOverReview", "c2 is covered by hand testing");
+    if (!over.ok) throw new Error(over.error.message);
+    expect(over.project.plan).toMatchObject({
+      status: "approved",
+      reviewOverride: { note: "c2 is covered by hand testing", at: NOW + 1, blocks: [expect.objectContaining({ reason: expect.stringContaining("criteria-coverage") })] },
+    });
+    expect(over.project.milestones[0]?.state).toBe("approved");
+  });
+
+  it("a deterministic plan-check fail stays hard even over the review", async () => {
+    // `echo` only: a severe check-lint finding, a deterministic fail.
+    const project = await atGate({ ...uncoveredPlan, tasks: [{ ...uncoveredPlan.tasks[0]!, checks: [{ cmd: "echo ok", criteria: ["c1"] }] }] });
+    expect(project.plan?.checkResults?.some((r) => r.dimension === "check-lint" && r.verdict === "fail")).toBe(true);
+    const over = decide(project, "approveOverReview", "fine");
+    expect(!over.ok && over.error.code).toBe("review-open");
+  });
+
+  it("a review the rows no longer match is shown stale and does not block", async () => {
+    const project = await atGate();
+    const edited: ProjectState = { ...project, plan: { ...project.plan!, rows: project.plan!.rows.map((r) => ({ ...r, worker: "local:other" })) } };
+    const view = projectGateView({ sessionId: "s1", project: edited, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.hints).toContainEqual(expect.stringMatching(/plan review is stale/));
+    expect(view.planReview).toMatchObject({ stale: true });
+    expect(view.allowedVerdicts).not.toContain("approveOverReview");
+    expect(decide(edited, "approve").ok).toBe(true);
+  });
+
+  it("auto-approval stops at a plan with open reviewer fails and never overrides", async () => {
+    let project = await atGate();
+    const decisions: string[] = [];
+    const rt = {
+      projectState: () => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] } }),
+      projectDecision: (_id: string, decision: Parameters<typeof applyProjectDecision>[1]) => {
+        decisions.push(decision.verdict);
+        const r = applyProjectDecision(project, decision, { now: NOW + 1 });
+        if (!r.ok) return r;
+        project = r.project;
+        return { ok: true as const, project: r.project, view: rt.projectState() };
+      },
+    };
+    const step = await settleProjectGate(rt, "s1", "approve");
+    expect(step.kind).toBe("stop");
+    expect(step.kind === "stop" && step.text).toMatch(/plan reviewer's open notes/);
+    expect(decisions).toEqual(["approve"]);
+    expect(project.plan?.status).toBe("draft");
   });
 });

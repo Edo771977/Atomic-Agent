@@ -77,6 +77,20 @@ export async function settleProjectGate(
   }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
   const outcome = runtime.projectDecision(sessionId, decision);
+  if (!outcome.ok && outcome.error.code === "review-open" && view.gate.kind === "plan" && outcome.error.blocks.length > 0 && outcome.error.blocks.every((b) => b.reason.startsWith("plan review:"))) {
+    // Issue #118: approving over the plan reviewer's open notes is the
+    // person's call (approveOverReview, with a note): never taken here.
+    return {
+      kind: "stop",
+      text: [
+        `The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${outcome.error.message}`,
+        formatProjectGateText(view),
+        `session: ${sessionId}`,
+        `Continue with: atomic-agent run --session ${sessionId}`,
+        "and ask the director to revise the plan, or approve over the review with a note at the plan gate (the TUI card or the desktop).",
+      ].join("\n"),
+    };
+  }
   if (!outcome.ok && outcome.error.code === "review-open" && view.gate.kind === "plan") {
     // Issue #112: a failing plan check (decision coverage, check lint) keeps the plan open:
     // the director revises it or the person defers a decision, so the run stops (exit 3).

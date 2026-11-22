@@ -11,6 +11,7 @@ import {
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
+import { planReviewFresh, planReviewHints } from "./plan-review-record.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -102,6 +103,8 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
     hints.push(...evaluatePlanChecks(plan.rows, project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []), { ...input.planChecks, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)).map(planCheckHint));
+    // Issue #118: the plan reviewer's summary and every dimension that is not a pass.
+    hints.push(...planReviewHints(plan, project.milestones.map((m) => m.id)));
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
@@ -128,7 +131,20 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     status: decisionStatusOf(project, d.id),
     citedBy: (plan?.rows ?? []).filter((r) => (r.decisions ?? []).includes(d.id)).map((r) => r.taskId),
   }));
+  const review = project.gate.kind === "plan" ? plan?.review : undefined;
   return {
+    ...(review === undefined
+      ? {}
+      : {
+          planReview: {
+            outcome: review.outcome,
+            reviewer: review.reviewer,
+            results: review.results.map((r) => ({ ...r, taskIds: [...r.taskIds] })),
+            ...(review.reason === undefined ? {} : { reason: review.reason }),
+            round: review.round,
+            stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id)),
+          },
+        }),
     ...(changedOutside ? { changedOutside: true as const } : {}),
     ...(decisions.length === 0 ? {} : { decisions }),
     schema: 1,

@@ -26,7 +26,7 @@ import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
-import { readPlanReviewRecord, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
+import { planReviewBlocks, readPlanReviewRecord, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -777,7 +777,10 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
     case "brief":
       return ["approve", "edit", "cancel"];
     case "plan":
-      return ["approve", "edit", "cheaper", "quality", "cancel"];
+      // Issue #118: the plan reviewer's open fails are the person's to approve over.
+      return project !== undefined && openPlanReviewBlocks(project).length > 0
+        ? ["approve", "edit", "cheaper", "quality", "approveOverReview", "cancel"]
+        : ["approve", "edit", "cheaper", "quality", "cancel"];
     case "milestone": {
       const blocked = (project?.milestones.find((m) => m.id === gate.id)?.reviewBlocks ?? []).length > 0;
       return blocked ? ["approve", "edit", "approveOverReview", "cancel"] : ["approve", "edit", "cancel"];
@@ -785,6 +788,11 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
     case "none":
       return ["cancel"];
   }
+}
+
+/** The plan reviewer's fails still standing on the project's plan (issue #118), as review blocks; none for a stale review. */
+export function openPlanReviewBlocks(project: Pick<ProjectState, "plan" | "milestones">): ProjectReviewBlock[] {
+  return planReviewBlocks(project.plan, project.milestones.map((m) => m.id));
 }
 
 /** Row totals by plain sums ({@link ProjectPlanTotals}). */
@@ -2336,6 +2344,19 @@ export function applyProjectDecision(
     return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
   }
 
+  if (decision.verdict === "approveOverReview" && gate.kind === "plan") {
+    // Issue #118: the person's call over the plan reviewer's open fails,
+    // with a note, kept on the plan. A deterministic plan-check failure
+    // still refuses below: only the model's notes can be overridden.
+    const raw = decision.edits?.note;
+    const note = typeof raw === "string" ? clipText(raw, PROJECT_LIMITS.correctionNote) : "";
+    if (note.length === 0) {
+      return refuse({ code: "invalid", message: "Approving over the plan reviewer's open notes needs a note saying why." });
+    }
+    const overridden: ProjectState = { ...project, plan: { ...project.plan!, reviewOverride: { note, at: now, blocks: openPlanReviewBlocks(project) } } };
+    return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
+  }
+
   if (decision.verdict === "approve") {
     if (gate.kind === "brief") {
       return { ok: true, project: approveBrief(project, now) };
@@ -2350,6 +2371,15 @@ export function applyProjectDecision(
       const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...referenceOptions(project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
+      // Issue #118: the plan reviewer's open fails, unless the person approved over them (never an automatic path).
+      const reviewBlocks = openPlanReviewBlocks(project);
+      if (reviewBlocks.length > 0 && project.plan!.reviewOverride === undefined) {
+        return refuse({
+          code: "review-open",
+          message: `The plan stays open: the plan reviewer's notes fail it: ${reviewBlocks.map((b) => b.reason).join("; ")}. Ask the director to revise the plan, or approve over the review with a note (approveOverReview).`,
+          blocks: reviewBlocks,
+        });
+      }
       return {
         ok: true,
         project: {
