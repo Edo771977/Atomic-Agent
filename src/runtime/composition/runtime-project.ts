@@ -1,7 +1,7 @@
 import { projectFolderOf } from "../../session/project-folder.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { gateContentHash } from "../../session/project-decisions.js";
-import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { writeEvidenceReceipt, type MilestoneReceiptCache, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import type { ProjectDecisionActor, RuntimeProjectDecisionResult } from "../project-decision-contract.js";
 import {
   applyProjectDecision,
@@ -249,6 +249,7 @@ export function liveReplan(inputs: LiveProjectInputs): (rows: readonly Assignmen
 
 export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
   const now = deps.now ?? Date.now;
+  const receiptCache: MilestoneReceiptCache = new Map();
   const view = (session: SessionState, project: ProjectState): ProjectGateView => {
     const inputs = deps.liveInputs(session);
     return projectGateView({
@@ -257,6 +258,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       ...(deps.receiptStateDir === undefined || isIncognitoSession(session) ? {} : {
         receiptSource: {
           stateDir: deps.receiptStateDir,
+          cache: receiptCache,
           folder: session.projectRef?.folder ?? projectFolderOf(session),
           projectId: session.projectRef?.id ?? null,
         },

@@ -113,7 +113,7 @@ export interface ProjectReceiptVerification {
   status: ReceiptStatus;
 }
 
-interface MilestoneReceiptScope {
+export interface MilestoneReceiptScope {
   projectId: string | null;
   sessionId: string;
   milestoneId: string;
@@ -125,6 +125,20 @@ interface MilestoneReceiptScope {
 interface ScopedReceiptVerification {
   receipts: ProjectReceiptVerification[];
   partial: boolean;
+}
+
+interface CachedReceiptScan {
+  archive: string;
+  signingDir: string;
+  rows: Map<string, ProjectReceiptVerification>;
+  result: ScopedReceiptVerification;
+}
+
+export type MilestoneReceiptCache = Map<string, CachedReceiptScan>;
+
+function fileRevision(path: string): string {
+  const stat = lstatSync(path, { throwIfNoEntry: false, bigint: true });
+  return stat === undefined ? "" : `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
 }
 
 const VIEW_MAX_BYTES = 2 * 1024 * 1024;
@@ -161,11 +175,18 @@ function readReceiptTail(path: string): { lines: string[]; partial: boolean } {
 }
 
 export function verifyProjectReceiptDetails(stateDir: string, folder: string): ProjectReceiptVerification[];
-export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope: MilestoneReceiptScope): ScopedReceiptVerification;
-export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope?: MilestoneReceiptScope): ProjectReceiptVerification[] | ScopedReceiptVerification {
+export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope: MilestoneReceiptScope, cache?: MilestoneReceiptCache): ScopedReceiptVerification;
+export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope?: MilestoneReceiptScope, cache?: MilestoneReceiptCache): ProjectReceiptVerification[] | ScopedReceiptVerification {
   const projectKey = projectFolderKey(folder);
   const path = archive(stateDir, projectKey, false);
   if (!existsSync(path)) return scope === undefined ? [] : { receipts: [], partial: false };
+  const cacheKey = scope === undefined || cache === undefined ? undefined : JSON.stringify([path, scope]);
+  const previous = cacheKey === undefined ? undefined : cache!.get(cacheKey);
+  const revision = cacheKey === undefined ? "" : fileRevision(path);
+  const signingRevision = cacheKey === undefined ? "" : fileRevision(join(stateDir, "signing"));
+  const reusable = previous?.signingDir === signingRevision ? previous : undefined;
+  if (reusable !== undefined && reusable.archive === revision) return reusable.result;
+  const scanned = new Map<string, ProjectReceiptVerification>();
   const { lines, partial } = scope === undefined
     ? { lines: receiptLines(readFileSync(path, "utf8")), partial: false }
     : readReceiptTail(path);
@@ -198,15 +219,30 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
               (scope.since === undefined || !(Date.parse(row.signedAt) < scope.since))));
       }
       if (!matched) continue;
+      const cached = reusable?.rows.get(line);
+      if (cached !== undefined) {
+        receipts.push(cached);
+        scanned.set(line, cached);
+        continue;
+      }
       const status = verifyReceipt(row, projectKey, lookup);
       const projectId = kind !== null &&
         (status === "valid" || status === "unsigned") && typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
-      receipts.push({ kind, status, projectId });
+      const verified = { kind, status, projectId };
+      receipts.push(verified);
+      if (cacheKey !== undefined) scanned.set(line, verified);
     } catch {
       if (matched) receipts.push({ kind, status: "bad-signature", projectId: null });
     }
   }
-  return scope === undefined ? receipts : { receipts, partial };
+  if (scope === undefined) return receipts;
+  const result = { receipts, partial };
+  if (cacheKey !== undefined && cache !== undefined) {
+    cache.delete(cacheKey);
+    cache.set(cacheKey, { archive: revision, signingDir: signingRevision, rows: scanned, result });
+    if (cache.size > 8) cache.delete(cache.keys().next().value!);
+  }
+  return result;
 }
 
 export function verifyProjectReceipts(stateDir: string, folder: string): ReceiptStatus[] {

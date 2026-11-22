@@ -12,7 +12,7 @@ import {
   type ProjectMilestone,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
-import { verifyProjectReceiptDetails } from "../../session/project-receipts.js";
+import { verifyProjectReceiptDetails, type MilestoneReceiptCache } from "../../session/project-receipts.js";
 import type { MilestoneEvidenceReceipts, ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
@@ -37,7 +37,7 @@ export interface ProjectGateViewInput {
   planChecks?: PlanCheckOptions;
   sessionId: string;
   project: ProjectState;
-  receiptSource?: { stateDir: string; folder: string; projectId: string | null };
+  receiptSource?: { stateDir: string; folder: string; projectId: string | null; cache?: MilestoneReceiptCache };
   /** `estimatePlan` of the plan's rows with live limits; null without a plan. */
   estimate: PlanEstimate | null;
   /** The members the person may pick, in config order. */
@@ -98,7 +98,7 @@ function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilest
       runIds: milestone.runIds,
       version: gateVersion(input.project),
       since: milestone.corrections?.at(-1)?.at,
-    });
+    }, source.cache);
     for (const { status } of receipts) {
       if (status === "valid" || status === "unsigned") counts[status]++;
       else counts.problems++;
@@ -226,8 +226,6 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
   const evidenceMilestone = project.gate.kind === "milestone" ? project.gate.id : null;
-  const milestone = project.milestones.find(m => m.id === evidenceMilestone);
-  const evidenceReceipts = milestone === undefined ? undefined : milestoneEvidence(input, milestone);
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
   if (changedOutside) hints.unshift(CHANGED_OUTSIDE_HINT);
@@ -280,12 +278,19 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             totals: estimate?.totals ?? plan.totals,
             editable,
           },
-    milestones: project.milestones.map((m) => ({
-      ...m,
-      estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
-      estMs: byMilestone.get(m.id)?.ms ?? null,
-      ...(m.id === evidenceMilestone && evidenceReceipts !== undefined ? { evidenceReceipts } : {}),
-    })),
+    milestones: project.milestones.map(m => {
+      const view = {
+        ...m,
+        estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
+        estMs: byMilestone.get(m.id)?.ms ?? null,
+      };
+      // Only card renderers request verification. Serializing the common
+      // gate view for other surfaces leaves the archive untouched.
+      if (m.id === evidenceMilestone && input.receiptSource !== undefined) {
+        Object.defineProperty(view, "evidenceReceipts", { get: () => milestoneEvidence(input, m) });
+      }
+      return view;
+    }),
     violations,
     hints,
   };

@@ -1,3 +1,4 @@
+import * as signing from "../../session/receipt-signing.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -146,6 +147,35 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
       expect(keychain.write).not.toHaveBeenCalled();
     } finally {
       rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("verifies appended receipts once and skips verification for views that do not show evidence", () => {
+    const folder = mkdtempSync(join(tmpdir(), "cached-receipts-"));
+    const verify = vi.spyOn(signing, "verifyReceipt");
+    try {
+      const active = up(approved(up(approved(up(undefined, brief)), plan)), { kind: "milestone_run", id: "m1", runId: "r1" });
+      const project = up(active, { kind: "milestone", id: "m1", state: "done", summary: "Finished" });
+      const session = createEmptySessionState({ id: "s1", workingDir: folder });
+      session.project = project;
+      session.projectRef = { folder, id: "project-one", revision: 1, decisionSeq: 1 };
+      const { runtime } = harness({ session, receiptStateDir: folder });
+      const append = (name: string) => appendProjectReceipt(folder, folder, "artifact-manifest", {
+        projectId: "project-one", milestoneId: "m1", runId: "r1", name,
+      }, { read: () => ({ ok: false }), write: () => false });
+      append("one");
+      JSON.stringify(runtime.projectState("s1"));
+      expect(verify).not.toHaveBeenCalled();
+      const read = () => runtime.projectState("s1")?.milestones[0]?.evidenceReceipts;
+      expect(read()?.unsigned).toBe(1);
+      expect(read()?.unsigned).toBe(1);
+      expect(verify).toHaveBeenCalledTimes(1);
+      append("two");
+      expect(read()?.unsigned).toBe(2);
+      expect(verify).toHaveBeenCalledTimes(2);
+    } finally {
+      verify.mockRestore();
+      rmSync(folder, { recursive: true, force: true });
     }
   });
 
