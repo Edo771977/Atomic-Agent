@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createRuntimeProject } from "../runtime/composition/runtime-project.js";
+import { appendProjectReceipt } from "../session/project-receipts.js";
+import * as signing from "../session/receipt-signing.js";
+import { createEmptySessionState } from "../session/session-state.js";
 import { fixtureBacklogRuntime } from "../runtime/composition/project-backlog-test-fixture.js";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
@@ -66,9 +70,92 @@ describe("/api/project", () => {
     expect(json.view.brief!.criteria).toEqual([{ id: "c1", text: "Runs in a browser" }, { id: "c2", text: "Ten levels" }]);
   });
 
+  it("verifies receipts only on opt-in GET, reuses the cache, and excludes incognito", async () => {
+    const folder = harness.stateDir;
+    const session = createEmptySessionState({ id: "s1", workingDir: folder });
+    session.project = {
+      gate: { kind: "milestone", id: "m1" },
+      milestones: [{ id: "m1", title: "Base", kind: "base", state: "done", runIds: ["r1"], updatedAt: 1 }],
+    };
+    const runtime = createRuntimeProject({
+      loadSession: () => session,
+      saveSession: () => {},
+      isBusy: () => false,
+      liveInputs: () => ({
+        plan: {
+          workers: [], reviewers: [], defaultWorker: null, reviewerFor: () => null,
+          reviewOn: false, records: [], pricing: () => undefined, tokensPerSecond: () => null,
+          minSamples: 3, days: 30,
+        },
+        constraints: { isLocal: () => true }, strength: () => null, isLocal: () => true,
+      }),
+      emit: () => {},
+      receiptStateDir: folder,
+    });
+    Object.assign(harness.runtime, runtime);
+
+    const evidence = { projectId: null, sessionId: "s1", milestoneId: "m1", runId: "r1" };
+    appendProjectReceipt(folder, folder, "artifact-manifest", evidence, {
+      read: () => ({ ok: true, value: null }), write: () => true,
+    });
+    appendProjectReceipt(folder, folder, "check-run-record", evidence, {
+      read: () => ({ ok: false }), write: () => false,
+    });
+
+    const verify = vi.spyOn(signing, "verifyReceipt");
+    const get = async (query = "") => {
+      const res = await fetch(`${harness.baseUrl}/api/project?session=s1${query}`);
+      expect(res.status).toBe(200);
+      return ((await res.json()) as { view: ProjectGateView }).view.milestones[0]!;
+    };
+    try {
+      expect(await get()).not.toHaveProperty("evidenceReceipts");
+      expect(verify).not.toHaveBeenCalled();
+
+      const summary = { folder, valid: 1, unsigned: 1, problems: 0 };
+      expect((await get("&evidence=1")).evidenceReceipts).toEqual(summary);
+      expect(verify).toHaveBeenCalledTimes(2);
+      expect((await get("&evidence=1")).evidenceReceipts).toEqual(summary);
+      expect(verify).toHaveBeenCalledTimes(2);
+
+      session.incognito = { owner: "test", since: Date.now() };
+      expect(await get("&evidence=1")).not.toHaveProperty("evidenceReceipts");
+      expect(verify).toHaveBeenCalledTimes(2);
+    } finally {
+      verify.mockRestore();
+    }
+  });
+
   it("GET without a project is 404; without ?session= is 400", async () => {
     expect((await fetch(`${harness.baseUrl}/api/project?session=nope`)).status).toBe(404);
     expect((await fetch(`${harness.baseUrl}/api/project`)).status).toBe(400);
+  });
+
+  it("keeps both decision responses lightweight even with evidence=1", async () => {
+    const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const evidence = vi.fn();
+    Object.defineProperty(view.milestones[0], "evidenceReceipts", { get: evidence });
+    const outcome = { ok: true, view };
+    views.set("s1", view);
+    decide.mockReturnValue(outcome);
+    Object.assign(harness.runtime, { projectBacklogDecision: () => outcome });
+
+    for (const [route, body] of [
+      ["decision", { gate: view.gate, version: view.version, verdict: "edit", edits: { note: "Try again" } }],
+      ["backlog", { item: "b1", state: "promoted" }],
+    ] as const) {
+      const res = await fetch(`${harness.baseUrl}/api/project/${route}?evidence=1`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ session: "s1", ...body }),
+      });
+      expect(res.status).toBe(200);
+      const json = await res.json() as { session_id: string; view: ProjectGateView };
+      expect(json.session_id).toBe("s1");
+      expect(json.view).toEqual(JSON.parse(JSON.stringify(view)));
+      expect(json.view.milestones[0]).not.toHaveProperty("evidenceReceipts");
+    }
+    expect(evidence).not.toHaveBeenCalled();
   });
 
   it("POST approves at the current version and answers with the new view", async () => {
@@ -144,6 +231,8 @@ describe("/api/project", () => {
 
   it("forwards project_gate on /api/events, replaying an open gate on connect", async () => {
     const view = fixtureProjectGateView({ kind: "plan" });
+    const evidence = vi.fn();
+    Object.defineProperty(view.milestones[0], "evidenceReceipts", { get: evidence });
     harness.handle.projectGateBus.publish({ type: "project_gate", sessionId: "s1", view });
     const stream = new AbortController();
     const res = await fetch(`${harness.baseUrl}/api/events`, { signal: stream.signal });
@@ -158,6 +247,8 @@ describe("/api/project", () => {
     stream.abort();
     await reader.cancel().catch(() => undefined);
     expect(text).toContain("event: project_gate");
+    expect(text).not.toContain("evidenceReceipts");
+    expect(evidence).not.toHaveBeenCalled();
     expect(text).toContain('"session_id":"s1"');
     expect(text).toContain('"allowedVerdicts":["approve","edit","cheaper","quality","cancel"]');
   });

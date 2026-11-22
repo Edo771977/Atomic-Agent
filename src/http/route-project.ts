@@ -1,3 +1,4 @@
+import { withProjectGateEvidence } from "../session/project-gate-view.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { parseBacklogDecision } from "../session/project-backlog.js";
@@ -64,7 +65,7 @@ export function createGetProjectHandler(): HttpHandler {
       sendJson(res, 404, { ...openaiError(`no project on session ${sessionId}`), ...(problem === undefined ? {} : { project_problem: problem }) });
       return;
     }
-    sendJson(res, 200, { session_id: sessionId, view });
+    sendJson(res, 200, { session_id: sessionId, view: url.searchParams.get("evidence") === "1" ? withProjectGateEvidence(view) : view });
   };
 }
 
