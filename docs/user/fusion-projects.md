@@ -7,6 +7,10 @@ A Fusion project takes a task from brief to plan to delivery. You approve the br
 
 Fusion can use Draft, Review and Final milestones for non-code work, and task review follows the delivery type in your approved brief.
 
+The milestone report shows the status and basis of each reported criterion, plus counts by basis. **Measured** means a check ran. **Judged by** names the model that assessed the screenshot. **Basis not recorded** covers earlier facts and cases where no source produced evidence. Approving over a review records your decision about the milestone.
+
+The director report is displayed separately. A sentence containing “verified”, “verificato”, “works” or “funziona” is flagged unless the same sentence cites a passed criterion by its bracketed ID, such as `[c1]`, or includes its full text. This wording check is advisory and does not change criterion status or approval.
+
 ## Find or resume a project
 
 In the desktop sidebar, open **Fusion projects** under **Projects**. The list groups projects by **Needs you**, **Problem**, **In progress**, **Idle** and **Done**. Select **Resume** to open the project's newest chat or start one if needed.

@@ -13,6 +13,8 @@ The archive includes artifact manifests, check-run records, gate verdicts and mi
 
 Signatures support retrospective verification. A process running as the same user with access to the OS credential store can sign replacement evidence. See the [CLI guide](../cli/README.md) for statuses and trust limits.
 
+Criterion facts may carry an additive `basis` field. A milestone report receipt signs that field when present, including check references and retained output fingerprints or the vision model reference. Older facts and signed receipts remain readable with the field absent.
+
 ## Entry points
 
 - [session-state.ts](session-state.ts)

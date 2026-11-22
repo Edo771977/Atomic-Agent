@@ -173,6 +173,13 @@ export interface ProjectGateRow extends AssignmentRow {
   selectableReviewers: string[];
 }
 
+export interface ProjectCriterionBasisSummary {
+  check: number;
+  vision: number;
+  person: number;
+  unrecorded: number;
+}
+
 /**
  * A milestone as stored, with its estimate. From issue #40 it may carry
  * `attachments` (screenshots of the result: `path` is absolute, inside
@@ -184,6 +191,10 @@ export interface ProjectGateRow extends AssignmentRow {
  * re-plan replaced (optional, additive; not the current result).
  */
 export interface ProjectGateMilestone extends ProjectMilestone {
+  /** Counts of reported criterion facts by basis. */
+  criteriaBasisSummary?: ProjectCriterionBasisSummary;
+  /** Sentences in the director report with a verification claim and no matching passed fact. */
+  directorReportWarnings?: string[];
   /** The milestone's estimate (`estimatePlan`); null when unknown. */
   estCostUsd: number | null;
   estMs: number | null;

@@ -2,10 +2,11 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { receiptHash } from "../../session/receipt-signing.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
 import type { DelegateTask } from "./delegate-args.js";
-import { criteriaFactsFor, taskCriteria } from "./criteria-facts.js";
+import { criteriaFactsFor, taskCriteria, type VisionCriterionVerdict } from "./criteria-facts.js";
 import { applyJudgeVerdict, buildAcceptanceChecklist, judgeTask } from "./judge.js";
 import type { WorkerTaskResult } from "./worker-result.js";
 
@@ -28,7 +29,7 @@ const ACCEPT = JSON.stringify({ decision: "accept", issues: [] });
 const dir = mkdtempSync(join(tmpdir(), "criteria-facts-"));
 writeFileSync(join(dir, "a.txt"), "x");
 
-async function judge(outcomes: (ContractCheckOutcome | undefined)[], vision?: Map<string, { state: "passed" | "failed" | "unverified"; why: string }>, c: DelegateContract = contract) {
+async function judge(outcomes: (ContractCheckOutcome | undefined)[], vision?: Map<string, VisionCriterionVerdict>, c: DelegateContract = contract) {
   let called = 0;
   const items = buildAcceptanceChecklist(task, c, CRITERIA);
   const verdict = await judgeTask({
@@ -52,16 +53,30 @@ describe("criteria facts (issue #40)", () => {
     expect(buildAcceptanceChecklist(task, contract).some((i) => i.kind === "criterion")).toBe(false);
   });
 
+  it("records a run check and omits the basis when no check ran", () => {
+    const criteria = [{ id: "c1", text: "", checkIndexes: [0] }];
+    const [passed] = criteriaFactsFor(criteria, contract, [green({ run: { command: "node cli.js", exitCode: 0, output: "result", tests: [] } })], undefined);
+    expect(passed).toMatchObject({ state: "passed", basis: { kind: "check", checks: [{ index: 1, outputHash: receiptHash("result") }] } });
+    const [missing] = criteriaFactsFor(criteria, contract, [], undefined);
+    expect(missing?.state).toBe("failed");
+    expect(missing?.basis).toBeUndefined();
+    const [refused] = criteriaFactsFor(criteria, contract, [green({ ok: false, detail: "the runner returned no result" })], undefined);
+    expect(refused?.state).toBe("failed");
+    expect(refused?.basis).toBeUndefined();
+  });
+
   it("passes a criterion whose checks are green, the visual one judged met", () => {
-    const facts = criteriaFactsFor(taskCriteria("ui", contract, CRITERIA), contract, [green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    const facts = criteriaFactsFor(taskCriteria("ui", contract, CRITERIA), contract, [green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok", model: "cloud:vision" }], ["c2", { state: "passed", why: "ok", model: "cloud:vision" }]]));
     expect(facts.map((f) => [f.id, f.state])).toEqual([["c1", "passed"], ["c2", "passed"]]);
+    expect(facts.map((f) => f.basis)).toEqual(Array(2).fill({ kind: "vision", model: "cloud:vision" }));
   });
 
   it("closes a task only when its checks, review and criteria are green", async () => {
-    const { verdict, called } = await judge([green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok" }], ["c2", { state: "passed", why: "ok" }]]));
+    const { verdict, called } = await judge([green(), green({ judge: "vision", screenshots: [shot] })], new Map([["c1", { state: "passed", why: "ok", model: "cloud:vision" }], ["c2", { state: "passed", why: "ok", model: "cloud:vision" }]]));
     expect(called).toBe(1);
     expect(verdict.green).toBe(true);
     expect(verdict.criteria?.map((f) => f.state)).toEqual(["passed", "passed"]);
+    expect(verdict.criteria?.map((f) => f.basis)).toEqual(Array(2).fill({ kind: "vision", model: "cloud:vision" }));
   });
 
   it("fails a criterion any of its checks fails, as a blocker fact naming its id and text", async () => {

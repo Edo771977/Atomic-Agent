@@ -99,7 +99,7 @@ describe("judgeTaskVision (issue #40)", () => {
     expect(call.prompt).toContain("c2: looks right");
     expect(call.prompt).not.toContain("c1: prints");
     expect(call.prompt).toContain("Chess");
-    expect(out.judgements.get("c2")).toEqual({ state: "passed", why: "an 8x8 board" });
+    expect(out.judgements.get("c2")).toEqual({ state: "passed", why: "an 8x8 board", model: "cloud-b:model-b" });
     expect(out.costUsd).toBe(0.002);
   });
 

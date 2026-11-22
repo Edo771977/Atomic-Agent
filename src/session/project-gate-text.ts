@@ -7,10 +7,70 @@
  * shown as zero.
  */
 
-import type { ProjectGateBacklog, ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
+import type { ProjectCriterionBasisSummary, ProjectGateBacklog, ProjectGateDecision, ProjectGateView } from "./project-gate-view.js";
 import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, ProjectMilestoneAttachment } from "./session-project.js";
 
 const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
+
+export function summarizeCriterionBases(facts: readonly ProjectCriterionFact[]): ProjectCriterionBasisSummary {
+  const counts = { check: 0, vision: 0, person: 0, unrecorded: 0 };
+  for (const fact of facts) counts[fact.basis?.kind ?? "unrecorded"] += 1;
+  return counts;
+}
+
+export function criterionBasisSummaryLine(counts: ProjectCriterionBasisSummary): string {
+  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
+  const labels = [
+    counts.check > 0 ? `${counts.check} measured` : "",
+    counts.vision > 0 ? `${counts.vision} judged by a model` : "",
+    counts.person > 0 ? `${counts.person} declared by you` : "",
+    counts.unrecorded > 0 ? `${counts.unrecorded} basis not recorded` : "",
+  ];
+  return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.filter(Boolean).join(", ")}`;
+}
+
+// Existing summaries can contain appended runtime or approval notes.
+const REPORT_NOTE = /^(?:Warning: (?:no review verdict:|not covered by a check:)|Decisions cited by this milestone's tasks, not verified automatically|approved over open review by the person: )/u;
+
+export function milestoneReportParts(summary: string): { report: string; notes: string[] } {
+  const lines = summary.split(/\r?\n/u);
+  const noteAt = lines.findIndex((line, index) => index > 0 && REPORT_NOTE.test(line));
+  return noteAt < 0 ? { report: summary, notes: [] } : { report: lines.slice(0, noteAt).join("\n"), notes: lines.slice(noteAt) };
+}
+
+/** A claim needs a passed criterion cited by bracketed ID or by its full text in the same sentence. */
+export function directorReportWarnings(
+  report: string,
+  facts: readonly ProjectCriterionFact[],
+  criteria: readonly ProjectCriterion[],
+): string[] {
+  const passed = facts.filter((fact) => fact.state === "passed");
+  const textById = new Map(criteria.map(({ id, text }) => [id, text.toLowerCase()]));
+  return report
+    .split(/\r?\n/u)
+    .flatMap((line) => line.split(/(?<=[.!?])\s+/u))
+    .map((sentence) => sentence.trim())
+    .filter((sentence) => {
+      const text = sentence.toLowerCase();
+      if (!/\b(?:verificato|verified|funziona|works)\b/u.test(text)) return false;
+      return !passed.some(({ id }) => {
+        const criterion = textById.get(id);
+        return text.includes(`[${id}]`) || (criterion !== undefined && criterion.length > 0 && text.includes(criterion));
+      });
+    });
+}
+
+export const directorReportWarningLine = (sentence: string): string =>
+  `Warning: no matching passed criterion fact for director claim: ${sentence}`;
+
+export function criterionBasisLabel(basis: ProjectCriterionFact["basis"]): string {
+  switch (basis?.kind) {
+    case "check": return "measured";
+    case "person": return "declared by you";
+    case "vision": return `judged by ${basis.model}`;
+    default: return "basis not recorded";
+  }
+}
 
 /**
  * One criterion fact as a line (issue #40), e.g. "✓ c1 passed: Runs
@@ -25,7 +85,7 @@ export function criterionFactLine(fact: ProjectCriterionFact, criteria: readonly
   const mark = reserved ? "~" : (FACT_MARK[fact.state] ?? "?");
   const state = reserved ? "passed with reservations" : fact.state;
   const notes = [...(fact.why ? [fact.why] : []), ...(reserved ? [`reservations: ${fact.reservation}`] : [])];
-  return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`}`;
+  return `${mark} ${fact.id} ${state}${text === undefined ? "" : `: ${text}`}${notes.length === 0 ? "" : ` (${notes.join("; ")})`} · ${criterionBasisLabel(fact.basis)}`;
 }
 
 /**
@@ -141,9 +201,13 @@ export function formatProjectGateText(view: ProjectGateView): string {
     if (view.gate.kind === "milestone") {
       const id = view.gate.id;
       const milestone = view.milestones.find((m) => m.id === id);
-      if (milestone?.summary) out.push(`  Summary: ${milestone.summary}`);
+      if (milestone?.summary) {
+        const { report, notes } = milestoneReportParts(milestone.summary);
+        out.push(`  Director report: ${report}`, ...notes.map((note) => `  ${note}`));
+      }
+      for (const warning of milestone?.directorReportWarnings ?? []) out.push(`  ${directorReportWarningLine(warning)}`);
       const facts = milestone?.criteriaFacts ?? [];
-      if (facts.length > 0) out.push("  Criteria:", ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
+      if (facts.length > 0) out.push(`  ${criterionBasisSummaryLine(milestone?.criteriaBasisSummary ?? summarizeCriterionBases(facts))}`, ...facts.map((f) => `    ${criterionFactLine(f, view.brief?.criteria)}`));
       for (const a of milestone?.attachments ?? []) out.push(`  Picture: ${attachmentLabel(a)} — ${a.path}`);
     }
   }

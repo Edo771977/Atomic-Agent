@@ -65,7 +65,12 @@ export function buildFusionVisionJudge(input: {
         signal: call.signal,
         ...(call.model === undefined ? {} : { model: call.model }),
       });
-      return { text: result.text, ...(result.usage === undefined ? {} : { usage: result.usage }) };
+      const model = call.model ?? provider.chatModelId ?? entryOf(call.providerId)?.defaultChatModel ?? entryOf(call.providerId)?.model;
+      return {
+        text: result.text,
+        ...(model === undefined ? {} : { modelRef: `${call.providerId}:${model}` }),
+        ...(result.usage === undefined ? {} : { usage: result.usage }),
+      };
     },
   };
 }

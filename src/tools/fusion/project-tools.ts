@@ -1,3 +1,4 @@
+import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import { sameMember } from "./member-identity.js";
@@ -749,7 +750,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         }
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
-          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}${f.state === "passed" && f.reservation !== undefined ? " with reservations" : ""}`).join(", ")}.`);
+          lines.push(criterionBasisSummaryLine(summarizeCriterionBases(evidence.facts)));
+          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}${f.state === "passed" && f.reservation !== undefined ? " with reservations" : ""} (${criterionBasisLabel(f.basis)})`).join(", ")}.`);
         }
         if ((evidence.reviewBlocks ?? []).length > 0) {
           // Issue #98: refused like a red criterion, so the milestone stays
@@ -778,6 +780,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
       }
+      const criteria = ctx.project?.approvedCriteria ?? ctx.project?.brief?.successCriteria ?? [];
+      lines.push(...directorReportWarnings(parsed.report.summary, report.criteriaFacts ?? [], criteria).map(directorReportWarningLine));
       // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
       const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
       const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));

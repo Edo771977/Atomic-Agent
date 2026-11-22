@@ -14,7 +14,7 @@ import { describeViolation, type PlanEstimate, type PlanViolation } from "./proj
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
-import { seedHint } from "../../session/project-gate-text.js";
+import { directorReportWarnings, milestoneReportParts, seedHint, summarizeCriterionBases } from "../../session/project-gate-text.js";
 import { backlogDecisionFingerprint, backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
@@ -252,6 +252,10 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
           },
     milestones: project.milestones.map((m) => ({
       ...m,
+      ...(m.criteriaFacts?.length ? { criteriaBasisSummary: summarizeCriterionBases(m.criteriaFacts) } : {}),
+      ...(m.summary === undefined ? {} : {
+        directorReportWarnings: directorReportWarnings(milestoneReportParts(m.summary).report, m.criteriaFacts ?? [], project.approvedCriteria ?? project.brief?.successCriteria ?? []),
+      }),
       estCostUsd: byMilestone.get(m.id)?.costUsd ?? null,
       estMs: byMilestone.get(m.id)?.ms ?? null,
     })),

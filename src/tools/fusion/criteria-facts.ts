@@ -1,4 +1,7 @@
+import { weakestCriterionBasis, type ProjectCriterionBasis } from "../../session/project-criterion-basis.js";
+import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
+import { checkDidNotRun } from "./check-ran.js";
 import type { ContractCheckOutcome } from "./contract-checks.js";
 import type { DelegateContract } from "./contract.js";
 import { checkReservations } from "./contract-check-lint.js";
@@ -39,6 +42,8 @@ export interface TaskCriterion {
 export interface VisionCriterionVerdict {
   state: CriterionFactState;
   why: string;
+  /** Model reference only when the model gave a verdict. */
+  model?: string;
 }
 
 /** Criterion id → its vision judgement, for one task. */
@@ -103,12 +108,20 @@ export function criteriaFactsFor(
         why = line;
       }
     };
+    let basis: ProjectCriterionBasis | undefined;
+    const addBasis = (source: ProjectCriterionBasis): void => {
+      basis = basis === undefined ? source : weakestCriterionBasis(basis, source);
+    };
     for (const index of criterion.checkIndexes) {
       const outcome = outcomes[index];
       const label = `check ${index + 1}`;
       if (outcome === undefined) {
         note("failed", `${label} did not run`);
         continue;
+      }
+      if (outcome.ok || !checkDidNotRun(outcome.detail)) {
+        const output = outcome.run?.output ?? outcome.output;
+        addBasis({ kind: "check", checks: [{ index: index + 1, ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] });
       }
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`);
@@ -136,12 +149,14 @@ export function criteriaFactsFor(
         note("unverified", `${label} is visual and has no vision judgement`);
         continue;
       }
+      if (judged.model !== undefined) addBasis({ kind: "vision", model: judged.model });
       if (judged.state !== "passed") note(judged.state, `vision: ${judged.why}`);
       else settle(index, outcome);
     }
-    if (state !== "passed" || clean) return { id: criterion.id, state, why };
+    const fact = { id: criterion.id, state, why, ...(basis === undefined ? {} : { basis }) };
+    if (state !== "passed" || clean) return fact;
     const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
-    return reservation.length === 0 ? { id: criterion.id, state, why } : { id: criterion.id, state, why, reservation };
+    return reservation.length === 0 ? fact : { ...fact, reservation };
   });
 }
 

@@ -26,6 +26,17 @@ const plan: ProjectUpdate = {
 };
 
 describe("projectGateView (issue #39)", () => {
+  it("counts legacy facts and warns only about uncited verification claims", () => {
+    const project = up(undefined, brief);
+    project.milestones = [{
+      id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Verified [c1]. Il timer funziona.",
+      criteriaFacts: [{ id: "c1", state: "passed" }],
+    }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.criteriaBasisSummary).toEqual({ check: 0, vision: 0, person: 0, unrecorded: 1 });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual(["Il timer funziona."]);
+  });
   it("a brief gate: the brief with its taint flag, the brief's verdicts, no plan", () => {
     const project = up(undefined, brief);
     const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });

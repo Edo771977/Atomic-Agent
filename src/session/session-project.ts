@@ -20,6 +20,7 @@
 
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { readCriterionBasis, type ProjectCriterionBasis } from "./project-criterion-basis.js";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
@@ -187,6 +188,8 @@ export interface ProjectReviewBlock {
 export interface ProjectCriterionFact {
   id: string;
   state: CriterionFactState;
+  /** Absent for older facts and when no source produced evidence. */
+  basis?: ProjectCriterionBasis;
   /** One line, e.g. the failing check or why it could not be judged. */
   why?: string;
   /**
@@ -1412,7 +1415,8 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
     if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
     const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
     const reservation = f.state === "passed" && typeof f.reservation === "string" ? clip(f.reservation, PROJECT_LIMITS.shortText) : "";
-    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }), ...(reservation.length === 0 ? {} : { reservation }) });
+    const basis = readCriterionBasis(f.basis);
+    out.push({ id, state: f.state as CriterionFactState, ...(basis === undefined ? {} : { basis }), ...(why.length === 0 ? {} : { why }), ...(reservation.length === 0 ? {} : { reservation }) });
   }
   return out;
 }

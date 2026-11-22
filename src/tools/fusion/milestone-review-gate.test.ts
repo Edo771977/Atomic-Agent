@@ -148,6 +148,7 @@ describe("a milestone stays open while a required task lacks a current accept (i
     if (!over.ok) throw new Error(over.error.message);
     expect(over.project.milestones[0]).toMatchObject({ state: "reviewed", reviewOverride: { note: "reviewer gone; suites pass", blocks: [{ taskId: "program" }] } });
     expect(over.project.milestones[0]!.summary).toContain("approved over open review by the person: reviewer gone; suites pass");
+    expect(over.project.milestones[0]!.criteriaFacts).toBeUndefined();
     // Not offered without blocks.
     const clean = { ...p, milestones: p.milestones.map((m) => ({ ...m, reviewBlocks: undefined })) } as ProjectState;
     expect(allowedProjectVerdicts(clean.gate, clean)).not.toContain("approveOverReview");

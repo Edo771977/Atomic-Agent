@@ -101,7 +101,7 @@ it("signs milestone facts and attachment fingerprints without copying free text 
     milestones: [{
       id: "m1", title: "Base", kind: "base", state: "done", runIds: ["run-1"], updatedAt: 42,
       summary: "director text",
-      criteriaFacts: [{ id: "c1", state: "passed", why: "judge text", reservation: "weak check" }],
+      criteriaFacts: [{ id: "c1", state: "passed", why: "judge text", basis: { kind: "check", checks: [{ index: 1 }] }, reservation: "weak check" }],
       attachments: [{ path: shot, caption: "screenshot caption", criteria: ["c1"] }],
     }],
   };
@@ -120,7 +120,7 @@ it("signs milestone facts and attachment fingerprints without copying free text 
     kind: "milestone-report",
     payload: {
       projectId: "test-project", milestoneId: "m1", state: "done",
-      criteriaFacts: [{ id: "c1", state: "passed", whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
+      criteriaFacts: [{ id: "c1", state: "passed", basis: { kind: "check", checks: [{ index: 1 }] }, whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
       attachments: [{ sha256: createHash("sha256").update("screenshot bytes").digest("hex"), criteria: ["c1"] }],
     },
   });
