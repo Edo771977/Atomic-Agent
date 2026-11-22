@@ -83,6 +83,17 @@ describe("the gate view's backlog (issue #111)", () => {
     expect(view(approve(cited)).backlog!.promoted).toEqual([]);
   });
 
+  it("keeps the backlog in view when its last item was removed outside Atomic Agent with a call on it", () => {
+    const promoted = ok(applyBacklogDecision(atPlanGate(), { id: "b2", state: "promoted" }));
+    const { backlog: _b, ...rest } = promoted;
+    const v = view(rest as ProjectState);
+    expect(v.backlog).toEqual({ open: 0, seeds: [], promoted: [], stale: [{ id: "b2", state: "promoted", reason: "removed" }], items: [] });
+    expect(v.hints).toContain("promoted item b2 was removed outside Atomic Agent");
+    // No call left on a removed item: no backlog in view.
+    const { backlogStates: _s, backlogCalls: _c, ...none } = rest as ProjectState;
+    expect(view(none).backlog).toBeUndefined();
+  });
+
   it("a complete project with open items says so before calling it complete", () => {
     let p = approve(atPlanGate());
     for (const id of ["m1", "m2"]) {
