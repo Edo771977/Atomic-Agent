@@ -334,6 +334,7 @@ const CATEGORY_PLAIN = {
   http_write:'send data in a web request', browser_site_tool:'use a website\u2019s own tool',
   user_question:'ask you a question', session_cross:'read or write in another chat',
   verify_page_local:'open a page of this project to check it',
+  verify_ui_detector:'run a UI checker from this project or your PATH',
 };
 function cleanKeyInput(raw) { return String(raw == null ? '' : raw).replace(KEY_INVISIBLE, '').trim(); }
 /* The TUI's isAsciiOnly (src/llm/provider/openai/ascii-header-guard.ts). */
@@ -4298,6 +4299,7 @@ const APPR_FALLBACK = {
   http_write:'send data in a web request', browser_site_tool:'use a website\u2019s own tool',
   user_question:'ask you a question', session_cross:'read or write in another chat',
   verify_page_local:'open a page of this project to check it',
+  verify_ui_detector:'run a UI checker from this project or your PATH',
 };
 /** ATO-473: whether the card offers "Allow in this chat". The agent grants
     the request's command shape (the binary, `git`) for the rest of the chat;
@@ -12693,6 +12695,7 @@ const CATEGORY_LABEL = {
   http_write:'HTTP request · sends data', browser_site_tool:'browser · the site\'s own tool',
   user_question:'question for you', session_cross:'another chat · read / send',
   verify_page_local:'verification · local page probe',
+  verify_ui_detector:'verification · UI detector',
 };
 
 /* Calm (S7): why an answer to an approval did not land, in words. The
