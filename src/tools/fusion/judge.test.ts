@@ -343,6 +343,23 @@ describe("the structured review verdict (issue #38)", () => {
     expect(renderJudgePrompt({ task, items, facts: [], evidence: "" })).not.toContain("decisions");
   });
 
+  it("keeps the task prompt byte-for-byte for code and game", () => {
+    const input = { task, items, facts: [], evidence: "The evidence", successCriteria: ["Runs offline"], decisions: ["d1: Use SQLite"], attemptEvidence: "Attempt 1" };
+    expect(renderJudgePrompt(input)).toMatchSnapshot();
+    for (const deliverable of ["code", "game"] as const) {
+      expect(renderJudgePrompt({ ...input, deliverable })).toBe(renderJudgePrompt(input));
+    }
+  });
+
+  it.each([
+    ["document", /complete.*brief.*coherent.*data.*tone.*language.*invent/i],
+    ["spreadsheet", /sheets.*columns.*totals.*data.*formulas.*pasted/i],
+    ["research", /important claim.*cit.*undated.*unverifiable.*invented links.*do not visit/i],
+    ["files", /expected files.*name.*location.*outside.*declared folder/i],
+  ] as const)("gives the %s reviewer criteria for the deliverable", (deliverable, criteria) => {
+    expect(renderJudgePrompt({ task, items, facts: [], evidence: "", deliverable })).toMatch(criteria);
+  });
+
   it("asks for the new JSON shape", () => {
     const prompt = renderJudgePrompt({ task, items, facts: [], evidence: "" });
     expect(prompt).toContain('{"decision":"accept"|"needs-changes","issues":[{"item":"a2"|null,"severity":"blocker"|"major"|"minor","file":"src/a.ts"|null,"why":"…"}]}');

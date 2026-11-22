@@ -1,3 +1,4 @@
+import { MILESTONE_KINDS } from "../session/session-project.js";
 import { OS_FS_READ_CONTRACT } from "../tools/os/fs/fs-read-contract.js";
 import { OS_FS_LIST_CONTRACT } from "../tools/os/fs/fs-list-contract.js";
 import { OS_FS_GLOB_CONTRACT } from "../tools/os/fs/fs-glob-contract.js";
@@ -875,7 +876,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
             {
               id: stringSchema,
               title: stringSchema,
-              kind: { type: "string", enum: ["base", "ui", "logic", "polish", "other"] },
+              kind: { type: "string", enum: [...MILESTONE_KINDS] },
             },
             ["id", "title", "kind"],
           ),

@@ -70,6 +70,18 @@ function tools(options: { tainted?: boolean; context?: ProjectPlanContext; evide
   return { brief: brief!, plan: plan!, milestone: milestone! };
 }
 
+it.each(["draft", "review", "final", "unknown"])("validates milestone kind %s in project.plan", (kind) => {
+  const parsed = parseProjectPlanArgs({
+    milestones: [{ id: "m1", title: "Report", kind }],
+    tasks: [{ id: "t1", title: "Work on the report", milestone: "m1" }],
+  });
+  if (kind === "unknown") {
+    expect(parsed).toMatchObject({ ok: false, problems: [expect.stringContaining("kind")] });
+  } else {
+    expect(parsed).toMatchObject({ ok: true, plan: { milestones: [{ kind }] } });
+  }
+});
+
 const briefArgs = {
   what: "A snake game",
   users: "Kids",

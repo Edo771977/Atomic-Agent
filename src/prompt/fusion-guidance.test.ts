@@ -221,6 +221,7 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     expect(prefixWith([descriptor(FUSION_DELEGATE_TOOL)], FACTS)).not.toContain(PROJECT_FLOW_GUIDANCE);
     expect(buildFusionGuidance(FACTS, { project: true })).toContain(PROJECT_FLOW_GUIDANCE);
     expect(buildFusionGuidance(FACTS)).toBe(buildFusionGuidance(FACTS, { project: false }));
+    expect(buildFusionGuidance(FACTS, { project: true })).toMatch(/non-code.*draft.*review.*final/i);
     expect(PROJECT_FLOW_GUIDANCE.length).toBeLessThan(700);
   });
 });
@@ -259,7 +260,7 @@ describe("director check authoring (issue #122)", () => {
     }
 
     const guidance = prefix.slice(prefix.indexOf("### fusion\n"), prefix.indexOf("### instructions")).trimEnd();
-    expect(guidance).toBe(`### fusion\n${FUSION_GUIDANCE}\n${PROJECT_FLOW_GUIDANCE}`);
+    expect(guidance).toBe(`### fusion\n${FUSION_GUIDANCE}\n${PROJECT_FLOW_GUIDANCE}\nNon-code: use draft/review/final milestones.`);
     expect(guidance).toContain("; tell the person what only they can approve.");
     expect(guidance).not.toContain("success-only marker");
   });

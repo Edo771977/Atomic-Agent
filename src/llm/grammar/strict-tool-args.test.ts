@@ -145,6 +145,20 @@ describe("strict tool args (ATO-633): the generic branch", () => {
     }
   });
 
+  it("keeps project.plan strict within the grammar caps, alone and in the full catalog", async () => {
+    const plain = await buildGrammar(PLAIN_INSTRUCT_PROFILE);
+    for (const tools of [[tool("project.plan")], ALL_TOOLS]) {
+      const strict = applyStrictToolArgs(plain, tools);
+      for (const kind of ["base", "draft", "review", "final", "unknown"]) {
+        const args = {
+          milestones: [{ id: "m", title: "Report", kind }],
+          tasks: [{ id: "t", title: "Work on the report", milestone: "m" }],
+        };
+        expect(gbnfAccepts(strict, "root", call("project.plan", args)), kind).toBe(kind !== "unknown");
+      }
+    }
+  });
+
   it("converts every built-in tool on the generic branch, and the result parses", async () => {
     const plain = await buildGrammar(PLAIN_INSTRUCT_PROFILE);
     const strict = applyStrictToolArgs(plain, ALL_TOOLS);
