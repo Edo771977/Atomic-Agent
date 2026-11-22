@@ -62,3 +62,13 @@
 .pc-count{align-self:flex-end;font-size:var(--fs-label);color:var(--ink-3);font-variant-numeric:tabular-nums}
 .pc-danger{color:var(--critical)}
 .pc-busy{font-size:var(--fs-label);color:var(--ink-3)}
+
+.pc-section-title{margin:0;font-size:var(--fs-ui);font-weight:600}
+.pc-assessment{display:grid;gap:4px;min-width:0}
+.pc-assessment-item{padding:5px 8px;background:var(--well);border-radius:var(--r-well);overflow-wrap:anywhere}
+.pc-result{cursor:pointer;font-size:var(--fs-cap)}
+.pc-result.is-pass{color:var(--success)}
+.pc-result.is-warn{color:var(--warn)}
+.pc-result.is-fail{color:var(--critical)}
+.pc-assessment-detail{margin:4px 0;white-space:pre-wrap;font-size:var(--fs-cap)}
+.pc-review-warning{flex:1 0 100%;box-sizing:border-box;overflow-wrap:anywhere}

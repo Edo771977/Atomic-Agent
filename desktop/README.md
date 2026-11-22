@@ -102,6 +102,14 @@ Everything is drawn with `textContent`: model text is never
 markup. Covered by `test/project-gate-routing.test.mjs`,
 `test/project-gate-api.test.mjs` and `test/project-card.test.mjs`.
 
+At the plan gate, expand a dimension to read its check or review details.
+The card lists brief decisions and their citing tasks. If the gate allows
+an edit, **Defer** and **Informational** are available for an uncited active
+decision, and **Reactivate** for a deferred decision. Review notes are
+displayed as plain text when the connected agent supplies them. The review
+status stays by the approval buttons. **Approve over review…** appears
+when the agent offers it and requires a reason before sending the decision.
+
 **All Fusion projects (issues #109, #121).** In the sidebar's Projects
 heading, the Fusion projects button opens the projects known to this agent,
 including projects whose chats were deleted. The list groups them as Needs

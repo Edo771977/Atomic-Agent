@@ -1038,3 +1038,78 @@ test('reset(next) follows the chat the page shows now: no read for a chat Studio
     S, {follow: (sid) => calls.push(['follow', sid]), reset: (sid) => calls.push(['reset', sid])}, 1, 2, null)();
   assert.deepEqual(calls[0], ['reset', null]);
 });
+
+test('plan checks and review dimensions give expandable plain-text details and a pinned review warning', () => {
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  const view = plan({
+    hints: ['check-lint: pass: No issues', 'references: warn: Missing scripts/test.js', 'No reviewers for tasks'],
+    planReview: {outcome: 'reviewed', stale: true, autoApprovable: false, results: [
+      {dimension: 'scope', verdict: 'fail', detail: '<img src=x onerror=alert(1)>', taskIds: ['t1']},
+    ]},
+  });
+  const model = C.pcModel(C.pcInitial(view));
+  C.pcDraw(doc, host, model, () => {});
+  assert.deepEqual(host.findAll((e) => e.tagName === 'SUMMARY').map((e) => e.textContent), [
+    'check-lint · pass', 'references · warn', 'scope · fail',
+  ]);
+  assert.match(host.textContent, /<img src=x onerror=alert\(1\)>/);
+  assert.equal(host.findAll((e) => e.tagName === 'IMG').length, 0);
+  const bar = host.findAll((e) => e.className === 'pc-actions')[0];
+  assert.match(bar.textContent, /Notes on an earlier version/);
+  assert.match(bar.textContent, /Approve/);
+  C.pcDraw(doc, host, C.pcModel(C.pcInitial(plan({planReview: {outcome: 'missing', reason: 'No record', results: [], autoApprovable: false}}))), () => {});
+  assert.match(host.findAll((e) => e.className === 'pc-actions')[0].textContent, /Plan not reviewed/);
+});
+
+test('decision buttons follow status and citations and send a versioned edit through the controller', async () => {
+  const payloads = [];
+  const decisions = [
+    {id: 'd1', text: 'Use SQLite', status: 'active', citedBy: []},
+    {id: 'd2', text: 'Use CSV', status: 'active', citedBy: ['t1']},
+    {id: 'd3', text: 'Enable export', status: 'deferred', citedBy: []},
+  ];
+  const view = plan({decisions});
+  const c = controller({
+    read: () => ({supported: true, ok: true, view}),
+    decide: (body) => {
+      payloads.push(body);
+      return {supported: true, ok: true, view: plan({version: 4, decisions})};
+    },
+  });
+  c.card.follow('ses-1');
+  await tick();
+  const doc = fakeDoc();
+  const host = doc.createElement('div');
+  C.pcDraw(doc, host, c.last().model, c.last().on);
+  const buttons = host.findAll((e) => e.tagName === 'BUTTON').filter((e) => ['Defer', 'Informational', 'Reactivate'].includes(e.textContent));
+  assert.deepEqual(buttons.map((e) => e.textContent), ['Defer', 'Informational', 'Reactivate']);
+  assert.match(host.textContent, /Cited by: t1/);
+  buttons[0].fire('click');
+  await tick();
+  assert.deepEqual(payloads, [{session: 'ses-1', gate: {kind: 'plan'}, version: 3, verdict: 'edit', edits: {decisionStatus: {d1: 'deferred'}}}]);
+  assert.equal(c.last().model.version, 4);
+  assert.deepEqual(c.continued, []);
+});
+
+test('override is offered only by the gate and requires a note before sending', async () => {
+  const payloads = [];
+  const view = plan({allowedVerdicts: ['approveOverReview', 'cancel']});
+  const c = controller({
+    read: () => ({supported: true, ok: true, view}),
+    decide: (body) => { payloads.push(body); return {supported: true, ok: true, view: closed()}; },
+  });
+  c.card.follow('ses-1');
+  await tick();
+  assert.equal(C.pcModel(C.pcInitial(plan())).actions.some((a) => a.verdict === 'approveOverReview'), false);
+  const action = c.last().model.actions.find((a) => a.verdict === 'approveOverReview');
+  assert.equal(action.label, 'Approve over review…');
+  c.last().on({type: action.open});
+  assert.equal(c.last().model.mode, 'override');
+  await c.last().on({type: 'verdict', verdict: 'approveOverReview'});
+  assert.match(c.last().model.error, /reason/);
+  assert.deepEqual(payloads, []);
+  c.last().on({type: 'note', note: 'Reviewed with the project owner.'});
+  await c.last().on({type: 'verdict', verdict: 'approveOverReview'});
+  assert.deepEqual(payloads, [{session: 'ses-1', gate: {kind: 'plan'}, version: 3, verdict: 'approveOverReview', edits: {note: 'Reviewed with the project owner.'}}]);
+});

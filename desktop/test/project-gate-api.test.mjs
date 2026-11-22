@@ -214,3 +214,17 @@ test('the decision IPC refuses what the route would refuse, before it leaves the
   }
   assert.equal(parseProjectDecisionIpc({...base, edits: {note: 'x'.repeat(MAX_PROJECT_NOTE_CHARS)}}).ok, true);
 });
+
+test('desktop IPC preserves approved decision status edits and validates override notes', () => {
+  const base = {session: 'ses-1', gate: {kind: 'plan'}, version: 3};
+  const edit = {...base, verdict: 'edit', edits: {decisionStatus: {d1: 'deferred', d2: 'informational', d3: 'active'}}};
+  const override = {...base, verdict: 'approveOverReview', edits: {note: 'Reviewed by hand'}};
+  for (const body of [edit, override]) assert.deepEqual(parseProjectDecisionIpc(body), {ok: true, body});
+  for (const raw of [
+    {...edit, edits: {decisionStatus: {d1: 'retired'}}},
+    {...edit, edits: {decisionStatus: {'d 1': 'deferred'}}},
+    {...edit, gate: {kind: 'brief'}},
+    {...override, edits: {}},
+    {...override, edits: {note: '  '}},
+  ]) assert.equal(parseProjectDecisionIpc(raw).ok, false);
+});
