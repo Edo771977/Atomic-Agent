@@ -1,3 +1,5 @@
+import { isIncognitoSession } from "../../session/incognito.js";
+import type { SavedMilestoneReport } from "../../session/project-milestone-receipt.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import { applyProjectUpdate, withProject, type ProjectState, type ProjectUpdate, type ProjectUpdateOptions } from "../../session/session-project.js";
 import type { SessionState } from "../../session/session-state.js";
@@ -45,6 +47,7 @@ export function foldProjectUpdate(
    * update. Absent: the project lives on the session, as before.
    */
   store?: SessionProjectStore,
+  onMilestoneReport?: SavedMilestoneReport,
 ): { session: SessionState; result: CompressedToolResult } {
   const details = result.details as Record<string, unknown> | undefined;
   if (details === undefined || !(PROJECT_UPDATE_DETAIL in details)) return { session, result };
@@ -71,13 +74,18 @@ export function foldProjectUpdate(
   if (base.projectProblem !== undefined) {
     return refused(base, result, details, owned, { code: "project-unavailable", message: base.projectProblem });
   }
-  const applied =
-    typeof raw === "object" && raw !== null && typeof (raw as { kind?: unknown }).kind === "string"
-      ? applyProjectUpdate(base.project, raw as ProjectUpdate, now, options)
+  const update = typeof kind === "string" ? raw as ProjectUpdate : undefined;
+  const applied = update !== undefined
+      ? applyProjectUpdate(base.project, update, now, options)
       : { ok: false as const, error: { code: "invalid" as const, message: "the project update was malformed" } };
   if (applied.ok) {
     const landed = land(applied.project);
-    if (landed.ok) return { session: landed.session, result };
+    if (landed.ok) {
+      if (update?.kind === "milestone" && update.holdForCorrection !== true && !isIncognitoSession(landed.session)) {
+        onMilestoneReport?.(landed.session, update.id);
+      }
+      return { session: landed.session, result };
+    }
     return refused(base, result, details, owned, { code: "project-store", message: landed.message });
   }
   return refused(base, result, details, owned, applied.error);

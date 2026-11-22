@@ -145,7 +145,9 @@ export async function settleProjectGate(
     if (stale !== null) return { kind: "failed", text: `${formatProjectGateText(view)}\nnot approved: ${stale}` };
   }
   const decision: ProjectDecision = { gate: view.gate, version: view.version, verdict: "approve" };
-  const outcome = runtime.projectDecision(sessionId, decision);
+  const outcome = mode === "approve"
+    ? runtime.projectDecision(sessionId, decision, "auto-approve")
+    : runtime.projectDecision(sessionId, decision);
   if (!outcome.ok && outcome.error.code === "review-open" && view.gate.kind === "plan" && outcome.error.blocks.length > 0 && outcome.error.blocks.every((b) => b.reason.startsWith("plan review:"))) {
     // Issue #118: approving over the plan reviewer's open notes is the
     // person's call (approveOverReview, with a note): never taken here.

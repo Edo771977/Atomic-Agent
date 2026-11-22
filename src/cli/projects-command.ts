@@ -3,8 +3,9 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { RECEIPT_KINDS } from "../session/receipt-signing.js";
+import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
 import { readProjectLessons } from "../session/project-lessons.js";
-import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
@@ -43,7 +44,7 @@ const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
   "",
   "Subcommands:",
-  "  verify [folder]      Verify the archived evidence receipts (default: current folder)",
+  "  verify [folder] [--json]  Verify the archived evidence receipts (default: current folder)",
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
@@ -263,19 +264,38 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
     return 0;
   }
   if (sub === "verify") {
-    if (args.length > 2 || args[1]?.startsWith("-")) {
-      stderr("Usage: atomic-agent project verify [folder]\n");
+    const options = args.slice(1);
+    const folders = options.filter(arg => arg !== "--json");
+    const json = options.includes("--json");
+    if (folders.length > 1 || folders[0]?.startsWith("-") || options.length > folders.length + 1) {
+      stderr("Usage: atomic-agent project verify [folder] [--json]\n");
       return 2;
     }
     try {
-      const results = verifyProjectReceipts(deps.stateDir?.() ?? getConfig().paths.stateDir, resolve(args[1] ?? "."));
-      for (const [index, status] of results.entries()) stdout(`Receipt ${index + 1}: ${status}\n`);
-      const valid = results.filter(result => result === "valid").length;
-      stdout(`${results.length} receipts, ${valid} valid, ${results.length - valid} problems.\n`);
-      stdout("A process running as the same user with keychain access can sign replacement evidence.\n");
+      const results = verifyProjectReceiptDetails(deps.stateDir?.() ?? getConfig().paths.stateDir, resolve(folders[0] ?? "."));
+      const valid = results.filter(result => result.status === "valid").length;
+      if (json) {
+        stdout(JSON.stringify(results, null, 2) + "\n");
+      } else {
+        for (const [index, { status, projectId }] of results.entries()) {
+          const project = projectId === null ? "project unspecified" : `project ${projectId}`;
+          stdout(`Receipt ${index + 1}: ${status} (${project})\n`);
+        }
+        for (const kind of [...RECEIPT_KINDS, null]) {
+          const rows = results.filter(result => result.kind === kind);
+          if (rows.length === 0) continue;
+          const statuses = ["valid", "hash-mismatch", "bad-signature", "unknown-key", "unsigned", "unknown-kind"] as const;
+          const counts = statuses.map(status => `${rows.filter(row => row.status === status).length} ${status}`);
+          stdout(`${kind ?? "unknown kind"}: ${counts.join(", ")}\n`);
+        }
+        stdout(`${results.length} receipts, ${valid} valid, ${results.length - valid} problems.\n`);
+        stdout("A process running as the same user with keychain access can sign replacement evidence.\n");
+      }
       return valid === results.length ? 0 : 1;
     } catch {
-      stderr("Could not read the project's receipt archive.\n");
+      const error = "Could not read the project's receipt archive.";
+      if (json) stdout(JSON.stringify({ error }) + "\n");
+      stderr(error + "\n");
       return 1;
     }
   }

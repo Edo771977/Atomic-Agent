@@ -1,4 +1,7 @@
-import type { RuntimeProjectDecisionResult } from "../project-decision-contract.js";
+import { isIncognitoSession } from "../../session/incognito.js";
+import { gateContentHash } from "../../session/project-decisions.js";
+import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
+import type { ProjectDecisionActor, RuntimeProjectDecisionResult } from "../project-decision-contract.js";
 import {
   applyProjectDecision,
   milestoneToApproveNext,
@@ -152,6 +155,8 @@ export interface RuntimeProjectDeps {
   saveSession: (session: SessionState) => void;
   /** Issue #109: the project's folder store; absent, the project lives on the session. */
   projectStore?: SessionProjectStore;
+  writeProjectReceipt?: ProjectReceiptWriter;
+  warnReceipt?: (message: string) => void;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
   isBusy: (sessionId: string) => boolean;
   /**
@@ -168,7 +173,7 @@ export interface RuntimeProject {
   /** The gate view of the session's project; null without a session or project. */
   projectState(sessionId: string): ProjectGateView | null;
   /** The person's decision; between turns only. Persists and emits `project_gate` on success. */
-  projectDecision(sessionId: string, decision: ProjectDecision): RuntimeProjectDecisionResult;
+  projectDecision(sessionId: string, decision: ProjectDecision, actor?: ProjectDecisionActor): RuntimeProjectDecisionResult;
   /**
    * Issue #111: the person promotes, drops or reopens a backlog item;
    * between turns only, like a gate decision. No gate moves; no automatic
@@ -295,7 +300,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       if (session?.project === undefined) return null;
       return view(session, session.project);
     },
-    projectDecision(sessionId, decision) {
+    projectDecision(sessionId, decision, actor = "person") {
       const ready = betweenTurns(sessionId);
       if (!ready.ok) return ready;
       const session = ready.session;
@@ -315,6 +320,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         return result;
       }
       let saved: SessionState;
+      let committedToFolder = false;
       if (deps.projectStore === undefined || project === undefined) saved = withProject(session, result.project);
       else {
         const written = deps.projectStore.commit(session, result.project, { input: decision, decidedOn: project });
@@ -323,9 +329,33 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
           return { ok: false, error: { code, message: written.problem.message } };
         }
         saved = written.session;
+        committedToFolder = saved.projectRef !== undefined;
       }
-      deps.saveSession(saved);
+      // A bound project commit is already durable. An embedded decision
+      // becomes durable only when the session is saved.
+      if (!committedToFolder) deps.saveSession(saved);
       const decided = saved.project ?? result.project;
+      if (deps.writeProjectReceipt && project && !isIncognitoSession(saved)) {
+        const { gate, version, verdict } = decision;
+        writeEvidenceReceipt(deps.writeProjectReceipt, deps.warnReceipt, saved, "gate-verdict", () => {
+          const note = verdict !== "approveOverReview" ? undefined
+            : gate.kind === "plan" ? decided.plan?.reviewOverride?.note
+            : gate.kind === "milestone" ? decided.milestones.find(m => m.id === gate.id)?.reviewOverride?.note
+            : undefined;
+          return {
+            gate: gate.kind,
+            ...(gate.kind === "milestone" ? { milestoneId: gate.id } : {}),
+            version,
+            verdict,
+            actor,
+            contentHash: gateContentHash(project, gate),
+            ...(verdict === "edit" || verdict === "cheaper" || verdict === "quality"
+              ? { resultHash: gateContentHash(decided, gate) } : {}),
+            ...(note === undefined ? {} : { note }),
+          };
+        });
+      }
+      if (committedToFolder) deps.saveSession(saved);
       const next = view(saved, decided);
       deps.emit(sessionId, { type: "project_gate", view: next });
       return { ok: true, project: decided, view: next };

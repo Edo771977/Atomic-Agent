@@ -1,3 +1,4 @@
+import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
 import type { AgentLoop } from "../../agent/agent-loop.js";
@@ -726,7 +727,8 @@ export function createRuntimeTurnService(
       ...resolveModelMode(modelModePolicy, runOptions.providerId),
     });
     if (worker) {
-      return turnContext.run({ sessionId: session.id }, async () => {
+      const projectFolder = turnContext.getStore()?.projectFolder ?? projectFolderOf(session);
+      return turnContext.run({ sessionId: session.id, projectFolder }, async () => {
         const unbindBudgetNotices = deps.inference.budgetNotices?.bind(session.id, worker.parentSessionId);
         // A task tree's worker delegates under its parent's director.
         const releaseTeam = deps.inference.sessionTeam?.borrow(session.id, worker.parentSessionId);
@@ -881,7 +883,7 @@ export function createRuntimeTurnService(
     // remaining event of the turn and any tool call whose `pendingCalls`
     // entry went with it is logged with empty args.
     traces.pinSession(session.id);
-    return turnContext.run({ sessionId: session.id }, async () => {
+    return turnContext.run({ sessionId: session.id, projectFolder: projectFolderOf(session) }, async () => {
       // Registered before the mark and ended after the turn's end is
       // written, so `shutdown` waiting on it waits for the row to be right.
       const inFlight = turnsInFlight.begin(runOptions.signal);

@@ -1,10 +1,13 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { projectFilePath } from "./project-store.js";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, expect, it } from "vitest";
+import { afterEach, expect, it, vi } from "vitest";
 import { projectCommand } from "../cli/projects-command.js";
 import { SecretKeychain } from "../config/secret-store.js";
 import { createHash } from "node:crypto";
+import { writeMilestoneReportReceipt } from "./project-milestone-receipt.js";
+import { createEmptySessionState } from "./session-state.js";
 import { canonicalJson, receiptHash } from "./receipt-signing.js";
 import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts } from "./project-receipts.js";
 
@@ -58,7 +61,7 @@ it("verifies historical keys and detects tampered payloads and recomputed hashes
   expect(verifyProjectReceipts(dir, dir)).toEqual(["hash-mismatch", "bad-signature", "unknown-key"]);
   let output = "";
   expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout: line => { output += line; } })).toBe(1);
-  expect(output).toMatch(/Receipt 1: hash-mismatch\nReceipt 2: bad-signature\nReceipt 3: unknown-key/);
+  expect(output).toMatch(/Receipt 1: hash-mismatch \(project unspecified\)\nReceipt 2: bad-signature \(project unspecified\)\nReceipt 3: unknown-key/);
   expect(output).toContain("3 receipts, 0 valid, 3 problems");
 });
 it("reports a missing key once and preserves each unsigned record", () => {
@@ -80,4 +83,85 @@ it("reports unsigned evidence and the trust boundary in the CLI without opening 
   expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout: s => { output += s; } })).toBe(1);
   expect(output).toContain("unsigned"); expect(output).toMatch(/same user/i);
   expect(readFileSync(join(process.cwd(), "src/cli/README.md"), "utf8")).toMatch(/same user/i);
+});
+
+it("signs milestone facts and attachment fingerprints without copying free text or file bytes", () => {
+  const { dir, credentials } = setup();
+  const shots = join(dir, "fusion-runs", "run-1", "shots");
+  mkdirSync(shots, { recursive: true });
+  const shot = join(shots, "shot.png");
+  writeFileSync(shot, "screenshot bytes");
+  const writer = createProjectReceiptWriter(dir, {
+    read: key => ({ ok: true, value: credentials.get(key) ?? null }),
+    write: (key, value) => { credentials.set(key, value); return true; },
+  }, () => {});
+  const session = createEmptySessionState({ id: "report", workingDir: dir });
+  session.project = {
+    gate: { kind: "milestone", id: "m1" },
+    milestones: [{
+      id: "m1", title: "Base", kind: "base", state: "done", runIds: ["run-1"], updatedAt: 42,
+      summary: "director text",
+      criteriaFacts: [{ id: "c1", state: "passed", why: "judge text", reservation: "weak check" }],
+      attachments: [{ path: shot, caption: "screenshot caption", criteria: ["c1"] }],
+    }],
+  };
+  const projectFile = projectFilePath(dir);
+  mkdirSync(join(dir, ".atomic", "project"), { recursive: true });
+  writeFileSync(projectFile, "{}");
+  const refused = vi.fn();
+  writeMilestoneReportReceipt(dir, refused, () => {}, session, "m1");
+  expect(refused).not.toHaveBeenCalled();
+  session.projectRef = { folder: dir, id: "test-project", revision: 1, decisionSeq: 1 };
+  writeMilestoneReportReceipt(dir, writer, () => {}, session, "m1");
+  expect(verifyProjectReceipts(dir, dir)).toEqual(["valid"]);
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const text = readFileSync(path, "utf8");
+  expect(JSON.parse(text)).toMatchObject({
+    kind: "milestone-report",
+    payload: {
+      projectId: "test-project", milestoneId: "m1", state: "done",
+      criteriaFacts: [{ id: "c1", state: "passed", whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
+      attachments: [{ sha256: createHash("sha256").update("screenshot bytes").digest("hex"), criteria: ["c1"] }],
+    },
+  });
+  for (const privateText of ["director text", "judge text", "weak check", "screenshot bytes", "screenshot caption", "shot.png"]) {
+    expect(text).not.toContain(privateText);
+  }
+});
+
+it("reports a future receipt kind distinctly for signed and unsigned rows", async () => {
+  const { dir, append } = setup();
+  append();
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const row = JSON.parse(readFileSync(path, "utf8"));
+  const future = { ...row, kind: "future-evidence" };
+  const unsigned = { ...future, signature: null, keyId: null, status: "unsigned" };
+  const malformed = { ...row, kind: null };
+  writeFileSync(path, [future, unsigned, malformed].map(entry => JSON.stringify(entry)).join("\n") + "\n");
+  expect(verifyProjectReceipts(dir, dir)).toEqual(["unknown-kind", "unknown-kind", "bad-signature"]);
+  const stdout = vi.fn();
+  expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout })).toBe(1);
+  expect(stdout.mock.calls.flat().join("")).toContain("2 unknown-kind");
+});
+
+it("reports an unreadable receipt archive as JSON when requested", async () => {
+  const { dir } = setup();
+  writeFileSync(join(dir, "receipts"), "not an archive directory");
+  const stdout = vi.fn();
+  const stderr = vi.fn();
+  expect(await projectCommand(["verify", "--json", dir], { stateDir: () => dir, stdout, stderr })).toBe(1);
+  expect(stdout).toHaveBeenCalledTimes(1);
+  expect(JSON.parse(stdout.mock.calls.flat().join(""))).toEqual({ error: "Could not read the project's receipt archive." });
+  expect(stderr).toHaveBeenCalledWith("Could not read the project's receipt archive.\n");
+});
+
+it("warns without exposing the requested ID when a saved milestone is missing", () => {
+  const { dir } = setup();
+  const session = createEmptySessionState({ id: "report", workingDir: dir });
+  session.project = { gate: { kind: "none" }, milestones: [] };
+  const writer = vi.fn();
+  const warn = vi.fn();
+  writeMilestoneReportReceipt(dir, writer, warn, session, "private model text");
+  expect(writer).not.toHaveBeenCalled();
+  expect(warn).toHaveBeenCalledExactlyOnceWith("Could not save a milestone evidence receipt because the saved milestone was missing.");
 });
