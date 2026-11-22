@@ -43,7 +43,7 @@ import { parsePlanRowChecks } from "./contract-check-spec.js";
 import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
 import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
 import { frameUntrustedText } from "../untrusted-tool-output.js";
-import { planReviewBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
+import { planReviewBasis, planReviewCallsBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
 import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
@@ -545,7 +545,7 @@ async function reviewDraft(
   // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
   const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
   // Issue #146: read under the person's calls as they stand; changing one at the gate makes it stale.
-  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id), planReviewPersonCalls(project)) };
+  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)), callsBasis: planReviewCallsBasis(planReviewPersonCalls(project)) };
 }
 
 /** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */

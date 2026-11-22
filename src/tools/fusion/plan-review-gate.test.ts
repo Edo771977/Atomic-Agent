@@ -525,7 +525,7 @@ describe("a review the person's decision or backlog call at the gate made stale 
     const state = { project: deferred };
     const view = viewOf(deferred);
     expect(view.planReview).toMatchObject({ stale: true, autoApprovable: false });
-    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review is stale: the tasks or your calls on decisions or backlog items changed since review 1/));
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review is stale: your calls on decisions or backlog items changed since review 1/));
     expect(view.hints).toContainEqual("notes on an earlier version: plan review: decisions: fail: t1 adds a dependency, against d2");
     expect(view.allowedVerdicts).not.toContain("approveOverReview");
     const rt = {
@@ -599,5 +599,29 @@ describe("a review's person calls come from the record, not the item text (issue
     const outside: ProjectState = { ...p, backlog: p.backlog!.map((b) => (b.id === "b2" ? { ...b, title: "Sounds!" } : b)) };
     expect(viewOf(outside).planReview).toMatchObject({ stale: false });
     expect(applyProjectDecision(outside, { gate: outside.gate, version: gateVersion(outside)!, verdict: "approve" }, { now: NOW + 2 })).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+});
+
+describe("reviews recorded before the person-calls basis (issue #146 review)", () => {
+  it("a review recorded while a decision was already deferred stays fresh after the upgrade, and only a row change stales it", async () => {
+    const { planReviewBasis } = await import("./plan-review-record.js");
+    const p0 = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "Snake", users: "Kids", how: "One page", successCriteria: [{ id: "c1", text: "Runs" }], decisions: [{ id: "d1", text: "Use canvas" }, { id: "d2", text: "No new dependencies" }] }, draftedAfterUntrusted: false }, NOW);
+    if (!p0.ok) throw new Error(p0.error.message);
+    const a = applyProjectDecision(p0.project, { gate: p0.project.gate, version: gateVersion(p0.project)!, verdict: "approve" }, { now: NOW });
+    if (!a.ok) throw new Error(a.error.message);
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const plan = { milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build in `game.js`", milestone: "m1", checks: [check(["c1"])], decisions: ["d1"] }] };
+    const drafted = (await draft({ ...a.project, decisionStatus: { d2: "deferred" } }, plan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+    // As stored before this change: the rows-and-milestones basis only, no calls basis.
+    const { callsBasis: _c, ...old } = drafted.plan!.review!;
+    const legacy: ProjectState = { ...drafted, plan: { ...drafted.plan!, review: { ...old, basis: planReviewBasis(drafted.plan!.rows, ["m1"]) } } };
+    const viewOf = (project: ProjectState) => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+    expect(viewOf(legacy).planReview).toMatchObject({ stale: false });
+    expect(applyProjectDecision(legacy, { gate: legacy.gate, version: gateVersion(legacy)!, verdict: "approve" }, { now: NOW + 1 })).toMatchObject({ ok: false, error: { code: "review-open" } });
+    // A row change by the person still stales it, and the hint says the tasks changed.
+    const edited = applyProjectDecision(legacy, { gate: legacy.gate, version: gateVersion(legacy)!, verdict: "edit", edits: { rows: [{ taskId: "t1", reviewer: null }] } }, { now: NOW + 1 });
+    if (!edited.ok) throw new Error(edited.error.message);
+    const renamed: ProjectState = { ...edited.project, plan: { ...edited.project.plan!, rows: edited.project.plan!.rows.map((r) => ({ ...r, worker: "local:other" })) } };
+    expect(viewOf(renamed).hints).toContainEqual(expect.stringMatching(/^plan review is stale: the tasks changed since review 1/));
   });
 });
