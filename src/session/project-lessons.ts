@@ -1,10 +1,11 @@
+import { createHash } from "node:crypto";
 import {
   closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync,
 } from "node:fs";
 import { join, posix, resolve, win32 } from "node:path";
 
-import { PROJECT_LIMITS } from "./project-limits.js";
-import { PROJECT_STORE_DIR_PARTS } from "./project-store.js";
+import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
+import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
 const STATUSES = ["proposed", "active", "retired"] as const;
@@ -25,9 +26,10 @@ export interface ProjectLesson {
   touches: string[];
   declaredStatus: typeof STATUSES[number];
   always: boolean;
-  /** Author content cannot grant approval. Phase 1 reads no decision record. */
+  /** Author content cannot grant approval. */
   approvedByPerson: false;
   sections: Record<Section, string>;
+  hash: string;
 }
 
 export interface ProjectLessonProblem {
@@ -155,7 +157,7 @@ function readSections(body: string[]): Record<Section, string> {
   };
 }
 
-function readLesson(id: string, fields: Map<string, string>, body: string[]): ProjectLesson {
+function readLesson(id: string, fields: Map<string, string>, body: string[], hash: string): ProjectLesson {
   const title = textValue(fields.get("title") ?? "", "title");
   const source = enumValue(fields.get("source") ?? "", SOURCES, "source");
   const declaredStatus = enumValue(fields.get("status") ?? "", STATUSES, "status");
@@ -169,7 +171,7 @@ function readLesson(id: string, fields: Map<string, string>, body: string[]): Pr
   return {
     id, title, source, ...(from === undefined ? {} : { from }), declaredStatus,
     always: always === "true", touches: readTouches(fields.get("touches") ?? ""),
-    approvedByPerson: false, sections: readSections(body),
+    approvedByPerson: false, sections: readSections(body), hash,
   };
 }
 
@@ -201,7 +203,7 @@ function lessonFiles(dir: string): string[] {
   return files.sort();
 }
 
-function readLessonFile(root: string, dir: string, file: string): string {
+function readLessonFile(root: string, dir: string, file: string): { text: string; hash: string } {
   const path = join(dir, file);
   const before = lstatSync(path, { bigint: true });
   if (before.isSymbolicLink()) throw new Error("Symbolic link. Expected a regular lesson file.");
@@ -228,7 +230,11 @@ function readLessonFile(root: string, dir: string, file: string): string {
       length += read;
     }
     if (length > limit) throw new Error(tooLarge);
-    return new TextDecoder("utf-8", { fatal: true }).decode(buffer.subarray(0, length));
+    const bytes = buffer.subarray(0, length);
+    return {
+      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      hash: createHash("sha256").update(bytes).digest("hex"),
+    };
   } finally {
     closeSync(fd);
   }
@@ -265,15 +271,16 @@ export function readProjectLessons(folder: string): ProjectLessons {
   const entries = files.map((file) => {
     let id: string | undefined;
     try {
-      const { fields, body } = frontMatter(readLessonFile(root, dir, file).split(/\r?\n/));
+      const { text, hash } = readLessonFile(root, dir, file);
+      const { fields, body } = frontMatter(text.split(/\r?\n/));
       const declaredId = textValue(fields.get("id") ?? "", "id");
-      if (!/^[a-z0-9-]+$/.test(declaredId) || declaredId.length > PROJECT_LIMITS.id) {
+      if (!validProjectLessonId(declaredId)) {
         throw new Error("Invalid id. Expected up to " + PROJECT_LIMITS.id + " lowercase letters, digits or hyphens.");
       }
       id = declaredId;
       ids.set(id, (ids.get(id) ?? 0) + 1);
       if (id !== file.slice(0, -3)) throw new Error("The id must match the file name.");
-      return { file, id, lesson: readLesson(id, fields, body) };
+      return { file, id, lesson: readLesson(id, fields, body, hash) };
     } catch (error) {
       return { file, id, reason: (error as Error).message };
     }
@@ -289,4 +296,34 @@ export function readProjectLessons(folder: string): ProjectLessons {
     }
   }
   return result;
+}
+
+/** Project files declare readiness; the person's current call controls eligibility. */
+export function projectLessonStatus(lesson: ProjectLesson, call?: ProjectLessonCall) {
+  const stale = call !== undefined && call.hash !== lesson.hash;
+  const personState = stale ? null : call?.state ?? null;
+  const approvedByPerson = personState === "approved";
+  const effectiveStatus = personState === "retired" ? "retired"
+    : lesson.declaredStatus !== "active" ? lesson.declaredStatus
+    : approvedByPerson ? "active" : "unapproved";
+  return { personState, approvedByPerson, effectiveStatus, stale } as const;
+}
+
+export interface ProjectLessonSource {
+  folder: string;
+  id: string;
+}
+
+/** Only a bound, persisted project may contribute lessons. Read files anew for each request. */
+export function activeProjectLessons(source: ProjectLessonSource, stateDir: string): ProjectLesson[] {
+  const result = stateDirProjectRecords(stateDir).read(source.folder);
+  if (!result.ok || result.record?.id !== source.id) return [];
+  return approvedProjectLessons(source.folder, result.record.lessonCalls);
+}
+
+export function approvedProjectLessons(folder: string, calls: Readonly<Record<string, ProjectLessonCall>> | undefined): ProjectLesson[] {
+  if (calls === undefined) return [];
+  return readProjectLessons(folder).lessons.filter(
+    (lesson) => projectLessonStatus(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined).effectiveStatus === "active",
+  );
 }

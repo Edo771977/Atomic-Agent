@@ -9,7 +9,10 @@ import { estimateTokens } from "../prompt/token-budget.js";
  * macro-turn (one user message → 0..N tool steps → one reply) is a
  * contiguous slice of this list.
  */
-export type ConversationTurn =
+export type ConversationTurn = {
+  /** Session-only marker on the first record of a macro-turn exposed to restricted lessons. */
+  restrictedProjectLessonExposure?: true;
+} & (
   | {
       kind: "user";
       text: string;
@@ -90,7 +93,7 @@ export type ConversationTurn =
        */
       toolsRan?: true;
       at: number;
-    };
+    });
 
 /**
  * What an `os.fs.read` result row remembers about the read, taken from the

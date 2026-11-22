@@ -1,3 +1,7 @@
+import { resolveProjectConstraint } from "../config/project-constraint-match.js";
+import { isIncognitoSession } from "../session/incognito.js";
+import { readProjectRef } from "../session/session-project-store.js";
+import { projectLessonSelection, projectLessonDataBlock, projectLessonsForProvider } from "./project-lessons-data.js";
 import { projectSessionConversation } from "../session/session-compaction.js";
 import { buildCloudPrompt } from "./build-cloud-prompt.js";
 import {
@@ -275,7 +279,15 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
       : {}),
   });
 
-  if (input.modelMode?.mode === "cloud") return buildCloudPrompt(input, stablePrefix);
+  const lessonSource = input.session.project?.brief?.status === "approved" && input.session.project.cancelledAt === undefined &&
+    !isIncognitoSession(input.session) ? readProjectRef(input.session) : null;
+  const projectLessons = projectLessonSelection(lessonSource === null ? [] : projectLessonsForProvider(lessonSource, input.modelMode?.providerId));
+  const restrictedLessonData = projectLessons.data.length > 0 && lessonSource !== null &&
+    resolveProjectConstraint(config, lessonSource.folder) !== undefined
+    ? { restrictedProjectLessonData: true as const } : {};
+  if (input.modelMode?.mode === "cloud") {
+    return { ...buildCloudPrompt(input, stablePrefix, projectLessonDataBlock(projectLessons.data, projectLessons.omitted)), ...restrictedLessonData };
+  }
 
   const sessionParts = buildSessionSectionParts(input.session, limits.session);
   // ATO-42: the client's project instructions, fixed for the turn, so they
@@ -408,8 +420,10 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   );
 
   // `contextWindow` was resolved above, before the stable prefix.
+  const projectDigest = renderProjectDigest(input.session.project, projectLessons.data, projectLessons.omitted);
   const sessionTokenEstimate =
-    estimateTokens(sessionPartsForBudget) + loadedToolsTokens + projectTokens;
+    estimateTokens(sessionPartsForBudget) + loadedToolsTokens + projectTokens +
+    (projectLessons.data.length === 0 ? 0 : estimateTokens(projectLessonDataBlock(projectLessons.data, projectLessons.omitted) ?? ""));
   const conversationCapEffective = computeEffectiveConversationCap({
     configuredCap: limits.conversation,
     ...(conversationCapAuto ? { autoFill: true } : {}),
@@ -537,7 +551,6 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   // decision changes it between steps, so it is tail, never prefix.
   // `### fusion project`, not `### project`: that heading is the client's
   // project instructions (ATO-42) ahead of the conversation.
-  const projectDigest = renderProjectDigest(input.session.project);
   if (projectDigest !== null) {
     tailAfter.push(`### fusion project`, projectDigest, ``);
   }
@@ -637,6 +650,7 @@ export function buildPrompt(input: BuildPromptInput): BuiltPrompt {
   };
 
   return {
+    ...restrictedLessonData,
     text,
     stablePrefix,
     tail,

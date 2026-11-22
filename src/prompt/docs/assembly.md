@@ -23,6 +23,8 @@ The actual flat assembly in `build-prompt.ts` is:
 4. Optional route, profile, lessons, procedures, loaded-skills, loaded-tools, fusion project (the fusion project's digest, issue #39: `project-digest.ts`; the `fusion-project` cloud context section on the cloud path, distinct from the client's `project`), task-policy, notice.
 5. Respond anchor and profile-specific generation framing.
 
+Active Fusion project lessons follow the conversation. Local prompts include them in the Fusion project digest. Cloud prompts send the current data in the request tail outside the append-only context journal, so a stale choice stops contributing on the next request.
+
 Empty optional sections are omitted. Notice composition and structured messages share this contract. Sections changed by a step follow conversation; moving them above it can invalidate already read transcript context. The turn's memory snapshot is fetched before stepping.
 
 ## Local budget and packing

@@ -37,7 +37,7 @@ describe("project lesson files", () => {
     write("storage.md", lesson("storage", headings, `[${join("src", "storage.ts")}, 'docs/with,comma.md']`));
     expect(readProjectLessons(folder)).toEqual({ lessons: [{
       id: "storage", title: "Use SQLite: local storage", from: "milestone m2, run r7",
-      source: "person", declaredStatus: "active", approvedByPerson: false,
+      source: "person", declaredStatus: "active", approvedByPerson: false, hash: expect.stringMatching(/^[a-f0-9]{64}$/),
       always: true, touches: [join("src", "storage.ts"), "docs/with,comma.md"],
       sections: { decided: "some text", triedAndRuledOut: "some text", watchOut: "some text" },
     }], problems: [] });
