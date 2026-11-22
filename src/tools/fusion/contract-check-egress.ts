@@ -102,3 +102,52 @@ export function withCheckRun(
   };
   return Object.assign(wrapped, runner.supportsInputIntegrity === true ? { supportsInputIntegrity: true as const } : {});
 }
+
+/** Restore service dependencies when Fusion selects only part of the declared checks. */
+export function withContractCheckServices(
+  runner: ContractCheckRunner | undefined,
+  declared: readonly Record<string, unknown>[],
+  refuse?: ContractCheckEgressRule,
+): ContractCheckRunner | undefined {
+  if (runner === undefined) return undefined;
+  const known = new Map(declared.flatMap(spec =>
+    (spec.kind ?? spec.type) === "service" && typeof spec.id === "string" ? [[spec.id, spec] as const] : []));
+  if (known.size === 0) return runner;
+  const wrapped: ContractCheckRunner = async (specs, ctx) => {
+    const selected = new Map(specs.flatMap((spec, index) =>
+      (spec.kind ?? spec.type) === "service" && typeof spec.id === "string" ? [[spec.id, index] as const] : []));
+    const included = new Set<string>();
+    const expanded: Record<string, unknown>[] = [];
+    const tasks: (string | undefined)[] = [];
+    const positions = specs.map(() => -1);
+    const append = (spec: Record<string, unknown>, task?: string, originalIndex?: number) => {
+      if (originalIndex !== undefined) positions[originalIndex] = expanded.length;
+      expanded.push(spec);
+      tasks.push(task);
+    };
+    for (const [index, spec] of specs.entries()) {
+      if (positions[index] !== -1) continue;
+      const kind = spec.kind ?? spec.type;
+      if (kind === "service" && typeof spec.id === "string") included.add(spec.id);
+      if (kind === "ui" && typeof spec.service === "string" && !included.has(spec.service) &&
+          (refuse === undefined || refuse(guardedShape(spec)) === null)) {
+        const serviceIndex = selected.get(spec.service);
+        const dependency = known.get(spec.service);
+        if (serviceIndex !== undefined) {
+          append(specs[serviceIndex]!, ctx.checkTasks?.[serviceIndex], serviceIndex);
+          included.add(spec.service);
+        } else if (dependency !== undefined) {
+          const { task, criteria: _criteria, judge: _judge, negative: _negative, ...service } = dependency;
+          append(service, typeof task === "string" ? task : undefined);
+          included.add(spec.service);
+        }
+      }
+      append(spec, ctx.checkTasks?.[index], index);
+    }
+    if (expanded.length === specs.length && positions.every((position, index) => position === index)) return runner(specs, ctx);
+    const ran = await runner(expanded, { ...ctx, checkTasks: tasks });
+    const results = positions.map(position => ran.results[position] ?? { ok: false, error: "the runner returned no result" });
+    return { ok: ran.ok && results.every(result => result.ok), results };
+  };
+  return Object.assign(wrapped, runner.supportsInputIntegrity ? { supportsInputIntegrity: true as const } : {});
+}

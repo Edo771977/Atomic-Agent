@@ -202,7 +202,7 @@ import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
 import { createContractCheckHold } from "./contract-check-hold.js";
-import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, type ContractCheckEgressRule } from "./contract-check-egress.js";
+import { contractChecksAllowedByEgress, withCheckRun, withContractCheckEgress, withContractCheckServices, type ContractCheckEgressRule } from "./contract-check-egress.js";
 import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
@@ -1631,7 +1631,9 @@ export function buildFusionDelegateTool(
       let checkRun: ContractCheckRun | undefined;
       // How many times the gate ran each check spec in this call (issue #106 review): a reused outcome is said to be reused.
       const gateRunCounts = new Map<string, number>();
-      const heldRunChecks = countGateRuns(withCheckRun(withContractCheckEgress(checkHold.runner, checkEgress), () => checkRun), gateRunCounts);
+      const withCheckDependencies = (runner: ContractCheckRunner | undefined, declarations: readonly Record<string, unknown>[] = parsed.contract?.checks ?? []) =>
+        withContractCheckServices(withContractCheckEgress(runner, checkEgress), declarations, checkEgress);
+      const heldRunChecks = countGateRuns(withCheckRun(withCheckDependencies(checkHold.runner), () => checkRun), gateRunCounts);
       // Escalation and judge calls name the delegating session, so they
       // count in its spend readout like the workers' own calls (ATO-1388).
       const sideComplete: FusionDelegateDeps["escalationComplete"] =
@@ -1790,6 +1792,7 @@ export function buildFusionDelegateTool(
        * call's milestone in its earlier runs (issue #106), newest first,
        * one per check identity, less those this call's contract runs itself.
        */
+      const historicalServices = new Map<string, Record<string, unknown>>();
       const priorPassedChecks = (): Record<string, unknown>[] => {
         const runsDir = deps.runCheckpoints?.runsDir;
         const milestoneId = projectVerdict.kind === "admit" ? projectVerdict.milestoneId : null;
@@ -1805,11 +1808,16 @@ export function buildFusionDelegateTool(
         const seen = new Set<string>();
         const out: Record<string, unknown>[] = [];
         for (const runId of [...milestone.runIds].reverse()) {
-          for (const check of readRunCriteria(runsDir, runId).passedChecks ?? []) {
+          const passed = readRunCriteria(runsDir, runId).passedChecks ?? [];
+          for (const check of passed) {
             const key = checkSpecKey(check);
             if (own.has(key) || seen.has(key) || superseded(check)) continue;
             seen.add(key);
             out.push(check);
+            if ((check.kind ?? check.type) === "ui" && typeof check.service === "string" && !historicalServices.has(check.service)) {
+              const service = passed.find(spec => (spec.kind ?? spec.type) === "service" && spec.id === check.service && spec.task === check.task);
+              if (service !== undefined) historicalServices.set(check.service, service);
+            }
           }
         }
         return out;
@@ -3319,7 +3327,10 @@ export function buildFusionDelegateTool(
           const toRun = (candidate === undefined
             ? regressionChecks
             : rebaseVerifyWorkspaceValue(regressionChecks, candidateOriginalDir, candidate.dir)) as ContractCheck[];
-          const rerun = await runContractChecks(toRun, heldRunChecks, {
+          const services = [...historicalServices.values()];
+          const declarations = [...toRun, ...(candidate === undefined ? services : rebaseVerifyWorkspaceValue(services, candidateOriginalDir, candidate.dir))];
+          const regressionRunner = withCheckRun(withCheckDependencies(checkHold.runner, declarations), () => checkRun);
+          const rerun = await runContractChecks(toRun, regressionRunner, {
             workingDir: ctx.workingDir, signal: runSignal, filesOf: declaredFilesOf, recordCheckRun,
             ...(deps.knownSecrets === undefined ? {} : { knownSecrets: collectKnownSecrets() }),
           });
@@ -3657,7 +3668,7 @@ export function buildFusionDelegateTool(
           rows: results,
           tasks: parsed.tasks,
           contract: parsed.contract,
-          runChecks: withContractCheckEgress(checkHold.finalRunner, checkEgress),
+          runChecks: withCheckDependencies(checkHold.finalRunner),
           holdChecks: deps.runChecks === undefined
             ? undefined
             : (signal) => checkHold.decide(signal, contractChecksAllowedByEgress((parsed.contract?.checks ?? []).filter(check => (check.kind ?? check.type) !== "ui"), checkEgress)),
