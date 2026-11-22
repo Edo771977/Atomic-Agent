@@ -1,3 +1,5 @@
+import { projectCommand } from "../../cli/projects-command.js";
+import { projectFolderOf } from "../../session/project-folder.js";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +137,38 @@ it.each([true, false])("archives direct task manifests outside incognito (incogn
     expect(warn).not.toHaveBeenCalled();
     expect(verifyProjectReceipts(stateDir, f.root)).toEqual(writeProjectReceipt.mock.calls.map(() => "valid"));
   }
+});
+
+it.each([true, false])("verifies every worktree receipt from the original project (candidate=%s)", async candidate => {
+  const stateDir = await mkdtemp(join(tmpdir(), "worktree-receipts-"));
+  const original = await mkdtemp(join(tmpdir(), "worktree-original-"));
+  roots.push(stateDir, original);
+  const credentials = new Map<string, string>();
+  const writeProjectReceipt = createProjectReceiptWriter(stateDir, {
+    read: key => ({ ok: true, value: credentials.get(key) ?? null }),
+    write: (key, value) => { credentials.set(key, value); return true; },
+  }, () => {});
+  const f = await fixture({ writeProjectReceipt }, candidate);
+  const session = createEmptySessionState({ id: f.ctx.sessionId, workingDir: f.root });
+  session.worktree = { repoRoot: original, originalWorkingDir: original, path: f.root, branch: "work", baseBranch: "main", baseCommit: "test", createdAt: 0 };
+  f.deps.receiptProjectFolder = () => projectFolderOf(session);
+  writeProjectReceipt(original, "gate-verdict", { version: 1 });
+  writeProjectReceipt(original, "milestone-report", { state: "done" });
+  f.deps.runTurn = async worker => {
+    await writeFile(join(worker.workingDir, "api.json"), '{"name":"after"}');
+    return { session: worker, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const result = await buildFusionDelegateTool(f.deps).run({
+    tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
+  }, f.ctx);
+  expect(result.status).toBe("ok");
+  const stdout = vi.fn();
+  expect(await projectCommand(["verify", original, "--json"], { stateDir: () => stateDir, stdout })).toBe(0);
+  const rows = JSON.parse(stdout.mock.calls.flat().join("")) as Array<{ kind: string; status: string }>;
+  expect(new Set(rows.map(row => row.kind))).toEqual(new Set(["gate-verdict", "milestone-report", "artifact-manifest", "check-run-record"]));
+  expect(rows.every(row => row.status === "valid")).toBe(true);
+  expect(verifyProjectReceipts(stateDir, f.root)).toEqual([]);
 });
 
 it("keeps rejected no-check output as a patch and refuses resume without dispatch", async () => {

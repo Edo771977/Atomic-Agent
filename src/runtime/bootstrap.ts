@@ -1169,6 +1169,7 @@ export async function createAgentRuntime(
     outcomeLog: fusionOutcomes.outcomeLog,
     outcomeJournal: fusionOutcomeJournal,
     writeProjectReceipt,
+    receiptProjectFolder: () => turnContext.getStore()?.projectFolder,
     turnLedger: fusionOutcomes.ledger,
     steerWorker: (sessionId, text) => steeringInbox.push(sessionId, text),
     orchestratorTurnSpendUsd: (sessionId) => turnUsageMeter.peekCostUsd(sessionId),
