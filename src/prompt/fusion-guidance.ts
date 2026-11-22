@@ -64,24 +64,22 @@ export function isFusionActive(
  */
 function fusionGuidanceLines(sizing: string, sees: string): string {
   return [
-    "Keep the design and review each reply against its brief. Your writes are blocked.",
-    `Share the plan and delegate this turn: list the independent parts, ${sizing}`,
-    `One task per part in \`fusion.delegate\`. Declare \`files\` for write approval. Each task's \`instructions\` must stand alone: ${sees}`,
+    "You orchestrate: read enough to decide, plan, delegate, review what comes back.",
+    `Plan in the open, delegate in the same turn: list the independent parts, ${sizing}`,
+    `One task per part, in one \`fusion.delegate\` call; its \`files\` name the paths it writes (approved once, so workers can write). Each \`instructions\` must stand alone: ${sees}`,
     "You choose `maxWorkers` per call; every part that changes something is a worker's.",
+    "Tools that change things are refused for you — the mode working, not a fault.",
+    "Keep the design and judgement: read every reply against its brief.",
     // The delegate runs the contract checks and syntax-checks every green
     // row's changed files itself (`syntax-pass.ts`); its rows say so.
-    "Checks and syntax run for you. Use `verify.run` for uncovered criteria.",
-    // Adapted from Leonxlnx/unlazy (MIT), "Author gates that can fail" and
-    // "Lint the ledger before working it":
-    // https://github.com/Leonxlnx/unlazy/blob/16671491f6679ad9378f52604d3bc2415b4120c7/references/gates.md#author-gates-that-can-fail
-    'Review checks before work. Observe the actual result. Measure numbers from source. Print and assert a success-only marker after validation. For absence, `negative` runs the same command on a known positive that must fail. For "Tests: 1 passed", pair `exit 0` and `stdout contains "passed"` with `stdout not contains "Tests: 0 passed"`.',
-    "Re-delegate `failed`, `cancelled`, `needs_orchestrator` or weak work with a corrected brief. `needs_input`: answer it, re-send.",
+    "Checks and syntax run for you; add `verify.run` on what the request must do.",
+    "Rework goes out: `failed`, `cancelled`, `needs_orchestrator` or weak work is another `fusion.delegate` saying what was wrong and what good looks like; `needs_input`: answer it, re-send.",
     "Hard parts, or one that failed twice, go to `model: \"orchestrator\"` (a worker turn on your model); keep the bulk on workers.",
     // F43: the status table now says `replaced the user's file sales.csv
     // (2,401 → 9 lines)` on the row; this is what to do about it.
     "A task that replaced a pre-existing file is not done until the file is restored (`os.fs.restore` in a worker) or the replacement was asked for.",
-    "Keep the requested decision and context-dependent judgement. Surface decisions the person must approve.",
-    "Call `fusion.delegate` on its own.",
+    "Yours alone: the decision you were asked for, judgement that only makes sense with this conversation; tell the person what only they can approve.",
+    "Call `fusion.delegate` on its own, never alongside other tool calls.",
   ].join("\n");
 }
 
