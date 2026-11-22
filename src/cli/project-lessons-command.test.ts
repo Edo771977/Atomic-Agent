@@ -149,9 +149,15 @@ describe("project lessons", () => {
     for (const id of ["private-active", "private-stale", "private-retired", "private-proposed", "private-unapproved"]) {
       writeLesson(id, id === "private-proposed" ? "proposed" : "active");
     }
-    for (const [action, id] of [["approve", "private-active"], ["approve", "private-stale"], ["retire", "private-retired"], ["approve", "private-proposed"]]) {
+    for (const [action, id] of [["approve", "private-active"], ["approve", "private-stale"], ["retire", "private-retired"]]) {
       expect(await projectCommand(["lessons", folder, "--" + action, action === "approve" ? approval(dir, id!) : id!], { stdout, stderr, stateDir: () => stateDir })).toBe(0);
     }
+    for (const status of ["proposed", "retired"]) {
+      writeLesson("private-proposed", status);
+      expect(await projectCommand(["lessons", folder, "--approve", approval(dir, "private-proposed")], { stdout, stderr, stateDir: () => stateDir })).toBe(1);
+      expect(stderr).toHaveBeenLastCalledWith(expect.stringContaining("status: " + status));
+    }
+    writeLesson("private-proposed", "proposed");
     writeLesson("private-stale", "active", "changed");
 
     const director = (mode: "local" | "cloud", providerId: string, session = saved.session) => {

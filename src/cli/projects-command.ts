@@ -527,6 +527,7 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
       return refuse(`No valid lesson named ${id}.`);
     }
     if (state === "approved" && lesson !== undefined) {
+      if (lesson.declaredStatus !== "active") return refuse(`Cannot approve ${id} with status: ${lesson.declaredStatus}. Set status: active first.`);
       const fingerprint = lesson.hash.slice(0, 12);
       if (decision.fingerprint === undefined) return refuse(`Current fingerprint: ${fingerprint}. Review the lesson and use --approve ${id}@${fingerprint}.`);
       if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
