@@ -367,9 +367,12 @@ export interface ProjectPlan {
   /**
    * The person approved this plan over the plan reviewer's open fails
    * (`approveOverReview`, issue #118, like a milestone's): their note,
-   * when, and the notes it stood over. Record only; gone with the approval.
+   * when, the notes it stood over, and the review's `basis` it was given
+   * on. Record only. It stands while the plan holds that review on the
+   * same rows (the plan gate reopening after a milestone's hard cap asks
+   * nothing again); a new draft drops it.
    */
-  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[] };
+  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[]; basis?: string };
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -1473,8 +1476,13 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
         // Issue #118: the record's; a malformed one reads as no review.
         const review = readPlanReviewRecord(p.review);
         const o = p.reviewOverride;
-        const override = p.status === "approved" && isObject(o) && typeof o.note === "string" && o.note.trim().length > 0 && isTime(o.at)
-          ? { note: clipText(o.note, PROJECT_LIMITS.correctionNote), at: o.at as number, blocks: Array.isArray(o.blocks) ? cleanReviewBlocks(o.blocks) : [] }
+        const override = isObject(o) && typeof o.note === "string" && o.note.trim().length > 0 && isTime(o.at)
+          ? {
+              note: clipText(o.note, PROJECT_LIMITS.correctionNote),
+              at: o.at as number,
+              blocks: Array.isArray(o.blocks) ? cleanReviewBlocks(o.blocks) : [],
+              ...(typeof o.basis === "string" && /^[0-9a-f]{16}$/.test(o.basis) ? { basis: o.basis } : {}),
+            }
           : undefined;
         return { ...(review === undefined ? {} : { review }), ...(override === undefined ? {} : { reviewOverride: override }) };
       })(),
@@ -1631,11 +1639,11 @@ export function projectVerdictResets(project: ProjectState | undefined, update: 
   return after.project.milestones.filter((m) => fresh.includes(m.id)).map((m) => m.title);
 }
 
-function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true; reviewOverride?: unknown }>(value: T): T {
+function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true }>(value: T): T {
+  // A plan's `reviewOverride` stays (issue #118): it is bound to its review's basis, not to the approval.
   const copy = { ...value };
   delete copy.approvedAt;
   delete copy.approvedWithUntrustedWarning;
-  delete copy.reviewOverride;
   return copy;
 }
 
@@ -2387,7 +2395,8 @@ function decideProject(
     if (note.length === 0) {
       return refuse({ code: "invalid", message: "Approving over the plan reviewer's open notes needs a note saying why." });
     }
-    const overridden: ProjectState = { ...project, plan: { ...project.plan!, reviewOverride: { note, at: now, blocks: openPlanReviewBlocks(project) } } };
+    const basis = project.plan!.review?.basis;
+    const overridden: ProjectState = { ...project, plan: { ...project.plan!, reviewOverride: { note, at: now, blocks: openPlanReviewBlocks(project), ...(basis === undefined ? {} : { basis }) } } };
     return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
   }
 
@@ -2407,7 +2416,8 @@ function decideProject(
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       // Issue #118: the plan reviewer's open fails, unless the person approved over them (never an automatic path).
       const reviewBlocks = openPlanReviewBlocks(project);
-      if (reviewBlocks.length > 0 && project.plan!.reviewOverride === undefined) {
+      const override = project.plan!.reviewOverride;
+      if (reviewBlocks.length > 0 && (override === undefined || override.basis !== project.plan!.review?.basis)) {
         return refuse({
           code: "review-open",
           message: `The plan stays open: the plan reviewer's notes fail it: ${reviewBlocks.map((b) => b.reason).join("; ")}. Ask the director to revise the plan, or approve over the review with a note (approveOverReview).`,

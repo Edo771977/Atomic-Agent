@@ -401,3 +401,31 @@ describe("plan review rounds per plan cycle (review round, issue #118)", () => {
     expect(next.plan?.review).toMatchObject({ round: 1, sentBack: true });
   });
 });
+
+describe("the person's override over the plan review (review round, issue #118)", () => {
+  it("holds when the plan gate reopens on the same rows after a milestone's hard cap", async () => {
+    const twoMilestones = {
+      milestones: [{ id: "m1", title: "Build", kind: "base" }, { id: "m2", title: "Polish", kind: "polish" }],
+      tasks: [
+        { id: "t1", title: "Build the board in `game.js`", milestone: "m1", checks: [check(["c1"])] },
+        { id: "t2", title: "Keys in `game.js`", milestone: "m2", checks: [check(["c2"])] },
+      ],
+    };
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor" } }) }));
+    const atGate = (await draft(approvedBrief(), twoMilestones, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+    const over = applyProjectDecision(atGate, { gate: atGate.gate, version: gateVersion(atGate)!, verdict: "approveOverReview", edits: { note: "the editor comes later" } }, { now: NOW + 1 });
+    if (!over.ok) throw new Error(over.error.message);
+    let p = over.project;
+    for (const u of [{ kind: "milestone_run", id: "m1", runId: "r1" }, { kind: "milestone", id: "m1", state: "done", summary: "built" }] as ProjectUpdate[]) {
+      const r = applyProjectUpdate(p, u, NOW + 2);
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    const capped = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approve" }, { now: NOW + 3, hardViolations: ["over today's limit"] });
+    if (!capped.ok) throw new Error(capped.error.message);
+    expect(capped.project.gate).toEqual({ kind: "plan" });
+    expect(capped.project.plan?.reviewOverride?.note).toBe("the editor comes later");
+    const again = applyProjectDecision(capped.project, { gate: capped.project.gate, version: gateVersion(capped.project)!, verdict: "approve" }, { now: NOW + 4 });
+    expect(again.ok).toBe(true);
+  });
+});
