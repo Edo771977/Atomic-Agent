@@ -328,6 +328,24 @@ describe("the runner passes a run only when every required task is accepted", ()
 });
 
 describe("the reviewer's identity", () => {
+  it("reads the runtime's structured reviewer fields alongside a model-only label", () => {
+    const project = { plan: { rows: [{ taskId: "report", milestoneId: "delivery", reviewer: "team:editor" }] } };
+    const line = JSON.stringify({
+      type: "task", ts: "1", session: runner.sessionTag("s"), status: "ok",
+      taskKey: runner.outcomeKey("report"), milestoneKey: runner.outcomeKey("delivery"),
+      review: {
+        decision: "accept", reviewer: "substitute", reviewerProvider: "team",
+        reviewerModel: "substitute", reviewerPlanRef: "team:editor",
+      },
+    });
+    const { tasks } = runner.outcomeSummary([line], "s");
+    const [task] = runner.joinVerdicts(project, tasks);
+    expect(task.latestReview).toEqual({
+      planned: "team:editor", recorded: "team:substitute", reviewedBy: "reviewer",
+      provider: "team", model: "substitute", planRef: "team:editor", mismatch: false,
+    });
+  });
+
   it("records provider and effective model, and flags a reviewer that is not the plan's", () => {
     const blocked = runSample("sample-run-blocked").report;
     expect(blocked.tasks[1].latestReview).toMatchObject({ planned: "codex-cli:default", recorded: "default", mismatch: true });

@@ -514,10 +514,12 @@ describe("strict-tool conformance over every registered tool", () => {
     });
   });
 
-  it("carries all milestone kinds in the project.plan schema sent in strict tool mode", () => {
+  it("carries milestone kinds and task lesson citations in the project.plan schema sent in strict tool mode", () => {
     const plan = strictTools.map((tool) => tool.function as Schema).find((fn) => fn.name === "project__plan");
+    expect(plan?.strict).toBe(false);
     expect(plan?.parameters).toMatchObject({
       properties: {
+        tasks: { items: { properties: { lessons: { type: "array", maxItems: 128, items: { type: "string" } }, files: { type: "array", maxItems: 32 } } } },
         milestones: {
           items: {
             properties: {

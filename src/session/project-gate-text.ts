@@ -156,6 +156,11 @@ export function projectGateHeadline(view: ProjectGateView): string {
   }
 }
 
+export function lessonCoverageLine(lesson: NonNullable<ProjectGateView["lessonCoverage"]>[number]): string {
+  const missing = !lesson.deferred && lesson.missingFrom.length > 0 ? ` · missing from ${lesson.missingFrom.join(", ")}` : "";
+  return `${lesson.id} ${lesson.title} (${lesson.deferred ? "deferred" : "active"}) · cited by ${lesson.citedBy.join(", ") || "none"}${missing}`;
+}
+
 export function formatProjectGateText(view: ProjectGateView): string {
   const out: string[] = [`${projectGateHeadline(view)} (version ${view.version}).`];
   const brief = view.brief;
@@ -170,6 +175,7 @@ export function formatProjectGateText(view: ProjectGateView): string {
     if (brief.successCriteria.length > 0) out.push(`  Done when: ${brief.successCriteria.join("; ")}`);
   }
   if ((view.decisions ?? []).length > 0) out.push("  Decisions:", ...view.decisions!.map((d) => `    ${decisionLine(d)}`));
+  if (view.lessonCoverage?.length) out.push("  Lessons:", ...view.lessonCoverage.map((lesson) => `    ${lessonCoverageLine(lesson)}`));
   if (view.gate.kind !== "brief" && view.plan?.draftedAfterUntrusted) {
     out.push(`  ${PLAN_UNTRUSTED_WARNING}`);
   }

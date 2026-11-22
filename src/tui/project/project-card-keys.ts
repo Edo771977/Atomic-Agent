@@ -128,6 +128,10 @@ export function handleProjectCardKey(
     send({ ...base, verdict: "edit", edits: { decisionStatus: picked.decisionStatus } });
     return;
   }
+  if (picked.lessonStatus !== undefined) {
+    send({ ...base, verdict: "edit", edits: { lessonStatus: picked.lessonStatus } });
+    return;
+  }
   run(picked.verdict);
 
   function run(verdict: ProjectVerdict): void {

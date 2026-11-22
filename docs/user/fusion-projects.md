@@ -45,7 +45,7 @@ atomic-agent project lessons ./my-project --reopen local-storage
 
 Replace the example fingerprint with the one displayed for the lesson. Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
 
-The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to flag a binding choice for planning and review. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
+The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to make it binding. Every task whose declared files or checks match its `touches` must cite the lesson. A binding lesson with omitted or empty `touches`, or with `touches: ["."]`, applies to every task in a milestone that has yet to start. Existing approvals of unchanged `always: true` lessons with `touches: []` also apply to every such task. The existing approval remains valid because it covers the same file fingerprint. You can defer the lesson at the plan gate to set it aside for the current plan. Missing citations block approval, and assigned workers receive the cited lessons as binding project data. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
 ## Read the plan checks
 
@@ -54,6 +54,17 @@ A plan can list checks for each task before work starts. Check that the tasks co
 - A clearly ineffective check can block the plan. For example, a command that prints `passed` and then checks for that same word proves little. An assertion that would also match `0 passed` can trigger a warning.
 - A **negative control** runs the same check with input that should fail. For a CSV validator, try a file with a required column missing. If the negative input passes, the check is unreliable and its criterion remains unverified. If the control could not run, an otherwise passing result may read **verified with reservations**.
 - A **references** warning may identify a missing file, package script or code symbol the plan expects to find. Ask the director to fix the reference or say that the task will create it. A references warning alone allows approval.
+
+## Defer a binding lesson for a plan
+
+The plan card lists each binding lesson and the tasks that cite it. Press **l** to defer uncovered lessons or **r** to reactivate deferred lessons. In the CLI, target a lesson by ID.
+
+```sh
+atomic-agent run --session <session-id> --defer-lesson <lesson-id>
+atomic-agent run --session <session-id> --activate-lesson <lesson-id>
+```
+
+The choice stays with the current plan and is saved with your approvals. The plan version changes and the earlier review becomes stale. Review the updated plan before approving it.
 
 ## Keep decisions visible
 
@@ -102,7 +113,7 @@ The command prints the updated plan and exits 3 while it waits for approval. Rev
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.
 
 - **Plan not reviewed** means you should check the plan yourself. A skipped or unavailable review can leave the plan in this state.
-- **Notes on an earlier version** means the rows or milestone order changed after the review, or you changed a decision's status or deferred a backlog item at the gate. Those notes no longer block your plain approval; read them alongside the current plan. Automatic approval still stops there.
+- **Notes on an earlier version** means the rows or milestone order changed after the review, or you changed the status of a decision, binding lesson or backlog item at the gate. Those notes no longer block your plain approval; read them alongside the current plan. Automatic approval still stops there.
 - **Approve over review** is available when the current review blocks approval and the gate allows an override. Write why you are proceeding. The reason is saved with the approval. Failed plan checks still block approval.
 
 For a CLI run, `--auto-approve-project` approves eligible gates as they open. It stops for open plan review failures, or when a required review is missing, skipped or stale. It also stops for changes made outside Atomic Agent, failed plan checks and milestone results that need your decision. Review the gate and the version it prints. To approve an eligible version yourself, use:
