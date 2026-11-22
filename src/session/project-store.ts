@@ -195,11 +195,14 @@ const readVersionsText = (): string => {
 /**
  * The file's project without what only the runtime records (issue #120:
  * `plan.referenceCheck`, read from the project folder when the plan was
- * drafted): the state dir's record holds it, the file never does.
+ * drafted; issue #118: `plan.review`, the plan reviewer's notes, and
+ * `plan.reviewOverride`, the person's approval over them): the state
+ * dir's record holds them, the file never does.
  */
 function withoutRuntimeRecords(project: unknown): unknown {
-  if (!isObject(project) || !isObject(project.plan) || !("referenceCheck" in project.plan)) return project;
-  const { referenceCheck: _r, ...plan } = project.plan;
+  if (!isObject(project) || !isObject(project.plan)) return project;
+  if (!("referenceCheck" in project.plan) && !("review" in project.plan) && !("reviewOverride" in project.plan)) return project;
+  const { referenceCheck: _r, review: _review, reviewOverride: _override, ...plan } = project.plan;
   return { ...project, plan };
 }
 

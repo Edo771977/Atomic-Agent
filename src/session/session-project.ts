@@ -26,6 +26,7 @@ import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
+import { readPlanReviewRecord, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -355,6 +356,20 @@ export interface ProjectPlan {
    * row text change since reads as not re-checked.
    */
   referenceCheck?: PlanReferenceRecord;
+  /**
+   * Issue #118: what the plan reviewer said about this draft, per
+   * dimension, with its round and the basis it read (runtime-set by
+   * `project.plan`, never the model's). Record only: `project.json`
+   * never holds it. A fresh review's `fail` refuses a plain approval;
+   * the person may approve over it with a note ({@link reviewOverride}).
+   */
+  review?: PlanReviewRecord;
+  /**
+   * The person approved this plan over the plan reviewer's open fails
+   * (`approveOverReview`, issue #118, like a milestone's): their note,
+   * when, and the notes it stood over. Record only; gone with the approval.
+   */
+  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[] };
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -580,6 +595,15 @@ export type ProjectUpdate =
       draftedAfterUntrusted?: boolean;
       /** The runtime's references check of these rows (issue #120); absent: not checked. */
       referenceCheck?: PlanReferenceRecord;
+      /** The runtime's plan review of these rows (issue #118); absent: not reviewed. */
+      planReview?: PlanReviewRecord;
+      /**
+       * Set by `project.plan` (never the model's arguments) when the plan
+       * reviewer failed the draft and rounds are left (issue #118): the
+       * draft is kept with its review for the director to revise, and no
+       * gate opens for the person. Taken only with a review sent back.
+       */
+      holdForReview?: true;
     }
   | {
       kind: "milestone";
@@ -1416,6 +1440,15 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
         return referenceCheck === undefined ? {} : { referenceCheck };
       })(),
       ...(() => {
+        // Issue #118: the record's; a malformed one reads as no review.
+        const review = readPlanReviewRecord(p.review);
+        const o = p.reviewOverride;
+        const override = p.status === "approved" && isObject(o) && typeof o.note === "string" && o.note.trim().length > 0 && isTime(o.at)
+          ? { note: clipText(o.note, PROJECT_LIMITS.correctionNote), at: o.at as number, blocks: Array.isArray(o.blocks) ? cleanReviewBlocks(o.blocks) : [] }
+          : undefined;
+        return { ...(review === undefined ? {} : { review }), ...(override === undefined ? {} : { reviewOverride: override }) };
+      })(),
+      ...(() => {
         const resets = p.status === "draft" ? cleanVerdictResets(p.verdictResets, ids) : [];
         const retired = p.status === "draft" ? cleanVerdictResets(p.evidenceRetired, ids) : [];
         return { ...(resets.length === 0 ? {} : { verdictResets: resets }), ...(retired.length === 0 ? {} : { evidenceRetired: retired }) };
@@ -1568,10 +1601,11 @@ export function projectVerdictResets(project: ProjectState | undefined, update: 
   return after.project.milestones.filter((m) => fresh.includes(m.id)).map((m) => m.title);
 }
 
-function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true }>(value: T): T {
+function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true; reviewOverride?: unknown }>(value: T): T {
   const copy = { ...value };
   delete copy.approvedAt;
   delete copy.approvedWithUntrustedWarning;
+  delete copy.reviewOverride;
   return copy;
 }
 
@@ -2004,9 +2038,13 @@ function planUpdate(
   }
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
   const referenceCheck = readPlanReferenceRecord(update.referenceCheck);
+  const review = readPlanReviewRecord(update.planReview);
+  // Issue #118: a draft the reviewer sent back stays with the director.
+  const held = update.holdForReview === true && review?.sentBack === true;
   const plan: ProjectPlan = {
     rows,
     ...(referenceCheck === undefined ? {} : { referenceCheck }),
+    ...(review === undefined ? {} : { review }),
     checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, referenceCheck === undefined ? {} : { references: referenceCheck }, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
@@ -2022,7 +2060,7 @@ function planUpdate(
       brief: project.brief,
       plan,
       milestones,
-      gate: { kind: "plan" },
+      gate: held ? { kind: "none" } : { kind: "plan" },
       ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
       ...(project.approvedDecisions === undefined ? {} : { approvedDecisions: project.approvedDecisions }),
       ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
