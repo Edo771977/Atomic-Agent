@@ -42,7 +42,7 @@ describe("spreadsheet verification fixtures through verify.run", () => {
   it("passes the reference workbook", async () => {
     const result = await verify("sales.xlsx");
     expect(result.status, result.summary).toBe("ok");
-    expect(result.details).toMatchObject({ ok: true, kind: "spreadsheet" });
+    expect(result.details).toMatchObject({ ok: true, kind: "spreadsheet", artifactStatus: "pass" });
   });
 
   it.each([
@@ -51,7 +51,7 @@ describe("spreadsheet verification fixtures through verify.run", () => {
   ])("fails %s with the cell and reason", async (path, detail) => {
     const result = await verify(path);
     expect(result.status, result.summary).toBe("error");
-    expect(result.details).toMatchObject({ ok: false, kind: "spreadsheet" });
+    expect(result.details).toMatchObject({ ok: false, kind: "spreadsheet", artifactStatus: "fail" });
     expect(result.summary).toMatch(detail);
   });
 });
