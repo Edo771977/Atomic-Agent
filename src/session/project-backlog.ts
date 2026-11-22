@@ -78,7 +78,28 @@ const cleanRef = (v: unknown): string | null =>
 
 const invalid = (message: string): ProjectUpdateResult => ({ ok: false, error: { code: "invalid", message } });
 
-type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls">;
+type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCalls"> & Partial<Pick<ProjectState, "plan" | "milestones">>;
+
+const FINISHED_STATES: ReadonlySet<string> = new Set(["done", "reviewed"]);
+
+/**
+ * Issue #146: the plan version that took a promoted item in, while that
+ * still stands: the current plan cites it on a task of a milestone not
+ * done or reviewed, or a done or reviewed milestone cited it in the plan
+ * it ran under (`backlogCited`). A re-plan that drops the citation before
+ * the work ran puts the item back among those the next plan must take
+ * in. A call taken in by #111's rule (no `cited`) stands as recorded.
+ */
+export function backlogTakenIn(project: BacklogView, id: string): number | undefined {
+  const call = project.backlogCalls?.[id];
+  if (call?.plannedIn === undefined) return undefined;
+  if (call.cited !== true) return call.plannedIn;
+  const milestones = project.milestones ?? [];
+  const finished = new Set(milestones.filter((m) => FINISHED_STATES.has(m.state)).map((m) => m.id));
+  const ran = milestones.some((m) => finished.has(m.id) && (m.backlogCited ?? []).includes(id));
+  const planned = (project.plan?.rows ?? []).some((r) => !finished.has(r.milestoneId) && (r.backlog ?? []).includes(id));
+  return ran || planned ? call.plannedIn : undefined;
+}
 
 /** What a person's call on an item is bound to: its title, note and condition (not its source, origin or time). */
 export function backlogItemHash(item: Pick<ProjectBacklogItem, "title" | "note" | "condition">): string {
@@ -109,7 +130,7 @@ export function openSeeds(project: BacklogView): ProjectBacklogItem[] {
 
 /** The items the person promoted that no plan they approved has taken in yet. */
 export function promotedForPlan(project: BacklogView): ProjectBacklogItem[] {
-  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && project.backlogCalls?.[b.id]?.plannedIn === undefined);
+  return (project.backlog ?? []).filter((b) => backlogStateOf(project, b.id) === "promoted" && backlogTakenIn(project, b.id) === undefined);
 }
 
 /**
@@ -260,16 +281,24 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
  * takes nothing in.
  */
 export function markPromotedPlanned(project: ProjectState, version: number): ProjectState {
-  const finished = new Set(project.milestones.filter((m) => m.state === "done" || m.state === "reviewed").map((m) => m.id));
-  const cited = new Set((project.plan?.rows ?? []).filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
+  const finished = new Set(project.milestones.filter((m) => FINISHED_STATES.has(m.state)).map((m) => m.id));
+  const rows = project.plan?.rows ?? [];
+  // Each milestone that will run records what its tasks cite in the plan approved (its snapshot).
+  const milestones = project.milestones.map((m) => {
+    if (finished.has(m.id)) return m;
+    const cited = [...new Set(rows.filter((r) => r.milestoneId === m.id).flatMap((r) => r.backlog ?? []))];
+    const { backlogCited: _old, ...rest } = m;
+    return cited.length === 0 ? (m.backlogCited === undefined ? m : rest) : { ...rest, backlogCited: cited };
+  });
+  const cited = new Set(rows.filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
   const taken = promotedForPlan(project).filter((b) => cited.has(b.id));
-  if (taken.length === 0) return project;
+  if (taken.length === 0) return { ...project, milestones };
   const calls: Record<string, ProjectBacklogCall> = { ...(project.backlogCalls ?? {}) };
   for (const b of taken) {
     const { deferred: _d, ...call } = calls[b.id]!;
-    calls[b.id] = { ...call, plannedIn: version };
+    calls[b.id] = { ...call, plannedIn: version, cited: true };
   }
-  return { ...project, backlogCalls: calls };
+  return { ...project, milestones, backlogCalls: calls };
 }
 
 /**

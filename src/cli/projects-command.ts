@@ -7,7 +7,7 @@ import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
-import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
+import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, backlogTakenIn, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
 import { projectAttentionZone, type ProjectAttentionZone } from "../session/project-attention.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
@@ -425,7 +425,8 @@ async function backlogCommand(
   }
   const items = (project.backlog ?? []).map((b) => {
     const state = backlogStateOf(project, b.id);
-    const plannedIn = state === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+    // Issue #146: taken in only while the plan still holds it (or the work citing it ran).
+    const plannedIn = state === "promoted" ? backlogTakenIn(project, b.id) : undefined;
     // Issue #146: deferred by the person at the plan gate, so no plan has to take it in.
     const deferred = state === "promoted" && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
     return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };

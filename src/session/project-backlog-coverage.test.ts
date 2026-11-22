@@ -278,7 +278,7 @@ describe("plannedIn records only what the approved plan cites (issue #146)", () 
   it("a deferred item the plan cites anyway is taken in, and its deferral goes with it", () => {
     const p = defer(plan(withBacklog(["b1"]), [row("t1", "m1", ["b1"])]), { b1: "deferred" });
     const approved = ok(approve(p));
-    expect(approved.backlogCalls?.b1).toEqual({ hash: expect.any(String), plannedIn: p.plan!.version });
+    expect(approved.backlogCalls?.b1).toEqual({ hash: expect.any(String), plannedIn: p.plan!.version, cited: true });
   });
 
   it("a citation on a finished milestone's task does not take an item in", () => {
@@ -288,5 +288,44 @@ describe("plannedIn records only what the approved plan cites (issue #146)", () 
     p = ok(applyBacklogDecision(p, { id: "b1", state: "promoted" }));
     const late = defer(plan(p, [row("t1", "m1", ["b1"]), row("t2", "m2")], 7), { b1: "deferred" });
     expect(ok(approve(late)).backlogCalls?.b1?.plannedIn).toBeUndefined();
+  });
+});
+
+describe("an item stays taken in only while the plan still holds it (issue #146 review)", () => {
+  it("a re-plan that drops the citation before the citing milestone ran requires the item again", () => {
+    const v1 = ok(approve(plan(withBacklog(["b1"]), [row("t1", "m1"), row("t2", "m2", ["b1"])])));
+    expect(v1.backlogCalls?.b1?.plannedIn).toBe(v1.plan!.version);
+    expect(promotedForPlan(v1)).toEqual([]);
+    // The director re-plans before m2 runs, dropping b1's citation.
+    const v2 = plan(v1, [row("t1", "m1"), row("t3", "m2")], 5);
+    expect(promotedForPlan(v2).map((b) => b.id)).toEqual(["b1"]);
+    expect(view(v2).hints).toContainEqual(expect.stringMatching(/^backlog-coverage: fail: .*b1/));
+    expect(approve(v2)).toMatchObject({ ok: false, error: { code: "review-open" } });
+    // The person may defer it again, which unblocks the plan.
+    const deferred = ok(applyProjectDecision(v2, { gate: v2.gate, version: gateVersion(v2)!, verdict: "edit", edits: { backlogStatus: { b1: "deferred" } } }, { now: 6 }));
+    expect(approve(deferred).ok).toBe(true);
+    // A re-plan that keeps the citation keeps it taken in by v1.
+    const kept = plan(v1, [row("t1", "m1"), row("t2", "m2", ["b1"]), row("t4", "m2")], 5);
+    expect(promotedForPlan(kept)).toEqual([]);
+    const again = ok(approve(kept));
+    expect(again.backlogCalls?.b1?.plannedIn).toBe(v1.plan!.version);
+  });
+
+  it("an item whose citing milestone ran stays taken in when a later plan no longer cites it", () => {
+    let p = ok(approve(plan(withBacklog(["b1"]), [row("t1", "m1", ["b1"]), row("t2", "m2")])));
+    expect(p.milestones[0]!.backlogCited).toEqual(["b1"]);
+    p = ok(applyProjectUpdate(p, { kind: "milestone_run", id: "m1", runId: "run-1" }, 5));
+    p = ok(approve(ok(applyProjectUpdate(p, { kind: "milestone", id: "m1", state: "done", summary: "Built" }, 6))));
+    const later = plan(p, [row("t1", "m1"), row("t2", "m2")], 7);
+    expect(promotedForPlan(later)).toEqual([]);
+    expect(ok(approve(later)).plan?.status).toBe("approved");
+    // The snapshot is the runtime's: it reads back from the record.
+    expect(normalizeProject(JSON.parse(JSON.stringify(later)))?.milestones[0]?.backlogCited).toEqual(["b1"]);
+  });
+
+  it("an item taken in by the approximate rule before this change stays taken in", () => {
+    const p = plan(withBacklog(["b1"]), [row("t1", "m1")]);
+    const legacy: ProjectState = { ...p, backlogCalls: { b1: { hash: p.backlogCalls!.b1!.hash, plannedIn: 1 } } };
+    expect(promotedForPlan(normalizeProject(JSON.parse(JSON.stringify(legacy)))!)).toEqual([]);
   });
 });

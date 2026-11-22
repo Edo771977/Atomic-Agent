@@ -15,7 +15,7 @@ import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } 
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
 import { seedHint } from "../../session/project-gate-text.js";
-import { backlogStateOf, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
+import { backlogStateOf, backlogTakenIn, openBacklog, openSeeds, promotedForPlan, staleBacklogCalls } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -168,7 +168,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
         stale: staleBacklogCalls(project),
         items: (project.backlog ?? []).map((b) => {
           const promoted = backlogStateOf(project, b.id) === "promoted";
-          const plannedIn = promoted ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
+          const plannedIn = promoted ? backlogTakenIn(project, b.id) : undefined;
           const deferred = promoted && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
           return { ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id), ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
         }),
