@@ -215,6 +215,19 @@ describe("project backlog (issue #111)", () => {
     expect(JSON.parse(j.out()).items[0]).toMatchObject({ id: "b1", state: "promoted", plannedIn: 4 });
   });
 
+  it("refuses a call on a folder this computer has no record for (review)", async () => {
+    const folder = folderWithBacklog();
+    const before = readFileSync(projectFilePath(folder), "utf8");
+    const elsewhere = join(root, "other-state");
+    mkdirSync(elsewhere);
+    const t = { ...io(), stateDir: () => elsewhere };
+    expect(await projectCommand(["backlog", folder, "--promote", "b1"], t)).toBe(1);
+    expect(t.err()).toMatch(/open this project in a chat first/);
+    expect(readFileSync(projectFilePath(folder), "utf8")).toBe(before);
+    // Listing is fine without a record.
+    expect(await projectCommand(["backlog", folder], { ...io(), stateDir: () => elsewhere })).toBe(0);
+  });
+
   it("refuses an unknown item, two calls at once and a folder without a project", async () => {
     const folder = folderWithBacklog();
     const u = io();

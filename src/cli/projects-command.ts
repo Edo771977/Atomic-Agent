@@ -363,6 +363,12 @@ async function backlogCommand(args: string[], io: { stdout: (t: string) => void;
   }
   let project = opened.opened.project;
   if (call !== undefined) {
+    // No record here (another machine, a copied folder): a write would start the project over under a new id.
+    const record = options.records.read(folder);
+    if (!record.ok || record.record === null) {
+      io.stderr(`project backlog: this computer has no record of the project in ${folder}; open this project in a chat first (atomic-agent project resume ${folder}).\n`);
+      return 1;
+    }
     const decided = applyBacklogDecision(project, call);
     if (!decided.ok) {
       io.stderr(`project backlog: ${decided.error.message}\n`);
