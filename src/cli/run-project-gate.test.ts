@@ -208,6 +208,15 @@ describe("run at a plan gate with promoted backlog items (issue #111 review)", (
     expect(rt.projectDecision).not.toHaveBeenCalled();
   });
 
+  it("an automatic approval never defers an item: it stops, and an explicit approval sends no edits (issue #146)", async () => {
+    const deferred = { ...backlog, promoted: [{ id: "b2", title: "PDF export", deferred: true as const }] };
+    const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog: deferred }, fixtureProjectGateView({ kind: "none" }));
+    expect((await settleProjectGate(rt, "sess-1", "approve")).kind).toBe("stop");
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    await settleProjectGate(rt, "sess-1", { version: 3 });
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
+  });
+
   it("a person's --approve <version> still approves it (a warning, not a block)", async () => {
     const rt = runtime({ ...fixtureProjectGateView({ kind: "plan" }), backlog }, fixtureProjectGateView({ kind: "none" }));
     const step = await settleProjectGate(rt, "sess-1", { version: 3 });

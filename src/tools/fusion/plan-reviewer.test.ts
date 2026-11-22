@@ -62,6 +62,16 @@ describe("plan reviewer prompt", () => {
   });
 });
 
+describe("plan reviewer prompt: each task's reviewer", () => {
+  it("shows each row's reviewer, null for a row with no review, so a criterion that needs a review can be flagged", () => {
+    const prompt = renderPlanReviewPrompt(input([row("t1", { reviewer: "cloud:model-r" }), row("t2")]));
+    const data = prompt.slice(prompt.indexOf("## Plan"));
+    expect(data).toContain("\"reviewer\": \"cloud:model-r\"");
+    expect(data).toContain("\"reviewer\": null");
+    expect(prompt).toContain("a criterion or decision that asks for a review or a second reading is not served by a task whose reviewer is null");
+  });
+});
+
 describe("plan reviewer prompt: the backlog (issue #111)", () => {
   it("carries the open and promoted backlog as data, and nothing without one", () => {
     const backlog = [
@@ -72,8 +82,19 @@ describe("plan reviewer prompt: the backlog (issue #111)", () => {
     expect(prompt.indexOf("\"backlog\"")).toBeGreaterThan(prompt.indexOf("## Plan"));
     expect(prompt).toContain("\"id\": \"b1\"");
     expect(prompt).toContain("when the UI exists");
-    expect(prompt).toContain("promoted backlog items are the person's: a plan that leaves one out is a scope warn");
+    // Issue #146: the rule names the deterministic check that now rules on citations.
+    expect(prompt).toContain("Promoted backlog items are the person's: each must be cited in a task's backlog (the deterministic backlog-coverage check rules on that)");
     expect(renderPlanReviewPrompt(input([row("t1")]))).not.toContain("\"backlog\"");
+  });
+
+  it("carries each task's backlog citations, a deferred item's state and the backlog-coverage result (issue #146)", () => {
+    const backlog = [{ id: "b1", title: "Export PDF", state: "promoted" as const }, { id: "b2", title: "Sounds", state: "deferred" as const }];
+    const planChecks = [{ dimension: "backlog-coverage" as const, verdict: "fail" as const, detail: "No plan task that will run cites promoted backlog items: b1 (Export PDF).", taskIds: [] }];
+    const prompt = renderPlanReviewPrompt(input([row("t1", { backlog: ["b1"] })], { backlog, planChecks }));
+    expect(prompt).toMatch(/"backlog": \[\s*"b1"\s*\]/);
+    expect(prompt).toMatch(/"state": "deferred"/);
+    expect(prompt).toMatch(/"dimension": "backlog-coverage",\s*"verdict": "fail"/);
+    expect(prompt).toContain("deferred items, open items and seeds are not required");
   });
 });
 

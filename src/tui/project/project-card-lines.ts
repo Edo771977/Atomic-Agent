@@ -204,6 +204,14 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     if (view.gate.kind === "plan" || view.gate.kind === "milestone") {
       for (const s of backlog.seeds) text(`seed ${s.id} ${s.title} — ${s.condition}`, "plain", 3);
     }
+    // Issue #146: at the plan gate, each promoted item with the tasks that take it in.
+    if (view.gate.kind === "plan") {
+      for (const b of backlog.promoted) {
+        const cited = b.citedBy ?? [];
+        const state = b.deferred === true ? "deferred" : `cited by ${cited.length === 0 ? "no task" : cited.join(", ")}`;
+        text(`promoted ${b.id} ${b.title} (${state})`, b.deferred !== true && cited.length === 0 ? "warn" : "plain", 3);
+      }
+    }
   }
   // The seeds' own hints are drawn above from the structured backlog; every other hint stays.
   const seedHints = new Set((backlog?.seeds ?? []).map((s) => seedHint(s.id, s.title, s.condition)));

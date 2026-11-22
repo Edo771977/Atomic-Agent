@@ -127,6 +127,8 @@ export const supplementalFiles = [
   'src/tools/os/fs/fs-grep.test.ts',
   'src/session/project-receipts.test.ts',
   'src/runtime/composition/runtime-project.test.ts',
+  'src/session/project-lessons.test.ts',
+  'src/cli/project-lessons-command.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
   'src/runtime/daily-budget-fallback.test.ts',

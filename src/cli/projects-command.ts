@@ -5,10 +5,11 @@ import { getConfig } from "../config/index.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
+import { readProjectLessons } from "../session/project-lessons.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
-import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
+import { applyBacklogDecision, backlogSourceLabel, backlogStateOf, backlogTakenIn, openBacklog, type ProjectBacklogDecision } from "../session/project-backlog.js";
 import { projectAttentionZone, type ProjectAttentionZone } from "../session/project-attention.js";
 import { describeExpectation, gateLabel } from "../session/project-store-views.js";
 import { projectExpectation, type ProjectState } from "../session/session-project.js";
@@ -37,6 +38,8 @@ const PROJECTS_HELP = [
   "",
 ].join("\n");
 
+const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json]\n";
+
 const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
   "",
@@ -45,6 +48,7 @@ const PROJECT_HELP = [
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
+  "  lessons [folder] [--json]  List and validate project lessons (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -290,6 +294,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
+  if (sub === "lessons") return lessonsCommand(args.slice(1), stdout, stderr);
   if (sub === "backlog") {
     return backlogCommand(args.slice(1), {
       stdout,
@@ -440,8 +445,11 @@ async function backlogCommand(
   }
   const items = (project.backlog ?? []).map((b) => {
     const state = backlogStateOf(project, b.id);
-    const plannedIn = state === "promoted" ? project.backlogCalls?.[b.id]?.plannedIn : undefined;
-    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }) };
+    // Issue #146: taken in only while the plan still holds it (or the work citing it ran).
+    const plannedIn = state === "promoted" ? backlogTakenIn(project, b.id) : undefined;
+    // Issue #146: deferred by the person at the plan gate, so no plan has to take it in.
+    const deferred = state === "promoted" && plannedIn === undefined && project.backlogCalls?.[b.id]?.deferred === true;
+    return { ...b, state, ...(plannedIn === undefined ? {} : { plannedIn }), ...(deferred ? { deferred: true as const } : {}) };
   });
   if (json) {
     io.stdout(`${JSON.stringify({ folder, open: openBacklog(project).length, items }, null, 2)}\n`);
@@ -453,10 +461,38 @@ async function backlogCommand(
   }
   for (const b of items) {
     const from = [`from ${backlogSourceLabel(b)}`, ...(b.origin?.milestoneId === undefined ? [] : [`milestone ${b.origin.milestoneId}`]), ...(b.origin?.taskId === undefined ? [] : [`task ${b.origin.taskId}`])].join(", ");
-    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? "promoted, not in any plan" : `promoted, taken in by plan v${b.plannedIn}`;
+    const state = b.state !== "promoted" ? b.state : b.plannedIn === undefined ? (b.deferred === true ? "promoted, deferred at the plan gate, not in any plan" : "promoted, not in any plan") : `promoted, taken in by plan v${b.plannedIn}`;
     io.stdout(`${b.id} ${state}  ${b.title}  (${b.condition === undefined ? "" : `seed: ${b.condition}; `}${from})\n`);
     if (b.note !== undefined) io.stdout(`    ${b.note}\n`);
   }
   io.stdout(`${openBacklog(project).length} open. Promote, drop or reopen one with --promote, --drop or --reopen <id>.\n`);
   return 0;
+}
+
+function lessonsCommand(args: string[], stdout: (text: string) => void, stderr: (text: string) => void): number {
+  if (args.includes("--help") || args.includes("-h")) {
+    stdout(LESSONS_USAGE + "List and validate the project's Markdown lessons. Defaults to the current folder.\n");
+    return 0;
+  }
+  const positional = args.filter((arg) => arg !== "--json");
+  if (positional.length > 1 || positional[0]?.startsWith("-")) {
+    stderr(LESSONS_USAGE);
+    return 2;
+  }
+
+  const { lessons, problems } = readProjectLessons(resolve(positional[0] ?? "."));
+  const rows = lessons.map(({ id, title, declaredStatus, approvedByPerson, always, touches }) => ({
+    id, title, declaredStatus, approvedByPerson, always, touches,
+  }));
+  if (args.includes("--json")) {
+    stdout(JSON.stringify({ lessons: rows, problems }, null, 2) + "\n");
+  } else {
+    const lines = rows.map(({ id, title, declaredStatus, always, touches }) =>
+      id + "  " + title + " (declared: " + declaredStatus + ", not approved by the person, always: " +
+      String(always) + ", touches: " + JSON.stringify(touches) + ")",
+    );
+    lines.push(...problems.map(({ file, reason }) => "Skipped " + JSON.stringify(file) + ": " + reason));
+    stdout(lines.length === 0 ? "No project lessons found.\n" : lines.join("\n") + "\n");
+  }
+  return problems.some(({ file }) => file === "lessons") ? 1 : 0;
 }
