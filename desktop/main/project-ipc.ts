@@ -25,6 +25,10 @@ type ProjectDecisionStatus = (typeof PROJECT_DECISION_STATUSES)[number];
 /** Issue #146: the person's status for a promoted backlog item at the plan gate (the core's `PERSON_BACKLOG_STATUSES`). */
 const PROJECT_BACKLOG_STATUSES = ["active", "deferred"] as const;
 type ProjectBacklogStatus = (typeof PROJECT_BACKLOG_STATUSES)[number];
+type ProjectLessonStatus = "active" | "deferred";
+// Keep these bounds aligned with parsePlanTaskLessons and PROJECT_LIMITS in the core.
+const LESSON_ID = /^[a-z0-9-]{1,64}$/;
+const MAX_LESSON_STATUSES = 128;
 
 export type ProjectGateRef = { kind: "brief" } | { kind: "plan" } | { kind: "none" } | { kind: "milestone"; id: string };
 
@@ -38,6 +42,7 @@ export interface ProjectDecisionBody {
     note?: string;
     decisionStatus?: Record<string, ProjectDecisionStatus>;
     backlogStatus?: Record<string, ProjectBacklogStatus>;
+    lessonStatus?: Record<string, ProjectLessonStatus>;
   };
 }
 
@@ -153,6 +158,23 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       }
       if (statuses.length === 0) return { ok: false, error: "name at least one backlog item" };
       edits.backlogStatus = Object.fromEntries(statuses);
+    }
+    if (raw.edits.lessonStatus !== undefined) {
+      if (gate.kind !== "plan" || verdict !== "edit" || !isObject(raw.edits.lessonStatus)) {
+        return { ok: false, error: "lesson statuses can only be edited at the plan gate" };
+      }
+      const entries = Object.entries(raw.edits.lessonStatus);
+      if (entries.length === 0 || entries.length > MAX_LESSON_STATUSES) {
+        return { ok: false, error: `name between 1 and ${MAX_LESSON_STATUSES} lessons` };
+      }
+      const statuses: Array<[string, ProjectLessonStatus]> = [];
+      for (const [id, status] of entries) {
+        if (!LESSON_ID.test(id) || (status !== "active" && status !== "deferred")) {
+          return { ok: false, error: "lesson statuses require a valid lesson id and active or deferred status" };
+        }
+        statuses.push([id, status]);
+      }
+      edits.lessonStatus = Object.fromEntries(statuses);
     }
     if (raw.edits.note !== undefined) {
       const note = raw.edits.note;

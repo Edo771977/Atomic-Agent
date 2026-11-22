@@ -124,6 +124,14 @@ displayed as plain text when the connected agent supplies them. The review
 status stays by the approval buttons. **Approve over review…** appears
 when the agent offers it and requires a reason before sending the decision.
 
+At the plan gate, **Lessons** lists binding project lessons, their status,
+and the tasks that cite them. **Defer** sets a lesson aside for this plan,
+and **Reactivate** restores its citation requirement. Both send a plan edit
+against the displayed version and are disabled during a turn. In **Plan
+checks**, expand `lesson-coverage` for missing citations and warnings about
+approved lessons that changed or were removed. Lesson titles appear as plain
+text.
+
 **Backlog (issue #146).** The card's Backlog section lists the view's
 `backlog.items` with their id, title and note (author content, drawn as
 text), their call (open; a seed with its condition; promoted, with the plan
