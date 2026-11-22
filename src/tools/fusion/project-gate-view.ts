@@ -95,7 +95,7 @@ function milestoneEvidence(input: ProjectGateViewInput, milestone: ProjectMilest
       projectId: source.projectId,
       sessionId: input.sessionId,
       milestoneId: milestone.id,
-      runIds: milestone.runIds,
+      runIds: milestone.runIds.filter(id => !milestone.replacedEvidenceRunIds?.includes(id)),
       version: gateVersion(input.project),
       since: milestone.evidenceSince ?? milestone.corrections?.at(-1)?.at,
     }, source.cache);

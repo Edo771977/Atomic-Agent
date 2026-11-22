@@ -212,7 +212,6 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
       if (scope?.since !== undefined) {
         const timestamp = Date.parse(row?.signedAt);
         if (Number.isFinite(timestamp)) oldestTimestamp = timestamp;
-        if (timestamp < scope.since) continue;
       }
       if (isReceiptKind(row?.kind)) kind = row.kind;
       const id: unknown = row?.payload?.projectId;
@@ -224,8 +223,7 @@ export function verifyProjectReceiptDetails(stateDir: string, folder: string, sc
           row?.payload?.milestoneId === scope.milestoneId &&
           (scope.runIds === undefined || (kind === "milestone-report"
             ? row.payload.version === scope.version
-            : scope.runIds.includes(row.payload.runId) &&
-              (scope.since === undefined || !(Date.parse(row.signedAt) < scope.since))));
+            : scope.runIds.includes(row.payload.runId)));
       }
       if (!matched) continue;
       const cached = reusable?.rows.get(line);

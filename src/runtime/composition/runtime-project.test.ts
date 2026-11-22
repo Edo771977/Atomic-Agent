@@ -187,14 +187,19 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
       project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "First" });
       const previousVersion = gateVersion(project);
       const old = project.milestones[0]!;
-      project = {
-        ...project,
-        plan: { ...project.plan!, version: previousVersion! + 1 },
-        milestones: project.milestones.map(m => m.id !== "m1" ? m : {
-          ...m, runIds: scenario === "corrected" ? ["old", "new"] : ["new"],
-          ...(scenario === "corrected" ? { corrections: [{ note: "Retry", at: NOW + 1 }], evidenceSince: NOW + 1 } : {}),
-        }),
-      };
+      if (scenario === "corrected") {
+        const correction = applyProjectDecision(project, {
+          gate: project.gate, version: previousVersion!, verdict: "edit", edits: { note: "Retry" },
+        }, { now: NOW });
+        if (!correction.ok) throw new Error(correction.error.message);
+        project = correction.project;
+      } else {
+        project = approved(up(approved(project), {
+          ...plan, rows: [row("t1", "m1", { title: "Replacement work" }), row("t2", "m2")],
+        }));
+      }
+      project = up(project, { kind: "milestone_run", id: "m1", runId: "new" });
+      project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "Replacement" });
       const session = createEmptySessionState({ id: "s1", workingDir: folder });
       session.project = project;
       session.projectRef = { folder, id: "project-one", revision: 1, decisionSeq: 1 };

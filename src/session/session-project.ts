@@ -209,6 +209,8 @@ export interface ProjectMilestone {
   runIds: string[];
   /** Earliest receipt time for the current work, set when its first run is recorded. */
   evidenceSince?: number;
+  /** Runs of results that were sent back for correction. Keep the history for Fusion. */
+  replacedEvidenceRunIds?: string[];
   /** The director's report of the result. */
   summary?: string;
   /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
@@ -1454,6 +1456,9 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     state: raw.state as MilestoneState,
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
     ...(isTime(raw.evidenceSince) ? { evidenceSince: raw.evidenceSince } : {}),
+    ...(Array.isArray(raw.replacedEvidenceRunIds) ? {
+      replacedEvidenceRunIds: raw.replacedEvidenceRunIds.filter(id => (raw.runIds as string[]).includes(id)).slice(-PROJECT_LIMITS.runIds),
+    } : {}),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     ...(attachments.length === 0 ? {} : { attachments }),
@@ -2190,6 +2195,7 @@ function replannedMilestone(
     state: keep ? old.state : "planned",
     runIds: old.runIds,
     ...(old.evidenceSince === undefined ? {} : { evidenceSince: old.evidenceSince }),
+    ...(old.replacedEvidenceRunIds === undefined ? {} : { replacedEvidenceRunIds: old.replacedEvidenceRunIds }),
     ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
     ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
     // The result's evidence stays with it (issue #74).
@@ -2689,6 +2695,7 @@ function decideProject(
             state: "approved" as const,
             corrections: [...(m.corrections ?? []), { note, at: now }].slice(-PROJECT_LIMITS.corrections),
             evidenceSince: now,
+            replacedEvidenceRunIds: [...m.runIds],
             updatedAt: now,
           }
         : m,
