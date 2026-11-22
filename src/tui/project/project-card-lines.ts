@@ -12,6 +12,8 @@ import { PLAN_UNTRUSTED_WARNING, PROJECT_WRITE_SCOPE_NOTE, attachmentLabel, crit
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectMilestone } from "../../session/session-project.js";
 import {
+  backlogIds,
+  projectBacklogActions,
   projectCardActions,
   projectCardIsFull,
   projectFieldValue,
@@ -117,6 +119,28 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   const text = (t: string, tone: ProjectLineTone = "plain", indent = 1): void => {
     for (const s of wrap(t, inner - indent - 1)) out.push(line(`${" ".repeat(indent)}${s}`, tone));
   };
+
+  if (card.mode === "backlog") {
+    const backlog = view.backlog;
+    const ids = backlogIds(view);
+    for (const id of ids) {
+      const item = backlog?.items.find(entry => entry.id === id);
+      const stale = backlog?.stale.find(entry => entry.id === id);
+      const selected = id === card.backlogId;
+      const label = item ? `${id} ${item.title} · ${item.state}` : id;
+      for (const [index, part] of wrap(label, inner - 3).entries()) {
+        out.push({ segments: [{ text: `${selected && index === 0 ? "›" : " "} ${part}`, inverse: selected, bold: selected }] });
+      }
+      if (stale) text(stale.reason === "removed" ? "removed outside Atomic Agent" : `changed since you ${stale.state} it`, "warn", 3);
+      if (selected && item?.note) text(item.note, "plain", 3);
+      if (selected && item?.condition) text(`When: ${item.condition}`, "plain", 3);
+    }
+    const actions = projectBacklogActions(card).map(action => `${action.key} ${action.label}`);
+    out.push(line(card.error ?? (card.pending ? "Deciding…" : card.backlogNotice || (ids.length ? "↑↓ select an item" : "Backlog is empty.")),
+      card.error ? "error" : "muted"));
+    out.push(line(" " + [...actions, "esc back"].join(" · "), "muted"));
+    return out;
+  }
 
   const brief = view.brief;
   if (brief?.draftedAfterUntrusted) {
@@ -224,7 +248,8 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
     buttons.push({ text: " " });
   });
   out.push({ segments: buttons });
-  out.push(line(card.pending ? " deciding…" : " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
+  const backlogHint = backlogIds(view).length ? " b Backlog ·" : "";
+  out.push(line(card.pending ? " deciding…" : backlogHint + " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
   return out;
 }
 

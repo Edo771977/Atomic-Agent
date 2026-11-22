@@ -4,6 +4,7 @@ import type { AppKeyContext } from "../app-key-bindings.js";
 import { MAX_PROJECT_NOTE_CHARS } from "../../session/project-decision-parse.js";
 import type { ProjectDecision, ProjectVerdict } from "../../session/session-project.js";
 import {
+  projectBacklogActions,
   projectCardActions,
   projectEditRows,
   type ProjectCardState,
@@ -43,6 +44,27 @@ export function handleProjectCardKey(
     dispatch({ type: "project_card_pending" });
     callbacks.onProjectDecision?.(card.sessionId, decision);
   };
+  const letter = !key.ctrl && !key.meta ? input.toLowerCase() : "";
+  if (card.mode === "actions" && letter === "b") {
+    dispatch({ type: "project_card_mode_set", mode: "backlog" });
+    return;
+  }
+  if (card.mode === "backlog") {
+    if (key.upArrow || key.downArrow) {
+      dispatch({ type: "project_card_backlog_moved", delta: key.downArrow ? 1 : -1 });
+      return;
+    }
+    const action = projectBacklogActions(card).find(entry => entry.key === letter);
+    const id = card.backlogId;
+    if (!action || !id) return;
+    if (!callbacks.onProjectBacklogDecision) {
+      dispatch({ type: "project_card_failed", error: "This runtime cannot take backlog decisions." });
+      return;
+    }
+    dispatch({ type: "project_card_pending" });
+    callbacks.onProjectBacklogDecision(card.sessionId, { id, state: action.state });
+    return;
+  }
   const version = card.view.version;
   if (version === null) {
     // Nothing can be decided (no open gate): only Esc closes the card.

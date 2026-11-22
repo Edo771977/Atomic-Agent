@@ -39,6 +39,12 @@ The director can propose decisions in the brief, such as “Use SQLite for local
 
 Ask the director to add the missing citation. If the decision can wait, defer it explicitly from the plan gate. In the terminal UI project card, press `d` to defer uncited decisions. Review and approve the updated plan. Decision status is saved with your approvals.
 
+## Decide on backlog items
+
+Open `/plan` in the TUI and press **b** for the backlog, including between gates. Select an item with **↑/↓**, then press **p** to promote it for planning, **d** to drop it, or **r** to reopen it. The card reports the result. A running turn must finish before the project accepts a decision.
+
+A warning marks an item whose text changed after your decision. Review its current text before deciding again. For an item removed outside Atomic Agent, **r** clears the old decision. **Esc** returns to the project card.
+
 ## Take promoted backlog items into the plan
 
 The backlog holds work that is not ready for the plan yet. Only you promote, drop or reopen an item (`atomic-agent project backlog --promote <id>`, or the project card). A promoted item is for the next plan: the director cites its id on a task that will run, and the plan gate checks this (**backlog-coverage**). A plan that cites no task for a promoted item cannot be approved, and the gate names the missing item. A citation added to a task of a milestone that already finished does not count.

@@ -58,7 +58,9 @@ export function ProjectCardPopup({ card, availableRows, availableColumns }: Proj
   const footer = Math.min(card.mode === "note" ? 3 : 2, lines.length);
   const body = lines.slice(0, lines.length - footer);
   const bodyRoom = Math.max(1, room - footer);
-  const top = Math.min(card.scroll, Math.max(0, body.length - bodyRoom));
+  const focused = card.mode === "backlog" ? body.findIndex(row => row.segments.some(segment => segment.inverse)) : -1;
+  const offset = focused < 0 ? card.scroll : focused + card.scroll;
+  const top = Math.min(offset, Math.max(0, body.length - bodyRoom));
   const visible = [...body.slice(top, top + bodyRoom), ...lines.slice(lines.length - footer)];
   const height = visible.length + 2;
   const ref = useMouseTarget((hit) => isPrimaryPress(hit.event), { layer: MOUSE_LAYER_MODAL });
