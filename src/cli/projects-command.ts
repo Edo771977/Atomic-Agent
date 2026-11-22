@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
-import { getConfig, resolveStateDir } from "../config/index.js";
+import { getConfig } from "../config/index.js";
 import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
@@ -305,7 +305,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
     return run(args.slice(1), {
       stdout,
       stderr,
-      stateDir: () => deps.stateDir?.() ?? (sub === "lessons" ? resolveStateDir() : getConfig().paths.stateDir),
+      stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
       liveTurn: (folder, id) => {
         const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
         try {

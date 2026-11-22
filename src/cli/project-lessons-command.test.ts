@@ -1,3 +1,4 @@
+import * as configModule from "../config/index.js";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { EOL, tmpdir } from "node:os";
@@ -223,6 +224,16 @@ describe("project lessons", () => {
     writeFileSync(join(dir, "constructor.md"), "---\nid: constructor\ntitle: Test\nsource: person\ntouches: []\nstatus: active\nalways: false\n---\n## Decided\n## Tried and ruled out\n## Watch out\n");
     expect(await projectCommand(["lessons", root, "--json"], { stdout, stderr, stateDir: () => join(root, "state") })).toBe(0);
     expect(JSON.parse(stdout.mock.lastCall![0]).lessons[0]).toMatchObject({ stale: false, personState: null });
+  });
+
+  it("reads lesson choices from the configured state directory", async () => {
+    const config = vi.spyOn(configModule, "getConfig");
+    try {
+      await projectCommand(["lessons", root], { stdout, stderr });
+      expect(config).toHaveBeenCalled();
+    } finally {
+      config.mockRestore();
+    }
   });
 
   it("cannot persist approvals for a project opened only in incognito", async () => {
