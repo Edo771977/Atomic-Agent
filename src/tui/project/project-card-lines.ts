@@ -230,6 +230,18 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
       if (full || m.id === gateId) {
+        const evidence = m.evidenceReceipts;
+        if (evidence !== undefined) {
+          const { valid, unsigned, problems, partial, archiveUnavailable } = evidence;
+          const details: string[] = [];
+          if (valid) details.push(`${valid} signed`);
+          if (unsigned) details.push(`${unsigned} unsigned (keychain signing key unavailable)`);
+          if (problems) details.push(`${problems} problem${problems === 1 ? "" : "s"}`);
+          if (partial) details.push("partial scan");
+          if (archiveUnavailable) details.push("archive unavailable");
+          const verify = problems || partial || archiveUnavailable ? " — run atomic-agent project verify" : "";
+          text(`Evidence: ${details.join(", ")}${verify}`, problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok", 4);
+        }
         // Evidence of the result (issue #40): never a claim the view does not carry.
         for (const f of m.criteriaFacts ?? []) {
           text(criterionFactLine(f, brief?.criteria), f.state === "passed" && f.reservation === undefined ? "ok" : f.state === "failed" ? "error" : "warn", 4);

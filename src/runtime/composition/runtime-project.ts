@@ -1,3 +1,4 @@
+import { projectFolderOf } from "../../session/project-folder.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { gateContentHash } from "../../session/project-decisions.js";
 import { writeEvidenceReceipt, type ProjectReceiptWriter } from "../../session/project-receipts.js";
@@ -155,6 +156,7 @@ export interface RuntimeProjectDeps {
   saveSession: (session: SessionState) => void;
   /** Issue #109: the project's folder store; absent, the project lives on the session. */
   projectStore?: SessionProjectStore;
+  receiptStateDir?: string;
   writeProjectReceipt?: ProjectReceiptWriter;
   warnReceipt?: (message: string) => void;
   /** A turn is queued or running on the session (`TurnController.isBusy`). */
@@ -252,6 +254,13 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
     return projectGateView({
       sessionId: session.id,
       project,
+      ...(deps.receiptStateDir === undefined || isIncognitoSession(session) ? {} : {
+        receiptSource: {
+          stateDir: deps.receiptStateDir,
+          folder: session.projectRef?.folder ?? projectFolderOf(session),
+          projectId: session.projectRef?.id ?? null,
+        },
+      }),
       estimate: estimateFor(project, inputs),
       selectable: {
         workers: inputs.plan.workers.map((m) => m.ref),

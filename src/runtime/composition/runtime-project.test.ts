@@ -1,9 +1,11 @@
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projectCardLines } from "../../tui/project/project-card-lines.js";
+import { reduceProjectCard } from "../../tui/project/project-card-state.js";
 import { projectCommand } from "../../cli/projects-command.js";
 import { gateContentHash, projectFolderKey, stateDirProjectRecords } from "../../session/project-decisions.js";
-import { createProjectReceiptWriter, verifyProjectReceipts, type ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import { createSessionProjectStore, type SessionProjectStore } from "../../session/session-project-store.js";
 import { receiptHash, type Receipt } from "../../session/receipt-signing.js";
 import { describe, expect, it, vi } from "vitest";
@@ -70,7 +72,7 @@ function planContext(): ProjectPlanContext {
   };
 }
 
-function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean; folder?: string; incognito?: SessionState["incognito"]; writeProjectReceipt?: ProjectReceiptWriter; session?: SessionState; projectStore?: SessionProjectStore; warnReceipt?: (message: string) => void } = {}) {
+function harness(options: { receiptStateDir?: string; busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean; folder?: string; incognito?: SessionState["incognito"]; writeProjectReceipt?: ProjectReceiptWriter; session?: SessionState; projectStore?: SessionProjectStore; warnReceipt?: (message: string) => void } = {}) {
   let stored: SessionState | null = options.session ?? {
     ...createEmptySessionState({ id: "s1", workingDir: options.folder ?? "/w", ...(options.incognito ? { incognito: options.incognito } : {}) }),
     ...(options.status === undefined ? {} : { status: options.status }),
@@ -89,6 +91,7 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
   const save = vi.fn((s: SessionState) => { stored = s; });
   const runtime = createRuntimeProject({
     loadSession: (id) => (id === "s1" ? stored : null),
+    ...(options.receiptStateDir === undefined ? {} : { receiptStateDir: options.receiptStateDir }),
     saveSession: save,
     ...(options.projectStore ? { projectStore: options.projectStore } : {}),
     ...(options.warnReceipt ? { warnReceipt: options.warnReceipt } : {}),
@@ -103,6 +106,49 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
 }
 
 describe("runtime.projectState / projectDecision (issue #39)", () => {
+  it("summarizes only the displayed milestone's evidence using public keys, and skips incognito", () => {
+    const dir = mkdtempSync(join(tmpdir(), "milestone-receipts-"));
+    try {
+      const running = up(approved(up(approved(up(undefined, brief)), plan)), { kind: "milestone_run", id: "m1", runId: "r1" });
+      const project = up(running, { kind: "milestone", id: "m1", state: "done", summary: "Finished" });
+      const session = createEmptySessionState({ id: "s1", workingDir: dir });
+      session.project = project;
+      session.projectRef = { folder: dir, id: "project-one", revision: 1, decisionSeq: 1 };
+      let pem: string | null = null;
+      const keychain = {
+        read: vi.fn(() => ({ ok: true as const, value: pem })),
+        write: vi.fn((_key: string, value: string) => { pem = value; return true; }),
+      };
+      const evidence = { projectId: "project-one", milestoneId: "m1" };
+      appendProjectReceipt(dir, dir, "artifact-manifest", { ...evidence, result: "before" }, keychain);
+      appendProjectReceipt(dir, dir, "check-run-record", evidence, { read: () => ({ ok: false }), write: () => false });
+      appendProjectReceipt(dir, dir, "milestone-report", evidence, keychain);
+      appendProjectReceipt(dir, dir, "gate-verdict", evidence, keychain);
+      appendProjectReceipt(dir, dir, "milestone-report", { ...evidence, milestoneId: "m2" }, keychain);
+      appendProjectReceipt(dir, dir, "check-run-record", { ...evidence, projectId: "project-two" }, keychain);
+      appendProjectReceipt(dir, dir, "artifact-manifest", { milestoneId: "m1" }, keychain);
+      keychain.read.mockClear();
+      keychain.write.mockClear();
+
+      const { runtime } = harness({ session, receiptStateDir: dir });
+      const summary = () => runtime.projectState("s1")?.milestones.find(m => m.id === "m1")?.evidenceReceipts;
+      expect(summary()).toEqual({ valid: 2, unsigned: 1, problems: 0 });
+      const card = reduceProjectCard(null, { type: "project_card_shown", sessionId: "s1", view: runtime.projectState("s1")! })!;
+      expect(projectCardLines(card, 90).flatMap(line => line.segments).map(segment => segment.text).join("\n"))
+        .toContain("1 unsigned (keychain signing key unavailable)");
+      const archive = join(dir, "receipts", projectFolderKey(dir), "receipts.ndjson");
+      writeFileSync(archive, readFileSync(archive, "utf8").replace('"before"', '"Before"'));
+      expect(summary()).toEqual({ valid: 1, unsigned: 1, problems: 1 });
+      expect(runtime.projectState("s1")?.milestones.find(m => m.id === "m2")?.evidenceReceipts).toBeUndefined();
+      session.incognito = { owner: "test", since: NOW };
+      expect(summary()).toBeUndefined();
+      expect(keychain.read).not.toHaveBeenCalled();
+      expect(keychain.write).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("projectState builds the gate view with live estimates and selectable members", () => {
     const { runtime } = harness({ project: up(approved(up(undefined, brief)), plan) });
     const view = runtime.projectState("s1")!;

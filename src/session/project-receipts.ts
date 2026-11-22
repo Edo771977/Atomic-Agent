@@ -1,5 +1,5 @@
 import { createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject } from "node:crypto";
-import { appendFileSync, existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { SecretKeychain } from "../config/secret-store.js";
@@ -113,28 +113,93 @@ export interface ProjectReceiptVerification {
   status: ReceiptStatus;
 }
 
-export function verifyProjectReceiptDetails(stateDir: string, folder: string): ProjectReceiptVerification[] {
+interface MilestoneReceiptScope {
+  projectId: string | null;
+  sessionId: string;
+  milestoneId: string;
+}
+
+interface ScopedReceiptVerification {
+  receipts: ProjectReceiptVerification[];
+  partial: boolean;
+}
+
+const VIEW_MAX_BYTES = 2 * 1024 * 1024;
+const VIEW_MAX_ROWS = 512;
+
+function receiptLines(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  if (lines.at(-1) === "") lines.pop();
+  return lines;
+}
+
+function readReceiptTail(path: string): { lines: string[]; partial: boolean } {
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const stat = fstatSync(fd);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid receipt file");
+    const offset = Math.max(0, stat.size - VIEW_MAX_BYTES);
+    const buffer = Buffer.alloc(stat.size - offset);
+    let bytesRead = 0;
+    while (bytesRead < buffer.length) {
+      const bytes = readSync(fd, buffer, bytesRead, buffer.length - bytesRead, offset + bytesRead);
+      if (bytes === 0) break;
+      bytesRead += bytes;
+    }
+    const lines = receiptLines(buffer.toString("utf8", 0, bytesRead));
+    if (offset > 0) lines.shift(); // The first line can start in the middle of a receipt.
+    return {
+      lines: lines.slice(-VIEW_MAX_ROWS),
+      partial: offset > 0 || lines.length > VIEW_MAX_ROWS || bytesRead !== buffer.length,
+    };
+  } finally {
+    closeSync(fd);
+  }
+}
+
+export function verifyProjectReceiptDetails(stateDir: string, folder: string): ProjectReceiptVerification[];
+export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope: MilestoneReceiptScope): ScopedReceiptVerification;
+export function verifyProjectReceiptDetails(stateDir: string, folder: string, scope?: MilestoneReceiptScope): ProjectReceiptVerification[] | ScopedReceiptVerification {
   const projectKey = projectFolderKey(folder);
   const path = archive(stateDir, projectKey, false);
-  if (!existsSync(path)) return [];
-  const lines = readFileSync(path, "utf8").split(/\r?\n/);
-  if (lines.at(-1) === "") lines.pop();
-  return lines.map(line => {
+  if (!existsSync(path)) return scope === undefined ? [] : { receipts: [], partial: false };
+  const { lines, partial } = scope === undefined
+    ? { lines: receiptLines(readFileSync(path, "utf8")), partial: false }
+    : readReceiptTail(path);
+  const keys = new Map<string, KeyObject | null>();
+  const lookup = (id: string): KeyObject | null => {
+    if (!keys.has(id)) {
+      const path = join(childDir(stateDir, "signing", false), id + ".pem");
+      checkFile(path);
+      keys.set(id, existsSync(path) ? createPublicKey(readFileSync(path)) : null);
+    }
+    return keys.get(id) ?? null;
+  };
+  const receipts: ProjectReceiptVerification[] = [];
+  for (const line of lines) {
     let kind: ReceiptKind | null = null;
+    let matched = scope === undefined;
     try {
       const row = JSON.parse(line);
       if (isReceiptKind(row?.kind)) kind = row.kind;
-      const status = verifyReceipt(row, projectKey, id => {
-        const path = join(childDir(stateDir, "signing", false), id + ".pem");
-        checkFile(path);
-        return existsSync(path) ? createPublicKey(readFileSync(path)) : null;
-      });
-      const id: unknown = row.payload?.projectId;
+      const id: unknown = row?.payload?.projectId;
+      if (scope !== undefined) {
+        // A damaged receipt can still claim this milestone. Its attribution
+        // stays unverified and is used only to surface the problem on the card.
+        matched = kind !== "gate-verdict" && id === scope.projectId &&
+          row?.payload?.milestoneId === scope.milestoneId &&
+          (id !== null || row?.payload?.sessionId === scope.sessionId);
+      }
+      if (!matched) continue;
+      const status = verifyReceipt(row, projectKey, lookup);
       const projectId = kind !== null &&
         (status === "valid" || status === "unsigned") && typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) ? id : null;
-      return { kind, status, projectId };
-    } catch { return { kind, status: "bad-signature", projectId: null }; }
-  });
+      receipts.push({ kind, status, projectId });
+    } catch {
+      if (matched) receipts.push({ kind, status: "bad-signature", projectId: null });
+    }
+  }
+  return scope === undefined ? receipts : { receipts, partial };
 }
 
 export function verifyProjectReceipts(stateDir: string, folder: string): ReceiptStatus[] {

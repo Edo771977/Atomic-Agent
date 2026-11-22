@@ -173,3 +173,29 @@ it("keeps phase-one receipts without project IDs verifiable", () => {
     { kind: "check-run-record", projectId: null, status: "valid" },
   ]);
 });
+
+it("bounds a milestone scan and includes identifiable receipts with verification problems", () => {
+  const { dir, credentials } = setup();
+  const keychain = {
+    read: (key: string) => ({ ok: true as const, value: credentials.get(key) ?? null }),
+    write: (key: string, value: string) => { credentials.set(key, value); return true; },
+  };
+  const scope = { projectId: "project-one", sessionId: "chat-one", milestoneId: "m1" };
+  appendProjectReceipt(dir, dir, "check-run-record", scope, keychain);
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const line = readFileSync(path, "utf8");
+  const row = JSON.parse(line);
+  const problems = [
+    { ...row, kind: "future-evidence" },
+    { ...row, keyId: "0".repeat(32) },
+    { ...row, signature: "invalid signature" },
+  ];
+  const tail = problems.map(problem => JSON.stringify(problem)).join("\n") + "\n";
+  for (const prefix of [line.repeat(513), JSON.stringify({ padding: "x".repeat(2 * 1024 * 1024) }) + "\n"]) {
+    writeFileSync(path, prefix + tail);
+    const result = verifyProjectReceiptDetails(dir, dir, scope);
+    expect(result.partial).toBe(true);
+    expect(result.receipts.length).toBeLessThanOrEqual(512);
+    expect(result.receipts.slice(-3).map(({ status }) => status)).toEqual(["unknown-kind", "unknown-key", "bad-signature"]);
+  }
+});

@@ -1,5 +1,6 @@
 import { projectCommand } from "../../cli/projects-command.js";
 import { projectFilePath } from "../../session/project-store.js";
+import type { ProjectState } from "../../session/session-project.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -14,7 +15,7 @@ import type { RunTurnResult } from "../../agent/agent-loop.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { receiptHash } from "../../session/receipt-signing.js";
-import { createProjectReceiptWriter, verifyProjectReceipts } from "../../session/project-receipts.js";
+import { createProjectReceiptWriter, verifyProjectReceiptDetails, verifyProjectReceipts } from "../../session/project-receipts.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
@@ -177,9 +178,22 @@ it.each([true, false])("verifies every worktree receipt from the original projec
     return { session: worker, reason: "reply", stepCount: 1 };
   };
   f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true, exitCode: 0 }] });
+  const project: ProjectState = {
+    gate: { kind: "none" },
+    brief: { version: 1, what: "API", users: "Clients", how: "JSON", status: "approved", successCriteria: [], draftedAfterUntrusted: false },
+    milestones: [{ id: "m1", title: "API", kind: "base", state: "approved", runIds: [], updatedAt: 1 }],
+    plan: {
+      version: 1, status: "approved", detail: "compact", draftedAfterUntrusted: false,
+      totals: { costUsd: 0, ms: 0, unknownCostRows: 0 },
+      rows: [{
+        taskId: "api", milestoneId: "m1", title: "Change API", worker: "worker:small", reviewer: null,
+        reason: "preset", basis: "preset", samples: 0, estCostUsd: 0, estMs: 0,
+      }],
+    },
+  };
   const result = await buildFusionDelegateTool(f.deps).run({
     tasks: [{ ...tasks[0], files: ["api.json"] }], contract,
-  }, { ...f.ctx, projectRef: { id: "bound", folder: original } });
+  }, { ...f.ctx, project, projectRef: { id: "bound", folder: original } });
   expect(result.status).toBe("ok");
   const stdout = vi.fn();
   expect(await projectCommand(["verify", original, "--json"], { stateDir: () => stateDir, stdout })).toBe(0);
@@ -191,6 +205,8 @@ it.each([true, false])("verifies every worktree receipt from the original projec
       expect.objectContaining({ kind: "artifact-manifest", projectId: "bound" }),
       expect.objectContaining({ kind: "check-run-record", projectId: "bound" }),
     ]));
+  const { receipts } = verifyProjectReceiptDetails(stateDir, original, { projectId: "bound", sessionId: f.ctx.sessionId, milestoneId: "m1" });
+  expect(new Set(receipts.map(receipt => receipt.kind))).toEqual(new Set(["artifact-manifest", "check-run-record"]));
   expect(verifyProjectReceipts(stateDir, f.root)).toEqual([]);
 });
 
