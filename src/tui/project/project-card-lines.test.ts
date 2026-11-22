@@ -123,13 +123,16 @@ describe("project card lines", () => {
 
   it.each([
     [{ valid: 4, unsigned: 0, problems: 0 }, "Evidence: 4 signed", "ok"],
-    [{ valid: 2, unsigned: 1, problems: 0 }, "Evidence: 2 signed, 1 unsigned (keychain signing key unavailable)", "warn"],
-    [{ valid: 0, unsigned: 0, problems: 1 }, "Evidence: 1 problem — run atomic-agent project verify", "error"],
-  ] as const)("shows the receipt summary as status text", (evidenceReceipts, expected, tone) => {
+    [{ valid: 2, unsigned: 1, problems: 0 }, "Evidence: 2 signed, 1 unsigned (not verifiable; the signing key may have been unavailable)", "warn"],
+    [{ valid: 0, unsigned: 0, problems: 1 }, "Evidence: 1 problem", "error"],
+  ] as const)("shows evidence status and verification guidance as text", (evidenceReceipts, expected, tone) => {
     const view = fixtureProjectGateView({ kind: "milestone", id: "m1" });
     view.milestones = view.milestones.map(m => m.id === "m1" ? { ...m, evidenceReceipts } : m);
-    const lines = projectCardLines(card(view), 90);
-    expect(lines.flatMap(line => line.segments)).toContainEqual(expect.objectContaining({ text: `    ${expected}`, tone }));
+    const segments = projectCardLines(card(view), 90).flatMap(line => line.segments);
+    expect(segments.filter(s => s.tone === tone).map(s => s.text.trim()).join(" ")).toContain(expected);
+    if (evidenceReceipts.unsigned || evidenceReceipts.problems) {
+      expect(segments.map(s => s.text.trim()).join(" ")).toContain("Run atomic-agent project verify");
+    }
   });
 
   it("note mode shows the typed correction", () => {

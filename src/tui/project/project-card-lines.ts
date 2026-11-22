@@ -235,12 +235,13 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
           const { valid, unsigned, problems, partial, archiveUnavailable } = evidence;
           const details: string[] = [];
           if (valid) details.push(`${valid} signed`);
-          if (unsigned) details.push(`${unsigned} unsigned (keychain signing key unavailable)`);
+          if (unsigned) details.push(`${unsigned} unsigned (not verifiable; the signing key may have been unavailable)`);
           if (problems) details.push(`${problems} problem${problems === 1 ? "" : "s"}`);
           if (partial) details.push("partial scan");
           if (archiveUnavailable) details.push("archive unavailable");
-          const verify = problems || partial || archiveUnavailable ? " — run atomic-agent project verify" : "";
-          text(`Evidence: ${details.join(", ")}${verify}`, problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok", 4);
+          const tone = problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok";
+          text(`Evidence: ${details.join(", ")}`, tone, 4);
+          if (unsigned || problems || partial || archiveUnavailable) text("Run atomic-agent project verify", tone, 4);
         }
         // Evidence of the result (issue #40): never a claim the view does not carry.
         for (const f of m.criteriaFacts ?? []) {
