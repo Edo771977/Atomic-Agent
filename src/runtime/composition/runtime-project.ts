@@ -345,6 +345,8 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
             verdict,
             actor,
             contentHash: gateContentHash(project, gate),
+            ...(verdict === "edit" || verdict === "cheaper" || verdict === "quality"
+              ? { resultHash: gateContentHash(decided, gate) } : {}),
             ...(note === undefined ? {} : { note }),
           };
         });

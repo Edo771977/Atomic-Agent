@@ -376,7 +376,7 @@ describe("gate verdict receipts", () => {
       const projectStore = createSessionProjectStore({ stateDir: folder, records: stateDirProjectRecords(folder) });
       const first = projectStore.commit(createEmptySessionState({ id: "first", workingDir: folder }), up(undefined, brief));
       if (!first.ok) throw new Error(first.problem.message);
-      const other = up(undefined, { ...brief, kind: "brief", brief: { what: "Other", users: "Kids", how: "HTML", successCriteria: ["Runs"] } });
+      const other = up(undefined, { kind: "brief", draftedAfterUntrusted: false, brief: { what: "Other", users: "Kids", how: "HTML", successCriteria: ["Runs"] } });
       const writeProjectReceipt = vi.fn();
       const h = harness({ project: other, folder, projectStore, writeProjectReceipt });
       expect(h.runtime.projectDecision("s1", decision).ok).toBe(true);
@@ -410,6 +410,22 @@ describe("gate verdict receipts", () => {
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }
+  });
+
+  it.each(["edit", "cheaper", "quality"] as const)("fingerprints the result of %s as well as the input", verdict => {
+    const draft = up(approved(up(undefined, brief)), plan);
+    const writeProjectReceipt = vi.fn();
+    const h = harness({ project: draft, writeProjectReceipt });
+    const gate = { kind: "plan" as const };
+    const result = h.runtime.projectDecision("s1", {
+      gate, version: 1, verdict,
+      ...(verdict === "edit" ? { edits: { rows: [{ taskId: "t1", worker: "cloud:model-b" }] } } : {}),
+    });
+    if (!result.ok) throw new Error(result.error.message);
+    expect(writeProjectReceipt).toHaveBeenCalledWith(expect.any(String), "gate-verdict", expect.objectContaining({
+      contentHash: gateContentHash(draft, gate), resultHash: gateContentHash(result.project, gate),
+    }));
+    expect(gateContentHash(result.project, gate)).not.toBe(gateContentHash(draft, gate));
   });
 
   it("logs write failures without leaking errors or undoing the decision", () => {
