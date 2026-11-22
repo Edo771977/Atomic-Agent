@@ -435,3 +435,18 @@ test('the page tells the card whether a turn runs in the chat', () => {
   const start = renderer.match(/function projectCardStart\(\) \{[\s\S]*?\n\}\n/)[0];
   assert.match(start, /turnRunning: \(sid\) => \(sid === S\.agentSession && \(S\.busy \|\| !!S\.pending\)\) \|\| \[\.\.\.RUNNING\.values\(\)\]\.includes\(sid\)/);
 });
+
+test('a seed alone does not keep the backlog card up between gates; it shows when the card is up for another reason', () => {
+  let p = project();
+  for (const id of ['b1', 'b3', 'b4']) p = call(p, id, 'dropped');
+  const between = (q) => view(q, {gate: {kind: 'none'}, version: null, allowedVerdicts: ['cancel'], expectation: {kind: 'run_milestone', id: 'm1'}});
+  const seedOnly = between(p);
+  assert.equal(seedOnly.backlog.open, 1);
+  assert.equal(seedOnly.backlog.seeds.length, 1);
+  assert.equal(C.pcModel(C.pcInitial(seedOnly)), null, 'a seed waits for its condition, not for the person now');
+  assert.equal(C.pcStore().put('ses-1', seedOnly), false);
+  const withOpen = between(call(p, 'b1', 'open'));
+  const model = C.pcModel(C.pcInitial(withOpen));
+  assert.equal(model.kind, 'backlog');
+  assert.match(draw(model).textContent, /b2 · Online play[\s\S]*seed · When: the local game is stable/);
+});

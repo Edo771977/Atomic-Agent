@@ -72,7 +72,7 @@ function pcOpen(view) {
 
 /**
  * Issue #146: no gate waits, but the backlog asks something of the person:
- * an item nobody decided, a call made stale outside Atomic Agent, or a
+ * an item nobody decided (a seed waits for its condition), a call made stale outside Atomic Agent, or a
  * complete project that leaves items open or promoted ones never done.
  * The card then shows the backlog alone (between turns, as the TUI's b).
  */
@@ -81,7 +81,9 @@ function pcBacklogOnly(view) {
   const b = view.backlog && typeof view.backlog === 'object' ? view.backlog : null;
   const exp = view.expectation || {};
   const closing = exp.kind === 'complete' && (pcNum(exp.promotedNotDone) > 0 || pcNum(exp.openBacklog) > 0);
-  return !!b && (pcNum(b.open) > 0 || pcList(b.stale).length > 0 || closing);
+  // A seed waits for its condition, so open seeds alone keep no card up (they show when it is up anyway).
+  const undecided = (pcNum(b && b.open) || 0) - pcList(b && b.seeds).length;
+  return !!b && (undecided > 0 || pcList(b.stale).length > 0 || closing);
 }
 
 /** What the chat's card draws: an open gate, or a backlog with something to decide. */
