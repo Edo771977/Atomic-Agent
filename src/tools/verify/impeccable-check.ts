@@ -225,6 +225,9 @@ export async function runImpeccableCheck(
     if (scan.exitCode === 0 && report.primary) return complete("uncheckable", "impeccable returned primary findings with exit 0", report.findings);
     if (report.usedExceptions.length > 0) usedExceptions = report.usedExceptions;
     const fail = scan.exitCode === 2 && report.severe;
+    if (!fail && args.url !== undefined) {
+      return complete("uncheckable", "a rendered scan cannot rule out suppressions inserted by the page; also check the source file (path)", report.findings);
+    }
     if (!fail && markers.potentiallyActive) {
       return complete("uncheckable", "impeccable suppression markers could hide findings", report.findings);
     }

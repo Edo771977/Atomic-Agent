@@ -394,7 +394,7 @@ it.each([0, 2])("passes the approved loopback URL to impeccable (exit %i)", asyn
   expect(request).toHaveBeenCalledWith(expect.objectContaining({
     category: "verify_ui_detector", preview: expect.stringContaining(url),
   }), expect.anything());
-  expect(await executeVerify(spec!, { workingDir: root })).toMatchObject({ artifactStatus: exit === 0 ? "pass" : "fail" });
+  expect(await executeVerify(spec!, { workingDir: root })).toMatchObject({ artifactStatus: exit === 0 ? "uncheckable" : "fail" });
 });
 
 it("rejects non-loopback UI URLs before authorization", async () => {
@@ -453,5 +453,5 @@ it("scans the address of a named service while it is ready in the same batch", a
     tool: "fusion.delegate", checks: specs, signal: controller.signal,
     runner: (batch, ctx) => runChecks(batch, { ...ctx, fetchImpl: async () => ({ status: 200, text: async () => "" }) }),
   });
-  expect(await hold.finalRunner!(specs, { workingDir: root, signal: controller.signal })).toMatchObject({ ok: true, results: [{ kind: "service", ready: true }, { kind: "ui", artifactStatus: "pass" }] });
+  expect(await hold.finalRunner!(specs, { workingDir: root, signal: controller.signal })).toMatchObject({ ok: false, results: [{ kind: "service", ready: true }, { kind: "ui", artifactStatus: "uncheckable" }] });
 });
