@@ -1776,7 +1776,8 @@ export function buildFusionDelegateTool(
             ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
             : undefined;
       if (evidenceRun !== undefined) checkRun = evidenceRun;
-      admitted.runId = evidenceRun?.runId ?? newFusionRunId();
+      const criterionRunId = evidenceRun?.runId ?? newFusionRunId();
+      admitted.runId = criterionRunId;
       admitted.runStartedAt = runStartedAt;
       // Each worker run of a task is an attempt (issue #95): what it wrote
       // and the edits it found already applied stay with that attempt, and
@@ -2150,7 +2151,7 @@ export function buildFusionDelegateTool(
           // The checks' own criteria facts still stand (issue #40).
           const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
-            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined) }),
+            ...(named.length === 0 ? {} : { criteria: criteriaFactsFor(named, input.contract, input.facts.checkOutcomes, undefined, criterionRunId) }),
             green: false,
             items: [],
             unverified:
@@ -2167,6 +2168,7 @@ export function buildFusionDelegateTool(
         const attemptEvidence = attemptEvidenceFor(input.task, input.facts, input.workingDir, input.items, input.reply);
         const judged = await judgeTask({
           ...input,
+          runId: criterionRunId,
           planReviewerRef: approvedRows.get(input.task.id)?.reviewer ?? null,
           ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(attemptEvidence.length === 0 ? {} : { attemptEvidence }),
@@ -3380,7 +3382,7 @@ export function buildFusionDelegateTool(
           const outcomesByIndex = (parsed.contract?.checks ?? []).map(
             (_, index) => latestCheckOutcomes.get(index) ?? gateState.checkOutcomes.get(index),
           );
-          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex));
+          results = results.map((r) => holdOnCriteria(r, taskCriteria(r.id, parsed.contract, named), parsed.contract, outcomesByIndex, criterionRunId));
         }
         // The run's success-criteria facts, kept with its screenshots for
         // the milestone report (issue #40, `run-criteria.ts`). A candidate

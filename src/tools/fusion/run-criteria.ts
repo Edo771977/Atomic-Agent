@@ -10,6 +10,7 @@ import {
   type ProjectCriterionFact,
   type ProjectMilestoneAttachment,
 } from "../../session/session-project.js";
+import { readCriterionBasis, weakestCriterionBasis } from "../../session/project-criterion-basis.js";
 import { FusionRunStore, fusionRunShotTarget } from "./run-checkpoint.js";
 
 /**
@@ -236,10 +237,12 @@ function readRunTasks(runsDir: string, runId: string): StoredRun {
     const facts: RunFact[] = [];
     for (const f of t.facts as unknown[]) {
       if (typeof f !== "object" || f === null) continue;
-      const { id, state, why, text, reservation } = f as Record<string, unknown>;
+      const { id, state, why, text, reservation, basis: rawBasis } = f as Record<string, unknown>;
       const clean = normalizeCriterionId(id);
       if (clean === null || !CRITERION_FACT_STATES.includes(state as CriterionFactState)) continue;
+      const basis = readCriterionBasis(rawBasis);
       facts.push({
+        ...(basis === undefined ? {} : { basis }),
         id: clean,
         state: state as CriterionFactState,
         ...(typeof why === "string" ? { why } : {}),
@@ -363,7 +366,22 @@ export function readMilestoneEvidence(input: {
         const known = inRun.get(fact.id);
         // The worst state wins; between two passes, a clean one outranks one
         // with reservations (issue #110): one clean passing check keeps it green.
-        if (known === undefined || RANK[fact.state] > RANK[known.state] || (fact.state === "passed" && known.state === "passed" && known.reservation !== undefined && fact.reservation === undefined)) inRun.set(fact.id, fact);
+        if (known === undefined) {
+          inRun.set(fact.id, fact);
+          continue;
+        }
+        const winner = RANK[fact.state] > RANK[known.state] ||
+          (fact.state === "passed" && known.state === "passed" && known.reservation !== undefined && fact.reservation === undefined)
+          ? fact : known;
+        if (winner.state !== "passed") {
+          inRun.set(fact.id, winner);
+          continue;
+        }
+        const other = winner === fact ? known : fact;
+        const { basis: winningBasis, ...result } = winner;
+        const basis = winningBasis === undefined || other.basis === undefined
+          ? undefined : weakestCriterionBasis(winningBasis, other.basis);
+        inRun.set(fact.id, basis === undefined ? result : { ...result, basis });
       }
     }
     for (const [id, fact] of inRun) worst.set(id, fact);

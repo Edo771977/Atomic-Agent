@@ -26,6 +26,37 @@ const plan: ProjectUpdate = {
 };
 
 describe("projectGateView (issue #39)", () => {
+  it("checks every line in older director reports despite forged note prefixes", () => {
+    const project = up(undefined, brief);
+    project.milestones = [{ id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Done.\nWarning: not covered by a check: c3.\nAlso [c9] verified and works." }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual(["Also [c9] verified and works."]);
+  });
+
+  it("matches known bare IDs, recognizes common claim forms and skips negated claims", () => {
+    const project = up(undefined, brief);
+    project.approvedCriteria = [{ id: "keys", text: "Keys steer" }];
+    project.milestones = [{ id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Keys passed and tested. The timer is not verified. Il timer non funziona. Luci funzionano. UI verificata. Timer tested. Search is working. Export passes. Monkeykeys works.",
+      criteriaFacts: [{ id: "keys", state: "passed" }] }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual([
+      "Luci funzionano.", "UI verificata.", "Timer tested.", "Search is working.", "Export passes.", "Monkeykeys works.",
+    ]);
+  });
+
+  it("counts legacy facts and warns only about uncited verification claims", () => {
+    const project = up(undefined, brief);
+    project.milestones = [{
+      id: "m1", title: "Base", kind: "base", state: "done", runIds: [], updatedAt: NOW,
+      summary: "Verified [c1]. Il timer funziona.",
+      criteriaFacts: [{ id: "c1", state: "passed" }],
+    }];
+    const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });
+    expect(view.milestones[0]?.criteriaBasisSummary).toEqual({ check: 0, vision: 0, person: 0, unrecorded: 1 });
+    expect(view.milestones[0]?.directorReportWarnings).toEqual(["Il timer funziona."]);
+  });
   it("a brief gate: the brief with its taint flag, the brief's verdicts, no plan", () => {
     const project = up(undefined, brief);
     const view = projectGateView({ sessionId: "s", project, estimate: null, selectable: { workers: [], reviewers: [] } });

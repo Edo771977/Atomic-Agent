@@ -173,6 +173,13 @@ export interface ProjectGateRow extends AssignmentRow {
   selectableReviewers: string[];
 }
 
+export interface ProjectCriterionBasisSummary {
+  check: number;
+  vision: number;
+  person: number;
+  unrecorded: number;
+}
+
 export interface MilestoneEvidenceReceipts {
   /** Project folder to pass to the full receipt verifier. */
   folder?: string;
@@ -195,6 +202,10 @@ export interface MilestoneEvidenceReceipts {
  * re-plan replaced (optional, additive; not the current result).
  */
 export interface ProjectGateMilestone extends ProjectMilestone {
+  /** Counts of reported criterion facts by basis. */
+  criteriaBasisSummary?: ProjectCriterionBasisSummary;
+  /** Sentences in the director report with a verification claim and no matching passed fact. */
+  directorReportWarnings?: string[];
   /** Receipt verification for the milestone awaiting review. */
   evidenceReceipts?: MilestoneEvidenceReceipts;
   /** The milestone's estimate (`estimatePlan`); null when unknown. */

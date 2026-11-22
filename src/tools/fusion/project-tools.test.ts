@@ -338,7 +338,7 @@ describe("project.milestone", () => {
       criteria: [{ id: "c1", text: "Runs offline" }, { id: "c2", text: "Arrow keys steer" }],
     });
     expect(result.details[PROJECT_UPDATE_DETAIL]).toEqual({
-      kind: "milestone", id: "base", state: "done", summary: "Board drawn\nWarning: not covered by a check: c2.",
+      kind: "milestone", id: "base", state: "done", summary: "Board drawn", reportNotes: ["Warning: not covered by a check: c2."],
       criteriaFacts: [{ id: "c1", state: "passed", why: "every check naming it passed" }], attachments: shots,
     });
     expect(result.summary).toContain("c1 passed");
@@ -383,8 +383,10 @@ describe("project.milestone", () => {
     }, NOW);
     if (!planned.ok) throw new Error(planned.error.message);
     const result = await tools().milestone.run({ id: "base", state: "done", summary: "Board drawn" }, { ...ctx, project: planned.project });
-    const report = result.details[PROJECT_UPDATE_DETAIL] as { summary: string };
-    expect(report.summary).toBe("Board drawn\nDecisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): d1 (Use SQLite).");
+    expect(result.details[PROJECT_UPDATE_DETAIL]).toMatchObject({
+      summary: "Board drawn",
+      reportNotes: ["Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): d1 (Use SQLite)."],
+    });
     expect(result.summary).toContain("d1 (Use SQLite)");
     expect(result.summary).not.toContain("No new dependencies");
     // A milestone citing no decision adds nothing.

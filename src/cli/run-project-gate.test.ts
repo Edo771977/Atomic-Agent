@@ -64,7 +64,12 @@ describe("run at a project gate", () => {
   it("a milestone gate prints its criteria facts and pictures (issue #40)", async () => {
     const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }));
     const step = await settleProjectGate(runtime(view), "s", "stop");
-    expect(step.kind === "stop" && step.text).toContain("Criteria:\n    ✓ c1 passed: Runs in a browser");
+    expect(step.kind === "stop" && step.text).toContain([
+      "  Criteria:",
+      "    2 criteria: 1 measured, 1 basis not recorded",
+      "    ✓ c1 passed: Runs in a browser · measured",
+      "    ? c2 unverified: Ten levels (no vision-capable reviewer) · basis not recorded",
+    ].join("\n"));
     expect(step.kind === "stop" && step.text).toContain(`Picture: The board at start [c1] — ${FIXTURE_SHOT_PATH}`);
   });
 
