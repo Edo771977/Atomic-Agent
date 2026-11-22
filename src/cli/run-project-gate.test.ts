@@ -106,7 +106,7 @@ describe("run at a project gate", () => {
   it("--auto-approve-project approves the current version", async () => {
     const rt = runtime(fixtureProjectGateView({ kind: "plan" }), fixtureProjectGateView({ kind: "none" }));
     expect((await settleProjectGate(rt, "s", "approve")).kind).toBe("approved");
-    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" });
+    expect(rt.projectDecision).toHaveBeenCalledWith("s", { gate: { kind: "plan" }, version: 3, verdict: "approve" }, "auto-approve");
   });
 
   it("auto approval stops at a failed milestone: only a person decides a retry", async () => {
@@ -193,7 +193,7 @@ describe("run at a plan the plan reviewer still fails (issue #118)", () => {
     if (step.kind !== "stop") return;
     expect(step.text).toContain(`The plan reviewer's open notes still fail the plan: this needs a person, so it is not approved automatically. ${message}`);
     expect(rt.projectDecision).toHaveBeenCalledTimes(1);
-    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }));
+    expect(rt.projectDecision).toHaveBeenCalledWith("sess-1", expect.objectContaining({ verdict: "approve" }), "auto-approve");
   });
 });
 

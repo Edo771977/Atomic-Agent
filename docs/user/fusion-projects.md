@@ -84,7 +84,7 @@ Macros and formulas are never run; workbook formulas need their saved results. F
 atomic-agent project verify ./my-project
 ~~~
 
-This command checks saved delivery and check-execution receipts. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. Receipts may be unsigned when the signing key is unavailable.
+This command checks saved delivery, check-execution, gate-decision and milestone-report receipts. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. Receipts may be unsigned when the signing key is unavailable.
 
 Verification covers the receipts present. It cannot tell whether a receipt was removed or whether current project files match the old delivery. A process running as your user with access to the signing key can sign replacement receipts.
 

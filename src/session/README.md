@@ -7,7 +7,11 @@ This area owns session state and persistence. Read [AGENTS.md](AGENTS.md) before
 
 ## Evidence receipts
 
-Each project appends evidence snapshots to `<stateDir>/receipts/<project-key>/receipts.ndjson`. The folder key is shared with the protected decision record. The signing key is generated on first use in the operating system credential store. Public keys remain in `<stateDir>/signing/` so historical signatures survive key replacement. If the keychain is unavailable, the writer records the evidence as unsigned. Verification only reads public keys. See the [CLI guide](../cli/README.md) for statuses and trust limits.
+Each project appends evidence snapshots to `<stateDir>/receipts/<project-key>/receipts.ndjson`. The folder key is shared with the protected decision record. The signing key is generated on first use in the operating system credential store. Public keys remain in `<stateDir>/signing/` so historical signatures survive key replacement. If the keychain is unavailable, the writer records the evidence as unsigned. Verification only reads public keys.
+
+The archive includes artifact manifests, check-run records, gate verdicts and milestone reports. A saved gate verdict names the gate, version, verdict, decision source and the same content fingerprint as the decision record. Approval over a review includes the person's bounded note. A saved milestone report records its state, criterion results and attachment SHA-256 fingerprints. Criterion text and fact explanations are fingerprinted. Prompts, raw model output and attachment bytes are excluded. An unavailable attachment fingerprint is recorded as null and logged. Incognito chats produce no receipts. A receipt write failure leaves the saved project decision or report in place.
+
+Signatures support retrospective verification. A process running as the same user with access to the OS credential store can sign replacement evidence. See the [CLI guide](../cli/README.md) for statuses and trust limits.
 
 ## Entry points
 

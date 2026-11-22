@@ -1,10 +1,12 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, expect, it } from "vitest";
 import { projectCommand } from "../cli/projects-command.js";
 import { SecretKeychain } from "../config/secret-store.js";
 import { createHash } from "node:crypto";
+import { writeMilestoneReportReceipt } from "./project-milestone-receipt.js";
+import { createEmptySessionState } from "./session-state.js";
 import { canonicalJson, receiptHash } from "./receipt-signing.js";
 import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts } from "./project-receipts.js";
 
@@ -80,4 +82,41 @@ it("reports unsigned evidence and the trust boundary in the CLI without opening 
   expect(await projectCommand(["verify", dir], { stateDir: () => dir, stdout: s => { output += s; } })).toBe(1);
   expect(output).toContain("unsigned"); expect(output).toMatch(/same user/i);
   expect(readFileSync(join(process.cwd(), "src/cli/README.md"), "utf8")).toMatch(/same user/i);
+});
+
+it("signs milestone facts and attachment fingerprints without copying free text or file bytes", () => {
+  const { dir, credentials } = setup();
+  const shots = join(dir, "fusion-runs", "run-1", "shots");
+  mkdirSync(shots, { recursive: true });
+  const shot = join(shots, "shot.png");
+  writeFileSync(shot, "screenshot bytes");
+  const writer = createProjectReceiptWriter(dir, {
+    read: key => ({ ok: true, value: credentials.get(key) ?? null }),
+    write: (key, value) => { credentials.set(key, value); return true; },
+  }, () => {});
+  const session = createEmptySessionState({ id: "report", workingDir: dir });
+  session.project = {
+    gate: { kind: "milestone", id: "m1" },
+    milestones: [{
+      id: "m1", title: "Base", kind: "base", state: "done", runIds: ["run-1"], updatedAt: 42,
+      summary: "director text",
+      criteriaFacts: [{ id: "c1", state: "passed", why: "judge text", reservation: "weak check" }],
+      attachments: [{ path: shot, caption: "screenshot caption", criteria: ["c1"] }],
+    }],
+  };
+  writeMilestoneReportReceipt(dir, writer, () => {}, session, "m1");
+  expect(verifyProjectReceipts(dir, dir)).toEqual(["valid"]);
+  const path = join(dir, "receipts", readdirSync(join(dir, "receipts"))[0]!, "receipts.ndjson");
+  const text = readFileSync(path, "utf8");
+  expect(JSON.parse(text)).toMatchObject({
+    kind: "milestone-report",
+    payload: {
+      milestoneId: "m1", state: "done",
+      criteriaFacts: [{ id: "c1", state: "passed", whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
+      attachments: [{ sha256: createHash("sha256").update("screenshot bytes").digest("hex"), criteria: ["c1"] }],
+    },
+  });
+  for (const privateText of ["director text", "judge text", "weak check", "screenshot bytes", "screenshot caption", "shot.png"]) {
+    expect(text).not.toContain(privateText);
+  }
 });

@@ -126,6 +126,7 @@ export const supplementalFiles = [
   'src/runtime/ripgrep-resolver.test.ts',
   'src/tools/os/fs/fs-grep.test.ts',
   'src/session/project-receipts.test.ts',
+  'src/runtime/composition/runtime-project.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
   'src/runtime/daily-budget-fallback.test.ts',
