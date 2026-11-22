@@ -43,7 +43,9 @@ export class TailBuffer {
     }
   }
 
-  /** Everything kept (up to 1 MB, head dropped first). */
+  get truncated(): boolean { return this.dropped; }
+
+  /** Everything kept (up to 1 MiB, head dropped first). */
   all(): string {
     return this.text;
   }
@@ -79,6 +81,8 @@ export interface SpawnVerifyOptions {
   signal?: AbortSignal;
   /** Written to the child's stdin, which is then closed. Absent: stdin is ignored (empty). */
   stdin?: string;
+  /** Fixed executors may supply an invocation that never interprets user argv. */
+  invocation?: ReturnType<typeof resolveInvocation>;
 }
 
 export interface VerifyProcessExit {
@@ -133,7 +137,7 @@ export function spawnVerifyProcess(
   args: readonly string[],
   options: SpawnVerifyOptions,
 ): VerifyProcess {
-  const invocation = resolveInvocation(cmd, args);
+  const invocation = options.invocation ?? resolveInvocation(cmd, args);
   const detached = process.platform !== "win32";
   const child = spawn(invocation.command, invocation.args, {
     cwd: options.cwd,
@@ -150,8 +154,8 @@ export function spawnVerifyProcess(
   });
   const stdout = new TailBuffer();
   const stderr = new TailBuffer();
-  child.stdout?.on("data", (chunk: Buffer) => stdout.append(chunk));
-  child.stderr?.on("data", (chunk: Buffer) => stderr.append(chunk));
+  child.stdout?.setEncoding("utf8").on("data", (chunk: string) => stdout.append(chunk));
+  child.stderr?.setEncoding("utf8").on("data", (chunk: string) => stderr.append(chunk));
   if (options.stdin !== undefined && child.stdin !== null) {
     // A child that exits without reading closes the pipe (EPIPE): its
     // own exit status is the verdict, not the write.

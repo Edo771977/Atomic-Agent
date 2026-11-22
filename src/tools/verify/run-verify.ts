@@ -22,6 +22,8 @@ import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-servi
 import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-checks.js";
 import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
 import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
+import { OUTPUT_TAIL_CHARS } from "./spawn-verify-process.js";
+import { runImpeccableCheck } from "./impeccable-check.js";
 import { renderVerifyRunSummary } from "./verify-run-summary.js";
 import { terminalAppHint } from "./terminal-app-hint.js";
 import { createVerifyWorkspace, type VerifyWorkspace } from "./verify-workspace-copy.js";
@@ -33,6 +35,9 @@ export interface VerifyRunResult {
   readonly kind: VerifyRunKind;
   readonly isolated: boolean;
   readonly artifactStatus?: ArtifactOutcome["status"];
+  readonly impeccableVersion?: string;
+  readonly impeccableFindings?: readonly string[];
+  readonly impeccableSuppressions?: readonly string[];
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -134,13 +139,15 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
-  if (isArtifactKind(args.kind)) {
-    const out = await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal);
+  const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, ctx.workingDir, ctx.signal) : undefined;
+  if (ui !== undefined || isArtifactKind(args.kind)) {
+    const out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal) : ui!;
     const ok = out.status === "pass";
     const text = `${out.status}: ${out.detail}`;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
-    return finish({ ...common, artifactStatus: out.status, stdoutTail: text, exitCode,
-      ...(out.status === "uncheckable" ? { error: text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
+    return finish({ ...common, artifactStatus: out.status, stdoutTail: ui === undefined ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings, impeccableSuppressions: ui.suppressions }),
+      ...(out.status === "uncheckable" ? { error: ui === undefined ? text : text.split("\n", 1)[0] } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
   if (args.kind === "command") {
@@ -240,9 +247,9 @@ export async function runVerify(
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
     finish({ kind: args.kind, isolated, error, ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
-  // A file check snapshots only the approved regular file into a disposable
-  // offline parser. No project command runs and no workspace tree is copied.
-  if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
+  // File checks snapshot the approved regular file. An integrity-tracked
+  // contract check first observes the files in the private workspace copy.
+  if ((args.kind === "ui" || isArtifactKind(args.kind)) && ctx.inputIntegrity === undefined) {
     try {
       const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started);
       return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;

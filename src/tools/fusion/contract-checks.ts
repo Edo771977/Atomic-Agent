@@ -50,7 +50,13 @@ export interface ContractFinding {
  * One check's verdict as the wired runner reports it. The runner is
  * `verify`'s `runChecks`; this is the least it has to return.
  */
-export interface ContractCheckResult {
+interface ImpeccableCheckEvidence {
+  impeccableVersion?: string;
+  impeccableFindings?: readonly string[];
+  impeccableSuppressions?: readonly string[];
+}
+
+export interface ContractCheckResult extends ImpeccableCheckEvidence {
   ok: boolean;
   summary?: string;
   error?: string;
@@ -119,7 +125,7 @@ export class ContractChecksHeldError extends Error {
   override readonly name = "ContractChecksHeldError";
 }
 
-export interface ContractCheckOutcome {
+export interface ContractCheckOutcome extends ImpeccableCheckEvidence {
   /** The task the check was attributed to; absent for a call-level check. */
   task?: string;
   ok: boolean;
@@ -523,6 +529,9 @@ function maskResult(
     ...(result.exitCode === undefined ? {} : { exitCode: result.exitCode }),
     ...(result.commandLine === undefined ? {} : { commandLine: maskSecrets(result.commandLine, known) }),
     ...(games === undefined ? {} : { games }),
+    ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: maskSecrets(result.impeccableVersion, known) }),
+    ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings.map(e => maskSecrets(e, known)) }),
+    ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions.map(e => maskSecrets(e, known)) }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
     ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
   };
@@ -648,6 +657,9 @@ export async function runContractChecks(
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
+      ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: result.impeccableVersion }),
+      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings }),
+      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

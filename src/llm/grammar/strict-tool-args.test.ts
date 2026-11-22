@@ -204,6 +204,8 @@ describe("strict tool args (ATO-633): with the rest of the grammar pipeline", ()
     const narrowed = buildGrammarForTools(plain, ["verify.run"]);
     const strict = applyStrictToolArgs(narrowed, ALL_TOOLS);
     expect(gbnfAccepts(strict, "root", call("verify.run", { kind: "spreadsheet", path: "sales.csv" }))).toBe(true);
+    expect(gbnfAccepts(strict, "root", call("verify.run", { kind: "ui", path: "src/styles.css" }))).toBe(true);
+    expect(gbnfAccepts(strict, "root", call("verify.run", { kind: "typo", path: "src/styles.css" }))).toBe(false);
     expect(gbnfAccepts(strict, "root", call("verify.run", { cmd: "ls" }))).toBe(false);
   });
 

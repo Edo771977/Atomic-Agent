@@ -143,7 +143,7 @@ export async function authorizeVerifyBatch(
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
     const cwd = resolveVerifyCwd(project, logical.cwd);
-    const artifactTarget = isArtifactKind(logical.kind) && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
+    const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
     const commands = verifyRunCommands(logical);
     const commandSegments = commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
     const stdinScript = verifyRunStdinScript(logical);
@@ -165,6 +165,7 @@ export async function authorizeVerifyBatch(
     const previewKnown = [...known, ...knownSecretsFromEnv(logical.env)];
     const execution = artifactTarget === undefined
       ? "in a private verification copy of this project; absolute project references are rebased into that copy"
+      : logical.kind === "ui" ? "run installed impeccable detect on a bounded local file snapshot"
       : "read a bounded file snapshot with an offline parser";
     const preview = [
       ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)), previewKnown)),
@@ -177,7 +178,9 @@ export async function authorizeVerifyBatch(
       category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
       reason: artifactTarget === undefined
         ? `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`
-        : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
+        : logical.kind === "ui"
+          ? `verify UI with installed impeccable on ${maskVerificationSecrets(artifactTarget, previewKnown)}`
+          : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
       preview, affectedResources: [artifactTarget ?? cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
@@ -200,7 +203,7 @@ export async function authorizeVerifyBatch(
   }
   for (const { logical, cwd } of plans) {
     const readContext = { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] };
-    const paths = (logical.kind === "page" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
+    const paths = (logical.kind === "page" || logical.kind === "ui" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
     const urls = [logical.url, logical.ready?.url, ...(logical.requests ?? []).flatMap(request => [request.url, request.path])];
     for (const url of urls) {
       if (url === undefined) continue;

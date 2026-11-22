@@ -1071,7 +1071,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     "verify.run",
     obj(
       {
-        kind: { type: "string", enum: ["command", "service", "page", "document", "spreadsheet"] },
+        kind: { type: "string", enum: ["command", "service", "page", "document", "spreadsheet", "ui"] },
         cwd: stringSchema,
         // A map of arbitrary keys, like `os.http.request.headers`; the
         // strict converter refuses it, knowingly.

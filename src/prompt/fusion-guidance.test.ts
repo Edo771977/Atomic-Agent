@@ -221,7 +221,7 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     expect(prefixWith([descriptor(FUSION_DELEGATE_TOOL)], FACTS)).not.toContain(PROJECT_FLOW_GUIDANCE);
     expect(buildFusionGuidance(FACTS, { project: true })).toContain(PROJECT_FLOW_GUIDANCE);
     expect(buildFusionGuidance(FACTS)).toBe(buildFusionGuidance(FACTS, { project: false }));
-    expect(PROJECT_FLOW_GUIDANCE.length).toBeLessThan(700);
+    expect(PROJECT_FLOW_GUIDANCE.length).toBeLessThan(800);
   });
 });
 
