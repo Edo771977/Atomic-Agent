@@ -6,6 +6,12 @@
  * (src/session/project-decision-parse.ts) is refused before it leaves the
  * app. Whether the gate takes it (its version, the allowed verdicts, hard
  * caps, a running turn) stays the agent's to say.
+ *
+ * Issue #146: `agent:projectBacklog`, the person's call on a backlog item
+ * (`POST /api/project/backlog`, the HTTP form of the sidecar's
+ * `project_backlog_decision`), checked the same way: a strict session and
+ * item id and only `promoted`, `dropped` or `open`. Between turns only,
+ * which the agent says (`turn-running`).
  */
 
 export const PROJECT_VERDICTS = ["approve", "edit", "cheaper", "quality", "cancel", "approveOverReview"] as const;
@@ -16,6 +22,9 @@ const MAX_ID_CHARS = 200;
 const MAX_ROWS = 500;
 const PROJECT_DECISION_STATUSES = ["active", "deferred", "informational"] as const;
 type ProjectDecisionStatus = (typeof PROJECT_DECISION_STATUSES)[number];
+/** Issue #146: the person's status for a promoted backlog item at the plan gate (the core's `PERSON_BACKLOG_STATUSES`). */
+const PROJECT_BACKLOG_STATUSES = ["active", "deferred"] as const;
+type ProjectBacklogStatus = (typeof PROJECT_BACKLOG_STATUSES)[number];
 
 export type ProjectGateRef = { kind: "brief" } | { kind: "plan" } | { kind: "none" } | { kind: "milestone"; id: string };
 
@@ -28,11 +37,36 @@ export interface ProjectDecisionBody {
     rows?: Array<{ taskId: string; worker?: string; reviewer?: string | null }>;
     note?: string;
     decisionStatus?: Record<string, ProjectDecisionStatus>;
+    backlogStatus?: Record<string, ProjectBacklogStatus>;
   };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_CHARS && !/[\r\n]/.test(v);
+
+export const PROJECT_BACKLOG_STATES = ["promoted", "dropped", "open"] as const;
+export type ProjectBacklogState = (typeof PROJECT_BACKLOG_STATES)[number];
+/** A backlog item id as the core stores it (`normalizeCriterionId`, src/session/project-criterion-id.ts). */
+const BACKLOG_ID = /^[a-z0-9-]{1,32}$/;
+
+export interface ProjectBacklogBody {
+  session: string;
+  item: string;
+  state: ProjectBacklogState;
+}
+
+/** Issue #146: `{sessionId, item, state}` from the window, as the route's `{session, item, state}`, or why not. */
+export function parseProjectBacklogIpc(raw: unknown): { ok: true; body: ProjectBacklogBody } | { ok: false; error: string } {
+  if (!isObject(raw)) return { ok: false, error: "a backlog call must be an object" };
+  if (!isId(raw.sessionId)) return { ok: false, error: "session required" };
+  const item = raw.item;
+  if (typeof item !== "string" || !BACKLOG_ID.test(item)) {
+    return { ok: false, error: "item must be a backlog item's id" };
+  }
+  const state = PROJECT_BACKLOG_STATES.find((s) => s === raw.state);
+  if (!state) return { ok: false, error: "state must be promoted, dropped or open" };
+  return { ok: true, body: { session: raw.sessionId, item, state } };
+}
 
 /** Issue #109: one absolute folder (POSIX or Windows) for the projects list's forget / resume, or null. */
 export function parseProjectFolderIpc(raw: unknown): string | null {
@@ -95,6 +129,21 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       }
       if (statuses.length === 0) return { ok: false, error: "name at least one decision" };
       edits.decisionStatus = Object.fromEntries(statuses);
+    }
+    if (raw.edits.backlogStatus !== undefined) {
+      if (gate.kind !== "plan" || verdict !== "edit" || !isObject(raw.edits.backlogStatus)) {
+        return { ok: false, error: "backlog statuses can only be edited at the plan gate" };
+      }
+      const statuses: Array<[string, ProjectBacklogStatus]> = [];
+      for (const [id, value] of Object.entries(raw.edits.backlogStatus)) {
+        const status = PROJECT_BACKLOG_STATUSES.find((candidate) => candidate === value);
+        if (!BACKLOG_ID.test(id) || status === undefined) {
+          return { ok: false, error: "backlog statuses require a valid item id and active or deferred status" };
+        }
+        statuses.push([id, status]);
+      }
+      if (statuses.length === 0) return { ok: false, error: "name at least one backlog item" };
+      edits.backlogStatus = Object.fromEntries(statuses);
     }
     if (raw.edits.note !== undefined) {
       const note = raw.edits.note;

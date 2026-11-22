@@ -110,6 +110,40 @@ displayed as plain text when the connected agent supplies them. The review
 status stays by the approval buttons. **Approve over review…** appears
 when the agent offers it and requires a reason before sending the decision.
 
+**Backlog (issue #146).** The card's Backlog section lists the view's
+`backlog.items` with their id, title and note (author content, drawn as
+text), their call (open; a seed with its condition; promoted, with the plan
+that took it in or deferred; dropped) and who proposed it. An open item
+offers **Promote** and **Drop**, a decided one the other two (**Drop** or
+**Promote**, and **Reopen**), as the TUI's
+backlog (`b` in `/plan`) and `atomic-agent project backlog
+--promote|--drop|--reopen`. A call made stale outside Atomic Agent is flagged
+"changed outside Atomic Agent since you promoted it" with **Promote again**,
+**Drop** and **Keep open**; a promoted item removed outside offers **Clear**.
+A call goes through `agent:projectBacklog` (`{sessionId, item, state}`,
+checked in `main/project-ipc.ts`: a strict session id, the core's backlog id
+pattern, only `promoted`, `dropped` or `open`) to `POST /api/project/backlog`,
+the HTTP form of the sidecar's `project_backlog_decision`. It moves no gate:
+the card keeps its gate and draws the view the agent answers (unless a newer
+frame came meanwhile), or why it refused. Calls wait for the chat's turn: the
+page says whether one runs (`turnRunning`), and the section's buttons are
+disabled with "Decide once the turn finishes". A call in flight keeps the
+card busy across a chat switch. The card does not yet bind a call to the item
+text it showed (the route takes no `expectedFingerprint`; a core follow-up
+adds it), so an item edited outside in the meantime is decided as it is now.
+At the plan gate a promoted item no approved plan took in says
+"Cited by: t…" or "No citing tasks" and offers **Defer**, or **Reactivate**
+once deferred: the gate's `edit` with `edits.backlogStatus`, which main lets
+through only at the plan gate with verdict `edit`, as `decisionStatus`. An
+agent whose promoted entries carry no `citedBy` list gets neither.
+The `backlog-coverage` result is one of the plan checks. When no gate waits,
+no turn runs and the backlog asks something (an item nobody decided that is
+not a seed, a stale call, or a complete project leaving items open or
+promoted ones not done), the card shows the backlog alone, with "complete with N promoted backlog item(s) not
+done" at the close; Hide puts it away like a gate. Covered by
+`test/project-card-backlog.test.mjs` (project states from the real core)
+and `test/project-gate-api.test.mjs`.
+
 **All Fusion projects (issues #109, #121).** In the sidebar's Projects
 heading, the Fusion projects button opens the projects known to this agent,
 including projects whose chats were deleted. The list groups them as Needs

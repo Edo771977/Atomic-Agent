@@ -14,7 +14,7 @@ import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
 import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
-import type { ProjectDecisionBody } from "./project-ipc.js";
+import type { ProjectBacklogBody, ProjectDecisionBody } from "./project-ipc.js";
 import { runMemoryWrite, type MemoryWriteResult } from "./memory-write.js";
 import { projectBodyFields as projectFields } from "./projects-store.js";
 import { reasoningBodyField, type ReasoningLevel } from "./reasoning-level.js";
@@ -2734,6 +2734,26 @@ export class AgentClient extends EventEmitter {
     } catch (err) {
       return { supported: true, ok: false, status: 0, code: null, error: requestErrorText(err), view: null };
     }
+  }
+
+  /**
+   * Issue #146: `POST /api/project/backlog` — the person's call on a
+   * backlog item (promote, drop, reopen), between turns; it moves no
+   * gate. Answered like {@link projectDecision}: the view it leaves, or
+   * the agent's refusal `code` (`turn-running`, `invalid`, ...) with the
+   * current view, without a continue message.
+   */
+  async projectBacklogDecision(body: ProjectBacklogBody): Promise<
+    | { supported: false }
+    | { supported: true; ok: true; view: unknown }
+    | { supported: true; ok: false; status: number; code: string | null; error: string; view: unknown }
+  > {
+    const r = await this.projectsRequest("POST", "/api/project/backlog", body);
+    if (!r.supported) return r;
+    const parsed = (r.body ?? {}) as { view?: unknown; error?: { code?: unknown } };
+    if (r.ok) return { supported: true, ok: true, view: parsed.view ?? null };
+    const code = parsed.error?.code;
+    return { supported: true, ok: false, status: r.status, code: typeof code === "string" ? code : null, error: r.error, view: parsed.view ?? null };
   }
 
   async resolveApproval(

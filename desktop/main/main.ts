@@ -40,7 +40,7 @@ import { promisify } from "node:util";
 
 import { wireAgentAutoRestart } from "./agent-auto-restart-wire.js";
 import { AgentClient, APPROVAL_DECISIONS, commandOf, probeRemoteAgent, type ProjectTrustAnswerBody } from "./agent-client.js";
-import { parseProjectDecisionIpc, parseProjectFolderIpc, parseProjectSessionIpc } from "./project-ipc.js";
+import { parseProjectBacklogIpc, parseProjectDecisionIpc, parseProjectFolderIpc, parseProjectSessionIpc } from "./project-ipc.js";
 import { wireAgentLiveIpc } from "./agent-live.js";
 import { wirePluginsIpc } from "./plugins-ipc.js";
 import { wireSkillEvalIpc } from "./skill-eval-ipc.js";
@@ -1906,6 +1906,13 @@ function wireIpc(client: AgentClient): void {
     const parsed = parseProjectDecisionIpc(raw);
     if (!parsed.ok) return { supported: true, ok: false, status: 0, code: null, error: parsed.error, view: null };
     return client.projectDecision(parsed.body);
+  });
+  /* Issue #146: the person's call on a backlog item (promote, drop, reopen),
+     checked like a decision (project-ipc.ts); between turns, which the agent says. */
+  ipcMain.handle("agent:projectBacklog", async (_event, raw: unknown) => {
+    const parsed = parseProjectBacklogIpc(raw);
+    if (!parsed.ok) return { supported: true, ok: false, status: 0, code: null, error: parsed.error, view: null };
+    return client.projectBacklogDecision(parsed.body);
   });
 
   /* ATO-1148: a project's own cloud model, per working folder

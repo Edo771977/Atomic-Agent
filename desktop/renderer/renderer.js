@@ -2423,11 +2423,13 @@ function projectCardContinue(sid, text) {
 function projectCardStart() {
   if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
   PCARD = createProjectCard({
-    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body)},
+    api: {read: (sid) => BR.project(sid), decide: (body) => BR.projectDecision(body), backlog: (body) => BR.projectBacklog(body)},
     draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) { pcDraw(document, host, model, on); pcPlace(window, host); } },
     onContinue: projectCardContinue,
     onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
     onChange: () => renderToolbar(),
+    // Issue #146: a backlog call waits for the chat's turn (the card asks at each paint).
+    turnRunning: (sid) => (sid === S.agentSession && (S.busy || !!S.pending)) || [...RUNNING.values()].includes(sid),
   });
   BR.onProject((frame) => PCARD.onFrame(frame));
   PCWATCH = pcWatch(window, () => document.getElementById('projectcard'));
@@ -2470,7 +2472,8 @@ function renderToolbar() {
     + (open ? '' : sidebarToggleHTML() + searchBtnHTML())
     + (t ? '<div class="tb-title"><b title="' + esc(t) + '">' + esc(t) + '</b></div>' : '')
     + '<div class="tb-right">'
-      /* Issue #39: the project card the person hid, while its gate is still open. */
+      /* Issue #39: the project card the person hid, while its gate is still open, or (issue #146) while
+         its backlog still asks something between gates and no turn runs (project-card.js hiddenOpen). */
       + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the Fusion project card again">Show Fusion project</button>' : '')
       /* ATO-1256: this chat's files in the panel beside it (chat-files.js, file-preview.js). */
       + (S.room === 'chat' ? '<button class="iconbtn' + (filesPanelOpen() ? ' on' : '') + '" data-act="toggle:files"'
