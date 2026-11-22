@@ -27,6 +27,7 @@
  * outside the tree makes the workspace unavailable. With neither
  * available the workspace is unavailable and says how to fix it.
  */
+import { markAgentToolChild } from "../../sandbox/command-env.js";
 import { spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import {
@@ -152,6 +153,7 @@ async function linkDirectory(target: string, path: string, platform: NodeJS.Plat
 function cloneWithCp(src: string, dest: string): Promise<boolean> {
   return new Promise((resolve) => {
     const child = spawn("cp", ["-c", "-R", src, dest], {
+      env: markAgentToolChild(process.env),
       stdio: "ignore",
       windowsHide: true,
     });

@@ -136,6 +136,18 @@ Macros and formulas are never run; workbook formulas need their saved results. F
 
 For a UI or polish milestone, the director can pair visual review with an Impeccable source check. Add a plan check such as `{ kind: "ui", path: "src/index.html", criteria: ["contrast"] }`, using the ID of an approved criterion. The check uses the locally installed CLI and reports the version, rule and file for each finding, and any inline suppression markers. A severe finding fails the linked criterion. A missing detector or a scan that cannot prove it covered a file is reported as `uncheckable`. [UI check options and verdicts](../../src/tools/verify/README.md#ui-source-checks)
 
+Use `url: "http://localhost:4173/"` in place of `path` to check the rendered page with an installed browser. A Fusion check can also reference a named service in the same batch. The page may load external assets, so rendered checks are subject to the folder's browser egress policy. [Rendered check options](../../src/tools/verify/README.md#ui-source-checks)
+
+If a finding is intentional, record your reason between turns from a terminal. This exception applies to one file. Omit `:src/index.html` for an exception across the project, including rendered scans.
+
+~~~sh
+atomic-agent project ui-exceptions ./my-project --allow low-contrast:src/index.html --reason "Decorative wordmark"
+atomic-agent project ui-exceptions ./my-project --json
+atomic-agent project ui-exceptions ./my-project --revoke low-contrast:src/index.html
+~~~
+
+The project record in your Atomic Agent data directory keeps the approval. A scan shows which approvals it used and reports the affected findings as warnings.
+
 ## Verify signed receipts
 
 ~~~sh

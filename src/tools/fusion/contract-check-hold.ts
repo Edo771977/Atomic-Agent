@@ -44,17 +44,20 @@ export function createContractCheckHold(options: {
   checkInputs?: readonly string[];
   /** The approved project plan's folder: a local page check approved there stands for the turn. */
   turnGrantFolder?: string;
+  uiExceptions?: { stateDir: string; projectRef: { folder: string; id: string } };
 }): ContractCheckHold {
   const isUi = (spec: Record<string, unknown>) => (spec.kind ?? spec.type) === "ui";
 
   let tail = Promise.resolve();
-  const authorize = (batch: readonly Record<string, unknown>[], workingDir: string, signal: AbortSignal, checkInputs?: readonly string[]) => {
+  const authorize = (batch: readonly Record<string, unknown>[], workingDir: string, signal: AbortSignal, checkInputs?: readonly string[], onlyUi = false) => {
     const combined = AbortSignal.any([options.signal, signal]);
     const result = tail.then(async () => {
       combined.throwIfAborted();
       if (options.approvalRequired && options.approvals.request === undefined && batch.some(spec => !isUi(spec))) throw new Error("verification approval gate is unavailable");
       return authorizeVerifyBatch(batch, {
         approvals: options.approvals as ApprovalGate, approvalRequired: options.approvalRequired, continueOnUiApprovalDenial: true,
+        onlyUi,
+        uiExceptionStateDir: options.uiExceptions?.stateDir,
         ...(options.shellPolicy === undefined ? {} : { shellPolicy: options.shellPolicy }),
         ...(options.checkCommandReads === undefined ? {} : { checkCommandReads: options.checkCommandReads }),
         ...(options.checkReadTargets === undefined ? {} : { checkReadTargets: options.checkReadTargets }),
@@ -62,7 +65,7 @@ export function createContractCheckHold(options: {
         ...(options.turnGrantFolder === undefined ? {} : { turnGrantFolder: options.turnGrantFolder }),
       }, {
         sessionId: options.sessionId, workingDir, ruleWorkdir: options.workingDir,
-        stepIndex: 0, signal: combined,
+        stepIndex: 0, signal: combined, projectRef: options.uiExceptions?.projectRef,
         ...(options.readRoots === undefined ? {} : { readRoots: [...options.readRoots] }),
         checkInputs: checkInputs ?? options.checkInputs ?? [],
       });
@@ -86,26 +89,24 @@ export function createContractCheckHold(options: {
     async (specs: Parameters<ContractCheckRunner>[0], ctx: Parameters<ContractCheckRunner>[1]) => {
       // The final preflight already covers ordinary checks. Authorize UI
       // against the frozen workspace so its exact executable reaches the runner.
-      const batch = final ? specs.filter(isUi) : specs;
       const { onHold, ...rest } = ctx;
       const attachNetwork = (spec: Record<string, unknown>) => attachResearchNetworkApproval(spec, {
         approvals: options.approvals as ApprovalGate,
         ...(options.knownSecrets === undefined ? {} : { knownSecrets: options.knownSecrets }),
       }, { workingDir: options.workingDir, sessionId: options.sessionId, signal: AbortSignal.any([options.signal, ctx.signal]) });
-      if (final && batch.length === 0) return inner(specs.map(attachNetwork), rest);
+      if (final && !specs.some(isUi)) return inner(specs.map(attachNetwork), rest);
       let checked: readonly Record<string, unknown>[];
       onHold?.start();
-      try { checked = await authorize(batch, ctx.workingDir, ctx.signal, ctx.inputIntegrity?.paths); }
+      try { checked = await authorize(specs, ctx.workingDir, ctx.signal, ctx.inputIntegrity?.paths, final); }
       catch (err) { throw new ContractChecksHeldError(note(err, ctx.signal)); }
       finally { onHold?.end(); }
-      let next = 0;
-      const approved = final ? specs.map(spec => isUi(spec) ? checked[next++]! : attachNetwork(spec)) : checked;
+      const approved = final ? specs.map((spec, index) => isUi(spec) ? checked[index]! : attachNetwork(spec)) : checked;
       const unavailable = approved.map(uiVerificationUnavailable);
       if (unavailable.every(reason => reason === undefined)) return inner(approved, rest);
       const runnable = approved.filter((_, index) => unavailable[index] === undefined);
       const checkTasks = rest.checkTasks?.filter((_, index) => unavailable[index] === undefined);
       const results = runnable.length === 0 ? [] : (await inner(runnable, { ...rest, ...(checkTasks === undefined ? {} : { checkTasks }) })).results;
-      next = 0;
+      let next = 0;
       return { ok: false, results: unavailable.map(reason => reason === undefined
         ? results[next++] ?? { ok: false, error: "the runner returned no result" }
         : { ok: false, artifactStatus: "uncheckable" as const, error: reason }) };

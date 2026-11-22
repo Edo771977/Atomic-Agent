@@ -208,6 +208,14 @@ describe("checkShellCommandGuard", () => {
     });
   });
 
+  it("keeps UI exception decisions out of agent shell commands", () => {
+    expect(guard("atomic-agent", ["project", "ui-exceptions", "--allow", "low-contrast", "--reason", "Brand"])).toMatchObject({
+      action: "block",
+      rule: "hardline.project_ui_exception_decision",
+    });
+    expect(guard("atomic-agent", ["project", "ui-exceptions", "--json"]).action).not.toBe("block");
+  });
+
   it.each([
     ["del", ["/s", "/q", "."], "dangerous.win_del_recursive"],
     ["rmdir", ["/s", "build"], "dangerous.win_rmdir_recursive"],

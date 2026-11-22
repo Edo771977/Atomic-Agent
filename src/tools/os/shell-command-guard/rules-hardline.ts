@@ -50,6 +50,11 @@ const HARDLINE_PATTERNS: readonly PatternRule[] = [
     regex: />\s*\/dev\/(?:sd[a-z]|hd[a-z]|nvme\d+n\d+|disk\d+)/,
     reason: "redirect into raw block device",
   },
+  {
+    id: "hardline.project_ui_exception_decision",
+    regex: /\batomic-agent(?:\.(?:exe|cmd|mjs|js))?["']?\s+["']?project["']?\s+["']?ui-exceptions["']?\s+[^;&|\r\n]*--(?:allow|revoke)(?:["'\s]|$)/,
+    reason: "UI exception decisions require the operator's own terminal between turns",
+  },
   // Windows catastrophic operations. `joinedLower` is lowercased and keeps
   // backslashes, so drive roots read as `c:\`. `shutdown`/`reboot` above
   // already cover the Windows `shutdown` command.
