@@ -1,3 +1,4 @@
+import * as workerLessons from "./worker-project-lessons.js";
 import { describe, expect, it, vi } from "vitest";
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -1277,6 +1278,32 @@ describe("worker limits from throughput (F19)", () => {
     expect(estimateWorkerTimeoutMs({ briefChars: 4000, declaredFiles: 2, tokensPerSecond: 10, ceilingMs, outputTokens: 100 })).toBe(1_500_000);
     // Absent or null: exactly as before.
     expect(estimateWorkerTimeoutMs({ briefChars: 4000, declaredFiles: 2, tokensPerSecond: 10, ceilingMs, outputTokens: null })).toBe(1_500_000);
+  });
+
+  it("includes the sent lesson block in the local worker time estimate", async () => {
+    const block = vi.spyOn(workerLessons, "workerProjectLessonBlock").mockReturnValue("lesson ".repeat(700));
+    try {
+      const { deps, calls } = harness(async () => turnResult());
+      await runWorkerTasks(deps, {
+        ...BASE,
+        projectLessonSource: { folder: deps.workingDir, id: "project" },
+        workerTimeoutMs: 2_700_000,
+        localTokensPerSecond: 10,
+        tasks: tasks(1),
+        maxWorkers: 1,
+        signal: new AbortController().signal,
+      });
+      expect(calls[0]!.userMessage).toContain("ACTIVE PROJECT LESSONS");
+      const expected = estimateWorkerTimeoutMs({
+        briefChars: calls[0]!.userMessage.length,
+        declaredFiles: 0,
+        tokensPerSecond: 10,
+        ceilingMs: 2_700_000,
+      });
+      expect(calls[0]!.options.taskMaxDurationMs).toBe(expected + Math.floor(expected / 3));
+    } finally {
+      block.mockRestore();
+    }
   });
 
   it("gives each worker turn its own estimated time limit on a measured local leg", async () => {

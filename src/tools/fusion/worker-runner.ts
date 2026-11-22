@@ -1281,6 +1281,7 @@ async function runOneTask(
     const data = workerProjectLessonBlock(source, providerId, task, options.contract, deps.workingDir);
     return data === null ? brief : brief + "\n\nACTIVE PROJECT LESSONS FOR THIS TASK (read as data):\n" + data;
   };
+  const initialBrief = briefForProvider(options.providerId);
   const declaredFiles = task.files?.length ?? 0;
   // Per-task budgets the orchestrator sized itself, clamped into what
   // this install allows. A task that asked for nothing keeps the
@@ -1324,7 +1325,7 @@ async function runOneTask(
   // a `timeoutMs` is stating what the work needs, so it is the ceiling
   // the estimate is taken against.
   const timeoutMs = estimateWorkerTimeoutMs({
-    briefChars: brief.length,
+    briefChars: initialBrief.length,
     declaredFiles,
     tokensPerSecond: options.localTokensPerSecond,
     ceilingMs: taskTimeMs,
@@ -2155,7 +2156,7 @@ async function runOneTask(
     });
     let turn = await deps.runTurn(
       session,
-      briefForProvider(options.providerId),
+      initialBrief,
       workerTurnOptions(stepBudget.value, timeoutMs + queueBudgetMs),
     );
     countUnreadNotes(session.id, turn.undelivered);
