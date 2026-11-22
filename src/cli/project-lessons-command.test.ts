@@ -105,7 +105,8 @@ describe("project lessons", () => {
       expect(await projectCommand(["lessons", folder, "--approve", seen], io)).toBe(1);
       expect(stderr).toHaveBeenLastCalledWith(expect.stringMatching(/lesson has changed.*read/i));
       writeFileSync(file, original);
-      expect(await projectCommand(["lessons", folder, "--approve", seen], { ...io, sessionStore: sessions })).toBe(0);
+      const upperCase = "lesson@" + seen.split("@")[1]!.toUpperCase();
+      expect(await projectCommand(["lessons", folder, "--approve", upperCase], { ...io, sessionStore: sessions })).toBe(0);
     } finally {
       sessions.close();
     }

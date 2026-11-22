@@ -503,8 +503,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
       if (decision !== undefined || target === undefined) return usage();
       const [id, fingerprint, extra] = arg === "--approve" ? target.split("@") : [target];
       if (id === undefined || !validProjectLessonId(id) || extra !== undefined ||
-          (fingerprint !== undefined && !/^[a-f0-9]{12}$/.test(fingerprint))) return usage();
-      decision = { id, state: actions[arg], ...(fingerprint === undefined ? {} : { fingerprint }) };
+          (fingerprint !== undefined && !/^[a-f0-9]{12}$/i.test(fingerprint))) return usage();
+      decision = { id, state: actions[arg], ...(fingerprint === undefined ? {} : { fingerprint: fingerprint.toLowerCase() }) };
     } else if (arg.startsWith("-")) return usage();
     else positional.push(arg);
   }
