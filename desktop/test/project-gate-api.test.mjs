@@ -263,11 +263,14 @@ test('the backlog IPC passes a session, an item id and one of the three states, 
   for (const state of ['promoted', 'dropped', 'open']) {
     assert.deepEqual(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b1', state, extra: 1}), {ok: true, body: {session: 'ses-1', item: 'b1', state}});
   }
+  assert.equal(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'dark-theme-2', state: 'open'}).ok, true, 'a director-named id');
+  assert.equal(parseProjectBacklogIpc({sessionId: 'ses-1', item: 'b'.repeat(32), state: 'open'}).ok, true);
   const base = {sessionId: 'ses-1', item: 'b1', state: 'promoted'};
   for (const raw of [
     null, 'x', [], {},
     {...base, sessionId: ''}, {...base, sessionId: 3}, {...base, sessionId: 'a\nb'}, {...base, sessionId: 'x'.repeat(201)},
     {...base, item: ''}, {...base, item: 7}, {...base, item: 'b 1'}, {...base, item: ' b1'}, {...base, item: 'b1\n'}, {...base, item: 'b'.repeat(65)},
+    {...base, item: 'b\u0007'}, {...base, item: 'b1\u0000'}, {...base, item: 'B1'}, {...base, item: 'b'.repeat(33)}, {...base, item: 'b_1'},
     {...base, state: 'deferred'}, {...base, state: 'active'}, {...base, state: 'PROMOTED'}, {...base, state: undefined},
   ]) {
     const out = parseProjectBacklogIpc(raw);

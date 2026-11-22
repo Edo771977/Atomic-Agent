@@ -46,8 +46,8 @@ const isId = (v: unknown): v is string => typeof v === "string" && v.length > 0 
 
 export const PROJECT_BACKLOG_STATES = ["promoted", "dropped", "open"] as const;
 export type ProjectBacklogState = (typeof PROJECT_BACKLOG_STATES)[number];
-/** The core's `PROJECT_LIMITS.id`: a backlog item id is one word of at most this many characters. */
-const MAX_BACKLOG_ID_CHARS = 64;
+/** A backlog item id as the core stores it (`normalizeCriterionId`, src/session/project-criterion-id.ts). */
+const BACKLOG_ID = /^[a-z0-9-]{1,32}$/;
 
 export interface ProjectBacklogBody {
   session: string;
@@ -60,7 +60,7 @@ export function parseProjectBacklogIpc(raw: unknown): { ok: true; body: ProjectB
   if (!isObject(raw)) return { ok: false, error: "a backlog call must be an object" };
   if (!isId(raw.sessionId)) return { ok: false, error: "session required" };
   const item = raw.item;
-  if (typeof item !== "string" || item.length > MAX_BACKLOG_ID_CHARS || !/^\S+$/.test(item)) {
+  if (typeof item !== "string" || !BACKLOG_ID.test(item)) {
     return { ok: false, error: "item must be a backlog item's id" };
   }
   const state = PROJECT_BACKLOG_STATES.find((s) => s === raw.state);
@@ -137,7 +137,7 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       const statuses: Array<[string, ProjectBacklogStatus]> = [];
       for (const [id, value] of Object.entries(raw.edits.backlogStatus)) {
         const status = PROJECT_BACKLOG_STATUSES.find((candidate) => candidate === value);
-        if (!/^[a-z0-9-]{1,32}$/.test(id) || status === undefined) {
+        if (!BACKLOG_ID.test(id) || status === undefined) {
           return { ok: false, error: "backlog statuses require a valid item id and active or deferred status" };
         }
         statuses.push([id, status]);
