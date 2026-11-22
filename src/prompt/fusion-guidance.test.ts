@@ -18,6 +18,7 @@ import { COMPOSIO_SEARCH_TOOL } from "./composio-guidance.js";
 import { buildStablePrefix, type ToolDescriptor } from "./stable-prefix.js";
 import type { CapabilitiesSummary } from "./capabilities.js";
 import { DEFAULT_TOOL_DESCRIPTORS } from "./tool-descriptors.js";
+import { evaluateChecks } from "../tools/verify/verify-checks.js";
 
 function descriptor(name: string): ToolDescriptor {
   return { name, summary: `${name} summary`, argsSchema: "{}" };
@@ -221,6 +222,46 @@ describe("the project flow in the ### fusion block (issue #39)", () => {
     expect(buildFusionGuidance(FACTS, { project: true })).toContain(PROJECT_FLOW_GUIDANCE);
     expect(buildFusionGuidance(FACTS)).toBe(buildFusionGuidance(FACTS, { project: false }));
     expect(PROJECT_FLOW_GUIDANCE.length).toBeLessThan(700);
+  });
+});
+
+describe("director check authoring (issue #122)", () => {
+  it.each([false, true])("renders check authoring in each descriptor (compact=%s)", (compact) => {
+    const toolDescriptors = DEFAULT_TOOL_DESCRIPTORS.filter(
+      ({ name }) => name === "fusion.delegate" || name === "project.plan",
+    );
+    expect(toolDescriptors).toHaveLength(2);
+    const prefix = buildStablePrefix({ toolDescriptors, capabilities: CAPS, skillCatalog: [], compact });
+    for (const descriptor of toolDescriptors) {
+      const summary = compact ? descriptor.compact?.summary ?? "" : descriptor.summary;
+      expect(prefix).toContain(summary);
+      if (compact) {
+        expect(summary.length).toBeLessThan(120);
+        expect(summary).toContain("Read, measure, assert success-only.");
+        expect(summary).toContain("Absence: negative.");
+        expect(summary).toContain('exit 0 + stdout not contains "Tests: 0 passed"');
+        continue;
+      }
+      expect(summary.length).toBeLessThan(1250);
+      expect(summary).toMatch(/(?:observe|check) actual results?|observe the actual result/i);
+      expect(summary).toMatch(/measure (?:numbers )?from source/i);
+      expect(summary).toMatch(/print and assert a success-only marker/i);
+      expect(summary).toMatch(/absence.*`negative`.*known-present input that must fail/i);
+      const checks = [...summary.matchAll(/`(exit 0|stdout (?:not )?contains "[^"]+")`/g)]
+        .map((match) => match[1]!);
+      expect(checks).toEqual(["exit 0", 'stdout contains "passed"', 'stdout not contains "Tests: 0 passed"']);
+      const verify = (exitCode: number, stdout: string): boolean =>
+        evaluateChecks(checks, { kind: "command", exitCode, stdout }).every(({ ok }) => ok);
+      expect(verify(0, "Tests: 1 passed")).toBe(true);
+      expect(verify(0, "Tests: 10 passed")).toBe(true);
+      expect(verify(0, "Tests: 0 passed")).toBe(false);
+      expect(verify(1, "Tests: 1 passed")).toBe(false);
+    }
+
+    const guidance = prefix.slice(prefix.indexOf("### fusion\n"), prefix.indexOf("### instructions")).trimEnd();
+    expect(guidance).toBe(`### fusion\n${FUSION_GUIDANCE}\n${PROJECT_FLOW_GUIDANCE}`);
+    expect(guidance).toContain("; tell the person what only they can approve.");
+    expect(guidance).not.toContain("success-only marker");
   });
 });
 

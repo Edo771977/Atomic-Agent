@@ -3,7 +3,7 @@
 Status: current
 Owner: src/tools/verify/
 
-`verify.syntax` syntax-checks files; `verify.run` runs what was built (a command, a service or a page) against a throwaway copy of the working directory and evaluates `checks` on the result. Fusion contract checks are `verify.run` specs run through [`runChecks`](run-verify.ts). Read [tool instructions](../AGENTS.md) and the adjacent tests before changing behavior.
+`verify.syntax` syntax-checks files. `verify.run` runs commands, services and pages against a throwaway copy of the working directory, and checks individual documents and spreadsheets from a file snapshot. It evaluates `checks` on the result. Fusion contract checks are `verify.run` specs run through [`runChecks`](run-verify.ts). Read [tool instructions](../AGENTS.md) and the adjacent tests before changing behavior.
 
 ## Entry points
 
@@ -13,6 +13,16 @@ Owner: src/tools/verify/
 - [verify-checks.ts](verify-checks.ts): the assertion language. An unknown check fails; it never passes.
 - [run-page-kind.ts](run-page-kind.ts), [page-game-harness.ts](page-game-harness.ts), [page-screenshots.ts](page-screenshots.ts): the headless page run, its game harness and its screenshots.
 - [safe-regex.ts](safe-regex.ts): the regex policy of `matches` checks.
+
+## Documents and spreadsheets
+
+`kind: "document"` and `kind: "spreadsheet"` require a local file `path` relative to the project folder, or relative to `cwd` when supplied. They use the verification approval, read-scope and cancellation rules and take a snapshot of the named file only. Parsing is local. Workbook macros and formulas are never executed. The file limit is 8 MiB, ZIP-based files are limited to 32 MiB uncompressed across at most 1,024 members, and parsing has a maximum duration of 15 seconds. A file beyond these limits produces an `uncheckable` result with a reason.
+
+Results include a readable detail and a `pass`, `fail` or `uncheckable` status. Existing `checks` can match the detail on `stdout` and assert `exit 0` for a passing built-in check. Optional assertions can make a run fail even when the built-in check passed. Both `fail` and `uncheckable` make the run unsuccessful.
+
+- `document` accepts `.docx`, `.md`, `.pdf` and `.txt`. Optional `requiredSections` lists required headings. Word and Markdown use styled headings and Markdown headings respectively. PDF and text use standalone lines. Titles are Unicode-normalized and compared ignoring case and extra whitespace. Optional `wordRange: { min, max }` gives inclusive word counts. Each run checks for `TODO`, `TBD`, `lorem ipsum`, `[inserire]`, `[insert]` and `XXX`, with optional `extraPlaceholders` for additional literal markers. Optional `language` supports `en`, `it`, `es`, `fr`, `de` and `pt`. It identifies the language using common function words and returns `uncheckable` when the evidence falls below the documented thresholds. [Document example and heuristic](../../../docs/testing/document-e2e.md).
+- `spreadsheet` accepts `.xlsx` and UTF-8 comma-delimited `.csv`, with a single sheet named `CSV` for CSV inputs. Optional `requiredSheets` lists exact sheet names. Optional `requiredColumns: [{ sheet, columns }]` compares named headers in row 1 after trimming and lowercasing. Each run scans all worksheets for spreadsheet error cells, including cached XLSX formula errors and CSV error markers. Errors name the sheet and cell. XLSX formulas require saved results. An absent cache leaves the check `uncheckable`. The workbook limit is 32 sheets and 100,000 cells. [Spreadsheet example](../../../docs/testing/spreadsheet-e2e.md).
+- Optional spreadsheet `totals: [{ sheet, range, totalCell, tolerance }]` sums the populated numeric values in an A1 range such as `B2:B10`, or an entire column such as `B`. Column-letter ranges start at row 2 and omit `totalCell`. Explicit ranges must exclude the total cell. Blank cells are skipped, and a total needs at least one numeric data cell. The recorded total must match the calculated sum within the explicit, finite, non-negative absolute tolerance. XLSX formula cells contribute their saved values. CSV uses decimal or scientific notation for numbers.
 
 ## Copy root
 

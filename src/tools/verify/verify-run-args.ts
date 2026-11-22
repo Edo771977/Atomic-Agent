@@ -5,7 +5,15 @@
  * bare "invalid args" costs a step and teaches nothing.
  */
 
-export type VerifyRunKind = "command" | "service" | "page";
+import { isAbsolute, win32 } from "node:path";
+import { parseDocumentSpec, type DocumentSpec } from "./document-check.js";
+import { parseSpreadsheetSpec, type SpreadsheetSpec } from "./spreadsheet-check.js";
+
+export type ArtifactKind = "document" | "spreadsheet";
+export function isArtifactKind(kind: unknown): kind is ArtifactKind {
+  return kind === "document" || kind === "spreadsheet";
+}
+export type VerifyRunKind = "command" | "service" | "page" | ArtifactKind;
 
 export interface VerifyRequestSpec {
   readonly method?: string;
@@ -54,7 +62,7 @@ export interface VerifyScreenshotSpec {
   readonly fullPage: boolean;
 }
 
-export interface VerifyRunArgs {
+export interface VerifyRunArgs extends Partial<DocumentSpec>, Partial<SpreadsheetSpec> {
   readonly kind: VerifyRunKind;
   /** Relative to the throwaway copy. */
   readonly cwd?: string;
@@ -102,7 +110,7 @@ const MAX_SCRIPT_STEPS = 64;
 const MAX_PROBES = 16;
 const MAX_CHECKS = 32;
 
-const KINDS: ReadonlySet<string> = new Set(["command", "service", "page"]);
+const KINDS: ReadonlySet<string> = new Set(["command", "service", "page", "document", "spreadsheet"]);
 const ACTIONS: ReadonlySet<string> = new Set(["click", "key", "type", "wait"]);
 
 function fail(message: string): never {
@@ -317,7 +325,7 @@ function parseScreenshot(raw: unknown, kind: string): VerifyScreenshotSpec | und
 
 export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs {
   const kind = requiredString(raw.kind, "kind");
-  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page");
+  if (!KINDS.has(kind)) fail("`kind` must be one of command, service, page, document, spreadsheet");
   const base = {
     kind: kind as VerifyRunKind,
     cwd: optionalString(raw.cwd, "cwd"),
@@ -332,6 +340,19 @@ export function parseVerifyRunArgs(raw: Record<string, unknown>): VerifyRunArgs 
   const stdin = parseStdin(raw.stdin, kind);
   const game = parseGame(raw.game, kind);
   const screenshot = parseScreenshot(raw.screenshot, kind);
+  if (isArtifactKind(kind)) {
+    const path = requiredString(raw.path, "path");
+    if (isAbsolute(path) || win32.isAbsolute(path) || /[:\0]/.test(path) || path.split(/[\\/]/).includes("..")) {
+      fail("artifact path must be relative to the project folder");
+    }
+    if (base.network || optionalNonEmptyString(raw.url, "url") || startGiven(raw.start) ||
+        [raw.cmd, raw.command].some(value => typeof value === "string" && value.trim()) ||
+        (Array.isArray(raw.args) && raw.args.length > 0) || Object.keys(base.env ?? {}).length) {
+      fail("artifact checks read a local file and do not accept network, URLs, commands or environment overrides");
+    }
+    const spec = kind === "document" ? parseDocumentSpec(raw) : parseSpreadsheetSpec(raw);
+    return { ...base, ...spec, kind, path };
+  }
   if (kind === "command") {
     return { ...base, cmd: requiredString(raw.cmd, "cmd"), args: optionalStringArray(raw.args, "args") ?? [], ...(stdin === undefined ? {} : { stdin }) };
   }

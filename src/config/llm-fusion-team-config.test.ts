@@ -118,6 +118,33 @@ describe("llm.runMode.fusion.team", () => {
     });
   });
 
+  it("reads planReviewer and planReviewRounds (issue #118)", () => {
+    const team = { directors: ["anthropic:model-a"], reviewers: ["anthropic:model-e"], planReviewer: "codex-cli:model-p", planReviewRounds: 0 };
+    expect(parse(team).fusion!.team).toEqual(team);
+    for (const rounds of [1, 2, 3]) {
+      expect(parse({ directors: ["anthropic:model-a"], planReviewer: "local-llama:model-d", planReviewRounds: rounds }).fusion!.team)
+        .toEqual({ directors: ["anthropic:model-a"], planReviewer: "local-llama:model-d", planReviewRounds: rounds });
+    }
+  });
+
+  it.each([
+    [{ directors: ["anthropic:model-a"], planReviewer: "nobody:model-x" }, /team\.planReviewer: unknown provider id "nobody"/],
+    [{ directors: ["anthropic:model-a"], planReviewer: "anthropic" }, /team\.planReviewer: expected "<providerId>:<model>"/],
+    [{ directors: ["anthropic:model-a"], planReviewer: ["anthropic:model-e"] }, /team\.planReviewer: expected "<providerId>:<model>"/],
+    [{ directors: ["anthropic:model-a"], planReviewer: "anthropic:default" }, /team\.planReviewer: "default" names the entry's own model/],
+    [{ directors: ["anthropic:model-a"], planReviewRounds: 4 }, /team\.planReviewRounds: expected an integer from 0 to 3/],
+    [{ directors: ["anthropic:model-a"], planReviewRounds: 1.5 }, /team\.planReviewRounds: expected an integer from 0 to 3/],
+  ])("rejects plan reviewer settings %j", (team, message) => {
+    expect(() => parse(team)).toThrow(message);
+  });
+
+  it("drops the plan reviewer with its provider and keeps the rounds", () => {
+    const runMode = parse({ directors: ["anthropic:model-a"], planReviewer: "codex-cli:model-p", planReviewRounds: 1 });
+    expect(scrubRunModeProviderPins(runMode, "codex-cli")!.fusion!.team).toEqual({ directors: ["anthropic:model-a"], planReviewRounds: 1 });
+    const kept = parse({ directors: ["anthropic:model-a"], workers: ["codex-cli:model-c"], planReviewer: "anthropic:model-p" });
+    expect(scrubRunModeProviderPins(kept, "codex-cli")!.fusion!.team).toEqual({ directors: ["anthropic:model-a"], planReviewer: "anthropic:model-p" });
+  });
+
   it("lets one member sit in several lists", () => {
     const team = { directors: ["anthropic:model-a"], reviewers: ["anthropic:model-a"] };
     expect(parse(team).fusion!.team).toEqual(team);

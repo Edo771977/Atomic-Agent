@@ -23,6 +23,7 @@ function checkLine(c: CheckOutcome): string {
 
 function outcomeLine(r: VerifyRunResult): string {
   if (r.error !== undefined) return r.error;
+  if (r.artifactStatus !== undefined) return `artifact ${r.artifactStatus} after ${r.durationMs} ms`;
   if (r.kind === "command") {
     const exit = r.timedOut ? "killed: timed out" : r.exitCode === null ? "killed by signal" : `exit ${r.exitCode}`;
     return `${exit} after ${r.durationMs} ms`;

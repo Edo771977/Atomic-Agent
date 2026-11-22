@@ -530,6 +530,8 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `llm.runMode.fusion.team.reviewPasses` | `0 \| 1 \| 2` | `unset` | How many extra passes a task gets when its review asks for changes, within the turn's budget: 0, 1 or 2. Default 2. |
 | `llm.runMode.fusion.team.watchEveryMinutes` | `number` | `unset` | How often, in minutes, a running task of a team run is checked for progress (issue #43): 0 to 60, 0 turns the watch off. A task's own `watchMinutes` in `fusion.delegate` wins. Default 5. |
 | `llm.runMode.fusion.team.watchMaxChecks` | `number` | `unset` | At most this many judge calls per watched task when its progress is unclear, across all its runs (review passes and an escalation re-run), counted against the turn's budget: 1 to 10. Default 3. |
+| `llm.runMode.fusion.team.planReviewer` | `string` | `unset` | The model that reviews a project plan before the plan gate reaches the person (issue #118), as `"<providerId>:<model>"`. Unset: the first of `reviewers`; neither: no plan review. In a folder whose `projects.constraints` restrict providers, only a member the policy allows reviews the plan; with none, the review is skipped and the gate says so. |
+| `llm.runMode.fusion.team.planReviewRounds` | `number` | `unset` | How many times a plan the plan reviewer fails goes back to the director before the gate reaches the person with the open notes: 0 to 3. Default 2. |
 | `llm.runMode.fusion.project.fullPlanAboveTasks` | `number` | `unset` | Show the full plan when it has more tasks than this, 0 to 1000. Default 4. |
 | `llm.runMode.fusion.project.fullPlanAboveUsd` | `number` | `unset` | Show the full plan when its estimated cost is above this many US dollars, 0 to 10000. Default 1. |
 | `llm.openrouter.preferCacheRoutes` | `boolean` | `unset` | Steer models whose caching depends on the route toward the routes that cache — today `google/…` models to Google AI Studio, which cached 83 % of input where Vertex cached 1–4 % — unless the entry configured `providerPreferences` of its own. |
@@ -551,7 +553,6 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_GRAMMARS_DIR` | unset | env only | Folder with the tool-call grammars. Unset: the copy shipped next to the binary. |
 | `ATOMIC_AGENT_TOOL_CALL_GRAMMAR` | unset | env only | Path of the tool-call grammar file (tool-call.gbnf) to use instead of the one found next to the binary. |
 | `ATOMIC_AGENT_STARTER_SKILLS_DIR` | unset | env only | Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app. |
-| `ATOMIC_AGENT_RG_PATH` | unset | env only | Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH. |
 | `ATOMIC_AGENT_TREE_SITTER_DIR` | unset | env only | Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline. |
 | `ATOMIC_AGENT_AST_GREP_PATH` | unset | env only | Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH. |
 | `ATOMIC_AGENT_SHARED_SKILLS_DIR` | unset | env only | Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills. |

@@ -347,8 +347,13 @@ once the archive is extracted.
   `<bundle>/vendor/rg[.exe]` next to the SEA binary. The runtime resolver
   (`src/runtime/ripgrep-resolver.ts`) discovers it via
   `<dirname(process.execPath)>/vendor/rg[.exe]`.
-- **Override:** set `ATOMIC_AGENT_RG_PATH=/path/to/rg` to point the agent
-  at a different binary without repackaging.
+- **Source installs:** the runtime checks the agent installation's own
+  `node_modules/@vscode/ripgrep/bin/rg[.exe]`.
+- **Fallback:** when the installation has no eligible executable, the
+  resolver checks absolute PATH directories.
+  For every source it rejects candidates in the active project or launch
+  folder, including aliases into those folders. Windows lookup uses the
+  executable suffix `.exe` explicitly.
 - **Size impact:** roughly +5 MB per target. The binary is stripped and
   stored alongside the SEA rather than embedded inside it, because Node
   SEA asset extraction + `chmod +x` out of a temp dir is fragile across

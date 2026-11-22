@@ -25,7 +25,8 @@ export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
-import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult, type PlanDecision } from "../tools/fusion/plan-checks.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
+import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -348,6 +349,30 @@ export type PlanDetail = "compact" | "full";
 export interface ProjectPlan {
   /** Runtime-derived static analysis, recomputed when loading or approving. Record only. */
   checkResults?: PlanCheckResult[];
+  /**
+   * Issue #120: what the plan's cited files, scripts, commands and symbols
+   * resolved to, read from the project folder when `project.plan` drafted
+   * it (runtime-set, never the model's). Record only, never blocking: a
+   * row text change since reads as not re-checked.
+   */
+  referenceCheck?: PlanReferenceRecord;
+  /**
+   * Issue #118: what the plan reviewer said about this draft, per
+   * dimension, with its round and the basis it read (runtime-set by
+   * `project.plan`, never the model's). Record only: `project.json`
+   * never holds it. A fresh review's `fail` refuses a plain approval;
+   * the person may approve over it with a note ({@link reviewOverride}).
+   */
+  review?: PlanReviewRecord;
+  /**
+   * The person approved this plan over the plan reviewer's open fails
+   * (`approveOverReview`, issue #118, like a milestone's): their note,
+   * when, the notes it stood over, and the review's `basis` it was given
+   * on. Record only. It stands while the plan holds that review on the
+   * same rows (the plan gate reopening after a milestone's hard cap asks
+   * nothing again); a new draft drops it.
+   */
+  reviewOverride?: { note: string; at: number; blocks: ProjectReviewBlock[]; basis?: string };
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -571,6 +596,17 @@ export type ProjectUpdate =
       detail: PlanDetail;
       /** Drafted after outside content (the tool reads the approval gate's taint). */
       draftedAfterUntrusted?: boolean;
+      /** The runtime's references check of these rows (issue #120); absent: not checked. */
+      referenceCheck?: PlanReferenceRecord;
+      /** The runtime's plan review of these rows (issue #118); absent: not reviewed. */
+      planReview?: PlanReviewRecord;
+      /**
+       * Set by `project.plan` (never the model's arguments) when the plan
+       * reviewer failed the draft and rounds are left (issue #118): the
+       * draft is kept with its review for the director to revise, and no
+       * gate opens for the person. Taken only with a review sent back.
+       */
+      holdForReview?: true;
     }
   | {
       kind: "milestone";
@@ -744,7 +780,11 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
     case "brief":
       return ["approve", "edit", "cancel"];
     case "plan":
-      return ["approve", "edit", "cheaper", "quality", "cancel"];
+      // Issue #118: the plan reviewer's open fails are the person's to approve over.
+      // Not while a deterministic plan check fails: that is never overridden, so the button could only be refused.
+      return project !== undefined && openPlanReviewBlocks(project).length > 0 && !planReviewFactsOf(project).planChecks.some((r) => r.verdict === "fail")
+        ? ["approve", "edit", "cheaper", "quality", "approveOverReview", "cancel"]
+        : ["approve", "edit", "cheaper", "quality", "cancel"];
     case "milestone": {
       const blocked = (project?.milestones.find((m) => m.id === gate.id)?.reviewBlocks ?? []).length > 0;
       return blocked ? ["approve", "edit", "approveOverReview", "cancel"] : ["approve", "edit", "cancel"];
@@ -752,6 +792,38 @@ export function allowedProjectVerdicts(gate: ProjectGate, project?: ProjectState
     case "none":
       return ["cancel"];
   }
+}
+
+/**
+ * Issue #118: at a turn's end, a draft still held for the plan reviewer
+ * (sent back, no gate) opens the plan gate with its open notes, as if the
+ * rounds had run out: the person never loses a plan to a turn that
+ * stopped (a reply, a step limit, a budget). Undefined: nothing held.
+ */
+export function releaseHeldPlan(project: ProjectState | undefined): ProjectState | undefined {
+  const review = project?.plan?.review;
+  if (project === undefined || project.cancelledAt !== undefined || project.gate.kind !== "none" || project.plan?.status !== "draft" || review?.sentBack !== true) return undefined;
+  return { ...project, plan: { ...project.plan, review: { ...review, sentBack: false, heldAtTurnEnd: true } }, gate: { kind: "plan" } };
+}
+
+/** The plan reviewer's fails still standing on the project's plan (issue #118), as review blocks; none for a stale review. */
+export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[] {
+  return planReviewBlocks(project.plan, project.milestones.map((m) => m.id), planReviewFactsOf(project));
+}
+
+/** The plan review's facts as they stand now (issue #118): the approved criteria and the deterministic plan checks. */
+export function planReviewFactsOf(project: ProjectState, options: PlanCheckOptions = {}): PlanReviewFacts {
+  const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
+  const plan = project.plan;
+  return {
+    criteria,
+    planChecks: plan === undefined ? [] : evaluatePlanChecks(plan.rows, criteria, { ...options, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)),
+  };
+}
+
+/** Reasons joined for a sentence: a reason that already ends one loses its period, so the message never reads "..". */
+function reasonList(blocks: readonly ProjectReviewBlock[]): string {
+  return [...new Set(blocks.map((b) => b.reason))].join("; ").replace(/[.\s]+$/, "");
 }
 
 /** Row totals by plain sums ({@link ProjectPlanTotals}). */
@@ -1403,6 +1475,24 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
       draftedAfterUntrusted: p.draftedAfterUntrusted === true,
       ...(p.status === "approved" && p.approvedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
       ...(() => {
+        const referenceCheck = readPlanReferenceRecord(p.referenceCheck);
+        return referenceCheck === undefined ? {} : { referenceCheck };
+      })(),
+      ...(() => {
+        // Issue #118: the record's; a malformed one reads as no review.
+        const review = readPlanReviewRecord(p.review);
+        const o = p.reviewOverride;
+        const override = isObject(o) && typeof o.note === "string" && o.note.trim().length > 0 && isTime(o.at)
+          ? {
+              note: clipText(o.note, PROJECT_LIMITS.correctionNote),
+              at: o.at as number,
+              blocks: Array.isArray(o.blocks) ? cleanReviewBlocks(o.blocks) : [],
+              ...(typeof o.basis === "string" && /^[0-9a-f]{16}$/.test(o.basis) ? { basis: o.basis } : {}),
+            }
+          : undefined;
+        return { ...(review === undefined ? {} : { review }), ...(override === undefined ? {} : { reviewOverride: override }) };
+      })(),
+      ...(() => {
         const resets = p.status === "draft" ? cleanVerdictResets(p.verdictResets, ids) : [];
         const retired = p.status === "draft" ? cleanVerdictResets(p.evidenceRetired, ids) : [];
         return { ...(resets.length === 0 ? {} : { verdictResets: resets }), ...(retired.length === 0 ? {} : { evidenceRetired: retired }) };
@@ -1419,9 +1509,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   const storedDecisions = cleanDecisions(raw.approvedDecisions, "lenient");
   const approvedDecisions = Array.isArray(storedDecisions) ? storedDecisions : undefined;
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
-  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
+  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
     const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
-    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], {}, decisions, finishedCitationsOf(milestones));
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], referenceOptions(plan), decisions, finishedCitationsOf(milestones));
   }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
@@ -1531,6 +1621,11 @@ function briefUpdate(
   };
 }
 
+/** The plan's stored references record as plan-check options (issue #120). */
+export function referenceOptions(plan: Pick<ProjectPlan, "referenceCheck">): PlanCheckOptions {
+  return plan.referenceCheck === undefined ? {} : { references: plan.referenceCheck };
+}
+
 function withoutResets(plan: ProjectPlan): ProjectPlan {
   const copy = { ...plan };
   delete copy.verdictResets;
@@ -1551,6 +1646,7 @@ export function projectVerdictResets(project: ProjectState | undefined, update: 
 }
 
 function withoutApproval<T extends { approvedAt?: number; approvedWithUntrustedWarning?: true }>(value: T): T {
+  // A plan's `reviewOverride` stays (issue #118): it is bound to its review's basis, not to the approval.
   const copy = { ...value };
   delete copy.approvedAt;
   delete copy.approvedWithUntrustedWarning;
@@ -1730,8 +1826,8 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     return now !== undefined && textBefore.get(id) === workText(now.text);
   });
   const decisionStatus = kept.length === 0 ? undefined : Object.fromEntries(kept) as Record<string, ProjectDecisionStatus>;
-  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
+  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, referenceOptions(plan), planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
   }
   const { approvedDecisions: _before, decisionStatus: _status, ...rest } = project;
   return {
@@ -1985,9 +2081,15 @@ function planUpdate(
     rows.push(read);
   }
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
+  const referenceCheck = readPlanReferenceRecord(update.referenceCheck);
+  const review = readPlanReviewRecord(update.planReview);
+  // Issue #118: a draft the reviewer sent back stays with the director.
+  const held = update.holdForReview === true && review?.sentBack === true;
   const plan: ProjectPlan = {
     rows,
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, {}, planDecisionsOf(project), finishedCitationsOf(milestones)),
+    ...(referenceCheck === undefined ? {} : { referenceCheck }),
+    ...(review === undefined ? {} : { review }),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, referenceCheck === undefined ? {} : { references: referenceCheck }, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2002,7 +2104,7 @@ function planUpdate(
       brief: project.brief,
       plan,
       milestones,
-      gate: { kind: "plan" },
+      gate: held ? { kind: "none" } : { kind: "plan" },
       ...(project.approvedCriteria === undefined ? {} : { approvedCriteria: project.approvedCriteria }),
       ...(project.approvedDecisions === undefined ? {} : { approvedDecisions: project.approvedDecisions }),
       ...(project.briefApprovals === undefined ? {} : { briefApprovals: project.briefApprovals }),
@@ -2219,6 +2321,18 @@ export function applyProjectDecision(
   decision: ProjectDecision,
   options: ProjectDecisionOptions,
 ): ProjectDecisionResult {
+  const result = decideProject(project, decision, options);
+  // Issue #118: a person decided; the director's next plan draft starts a new cycle of review rounds.
+  const review = result.ok ? result.project.plan?.review : undefined;
+  if (!result.ok || review === undefined || review.decided === true) return result;
+  return { ok: true, project: { ...result.project, plan: { ...result.project.plan!, review: { ...review, decided: true } } } };
+}
+
+function decideProject(
+  project: ProjectState | undefined,
+  decision: ProjectDecision,
+  options: ProjectDecisionOptions,
+): ProjectDecisionResult {
   if (project === undefined || project.cancelledAt !== undefined) {
     return refuse({ code: "no-project", message: "There is no open project to decide on." });
   }
@@ -2278,6 +2392,20 @@ export function applyProjectDecision(
     return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
   }
 
+  if (decision.verdict === "approveOverReview" && gate.kind === "plan") {
+    // Issue #118: the person's call over the plan reviewer's open fails,
+    // with a note, kept on the plan. A deterministic plan-check failure
+    // still refuses below: only the model's notes can be overridden.
+    const raw = decision.edits?.note;
+    const note = typeof raw === "string" ? clipText(raw, PROJECT_LIMITS.correctionNote) : "";
+    if (note.length === 0) {
+      return refuse({ code: "invalid", message: "Approving over the plan reviewer's open notes needs a note saying why." });
+    }
+    const basis = project.plan!.review?.basis;
+    const overridden: ProjectState = { ...project, plan: { ...project.plan!, reviewOverride: { note, at: now, blocks: openPlanReviewBlocks(project), ...(basis === undefined ? {} : { basis }) } } };
+    return applyProjectDecision(overridden, { ...decision, verdict: "approve" }, options);
+  }
+
   if (decision.verdict === "approve") {
     if (gate.kind === "brief") {
       return { ok: true, project: approveBrief(project, now) };
@@ -2289,9 +2417,19 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
-      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones));
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...referenceOptions(project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
-      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
+      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${reasonList(blocks)}. Update the plan before approval.`, blocks });
+      // Issue #118: the plan reviewer's open fails, unless the person approved over them (never an automatic path).
+      const reviewBlocks = openPlanReviewBlocks(project);
+      const override = project.plan!.reviewOverride;
+      if (reviewBlocks.length > 0 && (override === undefined || override.basis !== project.plan!.review?.basis)) {
+        return refuse({
+          code: "review-open",
+          message: `The plan stays open: the plan reviewer's notes fail it: ${reasonList(reviewBlocks)}. Ask the director to revise the plan, or approve over the review with a note (approveOverReview).`,
+          blocks: reviewBlocks,
+        });
+      }
       return {
         ok: true,
         project: {
@@ -2443,7 +2581,7 @@ export function applyProjectDecision(
           ...withoutApproval(plan),
           rows: checked,
           totals: planTotals(checked),
-          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, referenceOptions(plan), planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
           status: "draft",
           version: plan.version + 1,
         },

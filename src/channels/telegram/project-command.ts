@@ -21,7 +21,9 @@ import type { ProjectDecision } from "../../session/session-project.js";
 type ProjectRuntime = Pick<AgentRuntime, "projectState" | "projectDecision">;
 
 const verdictHint = (view: ProjectGateView): string =>
-  `Reply /plan approve ${view.version ?? ""} or /plan cancel. To change it, tell me what to change; edit rows, cheaper and quality are in the terminal or the desktop app.`;
+  `Reply /plan approve ${view.version ?? ""} or /plan cancel. To change it, tell me what to change; edit rows, cheaper and quality are in the terminal or the desktop app.` +
+  // Issue #118 (and #98): approving over open review notes takes a note, on the card.
+  (view.allowedVerdicts.includes("approveOverReview") ? " Approving over the open review notes (with your reason) is in the terminal or the desktop app." : "");
 
 export interface ProjectCommandResult {
   text: string;

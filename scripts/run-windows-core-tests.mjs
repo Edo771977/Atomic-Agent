@@ -17,6 +17,10 @@ export const externalCriticalFiles = ['src/runtime/composition/runtime-tool-cata
 /** Whole files the native Windows gate runs. */
 export const criticalFiles = [
   'src/tools/fusion/plan-checks.test.ts',
+  'src/tools/fusion/plan-references.test.ts',
+  'src/tools/fusion/plan-references-gate.test.ts',
+  'src/tools/fusion/plan-reviewer.test.ts',
+  'src/tools/fusion/plan-review-gate.test.ts',
   'src/tools/verify/run-verify.test.ts',
   'src/tools/fusion/branch-merge.test.ts',
   'src/tools/fusion/contract.test.ts',
@@ -35,6 +39,11 @@ export const criticalFiles = [
   'src/tools/verify/verify-run-summary.test.ts',
   'src/tools/verify/verify-run-args.test.ts',
   'src/tools/verify/safe-regex.test.ts',
+  // Issue #113 phase 1: deterministic document and spreadsheet checks.
+  'src/tools/verify/artifact-run.test.ts',
+  'src/tools/verify/document-check.test.ts',
+  'src/tools/verify/spreadsheet-check.test.ts',
+  'src/tools/verify/spreadsheet-e2e.test.ts',
   'src/tools/fusion/contract-check-egress.test.ts',
   // Issue #40: run folders' criteria facts and shots (paths), and the delegate seam.
   'src/tools/fusion/run-criteria.test.ts',
@@ -112,6 +121,8 @@ export const criticalFiles = [
 ];
 /** Additional whole-file regressions outside the exhaustively classified core directories. */
 export const supplementalFiles = [
+  'src/runtime/ripgrep-resolver.test.ts',
+  'src/tools/os/fs/fs-grep.test.ts',
   'src/session/project-receipts.test.ts',
   'src/runtime/tool-contract-composition.test.ts',
   'src/runtime/request-budget-notices.test.ts',
@@ -125,6 +136,8 @@ export const supplementalFiles = [
   'src/tasks/task-store-open-failure.test.ts',
   'src/tasks/task-store.test.ts',
   'src/import/atomic-desktop/atomic-desktop-importer.test.ts',
+  // Windows 64-bit file ids compared exactly (the importer refused a real source as the target).
+  'src/import/atomic-desktop/same-dir.test.ts',
   'src/local-llm/server/daemon-lifecycle.test.ts',
   'src/local-llm/server/port-holder.test.ts',
   'src/cli/overnight-args.test.ts',

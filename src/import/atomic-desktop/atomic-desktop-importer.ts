@@ -539,13 +539,16 @@ function parseTags(raw: string | null): string[] {
   }
 }
 
-function sameDir(a: string, b: string): boolean {
+/** Exported for its test (Windows file ids, see below). */
+export function sameDir(a: string, b: string): boolean {
   if (a === b) return true;
   // The same inode also catches another letter case on a case-insensitive disk.
   try {
-    const x = statSync(a);
-    const y = statSync(b);
-    if (x.ino !== 0 && x.dev === y.dev && x.ino === y.ino) return true;
+    // bigint: Windows file ids are 64-bit and lose precision as numbers,
+    // so two different folders could compare equal.
+    const x = statSync(a, { bigint: true });
+    const y = statSync(b, { bigint: true });
+    if (x.ino !== 0n && x.dev === y.dev && x.ino === y.ino) return true;
   } catch {
     // compare the resolved paths below
   }
