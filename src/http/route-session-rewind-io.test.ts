@@ -267,43 +267,48 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(await copies(store)).toEqual([a, b]);
   });
 
-  it.each(["cancel", "confirm"] as const)(
-    "roll back without the failed file: a fresh preview with skip, then %s (issue #83)",
+  it.each(["retry", "continue", "cancel"] as const)(
+    "after a partial rewind, show a fresh preview before %s (issues #80 and #83)",
     async (choice) => {
       const { a, b, store } = await seed();
-      // 1. A goes back while B is locked.
+      const firstHash = await previewHash({});
       io.failWrite.add(b);
-      const first = await post("rw-io/rewind", point);
+      const first = await post("rw-io/rewind", { ...point, expectPlanHash: firstHash });
       expect(first.status).toBe(409);
-      const firstBody = (await first.json()) as { restored: string[]; failed: { path: string }[] };
-      expect(firstBody.restored).toEqual([a]);
-      expect(firstBody.failed.map((f) => f.path)).toEqual([b]);
-      // 2. The person edits A, then B is unlocked and edited too.
+      expect(await first.json()).toMatchObject({ error: { code: "restore_failed" }, restored: [a], failed: [{ path: b }] });
+      expect(readFileSync(a, "utf8")).toBe("a0");
+      expect(readFileSync(b, "utf8")).toBe("b1");
+      expect(turns()).toBe(4);
+      expect(await copies(store)).toEqual([a, b]);
+
       writeFileSync(a, "a edited by the person");
-      io.failWrite.clear();
       writeFileSync(b, "b edited by the person");
-      // 3. The fresh preview with the same skip: A will be overwritten, B is skipped, nothing changes.
-      const preview = await post("rw-io/rewind/preview", { ...point, skip: [b] });
+      io.failWrite.clear();
+
+      const retryAll = choice === "retry";
+      const skip = retryAll ? [] : [b];
+      const restored = retryAll ? [a, b] : [a];
+      const preview = await post("rw-io/rewind/preview", { ...point, skip });
       expect(preview.status).toBe(200);
-      expect(await preview.json()).toMatchObject({ files: [{ path: a, action: "restore" }], skipped: [b], notRestorable: [] });
+      const plan = (await preview.json()) as { planHash: string };
+      expect(plan).toMatchObject({
+        files: restored.map((path) => ({ path, action: "restore" })),
+        skipped: skip,
+        notRestorable: [],
+        planHash: expect.any(String),
+      });
+      expect(plan.planHash).not.toBe(firstHash);
       expect(readFileSync(a, "utf8")).toBe("a edited by the person");
       expect(readFileSync(b, "utf8")).toBe("b edited by the person");
       expect(turns()).toBe(4);
       expect(await copies(store)).toEqual([a, b]);
-      if (choice === "cancel") {
-        // 4. No rollback sent: both edits and every copy stay.
-        expect(readFileSync(a, "utf8")).toBe("a edited by the person");
-        expect(readFileSync(b, "utf8")).toBe("b edited by the person");
-        expect(turns()).toBe(4);
-        expect(await copies(store)).toEqual([a, b]);
-        return;
-      }
-      // 5. Confirmed: A gets its original bytes, B keeps the person's, the chat is cut, the copies go.
-      const res = await post("rw-io/rewind", { ...point, skip: [b] });
+      if (choice === "cancel") return;
+
+      const res = await post("rw-io/rewind", { ...point, skip, expectPlanHash: plan.planHash });
       expect(res.status).toBe(200);
-      expect(await res.json()).toMatchObject({ restored: [a], deleted: [], failed: [], skipped: [b] });
+      expect(await res.json()).toMatchObject({ restored, deleted: [], failed: [], skipped: skip });
       expect(readFileSync(a, "utf8")).toBe("a0");
-      expect(readFileSync(b, "utf8")).toBe("b edited by the person");
+      expect(readFileSync(b, "utf8")).toBe(retryAll ? "b0" : "b edited by the person");
       expect(turns()).toBe(2);
       expect(await copies(store)).toEqual([]);
     },
