@@ -42,7 +42,7 @@ import { forgetProjectFolder } from "../session/project-registry.js";
 import { openProject } from "../session/project-store.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 import { projectStoreForStateDir } from "../session/session-project-store.js";
-import type { ProjectGateView } from "../session/project-gate-view.js";
+import { withProjectGateEvidence, type ProjectGateView } from "../session/project-gate-view.js";
 import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { parseBacklogDecision } from "../session/project-backlog.js";
 import { projectContinueMessage } from "../session/project-continue.js";
@@ -538,7 +538,8 @@ export async function bootstrapSidecar(): Promise<{
     (request) => {
       const id = requireSessionId(request.payload.sessionId);
       if (!active) throw new Error("no active runtime — call start_session first");
-      return { sessionId: id, view: active.runtime.projectState?.(id) ?? null };
+      const view = active.runtime.projectState?.(id) ?? null;
+      return { sessionId: id, view: view !== null && request.payload.evidence === true ? withProjectGateEvidence(view) : view };
     },
   );
 

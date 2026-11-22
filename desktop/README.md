@@ -74,6 +74,12 @@ card's one "Evidence:" line (signed, unsigned, problems, partial scan,
 archive unavailable) and, unless every receipt is signed, the TUI's
 "Run atomic-agent project verify" hint with the folder; text only, as
 `test/project-card-evidence.test.mjs` checks against the TUI's own lines.
+The card requests `GET /api/project?session=<id>&evidence=1` when it opens
+on a milestone gate or receives a new milestone gate view for the visible
+card. It checks the session's privacy mark first and skips the request for
+incognito chats. The opt-in keeps signature verification out of ordinary
+project reads and redraws. If the agent omits the summary, the Evidence
+line is absent.
 Below the milestones, the gate milestone's report reads "Director report:
 …"; the runtime's `reportNotes` follow as lines of their own, never inside
 the report, then a warning for each sentence in `directorReportWarnings`
