@@ -179,6 +179,8 @@ describe("run with ATOMIC_AGENT_RUN_MEMORY_TRACE (issue #106)", () => {
     const worker = records.filter((r) => r.kind === "worker");
     expect(worker.length).toBeGreaterThanOrEqual(1);
     for (const sample of worker) expectNumbers(sample, WORKER_FIELDS);
-    expect(records.at(-1)).toMatchObject({ kind: "exit", code: 0 });
+    // The worker thread samples on its own clock and may write one more line
+    // while the process exits (see run-memory-trace.ts): the main thread's last line is the exit.
+    expect(records.filter((r) => r.kind !== "worker").at(-1)).toMatchObject({ kind: "exit", code: 0 });
   }, 60_000);
 });
