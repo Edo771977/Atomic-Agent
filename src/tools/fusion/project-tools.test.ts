@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { parse, resolve } from "node:path";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
-import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { applyProjectDecision, applyProjectUpdate, currentProjectLessons, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { PRESET_REASON, estimateRow } from "./project-estimate.js";
@@ -445,4 +445,20 @@ describe("project.plan tells the person which verdicts a re-plan resets (issue #
     const editorial = await tools().plan.run(args("draw the  board"), { ...ctx, project });
     expect(editorial.summary).not.toContain("verdict reset");
   });
+});
+
+it("reports matching changed paths as advisory notes without editing the director summary", async () => {
+  const project = {
+    milestones: [{ id: "m1", runIds: ["r1"] }],
+    [currentProjectLessons]: { active: [{ id: "no-deps", touches: ["package.json"] }] },
+  } as unknown as ProjectState;
+  const { milestone } = tools({ evidence: () => ({
+    facts: [], attachments: [], uncovered: [], changedFiles: ["package.json", "README.md"],
+  }) });
+  const result = await milestone.run({ id: "m1", state: "done", summary: "Ready" }, { ...ctx, project });
+  expect(result.status).toBe("ok");
+  expect(result.details[PROJECT_UPDATE_DETAIL]).toMatchObject({
+    summary: "Ready", reportNotes: [expect.stringMatching(/package\.json.*no-deps/)],
+  });
+  expect(result.summary).not.toContain("README.md");
 });

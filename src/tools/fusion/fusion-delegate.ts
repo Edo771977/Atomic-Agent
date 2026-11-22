@@ -200,7 +200,7 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { CHECK_LINT_PREFIX, checksWithoutCriteriaHint, describeCheckLintForApproval } from "./contract-check-lint.js";
-import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { readRunCriteria, writeRunChangedFiles, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
 import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
@@ -1785,6 +1785,7 @@ export function buildFusionDelegateTool(
       // and the edits it found already applied stay with that attempt, and
       // the reviewer reads them with the version under review.
       const attemptLedger = new Map<string, AttemptRecord[]>();
+      const deliveredPaths = new Set<string>();
       /** A task's declared files, for the hashes its check runs record (issue #104 review). */
       const declaredFilesOf = (taskId: string): readonly string[] => parsed.tasks.find((t) => t.id === taskId)?.files ?? [];
       /**
@@ -1859,6 +1860,9 @@ export function buildFusionDelegateTool(
           return [sha256 === undefined ? { path: inside.display } : { path: inside.display, sha256 }];
         });
       const noteAttempt = (result: WorkerTaskResult): void => {
+        if (mode.isolation !== "worktree") {
+          for (const { path } of result.attempt?.wrote ?? []) deliveredPaths.add(path);
+        }
         const list = attemptLedger.get(result.id) ?? [];
         list.push({
           attempt: list.length + 1,
@@ -2404,6 +2408,7 @@ export function buildFusionDelegateTool(
         // What reached the folder after a gate ruled: a later merge into a
         // gated task's files makes its verdict stale (re-run after the waves).
         for (const outcome of wave.outcomes) {
+          for (const path of outcome.applied) deliveredPaths.add(path);
           const task = tasks.find((t) => t.id === outcome.taskId);
           gateState.noteMerge(
             outcome,
@@ -3457,6 +3462,7 @@ export function buildFusionDelegateTool(
         runMeta = () => ({ ran: ranIds, judging, ...(passedChecks.length === 0 ? {} : { passedChecks }) });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+          writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, [...deliveredPaths]);
           writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
         }
         // Workspaces kept for a retry are done with, retried or not.
@@ -3693,6 +3699,9 @@ export function buildFusionDelegateTool(
         // (issue #74): none of its criteria stands as passed there.
         if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
           const why = `candidate not promoted${candidateReport.reason === undefined ? "" : `: ${candidateReport.reason}`}`;
+          if (candidateReport.status === "promoted") {
+            writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, candidateReport.changes);
+          }
           writeRunCriteriaFacts(
             deps.runCheckpoints.runsDir,
             evidenceRun,

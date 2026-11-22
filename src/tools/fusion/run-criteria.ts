@@ -1,4 +1,5 @@
-import { lstatSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { lstatSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 import {
   CRITERION_FACT_STATES,
@@ -151,6 +152,44 @@ interface StoredRun {
   passedChecks?: Record<string, unknown>[];
 }
 
+const CHANGED_FILES_NAME = "changed-files.json";
+const MAX_CHANGED_FILES_BYTES = 64 * 1024 * 1024;
+
+function runChangedFiles(runsDir: string, runId: string): string[] {
+  if (!FusionRunStore.isValidRunId(runId)) return [];
+  try {
+    const path = join(runsDir, runId, CHANGED_FILES_NAME);
+    const info = lstatSync(path);
+    if (!info.isFile() || info.size > MAX_CHANGED_FILES_BYTES) return [];
+    const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
+    return Array.isArray(raw) ? raw.filter((file): file is string => typeof file === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Best-effort delivery evidence; it is stored apart from the evidence used to gate done reports. */
+export function writeRunChangedFiles(
+  runsDir: string, run: { runId: string; sessionId: string }, files: readonly string[],
+): void {
+  if (files.length === 0) return;
+  const target = fusionRunShotTarget(runsDir, run, undefined);
+  if (target === undefined) return;
+  const changed = new Set(runChangedFiles(runsDir, run.runId));
+  for (const file of files) changed.add(file.replaceAll("\\", "/"));
+  const path = join(dirname(target.dir), CHANGED_FILES_NAME);
+  const temp = `${path}.${randomUUID()}.tmp`;
+  try {
+    const text = JSON.stringify([...changed]);
+    if (Buffer.byteLength(text) > MAX_CHANGED_FILES_BYTES) return;
+    writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
+    renameSync(temp, path);
+  } catch {
+    // An unavailable change manifest never blocks a milestone.
+    try { rmSync(temp, { force: true }); } catch { /* best effort */ }
+  }
+}
+
 const MAX_PASSED_CHECKS = 32;
 const MAX_CHECK_JSON = 4_000;
 
@@ -278,6 +317,7 @@ export interface MilestoneEvidence {
   attachments: ProjectMilestoneAttachment[];
   /** Criteria of `criteriaOrder` no check of these runs names. */
   uncovered: string[];
+  changedFiles?: string[];
   /** Tasks whose newest run recorded no review verdict, with why (issue #95); absent when every reviewed task has one. */
   noReviewVerdict?: Array<{ taskId: string; reason: string }>;
   /**
@@ -348,8 +388,10 @@ export function readMilestoneEvidence(input: {
   // The first run in which a required task got needs-changes: every run
   // after it is a correction round, whatever its task ids (issue #100).
   let firstNeedsChanges: number | undefined;
+  const changedFiles = new Set<string>();
   for (const [at, runId] of input.runIds.entries()) {
     const run = readRunTasks(input.runsDir, runId);
+    for (const file of runChangedFiles(input.runsDir, runId)) changedFiles.add(file);
     if (firstNeedsChanges === undefined && run.reviews.some((r) => r.verdict === "needs-changes" && required.has(r.taskId))) firstNeedsChanges = at;
     for (const review of run.reviews) reviewOf.set(review.taskId, { review, at });
     const ranHere = run.ran ?? [...run.reviews.map((r) => r.taskId), ...run.tasks.map((t) => t.taskId)];
@@ -465,6 +507,7 @@ export function readMilestoneEvidence(input: {
     facts,
     attachments,
     uncovered,
+    ...(changedFiles.size === 0 ? {} : { changedFiles: [...changedFiles].sort() }),
     ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
     ...(reviewBlocks.length === 0 ? {} : { reviewBlocks }),
     ...(blocked.length === 0 || firstNeedsChanges === undefined

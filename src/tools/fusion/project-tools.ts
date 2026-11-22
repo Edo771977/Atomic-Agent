@@ -1,4 +1,5 @@
 import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { lessonTouchesTask } from "./plan-references.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import { sameMember } from "./member-identity.js";
@@ -9,6 +10,7 @@ import {
   PROJECT_LIMITS,
   PROJECT_DELIVERABLES,
   activeDecisionsOf,
+  currentProjectLessons,
   applyProjectUpdate,
   finishedCitationsOf,
   normalizeCriterionId,
@@ -792,6 +794,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;
           reportNotes.push(warning);
           lines.push(warning);
+        }
+        const activeLessons = ctx.incognito ? [] : ctx.project?.[currentProjectLessons]?.active ?? [];
+        for (const file of activeLessons.length === 0 ? [] : evidence.changedFiles ?? []) {
+          const ids = activeLessons.filter((lesson) =>
+            lessonTouchesTask(lesson.touches, [file], process.platform)).map((lesson) => lesson.id);
+          if (ids.length > 0) {
+            reportNotes.push(`Changed ${JSON.stringify(file)}; covered by active lesson(s) ${ids.join(", ")}. Check that the changes follow them.`);
+          }
         }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };
