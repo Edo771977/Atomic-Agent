@@ -913,7 +913,8 @@ test('the card says "Fusion project", not the sidebar\'s folder "project"', () =
   // Every user-facing sentence of the card that names a project names the Fusion one.
   const card = readFileSync(new URL('../renderer/project-card.js', import.meta.url), 'utf8');
   const strings = [...card.matchAll(/'([^'\n]*)'/g)].map((x) => x[1]).filter((t) => /\bproject\b/i.test(t) && /\s/.test(t));
-  assert.deepEqual(strings.filter((t) => !/Fusion project/.test(t)), []);
+  // The CLI's own command (`atomic-agent project verify`, issue #119) is a command name, not prose.
+  assert.deepEqual(strings.filter((t) => !/Fusion project/.test(t) && !/^Run atomic-agent project verify$/.test(t)), []);
 });
 
 /* ---------------- the real submit() with stand-ins for the page ---------------- */

@@ -64,7 +64,12 @@ the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` lines in the
 core's `criterionFactLine` words and its `attachments` as text only: an
 "N pictures" line, then each caption with its criteria (the core's
 `attachmentLabel`) and the file's name, where the TUI shows the full path as
-a file link; no file is read and no image or file link is drawn. Under the
+a file link; no file is read and no image or file link is drawn. A
+milestone whose view carries `evidenceReceipts` (issue #119) shows the TUI
+card's one "Evidence:" line (signed, unsigned, problems, partial scan,
+archive unavailable) and, unless every receipt is signed, the TUI's
+"Run atomic-agent project verify" hint with the folder; text only, as
+`test/project-card-evidence.test.mjs` checks against the TUI's own lines. Under the
 plan comes the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per

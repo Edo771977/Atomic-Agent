@@ -353,6 +353,42 @@ function pcFactLine(fact, criteria) {
   return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
 }
 
+/**
+ * Issue #119: the `project verify` hint, as the TUI card's evidenceVerifyHint
+ * (src/tui/project/project-card-lines.ts): the folder quoted, or as a JSON
+ * string when it holds characters a shell or a terminal would read.
+ */
+function pcVerifyHint(folder) {
+  const command = 'Run atomic-agent project verify';
+  if (typeof folder !== 'string') return command;
+  if (/[\x00-\x1f\x7f-\x9f"$%!`]/.test(folder) || folder.endsWith('\\')) {
+    return command + ' for folder ' + JSON.stringify(folder).replace(/[\x7f-\x9f]/g, (c) => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+  }
+  return command + ' "' + folder + '"';
+}
+
+/**
+ * Issue #119: a milestone's receipts (`evidenceReceipts`: valid, unsigned,
+ * problems, partial, archiveUnavailable) as the TUI card's one "Evidence:"
+ * line, its tone, and the verify hint when anything is not plainly signed;
+ * null without receipts (an incognito chat writes none, an older agent sends none).
+ */
+function pcEvidence(receipts) {
+  if (!receipts || typeof receipts !== 'object') return null;
+  const valid = pcNum(receipts.valid) || 0, unsigned = pcNum(receipts.unsigned) || 0, problems = pcNum(receipts.problems) || 0;
+  const partial = receipts.partial === true, unavailable = receipts.archiveUnavailable === true;
+  if (pcNum(receipts.valid) === null && pcNum(receipts.unsigned) === null && pcNum(receipts.problems) === null && !partial && !unavailable) return null;
+  const details = [];
+  if (valid) details.push(valid + ' signed');
+  if (unsigned) details.push(unsigned + ' unsigned (not verifiable; the signing key may have been unavailable)');
+  if (problems) details.push(problems + ' problem' + (problems === 1 ? '' : 's'));
+  if (partial) details.push('partial scan');
+  if (unavailable) details.push('archive unavailable');
+  const tone = problems || unavailable ? 'error' : unsigned || partial ? 'warn' : 'ok';
+  return {line: 'Evidence: ' + details.join(', '), tone,
+    hint: unsigned || problems || partial || unavailable ? pcVerifyHint(receipts.folder) : null};
+}
+
 /** The warning at a gate changed outside Atomic Agent, naming that gate. */
 function pcChangedOutsideWarning(view) {
   const gate = view && view.gate ? view.gate : {kind: 'none'};
@@ -639,6 +675,7 @@ function pcModel(state, env) {
     facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
       .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
+    evidence: pcEvidence(m.evidenceReceipts),
   }));
   const current = gateId ? pcList(view.milestones).find((m) => m.id === gateId) : null;
   const canEditStatus = gate === 'plan' && state.mode === 'view' && pcList(view.allowedVerdicts).includes('edit');
@@ -928,6 +965,11 @@ function pcDraw(doc, host, model, on) {
     for (const m of model.milestones) {
       const li = pcEl(doc, 'li', 'pc-milestone is-' + m.state.replace(/[^a-z_]/g, '') + (m.current ? ' is-current' : ''),
         m.mark + ' ' + m.title + ' — ' + m.state.replace('_', ' ') + (m.estimate ? ' · ' + m.estimate : ''));
+      if (m.evidence) {
+        // Issue #119: the receipts summary, then where to verify it in full.
+        li.appendChild(pcEl(doc, 'p', 'pc-evidence is-' + m.evidence.tone, m.evidence.line));
+        if (m.evidence.hint) li.appendChild(pcEl(doc, 'p', 'pc-evidence pc-evidence-hint is-' + m.evidence.tone, m.evidence.hint));
+      }
       if (m.facts.length) {
         const facts = pcEl(doc, 'ul', 'pc-facts');
         facts.setAttribute('aria-label', 'Success criteria');
