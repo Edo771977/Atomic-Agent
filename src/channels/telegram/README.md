@@ -9,4 +9,6 @@ Use `/promote b1`, `/drop b1` or `/reopen b1` to preview a change. Repeat the co
 
 While a plan is waiting for approval, use `/defer b1` or `/activate b1` for a promoted item still waiting to be taken into a plan. Repeat the command with the displayed code to confirm against the plan version and item you saw. Deferring keeps the item promoted and makes it optional for the plan. Activating makes plan coverage required again. If the view changes, ask for a new preview. For decisions from the brief, use `/defer <id>` and `/reactivate <id>` with the plan version shown in the preview.
 
+The milestone notice and `/plan` show the director report, any unsupported-claim warnings, and criterion facts with their basis and counts. Previously saved facts without a basis display “basis not recorded”.
+
 For setup and routing, see the [adapter guide](../docs/adapters.md). For the project workflow, see [Fusion projects](../../../docs/user/fusion-projects.md).

@@ -66,10 +66,11 @@ export function writeMilestoneReportReceipt(
     if (attachments.some(attachment => attachment.sha256 === null)) {
       warn("Could not fingerprint a milestone attachment for its evidence receipt.");
     }
-    const criteriaFacts = (milestone.criteriaFacts ?? []).map(({ id, state, why, reservation }) => {
+    const criteriaFacts = (milestone.criteriaFacts ?? []).map(({ id, state, why, reservation, basis }) => {
       const criterion = criteria.get(id);
       return {
         id, state,
+        ...(basis === undefined ? {} : { basis }),
         ...(criterion === undefined ? {} : { criterionHash: receiptHash(criterion.text) }),
         ...(why === undefined ? {} : { whyHash: receiptHash(why) }),
         ...(reservation === undefined ? {} : { reservationHash: receiptHash(reservation) }),

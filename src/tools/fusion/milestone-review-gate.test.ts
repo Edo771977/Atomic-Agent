@@ -147,7 +147,13 @@ describe("a milestone stays open while a required task lacks a current accept (i
     const over = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "approveOverReview", edits: { note: "reviewer gone; suites pass" } }, { now: NOW });
     if (!over.ok) throw new Error(over.error.message);
     expect(over.project.milestones[0]).toMatchObject({ state: "reviewed", reviewOverride: { note: "reviewer gone; suites pass", blocks: [{ taskId: "program" }] } });
-    expect(over.project.milestones[0]!.summary).toContain("approved over open review by the person: reviewer gone; suites pass");
+    expect(over.project.milestones[0]!.summary).toBe(p.milestones[0]!.summary);
+    expect(over.project.milestones[0]!.reportNotes).toContain("approved over open review by the person: reviewer gone; suites pass");
+    expect(over.project.milestones[0]!.criteriaFacts).toBeUndefined();
+    const withoutSummary = { ...p, milestones: p.milestones.map(({ summary: _summary, ...m }) => m) };
+    const without = applyProjectDecision(withoutSummary, { gate: p.gate, version: gateVersion(p)!, verdict: "approveOverReview", edits: { note: "accepted" } }, { now: NOW });
+    expect(without.ok && without.project.milestones[0]).toMatchObject({ reportNotes: ["approved over open review by the person: accepted"] });
+    expect(without.ok && without.project.milestones[0]?.summary).toBeUndefined();
     // Not offered without blocks.
     const clean = { ...p, milestones: p.milestones.map((m) => ({ ...m, reviewBlocks: undefined })) } as ProjectState;
     expect(allowedProjectVerdicts(clean.gate, clean)).not.toContain("approveOverReview");
