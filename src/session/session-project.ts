@@ -25,7 +25,7 @@ export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
-import { evaluatePlanChecks, planCheckReviewBlocks, type PlanCheckOptions, type PlanCheckResult, type PlanDecision } from "../tools/fusion/plan-checks.js";
+import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -348,6 +348,13 @@ export type PlanDetail = "compact" | "full";
 export interface ProjectPlan {
   /** Runtime-derived static analysis, recomputed when loading or approving. Record only. */
   checkResults?: PlanCheckResult[];
+  /**
+   * Issue #120: what the plan's cited files, scripts, commands and symbols
+   * resolved to, read from the project folder when `project.plan` drafted
+   * it (runtime-set, never the model's). Record only, never blocking: a
+   * row text change since reads as not re-checked.
+   */
+  referenceCheck?: PlanReferenceRecord;
   rows: AssignmentRow[];
   totals: ProjectPlanTotals;
   detail: PlanDetail;
@@ -571,6 +578,8 @@ export type ProjectUpdate =
       detail: PlanDetail;
       /** Drafted after outside content (the tool reads the approval gate's taint). */
       draftedAfterUntrusted?: boolean;
+      /** The runtime's references check of these rows (issue #120); absent: not checked. */
+      referenceCheck?: PlanReferenceRecord;
     }
   | {
       kind: "milestone";
@@ -1403,6 +1412,10 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
       draftedAfterUntrusted: p.draftedAfterUntrusted === true,
       ...(p.status === "approved" && p.approvedWithUntrustedWarning === true ? { approvedWithUntrustedWarning: true as const } : {}),
       ...(() => {
+        const referenceCheck = readPlanReferenceRecord(p.referenceCheck);
+        return referenceCheck === undefined ? {} : { referenceCheck };
+      })(),
+      ...(() => {
         const resets = p.status === "draft" ? cleanVerdictResets(p.verdictResets, ids) : [];
         const retired = p.status === "draft" ? cleanVerdictResets(p.evidenceRetired, ids) : [];
         return { ...(resets.length === 0 ? {} : { verdictResets: resets }), ...(retired.length === 0 ? {} : { evidenceRetired: retired }) };
@@ -1419,9 +1432,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   const storedDecisions = cleanDecisions(raw.approvedDecisions, "lenient");
   const approvedDecisions = Array.isArray(storedDecisions) ? storedDecisions : undefined;
   const decisionStatus = readStatusMap(raw.decisionStatus, PROJECT_DECISION_STATUSES);
-  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined))) {
+  if (plan !== undefined && ((isObject(raw.plan) && raw.plan.checkResults !== undefined) || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
     const decisions = planDecisionsOf({ ...(approvedDecisions === undefined ? {} : { approvedDecisions }), ...(brief === undefined ? {} : { brief }), ...(decisionStatus === undefined ? {} : { decisionStatus }) });
-    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], {}, decisions, finishedCitationsOf(milestones));
+    plan.checkResults = evaluatePlanChecks(plan.rows, approvedCriteria ?? [], referenceOptions(plan), decisions, finishedCitationsOf(milestones));
   }
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
@@ -1529,6 +1542,11 @@ function briefUpdate(
       ...personCalls(project, base !== undefined),
     },
   };
+}
+
+/** The plan's stored references record as plan-check options (issue #120). */
+export function referenceOptions(plan: Pick<ProjectPlan, "referenceCheck">): PlanCheckOptions {
+  return plan.referenceCheck === undefined ? {} : { references: plan.referenceCheck };
 }
 
 function withoutResets(plan: ProjectPlan): ProjectPlan {
@@ -1730,8 +1748,8 @@ function approveBrief(project: ProjectState, now: number): ProjectState {
     return now !== undefined && textBefore.get(id) === workText(now.text);
   });
   const decisionStatus = kept.length === 0 ? undefined : Object.fromEntries(kept) as Record<string, ProjectDecisionStatus>;
-  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined))) {
-    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, {}, planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
+  if (plan !== undefined && (plan.checkResults !== undefined || plan.rows.some((r) => r.checks !== undefined) || plan.referenceCheck !== undefined)) {
+    plan = { ...plan, checkResults: evaluatePlanChecks(plan.rows, brief.successCriteria, referenceOptions(plan), planDecisionsOf({ approvedDecisions, ...(decisionStatus === undefined ? {} : { decisionStatus }) }), finishedCitationsOf(milestones)) };
   }
   const { approvedDecisions: _before, decisionStatus: _status, ...rest } = project;
   return {
@@ -1985,9 +2003,11 @@ function planUpdate(
     rows.push(read);
   }
   const milestones = drafted.map((m) => replannedMilestone(m, previous.get(m.id), project.plan?.rows ?? [], rows, now, project.brief?.successCriteria ?? []));
+  const referenceCheck = readPlanReferenceRecord(update.referenceCheck);
   const plan: ProjectPlan = {
     rows,
-    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, {}, planDecisionsOf(project), finishedCitationsOf(milestones)),
+    ...(referenceCheck === undefined ? {} : { referenceCheck }),
+    checkResults: evaluatePlanChecks(rows, project.approvedCriteria ?? project.brief.successCriteria, referenceCheck === undefined ? {} : { references: referenceCheck }, planDecisionsOf(project), finishedCitationsOf(milestones)),
     totals: planTotals(rows),
     detail: update.detail,
     status: "draft",
@@ -2289,7 +2309,7 @@ export function applyProjectDecision(
       return refuse({ code: "over-cap", message: `Approval is refused while a hard cap is exceeded: ${violations.join("; ")}.`, violations });
     }
     if (gate.kind === "plan") {
-      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, options.planChecks, planDecisionsOf(project), finishedCitationsOf(project.milestones));
+      const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...referenceOptions(project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
       if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
       return {
@@ -2443,7 +2463,7 @@ export function applyProjectDecision(
           ...withoutApproval(plan),
           rows: checked,
           totals: planTotals(checked),
-          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, {}, planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
+          ...(plan.checkResults === undefined ? {} : { checkResults: evaluatePlanChecks(checked, project.approvedCriteria ?? project.brief!.successCriteria, referenceOptions(plan), planDecisionsOf(next), finishedCitationsOf(project.milestones)) }),
           status: "draft",
           version: plan.version + 1,
         },

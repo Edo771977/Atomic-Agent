@@ -1,7 +1,9 @@
+import { createHash } from "node:crypto";
+
 import type { AssignmentRow, ProjectBriefDecision, ProjectCriterion, ProjectDecisionStatus, ProjectReviewBlock } from "../../session/session-project.js";
 import { lintContractCheck } from "./contract-check-lint.js";
 
-export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage";
+export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage" | "references";
 export interface PlanCheckResult {
   dimension: PlanCheckDimension;
   verdict: "pass" | "warn" | "fail";
@@ -9,8 +11,10 @@ export interface PlanCheckResult {
   taskIds: string[];
 }
 export interface PlanCheckOptions {
-  /** Caller's policy: promote warnings to failures for these dimensions. */
+  /** Caller's policy: promote warnings to failures for these dimensions (never `references`). */
   blockingDimensions?: readonly PlanCheckDimension[];
+  /** The plan's stored references record (issue #120, `ProjectPlan.referenceCheck`); absent: no such result. */
+  references?: PlanReferenceRecord;
 }
 
 /** A decision of the last approved brief with the person's status for it (issue #112). */
@@ -82,7 +86,48 @@ export function evaluatePlanChecks(
     { dimension: "verifiability", verdict: bare.length === 0 ? "pass" : "warn", detail: bare.length === 0 ? "No task is missing checks in a plan that uses them." : `Tasks without checks: ${bare.join(", ")}.`, taskIds: bare },
     ...decisionCoverage(rows, decisions, finished),
   ];
-  return results.map((r) => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
+  const promoted = results.map((r): PlanCheckResult => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
+  // Issue #120: the person decides on what the plan cites; never promoted to a failure.
+  return options.references === undefined ? promoted : [...promoted, referencesResult(rows, options.references)];
+}
+
+function referencesResult(rows: readonly AssignmentRow[], record: PlanReferenceRecord): PlanCheckResult {
+  if (record.basis !== planReferenceBasis(rows)) {
+    return { dimension: "references", verdict: "warn", detail: "Not re-checked: the tasks' text or checks changed since the plan's references were read; draft the plan again to check them.", taskIds: [] };
+  }
+  return { dimension: "references", verdict: record.verdict, detail: record.detail, taskIds: [...record.taskIds] };
+}
+
+/**
+ * Issue #120: the `references` dimension, computed by the runtime when
+ * the plan is drafted (`plan-references.ts`, which reads the project
+ * folder) and kept on the plan as a record. `basis` is
+ * {@link planReferenceBasis} of the rows it read: a record whose basis no
+ * longer matches the rows is reported as not re-checked. Never blocking.
+ */
+export interface PlanReferenceRecord {
+  verdict: "pass" | "warn";
+  detail: string;
+  taskIds: string[];
+  basis: string;
+}
+
+/** What the references were read from: each task's id, title and checks. */
+export function planReferenceBasis(rows: readonly AssignmentRow[]): string {
+  const text = JSON.stringify(rows.map((r) => [r.taskId, r.title, r.checks ?? []]));
+  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+}
+
+export const REFERENCE_DETAIL_MAX = 4_000;
+
+/** A stored {@link PlanReferenceRecord}, or undefined when malformed (a record only: it never blocks). */
+export function readPlanReferenceRecord(raw: unknown): PlanReferenceRecord | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (r.verdict !== "pass" && r.verdict !== "warn") return undefined;
+  if (typeof r.detail !== "string" || typeof r.basis !== "string" || !/^[0-9a-f]{16}$/.test(r.basis)) return undefined;
+  if (!Array.isArray(r.taskIds) || r.taskIds.length > 200 || !r.taskIds.every((t) => typeof t === "string" && t.length > 0 && t.length <= 64)) return undefined;
+  return { verdict: r.verdict, detail: r.detail.slice(0, REFERENCE_DETAIL_MAX), taskIds: [...new Set(r.taskIds as string[])], basis: r.basis };
 }
 
 export const planCheckHint = (r: PlanCheckResult): string => `${r.dimension}: ${r.verdict}: ${r.detail}`;
