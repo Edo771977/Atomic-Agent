@@ -26,15 +26,17 @@ Results include a readable detail and a `pass`, `fail` or `uncheckable` status. 
 
 ## UI source checks
 
-For a UI or polish milestone, add `{ kind: "ui", path: "src/styles.css" }` as an optional deterministic check alongside a vision check. In a Fusion plan, add `criteria: ["contrast"]` to link the result to an approved criterion. Check multiple files with separate specs.
+For a UI or polish milestone, add `{ kind: "ui", path: "src/index.html" }` as an optional deterministic check alongside a vision check. Add `criteria: ["contrast"]` in a Fusion plan to link the result to an approved criterion. Check multiple files with separate specs.
 
-Each run reads one regular UI source file up to 8 MiB, with the same approval and read-scope rules as document checks. Supply a path relative to the project or the optional `cwd`. The check rejects links, directory scans, URLs and network options. It searches the project's `node_modules/.bin` first and then the executable directories on `PATH`. It uses the installed [Impeccable](https://github.com/pbakaus/impeccable) CLI (Apache-2.0), with the standard verification proxy restrictions and the launcher download fallback disabled. No package runner is used.
+Use one regular markup file of up to 8 MiB, with extension `.html`, `.htm`, `.jsx`, `.tsx`, `.vue`, `.svelte` or `.astro`. Supply a path relative to the project or the optional `cwd`. For CSS, point to the markup that loads it. The scan runs in the private project copy so linked stylesheets and assets are available. Symlinked targets, directories, URLs and network options are refused.
 
-The CLI runs `detect --json --no-config` on the file snapshot so project detector settings and inline waivers cannot change the verdict. The check reports the CLI version, rule IDs and project-relative file names, and the file and line for every `impeccable-disable*` marker, including literal mentions. The configuration in [the runner](impeccable-check.ts) defines the complete set of severe rules. The version query and detector share a maximum of 15 seconds, or a shorter `timeoutMs`. Cancellation stops the process tree. Captured output and report evidence are bounded to 1 MiB.
+The authorizer looks for [Impeccable](https://github.com/pbakaus/impeccable) (Apache-2.0) under `cwd/node_modules/.bin`, the project’s `node_modules/.bin`, then the executable directories on `PATH`. Approval shows the exact executable and flags project code. A separate non-grantable approval category keeps document and spreadsheet grants from authorizing it. Shell guards, saved command denies and read-scope checks apply. Verification rechecks the approved executable and its file identity before each launch. The CLI uses `DO_NOT_TRACK=1`, the standard verification proxy restrictions and a disabled launcher download fallback.
 
-- `pass` means exit 0 with JSON evidence that a file was scanned, or exit 2 with only warning-level findings. Findings remain visible on a pass.
-- `fail` means exit 2 with at least one severe rule. A linked criterion fails.
-- `uncheckable` covers an unavailable CLI, exit 1, invalid or oversized output, a timeout, or missing scan coverage. Impeccable versions that return only a bare empty array for a clean scan cannot confirm coverage.
+The [Impeccable 4.10.0 CLI contract at b49177d](https://github.com/pbakaus/impeccable/blob/b49177d32788f2dc585c42831d845dacf1ebed2c/docs/CLI-CONTRACT.md) defines `detect --json --no-config` output as an array. The detector reports its version, findings and suppression marker locations. `--no-config` disables project settings and inline disable comments. An attribute `data-impeccable-ignore` or an `impeccable-ignore-start/end` marker with an otherwise passing result yields `uncheckable`, since the DOM-scoped waiver could hide a result. The marker check conservatively includes literal mentions in the target. A severe finding still fails. The version query and scan share a limit of 15 seconds or a shorter `timeoutMs`. Cancellation stops the process tree. Captured output and report evidence are bounded to 1 MiB.
+
+- `pass` means exit 0 with a valid JSON array and no primary findings, including `[]` for a clean scan on the explicit file, or exit 2 with primary findings but none severe.
+- `fail` means exit 2 with a primary finding whose severity is `error` or whose ID is in [the blocking rule set](impeccable-check.ts). Findings marked `advisory: true` remain warnings.
+- `uncheckable` covers a missing or changed detector, a missing private copy, exit 1, invalid or contradictory JSON, a timeout or potentially active suppression markers on a would-be pass.
 
 ## Copy root
 

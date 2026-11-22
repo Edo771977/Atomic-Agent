@@ -99,21 +99,24 @@ function parseReport(text: string, workspace: string, snapshot: string, source: 
   return { findings, severe, primary };
 }
 
-function suppressionLines(source: string, bytes: Buffer): string[] {
+function suppressionLines(source: string, bytes: Buffer) {
   const findings: string[] = [];
+  let potentiallyActive = false;
   let chars = 0;
   let line = 1;
-  for (const match of bytes.toString("utf8").matchAll(/\r\n|[\r\n]|\bimpeccable-disable(?:-[a-z]+)*/g)) {
-    if (match[0][0] === "\r" || match[0][0] === "\n") {
-      line += 1;
-    } else {
-      const detail = `${source}:${line}: ${match[0]}`;
+  const markers = /\r\n|[\r\n]|\bimpeccable-(?:disable(?:-[a-z]+)*|ignore-(?:start|end))\b|\bdata-impeccable-ignore\b(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>]+))?/gi;
+  for (const match of bytes.toString("utf8").matchAll(markers)) {
+    const marker = match[0];
+    if (marker[0] !== "\r" && marker[0] !== "\n") {
+      potentiallyActive ||= !marker.toLowerCase().startsWith("impeccable-disable");
+      const detail = `${source}:${line}: ${marker.replace(/\s+/g, " ")}`;
       chars += detail.length + 1;
       if (chars > MAX_REPORT_CHARS) throw new Error("impeccable suppression report exceeds the output limit");
       findings.push(detail);
     }
+    line += marker.match(/\r\n|[\r\n]/g)?.length ?? 0;
   }
-  return findings;
+  return { findings, potentiallyActive };
 }
 
 export async function runImpeccableCheck(
@@ -142,7 +145,8 @@ export async function runImpeccableCheck(
     if (approved === undefined) return complete("uncheckable", "impeccable is not installed");
     const executable = approved.file;
     const bytes = await readArtifactSnapshot(root, relative(root, cwd), args.path!);
-    suppressions = suppressionLines(source, bytes);
+    const markers = suppressionLines(source, bytes);
+    suppressions = markers.findings;
     const scanCwd = await realpath(cwd);
     const scanTarget = await realpath(target);
 
@@ -200,6 +204,9 @@ export async function runImpeccableCheck(
     if (scan.exitCode === 2 && !report.primary) return complete("uncheckable", "impeccable returned exit 2 with no primary findings", report.findings);
     if (scan.exitCode === 0 && report.primary) return complete("uncheckable", "impeccable returned primary findings with exit 0", report.findings);
     const fail = scan.exitCode === 2 && report.severe;
+    if (!fail && markers.potentiallyActive) {
+      return complete("uncheckable", "impeccable suppression markers could hide findings", report.findings);
+    }
     return complete(fail ? "fail" : "pass", fail ? "impeccable found severe rules" : "impeccable scan completed", report.findings);
   } catch (error) {
     if (signal?.aborted) return complete("uncheckable", "verification cancelled");

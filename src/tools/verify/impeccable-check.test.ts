@@ -250,3 +250,21 @@ it("never spawns a replaced approved launcher, including under a nested cwd", as
     spy.mockRestore();
   }
 });
+
+it("reports suppression attributes and block markers and withholds a pass when they could hide findings", async () => {
+  await fake(0, []);
+  await writeFile(join(root, "index.html"), [
+    '<!-- impeccable-ignore-start broken-image -->',
+    '<link rel="stylesheet" href="style.css">',
+    '<img data-impeccable-ignore="broken-image" src="">',
+    '<!-- impeccable-ignore-end -->',
+  ].join("\n"));
+  expect(await check()).toMatchObject({
+    artifactStatus: "uncheckable",
+    impeccableSuppressions: [
+      "index.html:1: impeccable-ignore-start",
+      'index.html:3: data-impeccable-ignore="broken-image"',
+      "index.html:4: impeccable-ignore-end",
+    ],
+  });
+});

@@ -80,7 +80,7 @@ Macros and formulas are never run; workbook formulas need their saved results. F
 
 ## Check UI source files
 
-For a UI or polish milestone, the director can pair visual review with an Impeccable source check. Add a plan check such as `{ kind: "ui", path: "src/styles.css", criteria: ["contrast"] }`, using the ID of an approved criterion. The check uses the locally installed CLI and reports the version, rule and file for each finding, and any inline suppression markers. A severe finding fails the linked criterion. A missing detector or a scan that cannot prove it covered a file is reported as `uncheckable`. [UI check options and verdicts](../../src/tools/verify/README.md#ui-source-checks)
+For a UI or polish milestone, the director can pair visual review with an Impeccable source check. Add a plan check such as `{ kind: "ui", path: "src/index.html", criteria: ["contrast"] }`, using the ID of an approved criterion. The check uses the locally installed CLI and reports the version, rule and file for each finding, and any inline suppression markers. A severe finding fails the linked criterion. A missing detector or a scan that cannot prove it covered a file is reported as `uncheckable`. [UI check options and verdicts](../../src/tools/verify/README.md#ui-source-checks)
 
 ## Verify signed receipts
 
