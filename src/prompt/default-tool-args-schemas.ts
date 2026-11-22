@@ -946,6 +946,15 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
     ),
   ],
 
+  [
+    "project.lesson.propose",
+    obj({
+      id: stringSchema, title: stringSchema, source: { type: "string", enum: ["correction", "milestone-failure", "director"] },
+      from: stringSchema, touches: { type: "array", items: stringSchema }, always: { type: "boolean" },
+      decided: stringSchema, triedAndRuledOut: stringSchema, watchOut: stringSchema,
+    }, ["id", "title", "source", "from", "touches", "always", "decided", "triedAndRuledOut", "watchOut"]),
+  ],
+
   // ── fusion fan-out ───────────────────────────────────────────────────────
   [
     "fusion.delegate",

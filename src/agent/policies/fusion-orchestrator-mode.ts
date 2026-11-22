@@ -21,8 +21,8 @@ import type { ToolRegistry } from "../../tools/tool-registry.js";
  * every one of them. A latch that opens on "something was attempted"
  * is not a rule about who does the work.
  *
- * **The rule now: nothing.** The orchestrator does not mutate anything,
- * in any circumstance, for the whole turn. Read, delegate, reply.
+ * The orchestrator reads, delegates and replies. It can also save a
+ * project lesson proposal through the normal filesystem approval gate.
  *
  * The version before this one allowed a mutation while the turn held a
  * task returned `needs_orchestrator` — work a worker could not do
@@ -139,7 +139,7 @@ export interface FusionGateContext {
  * the refusal text — so the context is the registry alone.
  */
 export function wouldRefuse(toolName: string, ctx: FusionGateContext): boolean {
-  if (TERMINAL_TOOLS.has(toolName) || toolName === DELEGATE_TOOL) return false;
+  if (TERMINAL_TOOLS.has(toolName) || toolName === DELEGATE_TOOL || toolName === "project.lesson.propose") return false;
   if (!ctx.registry.has(toolName)) return false;
   return mutates(toolName, ctx.registry);
 }

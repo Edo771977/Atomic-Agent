@@ -1,3 +1,4 @@
+import { lessonProposalHint, PROJECT_LESSONS_COMPLETE_HINT } from "../../session/project-lesson-hints.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { gateContentHash } from "../../session/project-decisions.js";
@@ -368,6 +369,16 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       }
       if (committedToFolder) deps.saveSession(saved);
       const next = view(saved, decided);
+      const hints: string[] = [];
+      const gate = decision.gate;
+      if (gate.kind === "milestone" && !isIncognitoSession(saved)) {
+        const milestone = project?.milestones.find(m => m.id === gate.id);
+        if (milestone !== undefined && actor === "person" && (decision.verdict === "edit" || decision.verdict === "approveOverReview")) {
+          hints.push(lessonProposalHint("correction", milestone));
+        }
+        if (decided.milestones.every(m => m.state === "reviewed")) hints.push(PROJECT_LESSONS_COMPLETE_HINT);
+      }
+      if (hints.length > 0) next.lessonProposalHint = hints.join(" ");
       deps.emit(sessionId, { type: "project_gate", view: next });
       return { ok: true, project: decided, view: next };
     },

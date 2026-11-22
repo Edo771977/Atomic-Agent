@@ -454,6 +454,12 @@ export const DEFAULT_TOOL_DESCRIPTORS_B: readonly ToolDescriptor[] = [
     examples: ['{"title":"Export the report as PDF","source":"director","fromPerson":true,"condition":"when the report page exists","milestoneId":"base"}'],
   },
   {
+    name: "project.lesson.propose",
+    summary: "Save a new proposed project lesson for human review. Use a fresh lowercase hyphenated id and cite the milestone and run in from. This workspace write may require approval.",
+    argsSchema: "{ id: string, title: string, source: 'correction' | 'milestone-failure' | 'director', from: string, touches: string[], always: boolean, decided: string, triedAndRuledOut: string, watchOut: string }",
+    examples: ['{"id":"no-new-deps","title":"Use existing dependencies","source":"correction","from":"milestone m1, run r1","touches":["package.json"],"always":false,"decided":"Use existing packages.","triedAndRuledOut":"","watchOut":""}'],
+  },
+  {
     // Frequent tier: a checklist only helps when the model keeps it from
     // the first step, and a model that must `tool.view` first never
     // starts one (ATO-486). Placed after the git duplicates so their

@@ -1,4 +1,5 @@
 import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { lessonProposalHint } from "../../session/project-lesson-hints.js";
 import { lessonTouchesTask } from "./plan-references.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
@@ -72,8 +73,9 @@ export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
 /** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
 export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
+export const PROJECT_LESSON_PROPOSE_TOOL = "project.lesson.propose";
 /** In catalog order. */
-export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL] as const;
+export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL, PROJECT_LESSON_PROPOSE_TOOL] as const;
 
 /** Key of the update in the result's `details`, read by `applyStateEffects`. */
 export const PROJECT_UPDATE_DETAIL = "projectUpdate";
@@ -822,6 +824,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         [
           `Milestone ${report.id} reported ${report.state}.`,
           ...lines,
+          ...(report.state === "failed" && milestone !== undefined && !ctx.incognito ? [lessonProposalHint("milestone-failure", milestone)] : []),
           "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
         ].join(" "),
         { ...report, ...(reportNotes.length === 0 ? {} : { reportNotes }) },

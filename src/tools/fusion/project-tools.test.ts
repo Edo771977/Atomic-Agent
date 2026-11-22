@@ -134,8 +134,8 @@ describe("schema v2 project tool fields", () => {
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();
-    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add"]).toEqual([...PROJECT_TOOL_NAMES]);
-    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add"]);
+    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add", "project.lesson.propose"]).toEqual([...PROJECT_TOOL_NAMES]);
+    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add", "project.lesson.propose"]);
     for (const tool of [t.brief, t.plan, t.milestone]) {
       expect(tool.readonly).toBe(true);
       expect(tool.untrustedOutput).toBeUndefined();
@@ -461,4 +461,10 @@ it("reports matching changed paths as advisory notes without editing the directo
     summary: "Ready", reportNotes: [expect.stringMatching(/package\.json.*no-deps/)],
   });
   expect(result.summary).not.toContain("README.md");
+});
+
+it("invites a lesson proposal after a failed milestone report", async () => {
+  const project = { milestones: [{ id: "m1", runIds: ["r1"] }] } as unknown as ProjectState;
+  const failed = await tools().milestone.run({ id: "m1", state: "failed", summary: "Could not finish" }, { ...ctx, project });
+  expect(failed.summary).toMatch(/project\.lesson\.propose.*milestone-failure.*milestone m1, run r1/);
 });
