@@ -11,10 +11,13 @@ export function projectLessonsForTask(
   task: DelegateTask,
   contract: DelegateContract | undefined,
   workingDir: string,
+  originalFolder = workingDir,
+  platform: NodeJS.Platform = process.platform,
 ): ProjectLesson[] {
   const checks = (contract?.checks ?? []).filter((check) => check.task === task.id);
-  const fold = (path: string) => process.platform === "win32" ? path.toLowerCase() : path;
-  const files = taskReferencePaths(task.files ?? [], checks, workingDir).map(fold);
+  const fold = (path: string) => platform === "win32" || platform === "darwin" ? path.toLowerCase() : path;
+  const roots = new Set([workingDir, originalFolder]);
+  const files = [...roots].flatMap((root) => taskReferencePaths(task.files ?? [], checks, root, platform)).map(fold);
   return lessons.filter((lesson) => lesson.touches.some((touch) => {
     const path = fold(posix.normalize(touch.replaceAll("\\", "/")).replace(/\/$/, ""));
     return files.some((file) => path === "." || file === path || file.startsWith(path + "/"));
@@ -30,6 +33,6 @@ export function workerProjectLessonBlock(
 ): string | null {
   const active = projectLessonsForProvider(source, providerId);
   if (active.length === 0) return null;
-  const selection = projectLessonSelection(projectLessonsForTask(active, task, contract, workingDir));
+  const selection = projectLessonSelection(projectLessonsForTask(active, task, contract, workingDir, source.folder));
   return projectLessonDataBlock(selection.data, selection.omitted);
 }

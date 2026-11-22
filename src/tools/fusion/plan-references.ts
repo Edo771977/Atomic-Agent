@@ -171,7 +171,7 @@ function pathLike(token: string, bare: boolean): boolean {
  * A cited path as a project-relative `/` path, or the reason it is not
  * one (outside the folder). Absolute paths inside `root` are made relative.
  */
-function relativeRef(raw: string, root: string, platform: NodeJS.Platform): { rel: string } | { outside: string } {
+function relativeRef(raw: string, root: string, platform: NodeJS.Platform, foldAbsolutePaths = false): { rel: string } | { outside: string } {
   const p = pathFor(platform);
   const slashed = raw.replace(/\\/g, "/");
   // `C:foo` is relative to drive C's current folder, not to the project.
@@ -179,7 +179,8 @@ function relativeRef(raw: string, root: string, platform: NodeJS.Platform): { re
   const absolute = rootedRef(raw, platform);
   let rel: string;
   if (absolute) {
-    const r = p.relative(root, platform === "win32" ? slashed.replace(/\//g, "\\") : slashed).replace(/\\/g, "/");
+    const target = platform === "win32" ? slashed.replace(/\//g, "\\") : slashed;
+    const r = p.relative(foldAbsolutePaths ? root.toLowerCase() : root, foldAbsolutePaths ? target.toLowerCase() : target).replace(/\\/g, "/");
     if (r === "" ) return { rel: "" };
     if (r.startsWith("..") || p.isAbsolute(r) || /^[A-Za-z]:/.test(r)) return { outside: raw };
     rel = r;
@@ -203,6 +204,7 @@ const trimPunct = (w: string): string => w.replace(/^[("'«“]+/, "").replace(/
 interface Collector {
   add(kind: PlanReferenceKind, value: string, taskId: string, extra?: { dir?: string; reason?: string }): void;
   create(value: string): void;
+  foldAbsolutePaths?: boolean;
 }
 
 /** A task title: paths, scripts, backticked symbols, and what a create clause names. */
@@ -260,7 +262,7 @@ function scanText(text: string, taskId: string, root: string, platform: NodeJS.P
 /** `exact`: a check's argv path, relative to its cwd; a bare name in text may be anywhere in the folder. */
 function addPath(raw: string, taskId: string, root: string, platform: NodeJS.Platform, out: Collector, creating: boolean, base = "", exact = false): void {
   const joined = base === "" || rootedRef(raw, platform) ? raw : `${base}/${raw}`;
-  const ref = relativeRef(joined, root, platform);
+  const ref = relativeRef(joined, root, platform, out.foldAbsolutePaths);
   if ("outside" in ref) {
     if (!creating) out.add("file", ref.outside.replace(/\\/g, "/"), taskId, { reason: "outside the project folder (not read)" });
     return;
@@ -299,7 +301,7 @@ function scanCheck(check: ContractCheck, taskId: string, root: string, platform:
   const cwdRaw = typeof check.cwd === "string" && check.cwd.trim() !== "" ? check.cwd.trim() : "";
   let base = "";
   if (cwdRaw !== "") {
-    const ref = relativeRef(cwdRaw, root, platform);
+    const ref = relativeRef(cwdRaw, root, platform, out.foldAbsolutePaths);
     if ("outside" in ref) {
       out.add("file", cwdRaw.replace(/\\/g, "/"), taskId, { reason: "outside the project folder (not read)" });
       return;
@@ -340,10 +342,10 @@ function scanCheck(check: ContractCheck, taskId: string, root: string, platform:
 }
 
 /** Literal project-relative task files and check paths, without reading the workspace. */
-export function taskReferencePaths(files: readonly string[], checks: readonly ContractCheck[], root: string): string[] {
-  const platform = process.platform;
+export function taskReferencePaths(files: readonly string[], checks: readonly ContractCheck[], root: string, platform: NodeJS.Platform = process.platform): string[] {
   const paths = new Set<string>();
   const out: Collector = {
+    foldAbsolutePaths: platform === "darwin",
     add(kind, value, _task, details) {
       if (kind === "file" && details?.reason === undefined) paths.add(value);
     },

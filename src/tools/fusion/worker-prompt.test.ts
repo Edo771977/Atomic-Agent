@@ -57,6 +57,13 @@ describe("renderWorkerBrief", () => {
       lesson("prefix-near-miss", ["src/mai"]),
     ], task, contract, workingDir);
     expect(lessons.map((item) => item.id)).toEqual(["file-match", "check-match"]);
+    const originalTask = { ...TASK, files: ["/ORIGINAL/src/main.ts", "/outside/src/main.ts"] };
+    const matched = projectLessonsForTask([
+      lesson("directory-match", ["SRC/"]), lesson("no-glob", ["src/*.ts"]),
+      lesson("check-match", ["docs/guide.md"]),
+    ], originalTask, { checks: [{ task: "t1", kind: "document", path: "/original/docs/guide.md" }] },
+      "/worktree", "/original", "darwin");
+    expect(matched.map((item) => item.id)).toEqual(["directory-match", "check-match"]);
   });
 
   it("opens by naming the frame the worker is in", () => {
