@@ -107,6 +107,8 @@ atomic-agent project verify ./my-project
 
 This command checks saved delivery, check-execution, gate-decision and milestone-report receipts. Use `atomic-agent project verify ./my-project --json` for machine-readable results. A valid signature confirms the saved receipt matches what was signed. A receipt changed outside the app can report a hash or signature mismatch. The terminal milestone card shows counts for signed, unsigned and problematic delivery, check and report receipts attributed to the milestone. An unsigned receipt has no verifiable signature. The signing key may have been unavailable, for example if the OS keychain was closed or missing. The card points to the full verifier for unsigned receipts and verification problems. A large archive can yield partial counts on the card. Run the command above for the full archive, including older receipts that lack project or milestone attribution. Incognito chats write no receipts and show no receipt summary.
 
+An unbound chat in a folder with an existing `.atomic/project/project.json` skips writing project receipts, including receipts for checks and artifact manifests. The checks still execute.
+
 Signatures support retrospective verification of the receipts present. It cannot tell whether a receipt was removed or whether current project files match the old delivery. A process running as your user with access to the signing key can sign replacement receipts.
 
 For implementation details, see the [session storage guide](../../src/session/README.md), the [Fusion module guide](../../src/tools/fusion/README.md) and the [CLI reference](../../src/cli/README.md).
