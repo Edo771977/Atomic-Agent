@@ -3,6 +3,7 @@ import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
+import { readProjectLessons } from "../session/project-lessons.js";
 import { verifyProjectReceipts } from "../session/project-receipts.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
@@ -36,6 +37,8 @@ const PROJECTS_HELP = [
   "",
 ].join("\n");
 
+const LESSONS_USAGE = "Usage: atomic-agent project lessons [folder] [--json]\n";
+
 const PROJECT_HELP = [
   "atomic-agent project — one fusion project",
   "",
@@ -44,6 +47,7 @@ const PROJECT_HELP = [
   "  backlog [folder] [--json] [--promote <id> | --drop <id> | --reopen <id>]",
   "      List the project's backlog (default: current folder); --promote, --drop",
   "      and --reopen are your calls on an item, kept in this computer's record.",
+  "  lessons [folder] [--json]  List and validate project lessons (default: current folder)",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -275,6 +279,7 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
+  if (sub === "lessons") return lessonsCommand(args.slice(1), stdout, stderr);
   if (sub === "backlog") {
     return backlogCommand(args.slice(1), {
       stdout,
@@ -447,4 +452,32 @@ async function backlogCommand(
   }
   io.stdout(`${openBacklog(project).length} open. Promote, drop or reopen one with --promote, --drop or --reopen <id>.\n`);
   return 0;
+}
+
+function lessonsCommand(args: string[], stdout: (text: string) => void, stderr: (text: string) => void): number {
+  if (args.includes("--help") || args.includes("-h")) {
+    stdout(LESSONS_USAGE + "List and validate the project's Markdown lessons. Defaults to the current folder.\n");
+    return 0;
+  }
+  const positional = args.filter((arg) => arg !== "--json");
+  if (positional.length > 1 || positional[0]?.startsWith("-")) {
+    stderr(LESSONS_USAGE);
+    return 2;
+  }
+
+  const { lessons, problems } = readProjectLessons(resolve(positional[0] ?? "."));
+  const rows = lessons.map(({ id, title, declaredStatus, approvedByPerson, always, touches }) => ({
+    id, title, declaredStatus, approvedByPerson, always, touches,
+  }));
+  if (args.includes("--json")) {
+    stdout(JSON.stringify({ lessons: rows, problems }, null, 2) + "\n");
+  } else {
+    const lines = rows.map(({ id, title, declaredStatus, always, touches }) =>
+      id + "  " + title + " (declared: " + declaredStatus + ", not approved by the person, always: " +
+      String(always) + ", touches: " + JSON.stringify(touches) + ")",
+    );
+    lines.push(...problems.map(({ file, reason }) => "Skipped " + JSON.stringify(file) + ": " + reason));
+    stdout(lines.length === 0 ? "No project lessons found.\n" : lines.join("\n") + "\n");
+  }
+  return problems.some(({ file }) => file === "lessons") ? 1 : 0;
 }

@@ -180,7 +180,7 @@ const COMMANDS: CommandDescriptor[] = [
   },
   {
     name: "project",
-    summary: "Open a project chat (resume <folder> [--no-open]), verify its evidence receipts (verify [folder]) or list and decide its backlog (backlog [folder] [--promote|--drop|--reopen <id>])",
+    summary: "Open a project chat (resume <folder> [--no-open]), verify its evidence receipts (verify [folder]) list and decide its backlog (backlog [folder] [--promote|--drop|--reopen <id>]), or list its lessons (lessons [folder] [--json])",
     run: (args) => projectCommand(args, {
       ...(process.stdin.isTTY === true && process.stdout.isTTY === true ? { openChat: (id: string) => runTui(["--session", id]) } : {}),
     }),

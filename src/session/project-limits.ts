@@ -41,4 +41,8 @@ export const PROJECT_LIMITS = {
   decisions: 20,
   backlog: 32,
   backlogStored: 128,
+  lessonFiles: 128,
+  lessonFileBytes: 16 * 1024,
+  lessonTouches: 32,
+  lessonTouchPath: 1024,
 } as const;

@@ -25,6 +25,12 @@ Open `.atomic/project/BRIEF.md`, `PLAN.md` or `STATUS.md` for a readable snapsho
 
 Approvals, decision status, milestone progress and evidence are kept in the Atomic Agent data directory. Editing the saved brief or plan outside Atomic Agent reopens the affected gate for your approval. Copying the folder gives you the project content with fresh gates and no carried approvals. Deleting a chat leaves its folder's project available to resume.
 
+## List project lessons
+
+Save lessons as Markdown files in `.atomic/project/lessons/` so they travel with the project folder. Run `atomic-agent project lessons ./my-project` to see the lessons and validation problems. Omit the folder to use your current directory, or add `--json` for structured output.
+
+The command only reads the chosen project's lesson files. Even a file marked `active` has no approval from you in this phase. Lessons are currently for inspection and have no effect on prompts or plans. See the [lesson file format](../../src/session/README.md#project-lesson-files).
+
 ## Read the plan checks
 
 A plan can list checks for each task before work starts. Check that the tasks cover the brief's success criteria and that their tests measure the behavior you asked for. If the checks need to change, ask the director to update the plan and approve the revised version.
