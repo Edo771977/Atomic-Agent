@@ -44,7 +44,7 @@ const input = (rows: AssignmentRow[], extra: Partial<PlanReviewInput> = {}): Pla
 const answer = (over: Partial<Record<string, Partial<PlanReviewResult>>> = {}): string =>
   JSON.stringify({ results: PLAN_REVIEW_DIMENSIONS.map((dimension) => ({ dimension, verdict: "pass", detail: `checked ${dimension}`, taskIds: [], ...over[dimension] })) });
 
-const fakeReviewer = (content: string, usage?: { promptTokens: number; completionTokens: number }): EscalationComplete & ReturnType<typeof vi.fn> =>
+const fakeReviewer = (content: string, usage?: { promptTokens: number; completionTokens: number; totalTokens: number }): EscalationComplete & ReturnType<typeof vi.fn> =>
   vi.fn(async () => ({ content, ...(usage === undefined ? {} : { usage }) })) as never;
 
 const signal = new AbortController().signal;
@@ -96,7 +96,7 @@ describe("reviewPlan", () => {
     expect(results.find((r) => r.dimension === "criteria-coverage")).toMatchObject({ verdict: "pass" });
   });
   it("keeps the reviewer's own fail and prices the call", async () => {
-    const complete = fakeReviewer(answer({ dependencies: { verdict: "fail", detail: "t2 needs t1's output in the same milestone", taskIds: ["t2"] } }), { promptTokens: 1000, completionTokens: 100 });
+    const complete = fakeReviewer(answer({ dependencies: { verdict: "fail", detail: "t2 needs t1's output in the same milestone", taskIds: ["t2"] } }), { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 });
     const run = await reviewPlan({ input: input([checked("t1"), checked("t2")]), member, pricing: { input: 1, output: 2 }, complete, signal, sessionId: "s1" });
     expect(run).toMatchObject({ outcome: "reviewed", costUsd: expect.any(Number) });
     expect(run.costUsd).toBeGreaterThan(0);

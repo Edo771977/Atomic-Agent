@@ -75,7 +75,7 @@ async function draft(project: ProjectState, args: Record<string, unknown>, extra
 
 describe("plan reviewer at project.plan (issue #118)", () => {
   it("sends a plan with an uncovered criterion back to the director, framed, with no gate", async () => {
-    const complete = vi.fn(async () => ({ content: passAll(), usage: { promptTokens: 2000, completionTokens: 200 } }));
+    const complete = vi.fn(async () => ({ content: passAll(), usage: { promptTokens: 2000, completionTokens: 200, totalTokens: 2200 } }));
     const { result, update, project } = await draft(approvedBrief(), uncoveredPlan, { planReview: createPlanReview(reviewDeps(complete)) });
     expect(complete).toHaveBeenCalledTimes(1);
     expect(update.holdForReview).toBe(true);
@@ -162,7 +162,7 @@ describe("plan reviewer at project.plan (issue #118)", () => {
 
   it("counts the review's spend", async () => {
     const spent: Array<number | null> = [];
-    const complete = vi.fn(async () => ({ content: passAll(), usage: { promptTokens: 1000, completionTokens: 100 } }));
+    const complete = vi.fn(async () => ({ content: passAll(), usage: { promptTokens: 1000, completionTokens: 100, totalTokens: 1100 } }));
     const { update } = await draft(approvedBrief(), coveredPlan, { planReview: createPlanReview(reviewDeps(complete, { onSpend: (_s, usd) => spent.push(usd) })) });
     expect(spent).toHaveLength(1);
     expect(spent[0]).toBeGreaterThan(0);
