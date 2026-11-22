@@ -311,3 +311,13 @@ describe("backlog items: the cap counts live items (review)", () => {
     expect(after.ok && openBacklog(after.project).map((b) => b.id)).toEqual([`b${PROJECT_LIMITS.backlog + 1}`]);
   });
 });
+
+describe("backlog items: no call on a cancelled project (review)", () => {
+  it("refuses promote, drop and reopen after a cancel", () => {
+    const p = { ...added(running(), { id: "b1", title: "PDF", source: "director" }), cancelledAt: 9 };
+    for (const state of ["promoted", "dropped", "open"] as const) {
+      const r = applyBacklogDecision(p, { id: "b1", state });
+      expect(!r.ok && r.error.code, state).toBe("no-project");
+    }
+  });
+});

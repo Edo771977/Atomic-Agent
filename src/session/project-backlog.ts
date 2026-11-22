@@ -206,6 +206,7 @@ export function applyBacklogAdd(project: ProjectState | undefined, raw: unknown,
  */
 export function applyBacklogDecision(project: ProjectState | undefined, decision: ProjectBacklogDecision): ProjectDecisionResult {
   if (project === undefined) return { ok: false, error: { code: "no-project", message: "There is no project to decide on." } };
+  if (project.cancelledAt !== undefined) return { ok: false, error: { code: "no-project", message: "The project was cancelled; its backlog takes no more calls." } };
   if (!["promoted", "dropped", "open"].includes(decision.state)) {
     return { ok: false, error: { code: "invalid", message: "a backlog item is promoted, dropped or open" } };
   }
