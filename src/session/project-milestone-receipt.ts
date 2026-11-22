@@ -52,7 +52,10 @@ export function writeMilestoneReportReceipt(
   if (isIncognitoSession(session)) return;
   const project = session.project;
   const milestone = project?.milestones.find(m => m.id === milestoneId);
-  if (!project || !milestone) return;
+  if (!project || !milestone) {
+    warn("Could not save a milestone evidence receipt because the saved milestone was missing.");
+    return;
+  }
   writeEvidenceReceipt(writer, warn, session, "milestone-report", () => {
     const criteria = criteriaById(project.brief);
     const attachments = (milestone.attachments ?? []).map(attachment => {

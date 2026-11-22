@@ -154,3 +154,14 @@ it("reports an unreadable receipt archive as JSON when requested", async () => {
   expect(JSON.parse(stdout.mock.calls.flat().join(""))).toEqual({ error: "Could not read the project's receipt archive." });
   expect(stderr).toHaveBeenCalledWith("Could not read the project's receipt archive.\n");
 });
+
+it("warns without exposing the requested ID when a saved milestone is missing", () => {
+  const { dir } = setup();
+  const session = createEmptySessionState({ id: "report", workingDir: dir });
+  session.project = { gate: { kind: "none" }, milestones: [] };
+  const writer = vi.fn();
+  const warn = vi.fn();
+  writeMilestoneReportReceipt(dir, writer, warn, session, "private model text");
+  expect(writer).not.toHaveBeenCalled();
+  expect(warn).toHaveBeenCalledExactlyOnceWith("Could not save a milestone evidence receipt because the saved milestone was missing.");
+});
