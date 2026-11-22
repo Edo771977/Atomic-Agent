@@ -45,6 +45,8 @@ Open `/plan` in the TUI and press **b** for the backlog, including between gates
 
 A warning marks an item whose text changed after your decision. Review its current text before deciding again. For an item removed outside Atomic Agent, **r** clears the old decision. **Esc** returns to the project card.
 
+In the desktop app, the Fusion project card has a **Backlog** section with **Promote**, **Drop** and **Reopen** for each item, and stays in view between gates while an item waits for your decision. An item changed outside Atomic Agent is flagged; decide on it again or choose **Keep open**. For an item removed outside Atomic Agent, **Clear** removes the old decision.
+
 ## Review the backlog in Telegram
 
 In your paired Telegram chat, send `/backlog` to see open, promoted and dropped items, seed conditions, the plan version that took in a promoted item, and stale decisions reported by the project.
@@ -59,7 +61,7 @@ Confirm by repeating the command with the code shown in the preview, for example
 
 The backlog holds work that is not ready for the plan yet. Only you promote, drop or reopen an item (`atomic-agent project backlog --promote <id>`, or the project card). A promoted item is for the next plan: the director cites its id on a task that will run, and the plan gate checks this (**backlog-coverage**). A plan that cites no task for a promoted item cannot be approved, and the gate names the missing item. A citation added to a task of a milestone that already started does not count. If a later plan drops the citation before that work runs, the item is required again.
 
-If the item can wait, defer it from the plan gate. It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft. The gate and `PLAN.md` show which tasks cite each item, and the worker of such a task is given the item's text. When every milestone is reviewed, the project says which promoted items were never done.
+If the item can wait, defer it from the plan gate (**Defer** next to the item in the desktop app's project card, **Reactivate** to require it again). It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft. The gate and `PLAN.md` show which tasks cite each item, and the worker of such a task is given the item's text. When every milestone is reviewed, the project says which promoted items were never done.
 
 ## Read the plan review
 
