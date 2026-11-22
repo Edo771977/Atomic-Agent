@@ -11,6 +11,7 @@ import {
   applyProjectUpdate,
   finishedCitationsOf,
   normalizeCriterionId,
+  backlogCheckOptions,
   planDecisionsOf,
   planTotals,
   projectVerdictResets,
@@ -555,7 +556,7 @@ function backlogLines(project: ProjectState | undefined): string[] {
   ]);
   if (block === null) return [];
   return [
-    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in as a milestone or task; they see it at the gate."]),
+    ...(promoted.length === 0 ? [] : ["Items the person promoted are for this plan: take each in on a task that will run and cite its id in that task's backlog; the plan cannot be approved until each is cited (or the person defers it)."]),
     ...(seeds.length === 0 ? [] : ["Open seeds are shown to the person at the gate: tell them which conditions look met; only they promote one."]),
     block,
   ];
@@ -611,7 +612,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
       const criteria = ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []);
-      const planChecks = evaluatePlanChecks(rows, criteria, referenceCheck === undefined ? {} : { references: referenceCheck }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const planChecks = evaluatePlanChecks(rows, criteria, { ...(referenceCheck === undefined ? {} : { references: referenceCheck }), ...(ctx.project === undefined ? {} : backlogCheckOptions(ctx.project, { status: "draft" })) }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
       // Issue #118: the plan reviewer, before the gate reaches the person.
       const review = await reviewDraft(deps, ctx, { update, rows, criteria, planChecks });
       if (review !== undefined) update = { ...update, planReview: review, ...(review.sentBack ? { holdForReview: true as const } : {}) };

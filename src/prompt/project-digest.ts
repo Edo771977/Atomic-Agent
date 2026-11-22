@@ -63,7 +63,7 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
     const seeds = openSeeds(project);
     const complete = projectExpectation(project).kind === "complete";
     if (promoted.length > 0 || seeds.length > 0) {
-      lines.push("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate); seeds: tell the person when a condition looks met.");
+      lines.push("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate) on a task that cites its id in `backlog`; seeds: tell the person when a condition looks met.");
     }
     const block = backlogDataBlock([
       ...promoted.map((b) => `promoted: ${b.id} ${clip(b.title, 120)}`),

@@ -78,7 +78,9 @@ describe("the gate view's backlog (issue #111)", () => {
     const v = view(p);
     expect(v.backlog!.promoted).toEqual([{ id: "b2", title: "Idea b2" }]);
     expect(v.hints).toContain('promoted from the backlog: b2 "Idea b2": check this plan takes it in before approving');
-    expect(view(approve(p)).backlog!.promoted).toEqual([]);
+    // Issue #146: approval needs a task that cites it; the director redrafts with one.
+    const cited = up(p, { ...plan, rows: [{ ...row("t1", "m1"), backlog: ["b2"] }, row("t2", "m2")] } as ProjectUpdate);
+    expect(view(approve(cited)).backlog!.promoted).toEqual([]);
   });
 
   it("a complete project with open items says so before calling it complete", () => {
@@ -104,7 +106,7 @@ describe("the director's view of the backlog (issue #111)", () => {
     const promoted = ok(applyBacklogDecision(p, { id: "b2", state: "promoted" }));
     const digest = renderProjectDigest(promoted)!;
     expect(digest).toContain("backlog: 1 open; only the person promotes or drops an item");
-    expect(digest).toContain("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate); seeds: tell the person when a condition looks met.");
+    expect(digest).toContain("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate) on a task that cites its id in `backlog`; seeds: tell the person when a condition looks met.");
     expect(digest).toContain("promoted: b2 Idea b2");
     expect(digest).toContain("seed: b1 Idea b1 (when: when the score screen exists)");
   });

@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import type { AssignmentRow, ProjectBriefDecision, ProjectCriterion, ProjectDecisionStatus, ProjectReviewBlock } from "../../session/session-project.js";
 import { lintContractCheck } from "./contract-check-lint.js";
 
-export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage" | "references";
+export type PlanCheckDimension = "check-lint" | "criteria-coverage" | "verifiability" | "decision-coverage" | "backlog-coverage" | "references";
 export interface PlanCheckResult {
   dimension: PlanCheckDimension;
   verdict: "pass" | "warn" | "fail";
@@ -15,6 +15,25 @@ export interface PlanCheckOptions {
   blockingDimensions?: readonly PlanCheckDimension[];
   /** The plan's stored references record (issue #120, `ProjectPlan.referenceCheck`); absent: no such result. */
   references?: PlanReferenceRecord;
+  /**
+   * Issue #146: the backlog as the record has it, for `backlog-coverage`
+   * (`backlogCheckOptions` in `session-project.ts`); absent: no such result.
+   */
+  backlog?: PlanBacklog;
+}
+
+/** A backlog item the person promoted that no approved plan has taken in yet (issue #146). */
+export interface PlanBacklogItem {
+  id: string;
+  title: string;
+  /** The person deferred it at the plan gate: still promoted, not required in this plan. */
+  deferred: boolean;
+}
+
+/** What `backlog-coverage` reads: the waiting promoted items and every backlog item id. */
+export interface PlanBacklog {
+  items: readonly PlanBacklogItem[];
+  known: readonly string[];
 }
 
 /** A decision of the last approved brief with the person's status for it (issue #112). */
@@ -60,6 +79,41 @@ function decisionCoverage(rows: readonly AssignmentRow[], decisions: readonly Pl
 }
 
 /**
+ * Issue #146, the decision rule (#112) for the backlog: every item the
+ * person promoted that no approved plan took in must be cited by a task
+ * of a milestone that will still run; one that is not fails, whatever the
+ * caller's policy (the person can defer it at the plan gate). A finished
+ * milestone's task never counts: its work ran before the item was taken
+ * in. Ids that are no backlog item warn. No result without waiting items
+ * or stray ids.
+ */
+function backlogCoverage(rows: readonly AssignmentRow[], backlog: PlanBacklog, finished: ReadonlyMap<string, readonly string[]>): PlanCheckResult[] {
+  const known = new Set(backlog.known);
+  const strays = rows.flatMap((r) => {
+    const unknown = (r.backlog ?? []).filter((id) => !known.has(id));
+    return unknown.length === 0 ? [] : [{ taskId: r.taskId, unknown }];
+  });
+  const stray: PlanCheckResult[] = strays.length === 0 ? [] : [{
+    dimension: "backlog-coverage",
+    verdict: "warn",
+    detail: `Tasks cite ids that are no backlog item: ${strays.map((s) => `${s.taskId} (${s.unknown.join(", ")})`).join(", ")}.`,
+    taskIds: strays.map((s) => s.taskId),
+  }];
+  if (backlog.items.length === 0) return stray;
+  const cited = new Set(rows.filter((r) => !finished.has(r.milestoneId)).flatMap((r) => r.backlog ?? []));
+  const missing = backlog.items.filter((b) => !b.deferred && !cited.has(b.id));
+  const late = (id: string) => rows
+    .filter((r) => finished.has(r.milestoneId) && (r.backlog ?? []).includes(id))
+    .map((r) => ` ${r.taskId} is in a finished milestone (${r.milestoneId}); cite ${id} on a task that will run.`)
+    .join("");
+  const deferred = backlog.items.filter((b) => b.deferred);
+  const aside = deferred.length === 0 ? "" : ` Not required: ${deferred.map((b) => `${b.id} (deferred)`).join(", ")}.`;
+  return [...stray, missing.length === 0
+    ? { dimension: "backlog-coverage", verdict: "pass", detail: `Every promoted backlog item is cited by a plan task that will run.${aside}`, taskIds: [] }
+    : { dimension: "backlog-coverage", verdict: "fail", detail: `No plan task that will run cites promoted backlog items: ${missing.map((b) => `${b.id} (${b.title})`).join(", ")}. Cite each on a task's backlog, or the person defers it at the plan gate.${missing.map((b) => late(b.id)).join("")}${aside}`, taskIds: [] }];
+}
+
+/**
  * Static analysis only. Criteria and decisions must come from the last
  * approved brief; `finished` maps each done or reviewed milestone to the
  * decision ids its tasks cited when it ran (`decisionsCited`).
@@ -85,6 +139,7 @@ export function evaluatePlanChecks(
     { dimension: "criteria-coverage", verdict: missing.length === 0 ? "pass" : "warn", detail: missing.length === 0 ? "Every approved criterion is named by a plan check." : `No plan check names approved criteria: ${missing.map((c) => c.id).join(", ")}.`, taskIds: [] },
     { dimension: "verifiability", verdict: bare.length === 0 ? "pass" : "warn", detail: bare.length === 0 ? "No task is missing checks in a plan that uses them." : `Tasks without checks: ${bare.join(", ")}.`, taskIds: bare },
     ...decisionCoverage(rows, decisions, finished),
+    ...(options.backlog === undefined ? [] : backlogCoverage(rows, options.backlog, finished)),
   ];
   const promoted = results.map((r): PlanCheckResult => r.verdict === "warn" && options.blockingDimensions?.includes(r.dimension) ? { ...r, verdict: "fail" } : r);
   // Issue #120: the person decides on what the plan cites; never promoted to a failure.

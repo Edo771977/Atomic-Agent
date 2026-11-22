@@ -5,8 +5,8 @@ import {
   gateVersion,
   planDecisionsOf,
   projectExpectation,
+  planCheckData,
   planReviewFactsOf,
-  referenceOptions,
   type ProjectState,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
@@ -116,7 +116,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
   }
   if (project.gate.kind === "plan" && plan !== undefined) {
     const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
-    const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...referenceOptions(plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
+    const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...planCheckData(project, plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
     hints.push(...planChecks.map(planCheckHint));
     // Issue #118: the plan reviewer's summary and every dimension that is not a pass (facts recomputed now).
     hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
