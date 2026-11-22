@@ -558,6 +558,8 @@ describe("removing a workspace tree with read-only directories", () => {
       await chmod(join(tree, "locked", "inner"), 0o500);
       await chmod(join(tree, "locked"), 0o500);
       await chmod(outside, 0o500);
+      const outsideMode = (await stat(outside)).mode & 0o777;
+      expect(outsideMode & 0o200).toBe(0);
       // Root ignores directory modes, so the refusal a non-root user gets
       // is simulated: refused while any directory in the tree lacks owner write.
       let calls = 0;
@@ -571,7 +573,7 @@ describe("removing a workspace tree with read-only directories", () => {
       await removeWorkspaceTree(tree, remove);
       expect(calls).toBe(2);
       await expect(lstat(tree)).rejects.toThrow();
-      expect((await stat(outside)).mode & 0o777).toBe(0o500);
+      expect((await stat(outside)).mode & 0o777).toBe(outsideMode);
     } finally {
       await chmod(outside, 0o700).catch(() => undefined);
       await rm(root, { recursive: true, force: true });
