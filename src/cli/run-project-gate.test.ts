@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
-import { settleProjectGate } from "./run-project-gate.js";
+import { editProjectDecisionStatuses, settleProjectGate } from "./run-project-gate.js";
 
 function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
   return {
@@ -133,6 +133,30 @@ describe("run at a project gate", () => {
 });
 
 describe("run flags for project gates", () => {
+  it("parses decision edits with a continued session and rejects conflicting actions", () => {
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "D1, d2", "--reactivate-decision", "d3"]))
+      .toMatchObject({ decisionStatus: { d1: "deferred", d2: "deferred", d3: "active" } });
+    expect(parseRunArgs(["--defer-decision", "d1"])).toEqual({ error: "decision status edits need --session <id>" });
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1,"])).toMatchObject({ error: expect.stringContaining("--defer-decision") });
+    expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1", "--reactivate-decision", "d1"]))
+      .toMatchObject({ error: expect.stringContaining("d1") });
+    for (const flag of ["--auto-approve-project", "--approve"]) {
+      expect(parseRunArgs(["--session", "abc", "--defer-decision", "d1", flag]))
+        .toMatchObject({ error: expect.stringContaining(flag) });
+    }
+  });
+
+  it("refuses status edits outside the plan gate or against an unknown brief decision", () => {
+    const brief = runtime(fixtureProjectGateView({ kind: "brief" }));
+    const plan = runtime(fixtureProjectGateView({ kind: "plan" }));
+    expect(editProjectDecisionStatuses(brief, "s", { d1: "active" }))
+      .toMatchObject({ kind: "failed", text: expect.stringContaining("only at the plan gate") });
+    expect(editProjectDecisionStatuses(plan, "s", { d9: "deferred" }))
+      .toMatchObject({ kind: "failed", text: expect.stringContaining("d9 is not a decision of the approved brief") });
+    expect(brief.projectDecision).not.toHaveBeenCalled();
+    expect(plan.projectDecision).not.toHaveBeenCalled();
+  });
+
   it("parses --session, --approve and --auto-approve-project", () => {
     expect(parseRunArgs(["--session", "abc", "--approve", "3"])).toMatchObject({ session: "abc", approve: true, approveVersion: 3, autoApproveProject: false });
     expect(parseRunArgs(["--session", "abc", "--approve"])).toMatchObject({ approve: true, approveVersion: null });
