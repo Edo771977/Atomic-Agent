@@ -439,3 +439,23 @@ describe("the person's override over the plan review (review round, issue #118)"
     expect(again.ok).toBe(true);
   });
 });
+
+describe("plan gate refusal wording (review round, issue #118)", () => {
+  it("never doubles a period after a reason that ends a sentence", async () => {
+    const p0 = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "Snake", users: "Kids", how: "One page", successCriteria: [{ id: "c1", text: "Runs" }], decisions: [{ id: "d1", text: "Use canvas" }] }, draftedAfterUntrusted: false }, NOW);
+    if (!p0.ok) throw new Error(p0.error.message);
+    const a = applyProjectDecision(p0.project, { gate: p0.project.gate, version: gateVersion(p0.project)!, verdict: "approve" }, { now: NOW });
+    if (!a.ok) throw new Error(a.error.message);
+    const complete = vi.fn(async () => ({ content: passAll({ scope: { verdict: "fail", detail: "drops the level editor." } }) }));
+    const plan = { milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build in `game.js`", milestone: "m1", checks: [check(["c1"])] }] };
+    const { project } = await draft(a.project, plan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 });
+    const decided = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "approve" }, { now: NOW + 1 });
+    expect(!decided.ok && decided.error.message).toMatch(/plan gate\. Update the plan/);
+    expect(!decided.ok && decided.error.message).not.toMatch(/\.\./);
+    const deferred = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "edit", edits: { decisionStatus: { d1: "deferred" } } }, { now: NOW + 1 });
+    if (!deferred.ok) throw new Error(deferred.error.message);
+    const review = applyProjectDecision(deferred.project, { gate: deferred.project.gate, version: gateVersion(deferred.project)!, verdict: "approve" }, { now: NOW + 2 });
+    expect(!review.ok && review.error.message).toMatch(/drops the level editor\. Ask the director/);
+    expect(!review.ok && review.error.message).not.toMatch(/\.\./);
+  });
+});

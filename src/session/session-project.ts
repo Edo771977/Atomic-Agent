@@ -821,6 +821,11 @@ export function planReviewFactsOf(project: ProjectState, options: PlanCheckOptio
   };
 }
 
+/** Reasons joined for a sentence: a reason that already ends one loses its period, so the message never reads "..". */
+function reasonList(blocks: readonly ProjectReviewBlock[]): string {
+  return [...new Set(blocks.map((b) => b.reason))].join("; ").replace(/[.\s]+$/, "");
+}
+
 /** Row totals by plain sums ({@link ProjectPlanTotals}). */
 export function planTotals(rows: readonly AssignmentRow[]): ProjectPlanTotals {
   let cost: number | null = null;
@@ -2414,14 +2419,14 @@ function decideProject(
     if (gate.kind === "plan") {
       const results = evaluatePlanChecks(project.plan!.rows, project.approvedCriteria ?? project.brief!.successCriteria, { ...options.planChecks, ...referenceOptions(project.plan!) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
       const blocks = planCheckReviewBlocks(results);
-      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${blocks.map((b) => b.reason).join("; ")}. Update the plan before approval.`, blocks });
+      if (blocks.length > 0) return refuse({ code: "review-open", message: `The plan stays open: ${reasonList(blocks)}. Update the plan before approval.`, blocks });
       // Issue #118: the plan reviewer's open fails, unless the person approved over them (never an automatic path).
       const reviewBlocks = openPlanReviewBlocks(project);
       const override = project.plan!.reviewOverride;
       if (reviewBlocks.length > 0 && (override === undefined || override.basis !== project.plan!.review?.basis)) {
         return refuse({
           code: "review-open",
-          message: `The plan stays open: the plan reviewer's notes fail it: ${reviewBlocks.map((b) => b.reason).join("; ")}. Ask the director to revise the plan, or approve over the review with a note (approveOverReview).`,
+          message: `The plan stays open: the plan reviewer's notes fail it: ${reasonList(reviewBlocks)}. Ask the director to revise the plan, or approve over the review with a note (approveOverReview).`,
           blocks: reviewBlocks,
         });
       }
