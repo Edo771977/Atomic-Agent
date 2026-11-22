@@ -324,3 +324,75 @@ test('a backlog status edit the view does not offer is not sent', () => {
   }
   assert.ok(C.pcDecision(Object.assign({}, st, {mode: 'edit'}), 'ses-1', 'edit', {backlog: 'b3', status: 'deferred'}).error, 'not while editing rows');
 });
+
+/* ---------------- between gates and at the close ---------------- */
+
+/** The project run to its end: plan approved with b3 deferred, both milestones reviewed. */
+function completed() {
+  let now = 7000;
+  let p = call(project(), 'b3', 'promoted');
+  const take = (r) => { assert.ok(r.ok, JSON.stringify(r.error)); p = r.project; };
+  take(CORE.applyProjectDecision(p, {gate: p.gate, version: CORE.gateVersion(p), verdict: 'edit', edits: {backlogStatus: {b3: 'deferred'}}}, {now: now++}));
+  take(CORE.applyProjectDecision(p, {gate: p.gate, version: CORE.gateVersion(p), verdict: 'approve'}, {now: now++}));
+  for (const id of ['m1', 'm2']) {
+    take(CORE.applyProjectUpdate(p, {kind: 'milestone_run', id, runId: 'fr-' + id}, now++));
+    take(CORE.applyProjectUpdate(p, {kind: 'milestone', id, state: 'done', summary: 'Done.'}, now++));
+    take(CORE.applyProjectDecision(p, {gate: p.gate, version: CORE.gateVersion(p), verdict: 'approve'}, {now: now++}));
+  }
+  return p;
+}
+
+test('a complete project with a promoted item never done says so, and its backlog can still be decided', async () => {
+  const p = completed();
+  const v = view(p);
+  assert.equal(v.gate.kind, 'none');
+  assert.equal(v.expectation.kind, 'complete');
+  assert.equal(v.expectation.promotedNotDone, 1);
+  const sent = [];
+  let now = p;
+  const c = controller({read: () => ({supported: true, ok: true, view: view(now)}), decide: () => ({}),
+    backlog: (body) => { sent.push(body); now = call(now, body.item, body.state); return {supported: true, ok: true, view: view(now)}; }});
+  c.card.follow('ses-1');
+  await tick();
+  const model = c.last().model;
+  assert.ok(model, 'the card stays for the backlog once nothing waits at a gate');
+  assert.equal(model.kind, 'backlog');
+  assert.match(model.completion.join('\n'), /^complete with 1 promoted backlog item not done: b3 Dark <b>theme<\/b>/m);
+  const host = draw(model, c.last().on);
+  assert.match(host.textContent, /complete with 1 promoted backlog item not done/);
+  assert.match(host.textContent, /promoted, deferred at the plan gate, not in any plan/);
+  assert.equal(buttons(host).some((b) => ['Approve', 'Defer', 'Reactivate'].includes(b.textContent)), false, 'no gate verdict to give');
+  byLabel(host, 'Drop b1').fire('click');
+  await tick(); await tick();
+  assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b1', state: 'dropped'}]);
+  assert.match(c.last().model.notice, /b1 dropped/);
+});
+
+test('between gates the card shows only a backlog that asks something; without one it stays hidden as before', () => {
+  const p = completed();
+  const st = C.pcStore();
+  assert.equal(st.put('ses-1', view(p)), true, 'open items and a promoted item never done');
+  let q = p;
+  for (const id of ['b1', 'b2', 'b4']) q = call(q, id, 'dropped');
+  q = call(q, 'b3', 'open');
+  q = call(q, 'b3', 'dropped');
+  const quiet = view(q);
+  assert.equal(quiet.expectation.promotedNotDone, undefined);
+  assert.equal(st.put('ses-1', quiet), true);
+  assert.equal(st.get('ses-1'), null, 'every item decided, nothing left to say: no card');
+  assert.equal(C.pcModel(C.pcInitial(quiet)), null);
+  const running = view(project(), {gate: {kind: 'none'}, version: null, allowedVerdicts: ['cancel'], expectation: {kind: 'run_milestone', id: 'm1'}});
+  assert.equal(C.pcModel(C.pcInitial(running)).kind, 'backlog', 'open items between gates');
+  assert.equal(C.pcModel(C.pcInitial(view(p, {cancelled: true, allowedVerdicts: []}))), null, 'a cancelled project takes no more calls');
+});
+
+test('Hide puts a backlog card away until the chat is opened again', async () => {
+  const c = controller({read: () => ({supported: true, ok: true, view: view(completed())}), decide: () => ({}), backlog: () => ({})});
+  c.card.follow('ses-1');
+  await tick();
+  c.last().on({type: 'hide'});
+  assert.equal(c.last().model, null);
+  assert.equal(c.card.hiddenOpen(), true, 'the header offers Show Fusion project');
+  c.card.show();
+  assert.equal(c.last().model.kind, 'backlog');
+});

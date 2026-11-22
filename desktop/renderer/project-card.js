@@ -68,6 +68,42 @@ function pcOpen(view) {
     && pcList(view.allowedVerdicts).length > 0 && !view.cancelled);
 }
 
+/**
+ * Issue #146: no gate waits, but the backlog asks something of the person:
+ * an item nobody decided, a call made stale outside Atomic Agent, or a
+ * complete project that leaves items open or promoted ones never done.
+ * The card then shows the backlog alone (between turns, as the TUI's b).
+ */
+function pcBacklogOnly(view) {
+  if (!view || typeof view !== 'object' || view.cancelled || pcOpen(view)) return false;
+  const b = view.backlog && typeof view.backlog === 'object' ? view.backlog : null;
+  const exp = view.expectation || {};
+  const closing = exp.kind === 'complete' && (pcNum(exp.promotedNotDone) > 0 || pcNum(exp.openBacklog) > 0);
+  return !!b && (pcNum(b.open) > 0 || pcList(b.stale).length > 0 || closing);
+}
+
+/** What the chat's card draws: an open gate, or a backlog with something to decide. */
+function pcShown(view) {
+  return pcOpen(view) || pcBacklogOnly(view);
+}
+
+/**
+ * Issue #146: a complete project's notes on its backlog, as the core words
+ * them (project-store-views.ts, project-gate-view.ts): "complete with N
+ * promoted backlog item(s) not done", with the items when its hint names them.
+ */
+function pcCompletion(view) {
+  const exp = view && view.expectation;
+  if (!exp || exp.kind !== 'complete') return [];
+  const n = (k, word) => k + ' ' + word + (k === 1 ? '' : 's');
+  const hints = pcList(view.hints).map(pcStr);
+  const line = (head) => hints.find((h) => h === head || h.startsWith(head + ': ')) || head;
+  const out = [];
+  if (pcNum(exp.openBacklog) > 0) out.push(line('complete with ' + n(exp.openBacklog, 'backlog item') + ' open'));
+  if (pcNum(exp.promotedNotDone) > 0) out.push(line('complete with ' + n(exp.promotedNotDone, 'promoted backlog item') + ' not done'));
+  return out;
+}
+
 /* ---------- the last view per chat ---------- */
 
 /**
@@ -86,7 +122,7 @@ function pcStore() {
     put(sid, view) {
       if (!sid || !view || typeof view !== 'object' || view.schema !== 1) return false;
       const prev = views.get(sid) || null;
-      if (!pcOpen(view)) return views.delete(sid);
+      if (!pcShown(view)) return views.delete(sid);
       if (prev && JSON.stringify(prev) === JSON.stringify(view)) return false;
       views.set(sid, view);
       return true;
@@ -512,9 +548,24 @@ function pcBacklogOutcome(res, id, to) {
   return {view, error: res.error || 'The backlog call did not go through'};
 }
 
+/** Issue #146: the card when no gate waits, the backlog alone (pcBacklogOnly). */
+function pcBacklogOnlyModel(state) {
+  const view = state.view;
+  const backlog = pcBacklogModel(view, false, false);
+  const complete = view.expectation && view.expectation.kind === 'complete';
+  return {
+    kind: 'backlog', gate: 'none', version: view.version,
+    headline: complete ? 'The Fusion project is complete' : 'Fusion project backlog',
+    completion: pcCompletion(view),
+    backlog: backlog && {summary: backlog.summary, items: backlog.items},
+    busy: state.busy, error: state.error, notice: state.notice,
+  };
+}
+
 /** Everything the card draws, as plain data (no DOM). */
 function pcModel(state) {
   const view = state.view;
+  if (pcBacklogOnly(view)) return pcBacklogOnlyModel(state);
   if (!pcOpen(view)) return null;
   const gate = view.gate.kind;
   const brief = view.brief && typeof view.brief === 'object' ? view.brief : null;
@@ -774,6 +825,7 @@ function pcDraw(doc, host, model, on) {
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
   if (model.kind === 'problem') { pcDrawProblem(doc, host, model, on, focusKey); return; }
+  if (model.kind === 'backlog') { pcDrawBacklogOnly(doc, host, model, on, focusKey); return; }
   const card = pcEl(doc, 'section', 'pc-card');
   card.setAttribute('aria-label', 'Fusion project');
   const head = pcEl(doc, 'div', 'pc-head');
@@ -919,6 +971,32 @@ function pcDraw(doc, host, model, on) {
   }
 }
 
+/** Issue #146: the backlog card between gates and at the close; Hide and the items' calls are its buttons. */
+function pcDrawBacklogOnly(doc, host, model, on, focusKey) {
+  const card = pcEl(doc, 'section', 'pc-card pc-backlog-card');
+  card.setAttribute('aria-label', 'Fusion project');
+  const head = pcEl(doc, 'div', 'pc-head');
+  head.appendChild(pcEl(doc, 'div', 'pc-title', model.headline));
+  head.appendChild(pcFocusKey(pcButton(doc, 'Hide', 'btn btn-g xs', () => on({type: 'hide'}), false, 'Put the card away; reopening the chat shows it again'), 'hide'));
+  card.appendChild(head);
+  const body = pcEl(doc, 'div', 'pc-body');
+  card.appendChild(body);
+  for (const line of model.completion) body.appendChild(pcEl(doc, 'p', 'pc-warn', line));
+  pcDrawBacklog(doc, body, model, on);
+  if (model.notice) {
+    const n = body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
+    n.setAttribute('role', 'status'); n.setAttribute('aria-live', 'polite');
+  }
+  if (model.error) body.appendChild(pcEl(doc, 'p', 'pc-error', model.error)).setAttribute('role', 'alert');
+  if (model.busy) {
+    const bar = pcEl(doc, 'div', 'pc-actions');
+    bar.appendChild(pcEl(doc, 'span', 'pc-busy', 'Sending…'));
+    card.appendChild(bar);
+  }
+  host.appendChild(card);
+  if (focusKey) { const next = pcFind(card, (e) => e.getAttribute && e.getAttribute('data-pc-focus') === focusKey); if (next) next.focus(); }
+}
+
 /** The problem card (issue #109): what went wrong and what to do; Hide is its only button. */
 function pcDrawProblem(doc, host, model, on, focusKey) {
   const card = pcEl(doc, 'section', 'pc-card pc-problem');
@@ -989,7 +1067,7 @@ function createProjectCard(opts) {
   const notify = changed;
   function paint() {
     let model = sid && !hidden.has(key()) ? pcModel(state) : null;
-    if (!model && sid && !pcOpen(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
+    if (!model && sid && !pcShown(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
     opts.draw(model, act);
   }
   function setView(view, notice) {
@@ -1014,7 +1092,7 @@ function createProjectCard(opts) {
       case 'worker': state = pcReduce(state, {type: 'worker', taskId: a.taskId, worker: a.value}); return paint();
       case 'reviewer': state = pcReduce(state, {type: 'reviewer', taskId: a.taskId, reviewer: a.value}); return paint();
       case 'note': state = pcReduce(state, {type: 'note', note: a.note}); return;   // the textarea keeps its own text
-      case 'hide': hidden.add(pcOpen(state.view) ? key() : 'problem:' + sid); paint(); return changed();
+      case 'hide': hidden.add(pcShown(state.view) ? key() : 'problem:' + sid); paint(); return changed();
       case 'revise': if (opts.onRevise) opts.onRevise(); state = pcReduce(state, {type: 'notice', notice: 'Say in the chat what to change; the director drafts the brief again.'}); return paint();
       default: state = pcReduce(state, {type: a.type}); return paint();
     }
@@ -1110,7 +1188,7 @@ function createProjectCard(opts) {
        the page shows now (null: none); left out, the one followed so far. */
     reset(next) { const keep = next === undefined ? sid : next; store.clear(); problems.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
-    hiddenOpen() { return !!sid && pcOpen(state.view) && hidden.has(key()); },
+    hiddenOpen() { return !!sid && pcShown(state.view) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */
     show() { if (hidden.delete(key())) { paint(); changed(); } },
     state: () => state,
@@ -1123,7 +1201,7 @@ if (typeof module !== 'undefined') {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
-    pcBacklogModel, pcBacklogCall, pcBacklogOutcome,
+    pcBacklogModel, pcBacklogCall, pcBacklogOutcome, pcBacklogOnly, pcCompletion,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };
 }
