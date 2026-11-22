@@ -282,3 +282,21 @@ test('main and the preload bridge wire the backlog call like the project decisio
   assert.match(main, /ipcMain\.handle\("agent:projectBacklog", async \(_event, raw: unknown\) => \{\s*const parsed = parseProjectBacklogIpc\(raw\);[\s\S]{0,200}client\.projectBacklogDecision\(parsed\.body\)/);
   assert.match(preload, /projectBacklog: \(decision: unknown\) => ipcRenderer\.invoke\("agent:projectBacklog", decision\)/);
 });
+
+test('the decision IPC takes a backlog defer or reactivate at the plan gate only, with verdict edit', () => {
+  const base = {session: 'ses-1', gate: {kind: 'plan'}, version: 3, verdict: 'edit'};
+  const edit = {...base, edits: {backlogStatus: {b1: 'deferred', b2: 'active'}}};
+  assert.deepEqual(parseProjectDecisionIpc(edit), {ok: true, body: edit});
+  for (const raw of [
+    {...edit, edits: {backlogStatus: {b1: 'promoted'}}},
+    {...edit, edits: {backlogStatus: {b1: 'informational'}}},
+    {...edit, edits: {backlogStatus: {'b 1': 'deferred'}}},
+    {...edit, edits: {backlogStatus: {B1: 'deferred'}}},
+    {...edit, edits: {backlogStatus: {}}},
+    {...edit, edits: {backlogStatus: 'b1'}},
+    {...edit, edits: {backlogStatus: ['b1']}},
+    {...edit, verdict: 'approve'},
+    {...edit, gate: {kind: 'brief'}},
+    {...edit, gate: {kind: 'milestone', id: 'm1'}},
+  ]) assert.equal(parseProjectDecisionIpc(raw).ok, false, JSON.stringify(raw));
+});

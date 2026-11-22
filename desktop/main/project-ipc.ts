@@ -22,6 +22,9 @@ const MAX_ID_CHARS = 200;
 const MAX_ROWS = 500;
 const PROJECT_DECISION_STATUSES = ["active", "deferred", "informational"] as const;
 type ProjectDecisionStatus = (typeof PROJECT_DECISION_STATUSES)[number];
+/** Issue #146: the person's status for a promoted backlog item at the plan gate (the core's `PERSON_BACKLOG_STATUSES`). */
+const PROJECT_BACKLOG_STATUSES = ["active", "deferred"] as const;
+type ProjectBacklogStatus = (typeof PROJECT_BACKLOG_STATUSES)[number];
 
 export type ProjectGateRef = { kind: "brief" } | { kind: "plan" } | { kind: "none" } | { kind: "milestone"; id: string };
 
@@ -34,6 +37,7 @@ export interface ProjectDecisionBody {
     rows?: Array<{ taskId: string; worker?: string; reviewer?: string | null }>;
     note?: string;
     decisionStatus?: Record<string, ProjectDecisionStatus>;
+    backlogStatus?: Record<string, ProjectBacklogStatus>;
   };
 }
 
@@ -125,6 +129,21 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
       }
       if (statuses.length === 0) return { ok: false, error: "name at least one decision" };
       edits.decisionStatus = Object.fromEntries(statuses);
+    }
+    if (raw.edits.backlogStatus !== undefined) {
+      if (gate.kind !== "plan" || verdict !== "edit" || !isObject(raw.edits.backlogStatus)) {
+        return { ok: false, error: "backlog statuses can only be edited at the plan gate" };
+      }
+      const statuses: Array<[string, ProjectBacklogStatus]> = [];
+      for (const [id, value] of Object.entries(raw.edits.backlogStatus)) {
+        const status = PROJECT_BACKLOG_STATUSES.find((candidate) => candidate === value);
+        if (!/^[a-z0-9-]{1,32}$/.test(id) || status === undefined) {
+          return { ok: false, error: "backlog statuses require a valid item id and active or deferred status" };
+        }
+        statuses.push([id, status]);
+      }
+      if (statuses.length === 0) return { ok: false, error: "name at least one backlog item" };
+      edits.backlogStatus = Object.fromEntries(statuses);
     }
     if (raw.edits.note !== undefined) {
       const note = raw.edits.note;
