@@ -23,6 +23,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
@@ -84,7 +85,7 @@ export const PERSON_DECISION_STATUSES: readonly PersonDecisionStatus[] = ["activ
 
 /** Who proposed a backlog item (issue #111). */
 export type ProjectBacklogSource = "person" | "director" | "worker" | "reviewer";
-export const PROJECT_BACKLOG_SOURCES: readonly ProjectBacklogSource[] = ["person", "director", "worker", "reviewer"];
+export { PROJECT_BACKLOG_SOURCES };
 
 /**
  * A backlog item (schema v2, issue #111): work not ready for the plan
@@ -475,6 +476,11 @@ export interface ProjectState {
   decisionStatus?: Record<string, ProjectDecisionStatus>;
   /** The person's call per backlog item id (issue #111); one not listed is open. Record only. */
   backlogStates?: Record<string, ProjectBacklogState>;
+  /**
+   * Promoted backlog items a plan the person approved since has taken in
+   * (issue #111): no longer proposed for the next plan. Record only.
+   */
+  backlogPlanned?: string[];
 }
 
 /**
@@ -631,7 +637,9 @@ export type ProjectUpdate =
        */
       holdForCorrection?: true;
     }
-  | { kind: "milestone_run"; id: string; runId: string };
+  | { kind: "milestone_run"; id: string; runId: string }
+  /** Issue #111: `project.backlog.add`'s item; opens and moves no gate. */
+  | { kind: "backlog_add"; item: ProjectBacklogDraft };
 
 export interface ProjectUpdateOptions {
   /**
@@ -1042,10 +1050,11 @@ function readStatusMap<T extends string>(raw: unknown, allowed: readonly T[]): R
 }
 
 /** The backlog and the person's calls on it and on the decisions: carried by every update. */
-function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates"> {
+function personCalls(project: ProjectState | undefined, decisionsToo: boolean): Pick<ProjectState, "backlog" | "decisionStatus" | "backlogStates" | "backlogPlanned"> {
   return {
     ...(project?.backlog === undefined ? {} : { backlog: project.backlog }),
     ...(project?.backlogStates === undefined ? {} : { backlogStates: project.backlogStates }),
+    ...(project?.backlogPlanned === undefined ? {} : { backlogPlanned: project.backlogPlanned }),
     ...(!decisionsToo || project?.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
   };
 }
@@ -1516,6 +1525,9 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
   if (raw.versionFloor !== undefined && !isCount(raw.versionFloor)) return undefined;
   const backlog = readBacklog(raw.backlog);
   const backlogStates = readStatusMap(raw.backlogStates, ["promoted", "dropped"] as const);
+  const backlogPlanned = Array.isArray(raw.backlogPlanned)
+    ? [...new Set(raw.backlogPlanned.map(normalizeCriterionId).filter((id): id is string => id !== null && backlogStates?.[id] === "promoted"))]
+    : [];
   return {
     ...(brief === undefined ? {} : { brief }),
     ...(plan === undefined ? {} : { plan }),
@@ -1529,6 +1541,7 @@ export function normalizeProject(raw: unknown): ProjectState | undefined {
     ...(backlog === undefined ? {} : { backlog }),
     ...(decisionStatus === undefined ? {} : { decisionStatus }),
     ...(backlogStates === undefined ? {} : { backlogStates }),
+    ...(backlogPlanned.length === 0 ? {} : { backlogPlanned }),
   };
 }
 
@@ -2235,6 +2248,8 @@ export function applyProjectUpdate(
     case "milestone":
     case "milestone_run":
       return milestoneUpdate(project, update, now, options);
+    case "backlog_add":
+      return applyBacklogAdd(project, update.item, now);
     default:
       return invalid("unknown project update");
   }
@@ -2432,7 +2447,8 @@ function decideProject(
       }
       return {
         ok: true,
-        project: {
+        // Issue #111: the plan the person approves takes in the items they promoted.
+        project: markPromotedPlanned({
           ...project,
           plan: {
             ...withoutResets(project.plan!),
@@ -2449,7 +2465,7 @@ function decideProject(
             const waiting = project.milestones.find(unreviewed);
             return waiting === undefined ? { kind: "none" as const } : { kind: "milestone" as const, id: waiting.id };
           })(),
-        },
+        }),
       };
     }
     if (gate.kind === "milestone") {
