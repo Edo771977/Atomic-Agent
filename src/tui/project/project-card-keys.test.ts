@@ -28,6 +28,7 @@ function harness(start: TuiState) {
     onAbort: vi.fn(),
     onQuit: vi.fn(),
     onProjectDecision: vi.fn(),
+    onProjectBacklogDecision: vi.fn(),
     onProjectReviseBrief: vi.fn(),
   };
   const press = (input: string, key: Partial<Key> = {}): boolean => {
@@ -47,6 +48,34 @@ function harness(start: TuiState) {
   };
   return { press, callbacks, get state() { return state; } };
 }
+
+it("only explicit backlog action keys decide, including between gates", () => {
+  const view = fixtureProjectGateView({ kind: "none" });
+  view.backlog = { open: 1, items: [{ id: "b1", title: "Export", source: "director", createdAt: 1, state: "open" }],
+    promoted: [], seeds: [], stale: [{ id: "b2", state: "dropped", reason: "removed" }] };
+  const initial = reduceTuiState(withCard(view), { type: "project_card_shown", sessionId: "s1", view, full: true });
+  for (const [key, state] of [["p", "promoted"], ["d", "dropped"], ["r", "open"]]) {
+    const h = harness(initial);
+    h.press("b");
+    h.press("", { downArrow: true });
+    h.press("", { return: true });
+    expect(h.callbacks.onProjectBacklogDecision).not.toHaveBeenCalled();
+    if (key !== "r") h.press("", { upArrow: true });
+    h.press(key!);
+    expect(h.callbacks.onProjectBacklogDecision).toHaveBeenCalledExactlyOnceWith("s1", { id: key === "r" ? "b2" : "b1", state });
+    expect(h.callbacks.onProjectDecision).not.toHaveBeenCalled();
+  }
+});
+
+it("does not promote an already promoted item again and reset its plan receipt", () => {
+  const view = fixtureProjectGateView({ kind: "plan" });
+  view.backlog = { open: 0, items: [{ id: "b1", title: "Export", source: "director", createdAt: 1, state: "promoted", plannedIn: 4 }],
+    promoted: [], seeds: [], stale: [] };
+  const h = harness(withCard(view));
+  h.press("b");
+  h.press("p");
+  expect(h.callbacks.onProjectBacklogDecision).not.toHaveBeenCalled();
+});
 
 const plan: ProjectGate = { kind: "plan" };
 const milestone: ProjectGate = { kind: "milestone", id: "m1" };

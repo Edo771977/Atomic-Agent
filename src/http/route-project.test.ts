@@ -181,3 +181,45 @@ describe("project_gate on the chat stream", () => {
     expect(written).toEqual([]);
   });
 });
+
+/** Issue #111 review: the person's backlog call over HTTP, through the runtime's guards. */
+describe("/api/project/backlog", () => {
+  let harness: Harness;
+  let calls: Array<[string, unknown]>;
+
+  beforeEach(async () => {
+    harness = await startTestHarness();
+    calls = [];
+    Object.assign(harness.runtime, {
+      projectState: (id: string) => (id === "s1" || id === "busy" ? fixtureProjectGateView({ kind: "plan" }) : null),
+      projectBacklogDecision: (id: string, d: unknown) => {
+        calls.push([id, d]);
+        if (id === "busy") return { ok: false, error: { code: "turn-running", message: "wait" } };
+        return { ok: true, project: { milestones: [], gate: { kind: "plan" } }, view: fixtureProjectGateView({ kind: "plan" }) };
+      },
+    });
+  });
+
+  afterEach(async () => {
+    await harness.cleanup();
+  });
+
+  const post = async (body: unknown) => {
+    const res = await fetch(`${harness.baseUrl}/api/project/backlog`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
+    return { status: res.status, json: (await res.json()) as Record<string, unknown> };
+  };
+
+  it("takes the person's promote, drop or reopen and answers with the view", async () => {
+    const ok = await post({ session: "s1", item: "b2", state: "promoted" });
+    expect(ok.status).toBe(200);
+    expect(ok.json).toMatchObject({ session_id: "s1", view: { gate: { kind: "plan" } } });
+    expect(calls).toEqual([["s1", { id: "b2", state: "promoted" }]]);
+  });
+
+  it("refuses a malformed call, a running turn and a session without a project", async () => {
+    expect((await post({ session: "s1", item: "b2", state: "kept" })).status).toBe(400);
+    expect((await post({ session: "s1", state: "dropped" })).status).toBe(400);
+    expect((await post({ session: "busy", item: "b2", state: "dropped" })).status).toBe(409);
+    expect((await post({ session: "nope", item: "b2", state: "dropped" })).status).toBe(404);
+  });
+});

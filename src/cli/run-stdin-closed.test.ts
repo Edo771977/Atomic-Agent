@@ -156,6 +156,41 @@ describe("run with stdin closed (issue #100)", () => {
     expect(ran.stderr).not.toContain("watchdog");
   }, 60_000);
 
+  it("defers an approved brief decision, persists the new plan version and exits 3 without a turn", async () => {
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    const id = "s-eof-defer";
+    const brief = approve(up(undefined, {
+      kind: "brief",
+      brief: {
+        what: "CSV summary", users: "Ops", how: "Node", successCriteria: ["Sums"],
+        decisions: [{ id: "d1", text: "Use SQLite" }],
+      },
+      draftedAfterUntrusted: false,
+    }));
+    const plan = up(brief, {
+      kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row("sales")], detail: "compact",
+    });
+    const nextVersion = gateVersion(plan)! + 1;
+    const store = new SessionStore();
+    store.save(withProject({ ...createEmptySessionState({ id, workingDir }), turnCount: 1 }, plan));
+    store.close();
+
+    const ran = await runCli(["--cwd", workingDir, "--session", id, "--defer-decision", "d1"], env);
+    expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
+    expect(ran.code, ran.stderr).toBe(3);
+    expect(ran.stderr).toContain("d1 Use SQLite (deferred)");
+    expect(ran.stderr).toContain(`atomic-agent run --session ${id} --approve ${nextVersion}`);
+    const saved = new SessionStore({ projectStore: createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) }) });
+    try {
+      expect(saved.load(id)).toMatchObject({ turnCount: 1, project: {
+        gate: { kind: "plan" }, decisionStatus: { d1: "deferred" }, plan: { version: nextVersion },
+      } });
+    } finally {
+      saved.close();
+    }
+  }, 60_000);
+
   it("a plain chat with nothing waiting still exits 0", async () => {
     const ran = await runCli(["--cwd", workingDir], env);
     expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);

@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { describeActiveHandles } from "./hard-exit-deadline.js";
@@ -20,7 +21,7 @@ describe("armHardExitDeadline (issue #104)", () => {
     const fixture = join(dir, "fixture.mts");
     writeFileSync(fixture, [
       `import { spawn } from "node:child_process";`,
-      `import { armHardExitDeadline } from ${JSON.stringify(join(process.cwd(), "src", "cli", "hard-exit-deadline.ts"))};`,
+      `import { armHardExitDeadline } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "cli", "hard-exit-deadline.ts")).href)};`,
       // What would keep a process alive for good: a ref'd interval and a child that never exits.
       "setInterval(() => {}, 1000);",
       `const child = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)"], { stdio: "ignore" });`,

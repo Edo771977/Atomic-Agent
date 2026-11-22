@@ -28,6 +28,7 @@ const UPDATE_KIND_OF_TOOL: Readonly<Record<string, ProjectUpdate["kind"]>> = {
   "project.brief": "brief",
   "project.plan": "plan",
   "project.milestone": "milestone",
+  "project.backlog.add": "backlog_add",
   "fusion.delegate": "milestone_run",
 };
 

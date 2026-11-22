@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { requireSymlinks } from "../test-symlink-support.js";
 
 import { createEmptySessionState, type SessionState } from "../session/index.js";
 import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
@@ -103,7 +104,8 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(existsSync(created)).toBe(false);
   });
 
-  it("a symlink loop (ELOOP) is not restorable, not a retryable failure", async () => {
+  it("a symlink loop (ELOOP) is not restorable, not a retryable failure", async (context) => {
+    requireSymlinks(context);
     const { a, b, store } = await seed();
     rmSync(a);
     symlinkSync(a, a);

@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectDecision } from "../../session/session-project.js";
-import { projectGateNotice, runProjectCommand } from "./project-command.js";
+import { projectGateNotice, runDecisionStatusCommand, runProjectCommand } from "./project-command.js";
 
 function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
   return {
@@ -89,5 +89,63 @@ describe("Telegram /plan and the plan reviewer (issue #118)", () => {
     const out = await runProjectCommand([], { runtime: runtime(view), sessionId: "s", busy: false });
     expect(out.text).toContain("  hint: plan review: scope: fail: drops the level editor");
     expect(out.text).toContain("Approving over the open review notes (with your reason) is in the terminal or the desktop app.");
+  });
+});
+
+const withDecisions = fixtureProjectGateView({ kind: "plan" }, {
+  decisions: [
+    { id: "d1", text: "Use SQLite", status: "active", citedBy: [] },
+    { id: "d2", text: "Use formal language", status: "deferred", citedBy: [] },
+    { id: "d3", text: "Write release notes", status: "informational", citedBy: [] },
+  ],
+});
+
+describe("Telegram plan decision commands", () => {
+  it("previews the decision and asks for the current plan version without editing", async () => {
+    const rt = runtime(withDecisions);
+    const out = await runDecisionStatusCommand("defer", ["d1"], { runtime: rt, sessionId: "s", busy: false });
+    expect(out.text).toContain("Use SQLite");
+    expect(out.text).toContain("/defer d1 3");
+    expect(out.continueWith).toBeNull();
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+    expect(projectGateNotice(rt, "s")).toContain("/reactivate <id>");
+  });
+
+  it.each([
+    ["defer", "d1", "deferred"],
+    ["reactivate", "d2", "active"],
+  ] as const)("records /%s as a runtime edit and shows the updated plan without starting work", async (verb, id, status) => {
+    const current = fixtureProjectGateView({ kind: "plan" }, { version: 4 });
+    const rt = runtime(withDecisions, current);
+    const out = await runDecisionStatusCommand(verb, [id, "3"], { runtime: rt, sessionId: "s", busy: false });
+    expect(rt.projectDecision).toHaveBeenCalledWith("s", {
+      gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { decisionStatus: { [id]: status } },
+    });
+    expect(out.text).toContain("version 4");
+    expect(out.text).toContain("/plan approve 4");
+    expect(out.continueWith).toBeNull();
+  });
+
+  it("refuses stale versions, unexpected gates, unsafe inputs and edits while busy", async () => {
+    const rt = runtime(withDecisions);
+    const deps = { runtime: rt, sessionId: "s", busy: false };
+    expect((await runDecisionStatusCommand("defer", ["d1", "2"], deps)).text).toMatch(/changed since version 2.*current is 3/);
+    expect((await runDecisionStatusCommand("defer", ["d1", "3"], { ...deps, busy: true })).text).toMatch(/current turn/);
+    expect((await runDecisionStatusCommand("defer", ["d1", "3", "extra"], deps)).text).toMatch(/Usage/);
+    expect((await runDecisionStatusCommand("defer", ["absent", "3"], deps)).text).toMatch(/unknown decision/i);
+    expect((await runDecisionStatusCommand("reactivate", ["d3", "3"], deps)).text).toMatch(/informational/);
+    expect(rt.projectDecision).not.toHaveBeenCalled();
+
+    const milestone = runtime(fixtureProjectGateView({ kind: "milestone", id: "m1" }));
+    const out = await runDecisionStatusCommand("defer", ["d1", "3"], { ...deps, runtime: milestone });
+    expect(out.text).toMatch(/plan.*wait/i);
+    expect(milestone.projectDecision).not.toHaveBeenCalled();
+  });
+
+  it("reports runtime rejection without continuing the project", async () => {
+    const rt = runtime(withDecisions);
+    const out = await runDecisionStatusCommand("defer", ["d1", "3"], { runtime: rt, sessionId: "s", busy: false });
+    expect(out.text).toContain("over today's limit");
+    expect(out.continueWith).toBeNull();
   });
 });

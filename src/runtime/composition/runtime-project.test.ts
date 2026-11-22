@@ -260,3 +260,32 @@ describe("runtime.projectDecision on the folder store (issue #109)", () => {
     }
   });
 });
+
+describe("runtime.projectBacklogDecision (issue #111)", () => {
+  const withItem = (): ProjectState =>
+    up(up(approved(up(undefined, brief)), plan), { kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director", condition: "when the report exists" } });
+
+  it("is the person's call between turns: persisted, no gate moved, project_gate emitted", () => {
+    const h = harness({ project: withItem() });
+    const before = h.stored()!.project!;
+    const result = h.runtime.projectBacklogDecision("s1", { id: "b1", state: "promoted" });
+    expect(result.ok).toBe(true);
+    expect(h.stored()?.project?.backlogStates).toEqual({ b1: "promoted" });
+    expect(h.stored()?.project?.gate).toEqual(before.gate);
+    expect(gateVersion(h.stored()?.project)).toBe(gateVersion(before));
+    expect(h.events.at(-1)?.event.type).toBe("project_gate");
+  });
+
+  it("is refused while a turn runs, for an unknown item, and without a session", () => {
+    expect(harness({ project: withItem(), busy: true }).runtime.projectBacklogDecision("s1", { id: "b1", state: "dropped" })).toMatchObject({ ok: false, error: { code: "turn-running" } });
+    expect(harness({ project: withItem() }).runtime.projectBacklogDecision("s1", { id: "b9", state: "dropped" })).toMatchObject({ ok: false, error: { code: "invalid" } });
+    expect(harness({ project: withItem() }).runtime.projectBacklogDecision("nope", { id: "b1", state: "dropped" })).toMatchObject({ ok: false, error: { code: "no-session" } });
+  });
+
+  it("an automatic approval never decides a backlog item", () => {
+    // The gate decision path carries no backlog call: approving every gate leaves the item open.
+    let p = withItem();
+    for (let i = 0; i < 3 && p.gate.kind !== "none"; i++) p = approved(p);
+    expect(p.backlogStates).toBeUndefined();
+  });
+});

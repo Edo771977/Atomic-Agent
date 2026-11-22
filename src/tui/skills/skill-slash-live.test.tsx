@@ -16,6 +16,8 @@ import type { TuiAction } from "../tui-action.js";
 
 afterEach(() => { vi.unstubAllEnvs(); resetConfigCache(); });
 
+const skillReply = "Skill loaded successfully";
+
 function completion(content: string): CompletionResult {
   return { content, reasoningContent: "", stop: true, truncated: false,
     timing: { promptTokens: 100, predictedTokens: 30, promptMs: 1, predictedMs: 1 },
@@ -61,7 +63,7 @@ async function fixture(cloud = true) {
         prompts.push(p.prompt);
         return completion(prompts.length === 1
           ? `[{"tool":"skill.view","args":{"name":"${cloud ? "openspec-explore" : "local-review"}"}}]`
-          : '[{"tool":"reply","args":{"text":"Skill loaded successfully"}}]');
+          : JSON.stringify([{ tool: "reply", args: { text: skillReply } }]));
       } },
   });
   const orchestrator = new ChatOrchestrator(runtime, bus, {
@@ -75,11 +77,45 @@ async function fixture(cloud = true) {
     onSkillsRefreshRequested: () => orchestrator.skills.refresh(),
     prepareSkillInvocation: (name, input) => orchestrator.skills.prepareInvocation(name, input),
   }} />);
-  await new Promise(resolve => setTimeout(resolve, 50));
+  async function close() {
+    app.unmount();
+    await orchestrator.shutdown();
+    rmSync(dir, { recursive: true, force: true });
+  }
+  try {
+    await vi.waitFor(() => expect(actions.some(a => a.type === "skills_refreshed")).toBe(true));
+  } catch (error) {
+    await close();
+    throw error;
+  }
   return { dir, workspace, app, runtime, orchestrator, prompts, actions, mouse,
     frame: () => (app.lastFrame() ?? "").replace(/\u001b\[[0-9;]*m/g, ""),
-    async close() { app.unmount(); await orchestrator.shutdown(); rmSync(dir, { recursive: true, force: true }); },
+    close,
   };
+}
+
+async function submitCompletedSkill(f: Awaited<ReturnType<typeof fixture>>, command: string, description: string, args: string) {
+  f.app.stdin.write("\t");
+  await vi.waitFor(() => {
+    const frame = f.frame();
+    expect(frame).not.toContain(description);
+    expect(frame).toContain(command);
+  });
+  f.app.stdin.write(args);
+  await vi.waitFor(() => expect(f.frame()).toContain(`${command} ${args}`));
+  f.app.stdin.write("\r");
+}
+
+async function expectSkillReply(f: Awaited<ReturnType<typeof fixture>>) {
+  // First wait for the real load and reply, then check their rendered result.
+  // Rendering can wrap the reply at a different column on each platform.
+  await vi.waitFor(() => {
+    const events = f.actions.flatMap(a => a.type === "agent_event" && a.event.type === "llm_event" ? [a.event.event] : []);
+    expect(events.find(e => e.type === "tool_call_executed" && e.result.tool === "skill.view"))
+      .toMatchObject({ result: { status: "ok" } });
+    expect(events).toContainEqual(expect.objectContaining({ type: "assistant_reply", text: skillReply }));
+  }, { timeout: 5_000 });
+  await vi.waitFor(() => expect(f.frame().replace(/\s+/g, " ")).toContain(skillReply));
 }
 
 it.each(["keyboard", "mouse"])("discovers and invokes a cloud project skill before the first message using %s", async input => {
@@ -92,11 +128,7 @@ it.each(["keyboard", "mouse"])("discovers and invokes a cloud project skill befo
     expect(catalog?.rows.filter(r => r.name === "openspec-explore")).toHaveLength(1);
     expect(catalog?.rows.find(r => r.name === "openspec-explore")?.sourcePath).toContain(join(".agents", "skills"));
     if (input === "keyboard") {
-      f.app.stdin.write("\t");
-      await vi.waitFor(() => expect(f.frame()).not.toContain("Explore project requirements"));
-      f.app.stdin.write("investigate workspace selection");
-      await new Promise(resolve => setTimeout(resolve, 30));
-      f.app.stdin.write("\r");
+      await submitCompletedSkill(f, "/openspec-explore", "Explore project requirements", "investigate workspace selection");
     } else {
       await vi.waitFor(() => {
         const lines = f.frame().split("\n");
@@ -108,7 +140,7 @@ it.each(["keyboard", "mouse"])("discovers and invokes a cloud project skill befo
         expect(f.prompts.length).toBeGreaterThan(0);
       });
     }
-    await vi.waitFor(() => expect(f.frame()).toContain("Skill loaded successfully"));
+    await expectSkillReply(f);
     expect(f.prompts[0]).toContain('skill.view({"name":"openspec-explore"})');
     if (input === "keyboard") expect(f.prompts[0]).toContain("investigate workspace selection");
     expect(f.prompts[1]).toContain(".agents EXPLORE BODY");
@@ -135,12 +167,8 @@ it("invokes a skill by slash command on a local model too (ATO-1469)", async () 
   try {
     f.app.stdin.write("/local-rev");
     await vi.waitFor(() => expect(f.frame()).toContain("Review local changes"));
-    f.app.stdin.write("\t");
-    await vi.waitFor(() => expect(f.frame()).not.toContain("Review local changes"));
-    f.app.stdin.write("check the diff");
-    await new Promise(resolve => setTimeout(resolve, 30));
-    f.app.stdin.write("\r");
-    await vi.waitFor(() => expect(f.frame()).toContain("Skill loaded successfully"));
+    await submitCompletedSkill(f, "/local-review", "Review local changes", "check the diff");
+    await expectSkillReply(f);
     expect(f.prompts[0]).toContain('skill.view({"name":"local-review"})');
     expect(f.prompts[0]).toContain("check the diff");
     expect(f.prompts[1]).toContain("LOCAL REVIEW BODY");
@@ -184,9 +212,12 @@ it("changes suggestions and counts with the selected session workspace", async (
     expect(f.actions.filter(a => a.type === "skill_count_changed").at(-1)?.count)
       .toBe(catalog.rows.filter(r => !r.disabled).length);
     f.orchestrator.switchSession(a.id);
-    await vi.waitFor(() => expect(f.actions.filter(a => a.type === "skills_refreshed").at(-1)?.workspace).toBe(f.workspace));
-    // Session switching restores the draft with overlays closed; resume typing.
-    await new Promise(resolve => setTimeout(resolve, 30));
+    await vi.waitFor(() => {
+      expect(f.actions.filter(a => a.type === "skills_refreshed").at(-1)?.workspace).toBe(f.workspace);
+      // Session switching restores the draft with overlays closed.
+      expect(f.frame()).toContain("/openspec");
+      expect(f.frame()).not.toContain("Beta workspace only");
+    });
     f.app.stdin.write("-");
     await vi.waitFor(() => expect(f.frame()).toContain("Explore project requirements"));
     expect(f.frame()).not.toContain("Beta workspace only");

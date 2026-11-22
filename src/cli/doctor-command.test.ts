@@ -170,7 +170,7 @@ describe("atag doctor (ATO-577)", () => {
     expect(await run(["--fix"])).toBe(0);
     expect(read().llm.activeTextProvider).toBe("local-llama");
     expect(out).toMatch(/backed up config.json to .*doctor-backups/);
-    expect(statSync(cfgPath()).mode & 0o777).toBe(0o600);
+    if (process.platform !== "win32") expect(statSync(cfgPath()).mode & 0o777).toBe(0o600);
 
     out = "";
     expect(await run(["--undo"])).toBe(0);

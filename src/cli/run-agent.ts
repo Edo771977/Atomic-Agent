@@ -58,8 +58,10 @@ import {
 import { armHardExitDeadline } from "./hard-exit-deadline.js";
 import { startRunMemoryTrace, type PhaseHook, type RunMemoryTrace } from "./run-memory-trace.js";
 import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./run-allowed-command.js";
-import { PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
-import { withProject } from "../session/session-project.js";
+import { editProjectDecisionStatuses, PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
+import { normalizeCriterionId } from "../session/project-criterion-id.js";
+import { PROJECT_LIMITS } from "../session/project-limits.js";
+import { withProject, type PersonDecisionStatus } from "../session/session-project.js";
 
 interface RunArgs {
   workingDir: string;
@@ -79,6 +81,8 @@ interface RunArgs {
   approve: boolean;
   /** The version `--approve` names; null when bare (the run shows the gate and asks for it). */
   approveVersion: number | null;
+  /** An explicit person-initiated edit for the plan gate before reading stdin. */
+  decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
   /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
   autoApproveProject: boolean;
   /** Issue #95: `--allow-command "<exact command>"` (repeatable), pre-approved in `--cwd` or below. */
@@ -107,6 +111,11 @@ const HELP =
     "  --session <id>       Continue this stored chat",
     "  --approve <version>  Approve the chat's open fusion project gate (brief, plan or milestone)",
     "                       at the version printed with it, then continue; needs --session",
+    "  --defer-decision <id>[,<id>]       Defer decisions from the approved brief",
+    "  --reactivate-decision <id>[,<id>] Restore decisions to active status",
+    "                       Needs --session at the plan gate. Prints the new plan version",
+    "                       and exits 3 for separate approval. Cannot be combined with",
+    "                       --approve or --auto-approve-project.",
     "  --auto-approve-project",
     "                       Approve every fusion project gate at its current version as it opens,",
     "                       printing each with its version (scripts only); a failed milestone",
@@ -138,6 +147,7 @@ export function parseRunArgs(
   let approve = false;
   let approveVersion: number | null = null;
   let autoApproveProject = false;
+  const decisionStatus = new Map<string, PersonDecisionStatus>();
   const allowCommands: AllowedCommand[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
@@ -198,6 +208,24 @@ export function parseRunArgs(
       case "--auto-approve-project":
         autoApproveProject = true;
         break;
+      case "--defer-decision":
+      case "--reactivate-decision": {
+        const value = args[++i];
+        if (value === undefined || value.startsWith("--")) return { error: `${flag} expects a comma-separated list of decision ids` };
+        const status = flag === "--defer-decision" ? "deferred" : "active";
+        for (const raw of value.split(",")) {
+          const id = normalizeCriterionId(raw);
+          if (id === null) return { error: `${flag} expects valid decision ids` };
+          if (decisionStatus.has(id) && decisionStatus.get(id) !== status) {
+            return { error: `cannot defer and reactivate decision ${id} in one command` };
+          }
+          decisionStatus.set(id, status);
+          if (decisionStatus.size > PROJECT_LIMITS.decisions) {
+            return { error: `at most ${PROJECT_LIMITS.decisions} decision ids may be edited` };
+          }
+        }
+        break;
+      }
       case "--allow-command": {
         const value = args[++i];
         if (value === undefined) return { error: "--allow-command requires a command" };
@@ -230,6 +258,11 @@ export function parseRunArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  if (decisionStatus.size > 0) {
+    if (session === null) return { error: "decision status edits need --session <id>" };
+    if (approve) return { error: "decision status edits cannot be combined with --approve" };
+    if (autoApproveProject) return { error: "decision status edits cannot be combined with --auto-approve-project" };
+  }
   if (approve && session === null) return { error: "--approve needs --session <id>" };
   if (session !== null && incognito) return { error: "--session and --incognito cannot be combined" };
   return {
@@ -243,6 +276,7 @@ export function parseRunArgs(
     session,
     approve,
     approveVersion,
+    ...(decisionStatus.size === 0 ? {} : { decisionStatus: Object.fromEntries(decisionStatus) }),
     autoApproveProject,
     allowCommands,
   };
@@ -962,6 +996,15 @@ export async function runAgentCommand(args: string[], options: RunAgentCommandOp
       parsed.incognito ? { incognito: true } : undefined,
     );
     incognitoSessionId = parsed.incognito ? session.id : null;
+    const decisionStatus = parsed.decisionStatus;
+    if (decisionStatus !== undefined) {
+      // The runtime persists this decision. The ordinary turn save would
+      // write the session copy loaded before the edit over its result.
+      const step = inPhase(trace, "settle-gates", () => editProjectDecisionStatuses(runtime, session.id, decisionStatus));
+      process.stderr.write(`${step.text}\n`);
+      exitCode = step.kind === "updated" ? PROJECT_GATE_EXIT : 1;
+      return exitCode;
+    }
     stdinLines = createStdinLineQueue({
       input: process.stdin,
       output: process.stderr,

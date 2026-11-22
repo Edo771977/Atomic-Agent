@@ -29,6 +29,15 @@ afterEach(() => {
   for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
 });
 
+function shell(): string {
+  if (process.platform !== "win32") return "sh";
+  // Git for Windows keeps its POSIX shell outside the default Windows PATH.
+  const git = spawnSync("git", ["--exec-path"], { encoding: "utf8" });
+  if (git.error) throw git.error;
+  if (git.status !== 0) throw new Error(git.stderr);
+  return resolve(git.stdout.trim(), "../../..", "usr", "bin", "sh.exe");
+}
+
 function run(teamLine: string, expected: string): { status: number | null; stderr: string } {
   const dir = mkdtempSync(join(tmpdir(), "install-team-id-"));
   dirs.push(dir);
@@ -36,11 +45,12 @@ function run(teamLine: string, expected: string): { status: number | null; stder
   // `codesign -dv` prints its answer on stderr.
   writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' 'Identifier=atomic-agent' '${teamLine}' >&2\n`);
   chmodSync(stub, 0o755);
-  const body = `set -eu\nEXPECTED_TEAM_ID='${expected}'\n${extractFunction("verify_team_id")}\nverify_team_id /bin/sh\necho passed\n`;
-  const res = spawnSync("sh", ["-c", body], {
-    env: { ...process.env, PATH: `${dir}:${process.env.PATH ?? ""}` },
+  const body = `set -eu\nexport PATH="$PWD:/usr/bin:$PATH"\nEXPECTED_TEAM_ID='${expected}'\n${extractFunction("verify_team_id")}\nverify_team_id /bin/sh\necho passed\n`;
+  const res = spawnSync(shell(), ["-c", body], {
+    cwd: dir,
     encoding: "utf8",
   });
+  if (res.error) throw res.error;
   return { status: res.status, stderr: res.stderr };
 }
 
@@ -53,15 +63,19 @@ describe("install.sh Team ID pin", () => {
   });
 
   it("resolves ATOMIC_AGENT_TEAM_ID='' to no pin and unset to ours", () => {
-    const teamFor = (env: Record<string, string>) =>
-      spawnSync(
-        "sh",
-        ["-c", 'TEAM_ID_DEFAULT=MU9G7XKJUL; printf "[%s]" "${ATOMIC_AGENT_TEAM_ID-$TEAM_ID_DEFAULT}"'],
-        { env: { PATH: process.env.PATH ?? "", ...env }, encoding: "utf8" },
-      ).stdout;
-    expect(teamFor({})).toBe("[MU9G7XKJUL]");
-    expect(teamFor({ ATOMIC_AGENT_TEAM_ID: "" })).toBe("[]");
-    expect(teamFor({ ATOMIC_AGENT_TEAM_ID: "ABCDE12345" })).toBe("[ABCDE12345]");
+    const teamFor = (setup: string) => {
+      const res = spawnSync(
+        shell(),
+        ["-c", setup + '; TEAM_ID_DEFAULT=MU9G7XKJUL; printf "[%s]" "${ATOMIC_AGENT_TEAM_ID-$TEAM_ID_DEFAULT}"'],
+        { encoding: "utf8" },
+      );
+      if (res.error) throw res.error;
+      expect(res.status, res.stderr).toBe(0);
+      return res.stdout;
+    };
+    expect(teamFor("unset ATOMIC_AGENT_TEAM_ID")).toBe("[MU9G7XKJUL]");
+    expect(teamFor("ATOMIC_AGENT_TEAM_ID=''")).toBe("[]");
+    expect(teamFor("ATOMIC_AGENT_TEAM_ID=ABCDE12345")).toBe("[ABCDE12345]");
   });
 
   it("runs the pin on every macOS path, including a --verify timeout or skip", () => {

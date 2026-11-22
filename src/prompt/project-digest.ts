@@ -1,6 +1,15 @@
 import { decisionStatusOf, projectExpectation, type ProjectState } from "../session/session-project.js";
+import { openBacklog, openSeeds, promotedForPlan } from "../session/project-backlog.js";
 import { planReviewLine } from "../tools/fusion/plan-review-record.js";
 import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
+
+/** The backlog's text is written by models or by hand: framed as data wherever the director reads it (issue #111 review). */
+export const BACKLOG_DATA_SOURCE = "the project's backlog items (written by models or by hand)";
+
+/** Open, promoted and seed items as data lines, framed; null when none. */
+export function backlogDataBlock(lines: readonly string[]): string | null {
+  return lines.length === 0 ? null : frameUntrustedText(lines.join("\n"), BACKLOG_DATA_SOURCE);
+}
 
 /** Longest `what` the digest quotes; the brief itself is the person's card, not the prompt's. */
 const WHAT_CHARS = 300;
@@ -47,6 +56,23 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
   if (project.milestones.length > 0) {
     lines.push(`milestones: ${project.milestones.map((m) => `${m.id} (${m.kind}) ${m.state}`).join(", ")}`);
   }
+  // Issue #111: the backlog is proposals; the person's calls on it are theirs.
+  if ((project.backlog ?? []).length > 0) {
+    lines.push(`backlog: ${openBacklog(project).length} open; only the person promotes or drops an item`);
+    const promoted = promotedForPlan(project);
+    const seeds = openSeeds(project);
+    const complete = projectExpectation(project).kind === "complete";
+    if (promoted.length > 0 || seeds.length > 0) {
+      lines.push("promoted by the person: take each into the next plan (a new milestone or task, through the plan gate) on a task that cites its id in `backlog`; seeds: tell the person when a condition looks met.");
+    }
+    const block = backlogDataBlock([
+      ...promoted.map((b) => `promoted: ${b.id} ${clip(b.title, 120)}`),
+      ...seeds.map((b) => `seed: ${b.id} ${clip(b.title, 120)} (when: ${clip(b.condition!, 160)})`),
+      // At the close every open item is listed, for the final reply.
+      ...(complete ? openBacklog(project).filter((b) => b.condition === undefined).map((b) => `open: ${b.id} ${clip(b.title, 120)}`) : []),
+    ]);
+    if (block !== null) lines.push(block);
+  }
   const gate = project.gate;
   if (gate.kind !== "none") {
     const what = gate.kind === "brief" ? "the brief" : gate.kind === "plan" ? "the plan" : `milestone ${gate.id}'s result`;
@@ -75,7 +101,14 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       break;
     }
     case "complete":
-      lines.push("next: every milestone is reviewed; the project is complete.");
+      if (next.openBacklog === undefined && next.promotedNotDone === undefined) lines.push("next: every milestone is reviewed; the project is complete.");
+      else {
+        const left = [
+          ...(next.openBacklog === undefined ? [] : [`${next.openBacklog} backlog item${next.openBacklog === 1 ? "" : "s"} still open`]),
+          ...(next.promotedNotDone === undefined ? [] : [`${next.promotedNotDone} promoted backlog item${next.promotedNotDone === 1 ? "" : "s"} not done`]),
+        ];
+        lines.push(`next: every milestone is reviewed; the project is complete with ${left.join(" and ")} (listed in the backlog data): say so in your final reply.`);
+      }
       break;
     default:
       break;

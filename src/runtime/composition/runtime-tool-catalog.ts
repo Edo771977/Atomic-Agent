@@ -65,6 +65,7 @@ import { captureImageGenerated, captureVideoGenerated } from "../../analytics/an
 import type { AnalyticsClient } from "../../analytics/analytics-client.js";
 import { buildFusionDelegateTool, FUSION_RUNS_DIR_NAME, fusionRunShotTarget, readSlotOccupancy, teamContextFromConfig, type ContractCheckRunner, type FusionDelegateDeps } from "../../tools/fusion/index.js";
 import { buildProjectTools } from "../../tools/fusion/project-tools.js";
+import { buildProjectBacklogTool } from "../../tools/fusion/project-backlog-tool.js";
 import { checkPlanReferences } from "../../tools/fusion/plan-references.js";
 import { createPlanReview } from "../../tools/fusion/plan-reviewer.js";
 import type { FusionTurnLedger } from "../../tools/fusion/turn-receipt.js";
@@ -1333,6 +1334,8 @@ export function registerRuntimeFusionAndReadScope(input: {
   })) {
     toolRegistry.register(tool);
   }
+  // Issue #111: the director's backlog proposals, mounted with the project tools.
+  toolRegistry.register(buildProjectBacklogTool());
   // Every session reads inside its working directory and the paths the
   // user named unasked, by default (`agent.readScope`,
   // `src/tools/read-scope/`); a read outside that asks through the

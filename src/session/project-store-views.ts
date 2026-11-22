@@ -1,5 +1,6 @@
 import { basename } from "node:path";
 import { criterionFactLine } from "./project-gate-text.js";
+import { backlogSourceLabel, backlogStateOf } from "./project-backlog.js";
 import { projectExpectation, type ProjectExpectation, type ProjectState } from "./session-project.js";
 
 /**
@@ -31,7 +32,7 @@ export function describeExpectation(expectation: ProjectExpectation): string {
         ? `you review milestone ${expectation.gate.id}`
         : `you approve the ${expectation.gate.kind}`;
     case "complete":
-      return "nothing: every milestone is reviewed";
+      return ["nothing: every milestone is reviewed", ...completeWith(expectation)].join("; ");
     case "cancelled":
       return "nothing: the project was cancelled";
   }
@@ -72,7 +73,7 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
     }
   }
   if ((project.backlog ?? []).length > 0) {
-    briefLines.push("", "## Backlog", "", ...project.backlog!.map((b) => `- \`${b.id}\` ${b.title}${b.condition === undefined ? "" : ` (when: ${b.condition})`}: ${project.backlogStates?.[b.id] ?? "open"}, from ${b.source}`));
+    briefLines.push("", "## Backlog", "", ...project.backlog!.map((b) => `- \`${b.id}\` ${b.title}${b.condition === undefined ? "" : ` (when: ${b.condition})`}: ${backlogStateOf(project, b.id)}, from ${backlogSourceLabel(b)}`));
   }
 
   const plan = project.plan;
@@ -84,7 +85,11 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
       planLines.push(`## ${m.title} (\`${m.id}\`, ${m.kind})`, "");
       const rows = plan.rows.filter((r) => r.milestoneId === m.id);
       if (rows.length === 0) planLines.push("(no tasks)");
-      for (const r of rows) planLines.push(`- \`${r.taskId}\` ${r.title}: ${r.worker}${r.reviewer === null ? "" : `, reviewed by ${r.reviewer}`}`);
+      for (const r of rows) {
+        // Issue #146: the backlog items the task takes in.
+        const backlog = (r.backlog ?? []).length === 0 ? "" : `; backlog: ${r.backlog!.join(", ")}`;
+        planLines.push(`- \`${r.taskId}\` ${r.title}: ${r.worker}${r.reviewer === null ? "" : `, reviewed by ${r.reviewer}`}${backlog}`);
+      }
       planLines.push("");
     }
   }
@@ -109,4 +114,13 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
   }
   const text = (lines: string[]) => `${lines.join("\n").trimEnd()}\n`;
   return { "BRIEF.md": text(briefLines), "PLAN.md": text(planLines), "STATUS.md": text(statusLines) };
+}
+
+/** What a complete project still leaves (issues #111, #146): open items, and promoted items no run took in. */
+export function completeWith(expectation: { openBacklog?: number; promotedNotDone?: number }): string[] {
+  const n = (count: number, what: string) => `${count} ${what}${count === 1 ? "" : "s"}`;
+  return [
+    ...(expectation.openBacklog === undefined ? [] : [`complete with ${n(expectation.openBacklog, "backlog item")} still open`]),
+    ...(expectation.promotedNotDone === undefined ? [] : [`complete with ${n(expectation.promotedNotDone, "promoted backlog item")} not done`]),
+  ];
 }

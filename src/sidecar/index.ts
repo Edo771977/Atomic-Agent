@@ -44,6 +44,8 @@ export type {
   ProjectGateEventPayload,
   GetProjectPayload,
   ProjectDecisionPayload,
+  ProjectBacklogDecisionPayload,
+  ProjectBacklogDecisionResult,
   ProjectDecisionResult,
   ProjectListRow,
   ListProjectsPayload,

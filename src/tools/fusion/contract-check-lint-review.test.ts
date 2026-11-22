@@ -99,3 +99,23 @@ describe("a resumed run's stored contract is not refused for a check the person 
     expect(parsed.contract?.warnings).toEqual([expect.stringMatching(/^check lint \(warning\): contract\.checks\[0\] cannot fail/)]);
   });
 });
+
+/**
+ * Live Windows run (issue #110 follow-up): a director wrote
+ * `cmd.exe /d /c echo ok` and it passed the lint, because `/d` came before
+ * `/c`. cmd.exe's switches before `/c` change nothing the command prints.
+ */
+describe("cmd.exe switches before /c", () => {
+  it.each<[string, ContractCheck]>([
+    ["/d /c", { task: "t", cmd: "cmd.exe", args: ["/d", "/c", "echo", "ok"], checks: ["exit 0", "stdout matches /^ok\\r?\\n?$/"] }],
+    ["/d /s /c", { task: "t", cmd: "cmd", args: ["/d", "/s", "/c", "echo ok"], checks: ['stdout contains "ok"'] }],
+    ["/q /e:off /c", { task: "t", cmd: "CMD.EXE", args: ["/Q", "/E:OFF", "/C", "echo", "ok"], checks: ['stdout contains "ok"'] }],
+  ])("%s echo ok is severe", (_name, check) => {
+    expect(severe(check)).toBe(true);
+  });
+
+  it("still reads a real command after the switches as not severe", () => {
+    expect(severe({ task: "t", cmd: "cmd.exe", args: ["/d", "/c", "node", "test.cjs"], checks: ["exit 0"] })).toBe(false);
+    expect(severe({ task: "t", cmd: "cmd.exe", args: ["/d", "/c", "echo", "ok", "&&", "npm", "test"], checks: ["exit 0"] })).toBe(false);
+  });
+});

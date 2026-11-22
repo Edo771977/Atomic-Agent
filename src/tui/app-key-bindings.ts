@@ -41,6 +41,7 @@ import type { UninstallChoice } from "./uninstall/uninstall-state.js";
 import { handleIssueReportKey } from "./issue-report/issue-report-key-bindings.js";
 import { handleProjectCardKey } from "./project/project-card-keys.js";
 import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 
 /**
  * Number of **terminal rows** a single PageUp / PageDown keypress
@@ -90,6 +91,7 @@ export interface AppKeyCallbacks {
   onIssueReportCloseRequested?(): void;
   /** Project card (issue #39): the person's verdict at the chat's open gate. */
   onProjectDecision?(sessionId: string, decision: ProjectDecision): void;
+  onProjectBacklogDecision?(sessionId: string, decision: ProjectBacklogDecision): void;
   /** Project card: "revise" at the brief gate; the person types the change in the composer. */
   onProjectReviseBrief?(): void;
   onApprovalDecision(

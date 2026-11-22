@@ -36,6 +36,7 @@ import { CodingModePopup } from "./coding-mode/coding-mode-popup.js";
 import { IssueReportPopup } from "./issue-report/issue-report-popup.js";
 import { ProjectCardPopup } from "./project/project-card-popup.js";
 import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import type { IssueReportLevel } from "./issue-report/report-levels.js";
 import type { IssueReportToggle } from "./issue-report/issue-report-state.js";
 import { OnboardingScreen } from "./onboarding/onboarding-screen.js";
@@ -829,6 +830,7 @@ export interface TuiAppCallbacks {
   onIssueReportCloseRequested?(): void;
   /** Project card (issue #39): the person's verdict at the open chat's gate. */
   onProjectDecision?(sessionId: string, decision: ProjectDecision): void;
+  onProjectBacklogDecision?(sessionId: string, decision: ProjectBacklogDecision): void;
   /** Project card: "revise" at the brief gate. */
   onProjectReviseBrief?(): void;
   /** Telegram tab: refresh state mirror (token presence, owner, etc.). */

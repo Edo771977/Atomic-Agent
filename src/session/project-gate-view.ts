@@ -19,6 +19,7 @@
 
 import type {
   AssignmentRow,
+  ProjectBacklogItem,
   PlanDetail,
   ProjectBrief,
   ProjectCriterion,
@@ -77,6 +78,33 @@ export interface ProjectGateView {
    * (in `allowedVerdicts` then) approves over them with a note.
    */
   planReview?: ProjectGatePlanReview;
+  /**
+   * Issue #111: the project's backlog; absent when it holds no item.
+   * Additive. `open` counts items nobody decided on; `seeds` are the open
+   * ones with a condition (shown with it at plan and milestone gates, as
+   * `hints` too); `promoted` waits for the next plan the person approves.
+   * Promote or drop goes through `runtime.projectBacklogDecision`, never a
+   * gate verdict. Issue #146: at the plan gate a promoted item no task
+   * cites blocks approval (`backlog-coverage`); the person may send
+   * `edit` with `edits.backlogStatus` to defer it.
+   */
+  backlog?: ProjectGateBacklog;
+}
+
+/** The backlog as a card shows it (issue #111). */
+export interface ProjectGateBacklog {
+  open: number;
+  seeds: Array<{ id: string; title: string; condition: string }>;
+  /**
+   * Issue #146: `deferred` when the person deferred it at the plan gate
+   * (still promoted, not required in the plan); `citedBy`, the plan's
+   * tasks whose `backlog` cites it.
+   */
+  promoted: Array<{ id: string; title: string; deferred?: true; citedBy?: string[] }>;
+  /** The person's calls that no longer stand: the item changed outside Atomic Agent since (it reads open), or a promoted one was removed. */
+  stale: Array<{ id: string; state: "promoted" | "dropped"; reason: "changed" | "removed" }>;
+  /** Every item with the person's call on it (`open` when none); `plannedIn`: the approved plan version that took a promoted one in. */
+  items: Array<ProjectBacklogItem & { state: "open" | "promoted" | "dropped"; plannedIn?: number; deferred?: true }>;
 }
 
 /** The plan reviewer's notes as the card shows them (issue #118). */

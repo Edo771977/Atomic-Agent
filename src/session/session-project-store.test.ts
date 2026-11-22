@@ -366,11 +366,19 @@ describe("folder identity on case-sensitive volumes (issue #109 review b4)", () 
     const upper = join(folder, "Proj");
     const lower = join(folder, "proj");
     mkdirSync(upper);
-    mkdirSync(lower);
-    expect(canonicalProjectFolder(upper, "darwin")).not.toBe(canonicalProjectFolder(lower, "darwin"));
-    expect(sameProjectFolder(upper, lower, "darwin")).toBe(false);
     // Paths that do not resolve fall back to folding case where the platform does.
     expect(sameProjectFolder(join(folder, "Missing"), join(folder, "missing"), "darwin")).toBe(true);
+    try {
+      mkdirSync(lower);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+      // On a case-insensitive volume both spellings refer to the same directory.
+      expect(canonicalProjectFolder(upper, "darwin")).toBe(canonicalProjectFolder(lower, "darwin"));
+      expect(sameProjectFolder(upper, lower, "darwin")).toBe(true);
+      return;
+    }
+    expect(canonicalProjectFolder(upper, "darwin")).not.toBe(canonicalProjectFolder(lower, "darwin"));
+    expect(sameProjectFolder(upper, lower, "darwin")).toBe(false);
     const darwin = createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir, Date.now, "darwin"), platform: "darwin" });
     const p = normalizeProject(fixture.session.project)!;
     darwin.load({ ...createEmptySessionState({ id: "u", workingDir: upper }), project: p });

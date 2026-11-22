@@ -156,4 +156,66 @@ describe("project resume line", () => {
     expect(out).toContain("d3 Formal tone (deferred)");
     expect(out).toContain(" d defer d2 ");
   });
+
+  it("lists the promoted backlog items at the plan gate with the tasks citing each (issue #146)", () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, { backlog: { open: 0, seeds: [], stale: [], items: [], promoted: [
+      { id: "b1", title: "Export PDF", citedBy: ["t2"] },
+      { id: "b2", title: "Sounds", citedBy: [] },
+      { id: "b3", title: "Dark mode", deferred: true, citedBy: [] },
+    ] } });
+    const out = text(card(view));
+    expect(out).toContain("promoted b1 Export PDF (cited by t2)");
+    expect(out).toContain("promoted b2 Sounds (cited by no task)");
+    expect(out).toContain("promoted b3 Dark mode (deferred)");
+  });
+});
+
+describe("the project card's backlog (issue #111)", () => {
+  const backlog = {
+    open: 2,
+    seeds: [{ id: "b1", title: "Sounds", condition: "when the UI exists" }],
+    promoted: [{ id: "b3", title: "PDF export" }],
+    stale: [],
+    items: [],
+  };
+
+  it("shows the open count and the seeds with their condition at a plan or milestone gate", () => {
+    const out = text(card({ ...fixtureProjectGateView({ kind: "plan" }), backlog }));
+    expect(out).toContain("Backlog: 2 open · 1 seed · 1 promoted");
+    expect(out).toContain("seed b1 Sounds — when the UI exists");
+    const none = text(card({ ...fixtureProjectGateView({ kind: "brief" }), backlog }));
+    expect(none).toContain("Backlog: 2 open · 1 seed · 1 promoted");
+    expect(none).not.toContain("seed b1");
+  });
+
+  it("marks changed and removed calls, and offers only Reopen for a removed item", () => {
+    const view: ProjectGateView = { ...fixtureProjectGateView({ kind: "plan" }), backlog: { ...backlog,
+      items: [{ id: "b1", title: "Sounds", state: "open", source: "director", createdAt: 1 }],
+      stale: [{ id: "b1", state: "promoted", reason: "changed" }, { id: "b2", state: "dropped", reason: "removed" }] } };
+    let c = card(view);
+    expect(text(c)).toContain("b Backlog");
+    c = reduceProjectCard(c, { type: "project_card_mode_set", mode: "backlog" })!;
+    expect(text(c)).toContain("changed since you promoted it");
+    c = reduceProjectCard(c, { type: "project_card_backlog_moved", delta: 1 })!;
+    expect(text(c)).toContain("removed outside Atomic Agent");
+    expect(text(c)).toContain("r Reopen");
+    expect(text(c)).not.toContain("p Promote");
+  });
+
+  it("says nothing without a backlog, and the resume line counts open items", () => {
+    expect(text(card(fixtureProjectGateView({ kind: "plan" })))).not.toContain("Backlog:");
+    const view = { ...fixtureProjectGateView({ kind: "plan" }), backlog };
+    expect(projectResumeLine(view)).toContain(" · backlog: 2 open");
+  });
+});
+
+describe("the project card's seeds come from the view's backlog, not a hint prefix (review)", () => {
+  it("drops only the hints that repeat a listed seed", () => {
+    const backlog = { open: 1, seeds: [{ id: "b1", title: "Sounds", condition: "when the UI exists" }], promoted: [], stale: [], items: [] };
+    const hints = ['seed b1 "Sounds" (when: when the UI exists): yours to promote if it is met', "seed data missing for t2"];
+    const out = text(card({ ...fixtureProjectGateView({ kind: "plan" }), backlog, hints }));
+    expect(out).toContain("seed b1 Sounds — when the UI exists");
+    expect(out).not.toContain('seed b1 "Sounds"');
+    expect(out).toContain("ℹ seed data missing for t2");
+  });
 });

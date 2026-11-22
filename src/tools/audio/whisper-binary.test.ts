@@ -1,3 +1,4 @@
+import { delimiter, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findExecutable, resolveFfmpegBinary, resolveWhisperBinary, WHISPER_BIN_ENV } from "./whisper-binary.js";
 
@@ -7,32 +8,32 @@ const only = (...paths: string[]) => (path: string) => paths.includes(path);
 describe("whisper.cpp binary lookup (ATO-702)", () => {
   it("finds whisper-cli on PATH before the older whisper-cpp name", () => {
     const r = resolveWhisperBinary({
-      env: { PATH: "/usr/bin:/opt/homebrew/bin" },
+      env: { PATH: ["/usr/bin", "/opt/homebrew/bin"].join(delimiter) },
       platform: "darwin",
       widenEnv: noWiden,
-      isExecutable: only("/opt/homebrew/bin/whisper-cli", "/usr/bin/whisper-cpp"),
+      isExecutable: only(join("/opt/homebrew/bin", "whisper-cli"), join("/usr/bin", "whisper-cpp")),
     });
-    expect(r).toEqual({ found: true, path: "/opt/homebrew/bin/whisper-cli", source: "path" });
+    expect(r).toEqual({ found: true, path: join("/opt/homebrew/bin", "whisper-cli"), source: "path" });
   });
 
   it("falls back to whisper-cpp and never takes the Python `whisper`", () => {
     expect(resolveWhisperBinary({
       env: { PATH: "/usr/local/bin" }, platform: "linux", widenEnv: noWiden,
-      isExecutable: only("/usr/local/bin/whisper-cpp"),
-    })).toMatchObject({ found: true, path: "/usr/local/bin/whisper-cpp" });
+      isExecutable: only(join("/usr/local/bin", "whisper-cpp")),
+    })).toMatchObject({ found: true, path: join("/usr/local/bin", "whisper-cpp") });
     expect(resolveWhisperBinary({
       env: { PATH: "/usr/local/bin" }, platform: "linux", widenEnv: noWiden,
-      isExecutable: only("/usr/local/bin/whisper"),
+      isExecutable: only(join("/usr/local/bin", "whisper")),
     }).found).toBe(false);
   });
 
   it("takes the downloaded copy before PATH, after the configured path", () => {
     const managed = "/state/models/whisper/bin/b5454/whisper-cli";
     const base = { env: { PATH: "/usr/bin" }, platform: "linux" as const, widenEnv: noWiden };
-    expect(resolveWhisperBinary({ ...base, isExecutable: only(managed, "/usr/bin/whisper-cli") }, managed))
+    expect(resolveWhisperBinary({ ...base, isExecutable: only(managed, join("/usr/bin", "whisper-cli")) }, managed))
       .toEqual({ found: true, path: managed, source: "managed" });
-    expect(resolveWhisperBinary({ ...base, isExecutable: only("/usr/bin/whisper-cli") }, managed))
-      .toEqual({ found: true, path: "/usr/bin/whisper-cli", source: "path" });
+    expect(resolveWhisperBinary({ ...base, isExecutable: only(join("/usr/bin", "whisper-cli")) }, managed))
+      .toEqual({ found: true, path: join("/usr/bin", "whisper-cli"), source: "path" });
     expect(resolveWhisperBinary({ ...base, env: { ...base.env, [WHISPER_BIN_ENV]: "/opt/w/whisper-cli" }, isExecutable: only(managed, "/opt/w/whisper-cli") }, managed))
       .toMatchObject({ source: "env" });
   });
@@ -40,7 +41,7 @@ describe("whisper.cpp binary lookup (ATO-702)", () => {
   it("prefers the configured path and refuses a relative or missing one", () => {
     expect(resolveWhisperBinary({
       env: { [WHISPER_BIN_ENV]: "/opt/w/whisper-cli", PATH: "/usr/bin" }, platform: "darwin", widenEnv: noWiden,
-      isExecutable: only("/opt/w/whisper-cli", "/usr/bin/whisper-cli"),
+      isExecutable: only("/opt/w/whisper-cli", join("/usr/bin", "whisper-cli")),
     })).toEqual({ found: true, path: "/opt/w/whisper-cli", source: "env" });
     const relative = resolveWhisperBinary({ env: { [WHISPER_BIN_ENV]: "bin/whisper-cli" }, platform: "darwin", widenEnv: noWiden, isExecutable: () => true });
     expect(relative).toMatchObject({ found: false });
@@ -71,9 +72,9 @@ describe("whisper.cpp binary lookup (ATO-702)", () => {
     const r = resolveWhisperBinary({
       env: { PATH: "/usr/bin" },
       platform: "darwin",
-      widenEnv: (env) => ({ ...env, PATH: `${env.PATH}:/opt/homebrew/bin` }),
-      isExecutable: only("/opt/homebrew/bin/whisper-cli"),
+      widenEnv: (env) => ({ ...env, PATH: `${env.PATH}${delimiter}/opt/homebrew/bin` }),
+      isExecutable: only(join("/opt/homebrew/bin", "whisper-cli")),
     });
-    expect(r).toMatchObject({ found: true, path: "/opt/homebrew/bin/whisper-cli" });
+    expect(r).toMatchObject({ found: true, path: join("/opt/homebrew/bin", "whisper-cli") });
   });
 });

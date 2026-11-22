@@ -70,6 +70,10 @@ async function project(prefix = join(tmpdir(), "atag-candidate-test-")) {
 const rows: WorkerTaskResult[] = [{ id: "api", title: "api", status: "ok", reply: "done", stepCount: 1, durationMs: 1, tools: { calls: 1, errors: 0, writes: 1, byTool: {} } }];
 const contract = { checks: [{ kind: "command", command: "integration" }] };
 const signal = new AbortController().signal;
+// The Windows gate allows 60 seconds for integration fixtures. These cases
+// stage multiple workspaces or Git snapshots and exceeded 15 seconds in
+// the full Windows suite. Keep the ordinary budget elsewhere.
+const windowsCandidateTimeout = process.platform === "win32" ? 60_000 : undefined;
 
 it("canonicalizes fixture path aliases before matching runtime filesystem events", async () => {
   // Keep the redundant component in the actual mkdtemp prefix. This exposes
@@ -117,7 +121,7 @@ it("promotes checked final bytes, additions and deletions while retaining origin
     expect(await readFile(join(root, "new", "out.txt"), "utf8")).toBe("delivered");
     await expect(readFile(join(root, "dirty.txt"))).rejects.toThrow();
   } finally { await next.cleanup(); }
-});
+}, windowsCandidateTimeout);
 
 it.each(["max_steps", "needs_orchestrator", "cancelled", "no_changes"] as const)("does not promote a %s row even with a passing check", async status => {
   const root = await project(); const candidate = await createCandidateIntegration(root);
@@ -301,7 +305,7 @@ it.each([
     expect(await readFile(join(root, ".atomic-agent", "approval-rules.json"), "utf8")).toBe('{"rules":[]}');
     expect(await readFile(join(root, "a.txt"), "utf8")).toBe("a\n");
   } finally { await candidate.cleanup(); }
-});
+}, windowsCandidateTimeout);
 
 it("keeps worker writes under a shared dependency folder private to the candidate, even after rejection", async () => {
   const root = await ignoreRepo(); const candidate = await createCandidateIntegration(root);
@@ -328,7 +332,7 @@ it("keeps worker writes under a shared dependency folder private to the candidat
     await expect(lstat(join(root, "node_modules", "added.js"))).rejects.toThrow();
   } finally { await candidate.cleanup(); }
   expect(await readFile(join(root, "node_modules", "dep.js"), "utf8")).toBe("dep\n");
-});
+}, windowsCandidateTimeout);
 
 it("gives a folder-copy candidate its own dependency folder too", async () => {
   const root = await project();
@@ -375,7 +379,7 @@ it.each(["folder copy", "git worktree"] as const)("promotes through a symlinked 
   // A macOS /var -> /private/var style alias: the caller names the project through a link.
   const holder = await realpath(await mkdtemp(join(tmpdir(), "atag-candidate-alias-"))); roots.push(holder);
   const alias = join(holder, "alias");
-  await symlink(root, alias, "dir");
+  await symlink(root, alias, process.platform === "win32" ? "junction" : "dir");
   const candidate = await createCandidateIntegration(alias);
   try {
     expect(candidate.dir.startsWith(root)).toBe(false);

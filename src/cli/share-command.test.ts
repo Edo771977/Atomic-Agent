@@ -1,3 +1,4 @@
+import { basename, dirname, join, resolve } from "node:path";
 import { describe, expect, it, vi, type Mock } from "vitest";
 
 import type { SessionSummary } from "../session/index.js";
@@ -114,7 +115,7 @@ describe("shareCommand", () => {
     expect(await shareCommand([], h.deps)).toBe(0);
     expect(h.written).toHaveLength(1);
     const { file, content } = h.written[0]!;
-    expect(file).toBe("/state/shared-chats/chat-s-abc123.html");
+    expect(file).toBe(join("/state", "shared-chats", "chat-s-abc123.html"));
     expect(content).toContain("&lt;project&gt;/src/cart.ts");
     expect(content).not.toContain("/Users/nadya");
     expect(content).not.toContain("sk-ant-abcdefghijklmnop");
@@ -129,7 +130,7 @@ describe("shareCommand", () => {
       const h = harness({ upload, ask: async () => answer });
       expect(await shareCommand(["--gist"], h.deps)).toBe(0);
       expect(upload).not.toHaveBeenCalled();
-      expect(h.err.join("")).toContain("About to upload /state/shared-chats/chat-s-abc123.md");
+      expect(h.err.join("")).toContain(`About to upload ${join("/state", "shared-chats", "chat-s-abc123.md")}`);
     }
   });
 
@@ -139,7 +140,7 @@ describe("shareCommand", () => {
     const h = harness({ upload, ask });
     expect(await shareCommand(["--gist"], h.deps)).toBe(0);
     expect(ask).toHaveBeenCalledTimes(1);
-    expect(upload).toHaveBeenCalledWith("/state/shared-chats/chat-s-abc123.md", "Atomic Agent chat: Cart bug");
+    expect(upload).toHaveBeenCalledWith(join("/state", "shared-chats", "chat-s-abc123.md"), "Atomic Agent chat: Cart bug");
     expect(h.written[0]!.content.startsWith("# Cart bug")).toBe(true);
     expect(h.out.join("")).toContain("https://gist.github.com/u/abc");
   });
@@ -169,7 +170,7 @@ describe("shareCommand", () => {
     const printed = JSON.parse(h.out.join(""));
     expect(printed).toMatchObject({
       ok: true,
-      file: "/Users/nadya/shop/chat.html",
+      file: resolve("/Users/nadya/shop", "chat.html"),
       sessionId: "s-abc123",
       format: "html",
       messages: 2,
@@ -230,7 +231,7 @@ describe("shareCommand file name for an imported chat", () => {
     const h = harness({ openStore: () => store });
     expect(await shareCommand(["--session", "codex:abc"], h.deps)).toBe(0);
     const file = h.written[0]!.file;
-    expect(file.startsWith("/state/shared-chats/chat-")).toBe(true);
-    expect(file.slice("/state/shared-chats/".length)).not.toContain(":");
+    expect(dirname(file)).toBe(join("/state", "shared-chats"));
+    expect(basename(file)).toMatch(/^chat-[^:]+\.html$/);
   });
 });

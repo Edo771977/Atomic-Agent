@@ -41,6 +41,7 @@ describe("worker tool policy", () => {
         "os.screen.point",
         "os.screen.type",
         "plan.update",
+        "project.backlog.add",
         "project.brief",
         "project.milestone",
         "project.plan",
