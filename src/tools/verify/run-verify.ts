@@ -295,9 +295,12 @@ export async function runVerify(
   }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
-  if (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined) {
+  if (args.kind === "files" || (isArtifactKind(args.kind) && ctx.inputIntegrity === undefined)) {
     try {
+      // Metadata-only file checks can observe the frozen source directly.
+      const complete = await ctx.inputIntegrity?.begin(ctx.workingDir, ctx.signal ?? new AbortController().signal);
       const result = await runInWorkspace(args, ctx.workingDir, true, ctx, started, undefined, approveResearch);
+      await complete?.();
       return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
     } catch (error) {
       return failed(error instanceof Error ? error.message : "uncheckable artifact", ctx.signal?.aborted ? "cancelled" : undefined);
