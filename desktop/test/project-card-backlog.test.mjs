@@ -74,7 +74,7 @@ function view(p, over = {}) {
       const promoted = BL.backlogStateOf(p, b.id) === 'promoted';
       const plannedIn = promoted ? BL.backlogTakenIn(p, b.id) : undefined;
       const deferred = promoted && plannedIn === undefined && p.backlogCalls?.[b.id]?.deferred === true;
-      return {...b, state: BL.backlogStateOf(p, b.id), ...(plannedIn === undefined ? {} : {plannedIn}), ...(deferred ? {deferred: true} : {})};
+      return {...b, ...(b.origin === undefined ? {} : {origin: {...b.origin}}), state: BL.backlogStateOf(p, b.id), ...(plannedIn === undefined ? {} : {plannedIn}), ...(deferred ? {deferred: true} : {})};
     }),
   };
   return Object.assign({
@@ -525,4 +525,26 @@ test('a backlog answer that lands after a newer frame does not overwrite it', as
   assert.equal(items.find((i) => i.id === 'b1').state, 'dropped', 'the newer frame stands');
   assert.equal(c.last().model.busy, false);
   assert.match(c.last().model.notice, /b3 promoted/);
+});
+
+/* ---------------- the helper stays the core's shape ---------------- */
+
+// projectGateView itself does not load through loadCore (its imports reach
+// node:fs, node:child_process and import.meta), so the backlog block of this
+// file's view() is compared with the core's source: the same fields, built
+// with the same core functions. A shape change in the core fails here.
+test('view()\'s backlog is built as projectGateView builds it', () => {
+  const block = (src, start, end) => {
+    const from = src.indexOf(start);
+    assert.ok(from >= 0, start);
+    const to = src.indexOf(end, from);
+    assert.ok(to > from, end);
+    return src.slice(from, to);
+  };
+  const core = block(VIEW_SRC, 'const backlog = (project.backlog ?? []).length === 0', '// Issue #109: what waits changed outside');
+  const mine = block(readFileSync(new URL(import.meta.url), 'utf8'), 'const backlog = (p.backlog ?? []).length === 0', 'return Object.assign({');
+  const keys = (s) => [...new Set([...s.matchAll(/\b(\w+):(?=\s)/g), ...s.matchAll(/\{ ?(\w+) ?\}/g)].map((m) => m[1]))].sort();
+  const calls = (s) => [...new Set([...s.matchAll(/\b(\w+)\(/g)].map((m) => m[1]))].sort();
+  assert.deepEqual(keys(mine), keys(core));
+  assert.deepEqual(calls(mine), calls(core));
 });
