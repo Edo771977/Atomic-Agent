@@ -324,3 +324,8 @@ it.each([["style.css", "scans markup"], ["index.html", "is not installed"]])(
     expect(workspace).not.toHaveBeenCalled();
   },
 );
+
+it("treats severity advisory as advisory without a flag", async () => {
+  await fake(0, [finding("low-contrast", { severity: "advisory" })]);
+  expect(await check()).toMatchObject({ artifactStatus: "pass", impeccableFindings: ["warning: low-contrast — index.html"] });
+});

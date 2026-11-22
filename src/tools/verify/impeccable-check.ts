@@ -87,7 +87,7 @@ function parseReport(text: string, workspace: string, snapshot: string, source: 
         typeof row.file !== "string" || relative(resolve(workspace, row.file), resolve(workspace, snapshot)) !== "") {
       throw new Error("impeccable returned a finding without a valid rule or checked file");
     }
-    const advisory = "advisory" in row && row.advisory === true;
+    const advisory = ("advisory" in row && row.advisory === true) || ("severity" in row && row.severity === "advisory");
     primary ||= !advisory;
     const blocking = !advisory && (SEVERE_RULES.has(row.antipattern) || ("severity" in row && row.severity === "error"));
     severe ||= blocking;
