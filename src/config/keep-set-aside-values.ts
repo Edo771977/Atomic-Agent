@@ -157,10 +157,10 @@ function keepSetAsideProviders(out: Tree, disk: Tree, read: UserConfigFile): Tre
   // A team with a member on a set-aside provider was read without it
   // (issue #37): the whole block comes back unless it was changed here.
   const team = getPath(disk, FUSION_TEAM_KEY);
-  if (isPlain(team) && ["directors", "workers", "reviewers"].some((key) => {
+  if (isPlain(team) && (["directors", "workers", "reviewers"].some((key) => {
     const list = team[key];
     return Array.isArray(list) && list.some((m) => typeof m === "string" && setAside.has(splitTeamMemberRef(m)?.providerId ?? ""));
-  })) {
+  }) || (typeof team.planReviewer === "string" && setAside.has(splitTeamMemberRef(team.planReviewer)?.providerId ?? "")))) {
     next = keepAt(next, disk, read, FUSION_TEAM_KEY);
   }
   return next;

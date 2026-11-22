@@ -24,6 +24,8 @@ export interface CompactToolForm {
 }
 
 const RARE = "rare" as const;
+const GATE_AUTHORING =
+  'Read, measure, assert success-only. Absence: negative. exit 0 + stdout not contains "Tests: 0 passed".';
 
 const FORMS: Record<string, CompactToolForm> = {
   "browser.navigate": {
@@ -253,15 +255,15 @@ const FORMS: Record<string, CompactToolForm> = {
   "mcp.prompt.get": { summary: "Render an MCP prompt template.", tier: RARE },
   "verify.syntax": { summary: "Syntax-check files. Read-only.", tier: RARE },
   "verify.run": {
-    summary: "Run what was built (command, service or page) on a throwaway copy and check the result.",
+    summary: "Check a command, service or page in a throwaway copy, or check a local document or spreadsheet offline.",
     tier: RARE,
   },
   "fusion.delegate": {
-    summary: "Hand independent parts of the work to local workers; call it alone.",
+    summary: `Delegate alone. ${GATE_AUTHORING}`,
     tier: RARE,
   },
   "project.brief": { summary: "Draft the project brief for the person to approve; then reply." },
-  "project.plan": { summary: "Draft the plan (milestones, tasks) for the approved brief; then reply." },
+  "project.plan": { summary: `Plan and reply. ${GATE_AUTHORING}` },
   "project.milestone": { summary: "Report the approved milestone's result (done|failed, summary); then reply." },
   reply: {
     summary:

@@ -47,7 +47,6 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   env("ATOMIC_AGENT_GRAMMARS_DIR", null, "Folder with the tool-call grammars. Unset: the copy shipped next to the binary."),
   env("ATOMIC_AGENT_TOOL_CALL_GRAMMAR", null, "Path of the tool-call grammar file (tool-call.gbnf) to use instead of the one found next to the binary."),
   env("ATOMIC_AGENT_STARTER_SKILLS_DIR", null, "Folder the starter skills are copied from on first run. Unset: the starter-skills folder shipped with the app."),
-  env("ATOMIC_AGENT_RG_PATH", null, "Path of the ripgrep (rg) binary the file search uses. Unset: the copy shipped next to the binary, then rg on PATH."),
   env("ATOMIC_AGENT_TREE_SITTER_DIR", null, "Folder with tree-sitter grammars; when set and loadable, the code map parses with tree-sitter on top of its regex outline."),
   env("ATOMIC_AGENT_AST_GREP_PATH", null, "Path of the ast-grep binary os.code.search and os.code.rewrite run. Unset: ast-grep found on PATH."),
   env("ATOMIC_AGENT_SHARED_SKILLS_DIR", null, "Folder of skills shared by every agent, read with the lowest priority. Unset: ~/.agents/skills."),

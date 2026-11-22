@@ -33,7 +33,7 @@ export interface CheckOutcome {
 
 /** What a check may look at — the union of every runner's outcome. */
 export interface CheckSubject {
-  readonly kind: "command" | "service" | "page";
+  readonly kind: import("./verify-run-args.js").VerifyRunKind;
   readonly exitCode?: number | null;
   readonly timedOut?: boolean;
   /** Full captured output (capped), not just the tail in the result. */

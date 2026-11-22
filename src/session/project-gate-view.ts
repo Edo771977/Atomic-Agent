@@ -69,6 +69,32 @@ export interface ProjectGateView {
    * otherwise. An automatic approval stops here for the person.
    */
   changedOutside?: true;
+  /**
+   * Issue #118: the plan reviewer's last review of this plan, at the plan
+   * gate only; absent without one. `stale`: the rows changed since, so its
+   * results no longer describe the plan and block nothing. A fresh
+   * review's `fail` results block a plain approval; `approveOverReview`
+   * (in `allowedVerdicts` then) approves over them with a note.
+   */
+  planReview?: ProjectGatePlanReview;
+}
+
+/** The plan reviewer's notes as the card shows them (issue #118). */
+export interface ProjectGatePlanReview {
+  /** `missing`: a plan reviewer is configured but no review is recorded for this plan (an outside edit, another machine). */
+  outcome: "reviewed" | "skipped" | "not-run" | "missing";
+  reviewer: string | null;
+  /** One per dimension, same shape as a plan check result; empty unless reviewed. */
+  results: Array<{ dimension: string; verdict: "pass" | "warn" | "fail"; detail: string; taskIds: string[] }>;
+  reason?: string;
+  round: number;
+  stale: boolean;
+  /**
+   * False when an automatic approval (`--auto-approve-project`) must stop
+   * here for a person: open fails, or a plan reviewer is configured and
+   * this plan was not reviewed. A person may still approve.
+   */
+  autoApprovable: boolean;
 }
 
 /**

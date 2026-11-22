@@ -51,7 +51,6 @@ export interface AgentTaskRunnerOptions {
 /** The `ATOMIC_AGENT_*` variables the child keeps: where a packaged build's assets are. */
 const KEPT_AGENT_VARS = new Set([
   "ATOMIC_AGENT_GRAMMARS_DIR",
-  "ATOMIC_AGENT_RG_PATH",
   "ATOMIC_AGENT_TREE_SITTER_DIR",
   "ATOMIC_AGENT_STARTER_SKILLS_DIR",
 ]);

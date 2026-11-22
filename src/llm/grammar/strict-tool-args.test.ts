@@ -158,6 +158,9 @@ describe("strict tool args (ATO-633): the generic branch", () => {
       ["fusion.delegate", { tasks: [{ id: "a", instructions: "x", watchMinutes: -1 }] }, false],
       ["verify.run", { kind: "command", cmd: "ls", args: ["-l"] }, true],
       ["verify.run", { cmd: "ls" }, false],
+      ["verify.run", { kind: "document", path: "brief.md" }, true],
+      ["verify.run", { kind: "spreadsheet", path: "sales.xlsx" }, true],
+      ["verify.run", { kind: "document", path: "brief.md", wordRange: { min: 1 } }, false],
       ["plan.update", { items: [{ step: "a", status: "done" }] }, true],
       ["project.brief", { what: "a", users: "b", how: "c", successCriteria: ["d"] }, true],
       ["project.brief", { what: "a", users: "b", how: "c", successCriteria: [{ id: "d", text: "e" }, "f"] }, true],
@@ -196,6 +199,14 @@ describe("strict tool args (ATO-633): the generic branch", () => {
 });
 
 describe("strict tool args (ATO-633): with the rest of the grammar pipeline", () => {
+  it("keeps verify.run strict even when no other tool contributes shared rules", async () => {
+    const plain = await buildGrammar(PLAIN_INSTRUCT_PROFILE);
+    const narrowed = buildGrammarForTools(plain, ["verify.run"]);
+    const strict = applyStrictToolArgs(narrowed, ALL_TOOLS);
+    expect(gbnfAccepts(strict, "root", call("verify.run", { kind: "spreadsheet", path: "sales.csv" }))).toBe(true);
+    expect(gbnfAccepts(strict, "root", call("verify.run", { cmd: "ls" }))).toBe(false);
+  });
+
   it("after narrowing: only the admitted names, and other-call goes when every one is strict", async () => {
     const plain = await buildGrammar(PLAIN_INSTRUCT_PROFILE);
     const narrowed = buildGrammarForTools(plain, ["os.git.log", "finish", "os.fs.read"]);

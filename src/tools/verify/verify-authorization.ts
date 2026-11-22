@@ -9,7 +9,7 @@ import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-re
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
-import { parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
+import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
 
@@ -85,6 +85,7 @@ const VERIFICATION_FIELDS = new Set([
   // A fusion contract check's vision judgement (issue #40): read by the
   // judge, stripped before the runner like `task` and `criteria`.
   "judge",
+  "requiredSections", "wordRange", "language", "extraPlaceholders", "requiredSheets", "requiredColumns", "totals",
 ]);
 
 /** Reject alternative executor meanings before interpreting or describing any plan. */
@@ -142,6 +143,7 @@ export async function authorizeVerifyBatch(
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
     const cwd = resolveVerifyCwd(project, logical.cwd);
+    const artifactTarget = isArtifactKind(logical.kind) && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
     const commands = verifyRunCommands(logical);
     const commandSegments = commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)));
     const stdinScript = verifyRunStdinScript(logical);
@@ -161,17 +163,22 @@ export async function authorizeVerifyBatch(
       throw new Error("verification command credentials cannot be safely represented in approval metadata; pass credentials through the explicit environment instead");
     }
     const previewKnown = [...known, ...knownSecretsFromEnv(logical.env)];
+    const execution = artifactTarget === undefined
+      ? "in a private verification copy of this project; absolute project references are rebased into that copy"
+      : "read a bounded file snapshot with an offline parser";
     const preview = [
       ...commands.map(c => maskVerificationSecrets(formatShellPreview(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)), previewKnown)),
-      JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution: "in a private verification copy of this project; absolute project references are rebased into that copy" }, previewKnown), null, 2),
+      JSON.stringify(maskedVerificationValue({ ...logical, cwd, env, checkInputs: ctx.checkInputs ?? [], execution }, previewKnown), null, 2),
       ...(options.copyNote === undefined ? [] : [options.copyNote]),
     ].join("\n");
     if (Buffer.byteLength(preview) > MAX_AUTHORIZATION_BYTES) throw new Error("verification authorization preview exceeds the size limit");
     const prompt = {
       sessionId: ctx.sessionId, tool: "verify.run",
       category: dangerous ? "shell_dangerous" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
-      reason: `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`,
-      preview, affectedResources: [cwd], targetPaths, commandSegments,
+      reason: artifactTarget === undefined
+        ? `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`
+        : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
+      preview, affectedResources: [artifactTarget ?? cwd], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
       // Issue #95: one direct exec (no shell reads it) with no env, no
@@ -193,7 +200,7 @@ export async function authorizeVerifyBatch(
   }
   for (const { logical, cwd } of plans) {
     const readContext = { ...ctx, workingDir: cwd, readRoots: [project, ...(ctx.readRoots ?? [])] };
-    const paths = logical.kind === "page" && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
+    const paths = (logical.kind === "page" || isArtifactKind(logical.kind)) && logical.path !== undefined ? [resolve(cwd, logical.path)] : [];
     const urls = [logical.url, logical.ready?.url, ...(logical.requests ?? []).flatMap(request => [request.url, request.path])];
     for (const url of urls) {
       if (url === undefined) continue;

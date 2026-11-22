@@ -21,7 +21,7 @@ export type { GrepOutputMode } from "./fs-grep-args.js";
 export { parseRipgrepJson } from "./fs-grep-ripgrep-json.js";
 
 export interface FsGrepDependencies {
-  resolveRgPath: () => string | null;
+  resolveRgPath: (workingDir: string) => string | null;
   runCommand: typeof defaultRunCommand;
 }
 
@@ -38,7 +38,7 @@ export const LITERAL_HINT =
 export function buildOsFsGrepTool(
   deps: Partial<FsGrepDependencies> = {},
 ): ToolDefinition {
-  const resolveRgPath = deps.resolveRgPath ?? (() => resolveRipgrepPath());
+  const resolveRgPath = deps.resolveRgPath ?? ((workingDir) => resolveRipgrepPath({ workingDir }));
   const runCommand = deps.runCommand ?? defaultRunCommand;
 
   return {
@@ -47,7 +47,7 @@ export function buildOsFsGrepTool(
     readonly: OS_FS_GREP_CONTRACT.readonly,
     async run(rawArgs, ctx) {
       const args = parseArgs(rawArgs, ctx.workingDir);
-      const rgPath = resolveRgPath();
+      const rgPath = resolveRgPath(ctx.workingDir);
       if (!rgPath) {
         return compressToolResult({
           tool: "os.fs.grep",

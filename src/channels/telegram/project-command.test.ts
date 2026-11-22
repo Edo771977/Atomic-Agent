@@ -79,3 +79,15 @@ describe("Telegram /plan (issue #39)", () => {
     expect(projectGateNotice({}, "s")).toBeNull();
   });
 });
+
+describe("Telegram /plan and the plan reviewer (issue #118)", () => {
+  it("shows the plan review notes and where to approve over them", async () => {
+    const view = fixtureProjectGateView({ kind: "plan" }, {
+      allowedVerdicts: ["approve", "edit", "cheaper", "quality", "approveOverReview", "cancel"],
+      hints: ["plan review 3 by cloud:r: 7 pass, 0 warn, 1 fail; open notes below: approve over them only with a note (approveOverReview)", "plan review: scope: fail: drops the level editor"],
+    });
+    const out = await runProjectCommand([], { runtime: runtime(view), sessionId: "s", busy: false });
+    expect(out.text).toContain("  hint: plan review: scope: fail: drops the level editor");
+    expect(out.text).toContain("Approving over the open review notes (with your reason) is in the terminal or the desktop app.");
+  });
+});

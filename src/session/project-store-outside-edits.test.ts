@@ -10,6 +10,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { planReferenceBasis } from "../tools/fusion/plan-checks.js";
 import { checkProjectDispatch } from "../tools/fusion/project-dispatch.js";
 import { stateDirProjectRecords } from "./project-decisions.js";
 import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
@@ -127,6 +128,21 @@ describe("project.json edits cannot drive dispatch, gates or evidence (issue #10
     const after = open();
     expect(after.brief?.status).toBe("approved");
     expect(after.changedOutside).toBeUndefined();
+  });
+
+  it("a references record written in the file is never read: it lives in the state dir (issue #120 review #8)", () => {
+    const start = running();
+    const rows = start.plan!.rows;
+    const recorded = { verdict: "warn" as const, detail: "Missing: src/x.ts (t1: not in the project folder).", taskIds: ["t1"], basis: planReferenceBasis(rows) };
+    createProject(folder, { ...start, plan: { ...start.plan!, referenceCheck: recorded } }, options);
+    expect(JSON.parse(readFileSync(projectFilePath(folder), "utf8")).project.plan.referenceCheck).toBeUndefined();
+    edit((j) => { j.project.plan.referenceCheck = { verdict: "pass", detail: "All good.", taskIds: [], basis: planReferenceBasis(rows) }; });
+    const opened = open();
+    expect(opened.plan?.referenceCheck).toEqual(recorded);
+    // Without a record (a copied folder), nothing of the file's record is taken either.
+    const r = openProject(folder, { ...options, records: stateDirProjectRecords(mkdtempSync(join(tmpdir(), "aa-outside-other-"))) });
+    expect(r.ok && r.opened.project.plan?.referenceCheck).toBeUndefined();
+    expect(r.ok && r.opened.stored.project.plan?.referenceCheck).toBeUndefined();
   });
 
   it("an edit while a milestone result waits for the person is not taken", () => {

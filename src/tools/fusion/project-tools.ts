@@ -34,7 +34,11 @@ import type { WorkerPricing } from "./worker-result.js";
 import type { MilestoneEvidence } from "./run-criteria.js";
 import type { ContractCheck } from "./contract.js";
 import { parsePlanRowChecks } from "./contract-check-spec.js";
-import { evaluatePlanChecks, planCheckHint } from "./plan-checks.js";
+import { evaluatePlanChecks, planCheckHint, planReferenceBasis, type PlanReferenceRecord } from "./plan-checks.js";
+import { DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS } from "../../config/llm-fusion-team-config.js";
+import { frameUntrustedText } from "../untrusted-tool-output.js";
+import { planReviewBasis, planReviewHints, planReviewLine, withPlanFacts, type PlanReviewFacts, type PlanReviewRecord } from "./plan-review-record.js";
+import type { PlanReviewFn } from "./plan-reviewer.js";
 
 /**
  * The director's project tools (issue #39): `project.brief`,
@@ -106,6 +110,20 @@ export interface ProjectToolDeps {
    * report the milestone failed at once (it stays open at the gate).
    */
   correctionBudgetLeft?: (sessionId: string) => boolean;
+  /**
+   * Issue #120: resolve the drafted rows' cited files, scripts, commands
+   * and symbols in the project folder (`plan-references.ts`); never runs
+   * a project command. Absent: the plan has no `references` result.
+   */
+  planReferences?: (rows: readonly AssignmentRow[], projectFolder: string, signal: AbortSignal | undefined) => Promise<PlanReferenceRecord>;
+  /**
+   * Issue #118: the plan reviewer (`plan-reviewer.ts`'s `createPlanReview`),
+   * asked once per draft before the plan gate reaches the person; it
+   * returns null when no plan reviewer is configured. Absent: no review.
+   */
+  planReview?: PlanReviewFn;
+  /** `team.planReviewRounds`: how often a failed draft goes back to the director; absent: the default (2). */
+  planReviewRounds?: () => number;
   milestoneEvidence?: (
     milestone: ProjectMilestone,
     criteriaOrder: readonly string[],
@@ -437,6 +455,66 @@ export const MILESTONE_FAILED_REFUSALS = 2;
 /** A review block whose reviewer could not run or answer: a failed report then is never held back. */
 const REVIEWER_DOWN = /no reviewer ran|could not run|could not be read|not judged/i;
 
+const REVISE_FOR_REVIEW =
+  "Not shown to the person yet: revise the plan with project.plan to address the plan reviewer's notes (or say in a task title why one does not apply). Do not reply to the person and do not delegate until the plan is at their gate.";
+
+/** The reviewer's notes are a model's answer: framed as data in the director's result. */
+const PLAN_REVIEWER_SOURCE = "the plan reviewer's answer (a model)";
+
+function reviewLines(review: PlanReviewRecord, rows: readonly AssignmentRow[], milestoneIds: readonly string[], facts: PlanReviewFacts, deps: ProjectToolDeps): string[] {
+  const hints = planReviewHints({ rows, review }, milestoneIds, facts);
+  if (review.outcome !== "reviewed") return hints;
+  const [head, ...notes] = hints;
+  const results = withPlanFacts(review.results, rows, facts);
+  const fails = results.filter((r) => r.verdict === "fail");
+  const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
+  return [
+    review.sentBack
+      ? `Plan not shown to the person: the plan reviewer failed ${fails.map((r) => r.dimension).join(", ")} (round ${review.round} of ${rounds + 1}).`
+      : fails.length > 0
+        ? `The plan reviewer still fails ${fails.map((r) => r.dimension).join(", ")} after ${review.round - 1} round${review.round - 1 === 1 ? "" : "s"}: the person sees its open notes at the gate and decides.`
+        : head!,
+    ...(notes.length === 0 ? [] : [frameUntrustedText(results.filter((r) => r.verdict !== "pass").map(planReviewLine).join("\n"), PLAN_REVIEWER_SOURCE)]),
+  ];
+}
+
+/**
+ * Issue #118: ask the plan reviewer about this draft. The round counts
+ * the reviews since a person last decided at a gate (the director
+ * drafting again never restarts it); a fail sends the draft back while
+ * rounds are left. Undefined: no review.
+ */
+async function reviewDraft(
+  deps: ProjectToolDeps,
+  ctx: Parameters<ToolDefinition["run"]>[1],
+  draft: { update: Extract<ProjectUpdate, { kind: "plan" }>; rows: readonly AssignmentRow[]; criteria: readonly ProjectCriterion[]; planChecks: ReturnType<typeof evaluatePlanChecks> },
+): Promise<PlanReviewRecord | undefined> {
+  const project = ctx.project;
+  if (deps.planReview === undefined || project?.brief?.status !== "approved") return undefined;
+  const previous = project.plan?.review;
+  // Rounds count per plan cycle: on from the last review until a person decides (issue #118).
+  const continues = previous !== undefined && previous.decided !== true;
+  const answer = await deps.planReview({
+    input: {
+      brief: { what: project.brief.what, users: project.brief.users, how: project.brief.how, ...(project.brief.deliverable === undefined ? {} : { deliverable: project.brief.deliverable }) },
+      criteria: draft.criteria,
+      decisions: planDecisionsOf(project),
+      milestones: draft.update.milestones,
+      rows: draft.rows,
+      planChecks: draft.planChecks,
+      ...(continues ? { previousNotes: withPlanFacts(previous.results, project.plan?.rows ?? [], draft).filter((r) => r.verdict !== "pass") } : {}),
+    },
+    sessionId: ctx.sessionId,
+    signal: ctx.signal,
+  });
+  if (answer === null) return undefined;
+  const round = continues ? previous.round + 1 : 1;
+  const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
+  // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
+  const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
+  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
+}
+
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
   const brief: ToolDefinition = {
     name: PROJECT_BRIEF_TOOL,
@@ -470,17 +548,27 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       const rows = enriched.rows;
       const totals = planTotals(rows);
       const detail = planDetailFor({ rows, totals }, context.projectConfig, false);
-      const update: ProjectUpdate = {
+      const referenceCheck = deps.planReferences === undefined ? undefined : await deps.planReferences(rows, ctx.workingDir, ctx.signal).catch((err: unknown): PlanReferenceRecord => {
+        // A check that could not run is never green (issue #120).
+        ctx.signal?.throwIfAborted();
+        return { verdict: "warn", detail: `References not checked: ${err instanceof Error ? err.message : String(err)}.`, taskIds: [], basis: planReferenceBasis(rows) };
+      });
+      let update: Extract<ProjectUpdate, { kind: "plan" }> = {
         kind: "plan",
         milestones: parsed.plan.milestones,
         rows,
         detail,
         draftedAfterUntrusted: deps.outsideContent(ctx.sessionId),
+        ...(referenceCheck === undefined ? {} : { referenceCheck }),
       };
       // The milestones as this draft would leave them (issue #112): a finished one counts only for what it ran under.
       const folded = ctx.project === undefined ? null : applyProjectUpdate(ctx.project, update, 0);
       const milestonesAfter = folded !== null && folded.ok ? folded.project.milestones : (ctx.project?.milestones ?? []);
-      const planChecks = evaluatePlanChecks(rows, ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []), {}, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      const criteria = ctx.project?.approvedCriteria ?? (ctx.project?.brief?.status === "approved" ? ctx.project.brief.successCriteria : []);
+      const planChecks = evaluatePlanChecks(rows, criteria, referenceCheck === undefined ? {} : { references: referenceCheck }, ctx.project === undefined ? [] : planDecisionsOf(ctx.project), finishedCitationsOf(milestonesAfter));
+      // Issue #118: the plan reviewer, before the gate reaches the person.
+      const review = await reviewDraft(deps, ctx, { update, rows, criteria, planChecks });
+      if (review !== undefined) update = { ...update, planReview: review, ...(review.sentBack ? { holdForReview: true as const } : {}) };
       const lines = [
         `Plan drafted: ${parsed.plan.milestones.length} milestone${parsed.plan.milestones.length === 1 ? "" : "s"}, ${rows.length} task${rows.length === 1 ? "" : "s"}, ${usd(totals.costUsd)}${totals.unknownCostRows > 0 ? ` (+${totals.unknownCostRows} unpriced)` : ""}.`,
         ...parsed.plan.milestones.flatMap((m) => [
@@ -491,7 +579,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...planChecks.map(planCheckHint),
-        AWAIT_PERSON,
+        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
+        review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,
       ];
       // Issue #77: say which results stop counting, so the reply can tell the person.
       const resets = projectVerdictResets(ctx.project, update);
