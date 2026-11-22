@@ -13,6 +13,7 @@ import { gateContentHash, stateDirProjectRecords } from "./project-decisions.js"
 import { commitProject, createProject, openProject, projectFilePath, type ProjectStoreOptions } from "./project-store.js";
 import {
   applyBacklogDecision,
+  backlogDecisionFingerprint,
   backlogStateOf,
   nextBacklogId,
   openBacklog,
@@ -70,6 +71,25 @@ function added(project: ProjectState, item: Record<string, unknown>, now = 10): 
   if (!r.ok) throw new Error(r.error.message);
   return r.project;
 }
+
+describe("backlog confirmation fingerprints", () => {
+  it("refuses stale content, status and plan adoption before applying a confirmed decision", () => {
+    const project = added(running(), { title: "PDF export", note: "Internal only", condition: "When reports ship", source: "director" });
+    const item = project.backlog![0]!;
+    const expectedFingerprint = backlogDecisionFingerprint(item, "open");
+    const decision = { id: item.id, state: "promoted" as const, expectedFingerprint };
+    const changed = { ...project, backlog: [{ ...item, note: "Public reports" }] };
+    expect(applyBacklogDecision(changed, decision)).toMatchObject({ ok: false, error: { message: expect.stringMatching(/changed since/) } });
+    const applied = applyBacklogDecision(project, decision);
+    if (!applied.ok) throw new Error(applied.error.message);
+    expect(applied.project.backlogStates).toEqual({ b1: "promoted" });
+    expect(applyBacklogDecision(applied.project, decision).ok).toBe(false);
+
+    const afterPlan = { ...applied.project, backlogCalls: { b1: { ...applied.project.backlogCalls!.b1!, plannedIn: 4 } } };
+    const reopen = { id: item.id, state: "open" as const, expectedFingerprint: backlogDecisionFingerprint(item, "promoted") };
+    expect(applyBacklogDecision(afterPlan, reopen).ok).toBe(false);
+  });
+});
 
 describe("backlog items: adding", () => {
   it("a person's item added during a milestone is in the folder's store and survives closing the chat", () => {

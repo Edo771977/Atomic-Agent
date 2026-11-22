@@ -45,6 +45,16 @@ Open `/plan` in the TUI and press **b** for the backlog, including between gates
 
 A warning marks an item whose text changed after your decision. Review its current text before deciding again. For an item removed outside Atomic Agent, **r** clears the old decision. **Esc** returns to the project card.
 
+## Review the backlog in Telegram
+
+In your paired Telegram chat, send `/backlog` to see open, promoted and dropped items, seed conditions, the plan version that took in a promoted item, and stale decisions reported by the project.
+
+- `/promote <id>` previews proposing the item for the next plan. You still approve that plan separately.
+- `/drop <id>` previews marking the item as dropped.
+- `/reopen <id>` previews taking back the recorded decision.
+
+Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
+
 ## Read the plan review
 
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { createEmptySessionState, type SessionState } from "../../session/index.js";
+import type { ProjectBacklogDecision } from "../../session/project-backlog.js";
 import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectDecision } from "../../session/session-project.js";
@@ -24,6 +25,7 @@ describe("Telegram project gate", () => {
   let view: ProjectGateView | undefined;
   let messages: string[];
   let decisions: ProjectDecision[];
+  let backlogDecisions: Array<{ sessionId: string; decision: ProjectBacklogDecision }>;
   let sent: string[];
   let withholdProject: boolean;
   let ctx: InboundContext;
@@ -33,6 +35,7 @@ describe("Telegram project gate", () => {
     view = undefined;
     messages = [];
     decisions = [];
+    backlogDecisions = [];
     sent = [];
     withholdProject = false;
     const sessions: SessionState[] = [];
@@ -57,6 +60,10 @@ describe("Telegram project gate", () => {
         decisions.push(d);
         view = fixtureProjectGateView({ kind: "none" }, { version: 4, expectation: { kind: "run_milestone", id: "m1" } });
         return { ok: true as const, project: { milestones: [], gate: { kind: "none" as const } }, view };
+      },
+      projectBacklogDecision: (sessionId: string, decision: ProjectBacklogDecision) => {
+        backlogDecisions.push({ sessionId, decision });
+        return { ok: true as const, project: { milestones: [], gate: { kind: "none" as const } }, view: view! };
       },
     } as unknown as AgentRuntime;
     ctx = {
@@ -128,5 +135,52 @@ describe("Telegram project gate", () => {
     await say("/defer d1 3");
     expect(sent.slice(count)).toEqual([CHANNEL_RESTRICTED_NOTICE, CHANNEL_RESTRICTED_NOTICE]);
     expect(decisions).toEqual([]);
+  });
+
+  function backlogView(gate: ProjectGateView["gate"]) {
+    return fixtureProjectGateView(gate, {
+      backlog: {
+        open: 1, stale: [], promoted: [],
+        seeds: [{ id: "b1", title: "<b>PDF</b> & export", condition: "When reports exist" }],
+        items: [{ id: "b1", title: "<b>PDF</b> & export", condition: "When reports exist", createdAt: 1, source: "director", state: "open" }],
+      },
+    });
+  }
+
+  it("handles a backlog command between gates as plain text in the paired owner's chat", async () => {
+    await say("build a puzzle game");
+    view = backlogView({ kind: "none" });
+    const count = sent.length;
+    await say("/backlog", OWNER + 1);
+    await say("/promote b1", OWNER + 1);
+    expect(sent).toHaveLength(count);
+    await say("/backlog", OWNER, CHAT + 1);
+    expect(sent.at(-1)).toMatch(/no project record/);
+    await say("/backlog");
+    expect(sent.at(-1)).toContain("<b>PDF</b> & export");
+    expect(vi.mocked(ctx.api.sendMessage).mock.lastCall?.[2]?.parse_mode).toBeUndefined();
+    await say("/promote b1");
+    const code = sent.at(-1)?.match(/\/promote b1 ([0-9a-f]{16})/)?.[1];
+    expect(code).toBeDefined();
+    expect(backlogDecisions).toEqual([]);
+    await say(`/promote b1 ${code}`, OWNER + 1);
+    await say(`/promote b1 ${code}`, OWNER, CHAT + 1);
+    withholdProject = true;
+    await say(`/promote b1 ${code}`);
+    expect(sent.at(-1)).toBe(CHANNEL_RESTRICTED_NOTICE);
+    expect(backlogDecisions).toEqual([]);
+    withholdProject = false;
+    await say(`/promote b1 ${code}`);
+    expect(backlogDecisions).toEqual([{ sessionId: "s-1", decision: { id: "b1", state: "promoted", expectedFingerprint: expect.any(String) } }]);
+    expect(messages).toEqual(["build a puzzle game"]);
+  });
+
+  it("does not promote a seed when showing or approving the plan", async () => {
+    await say("build a puzzle game");
+    view = backlogView({ kind: "plan" });
+    await say("/plan");
+    await say("/plan approve 3");
+    expect(decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "approve" }]);
+    expect(backlogDecisions).toEqual([]);
   });
 });

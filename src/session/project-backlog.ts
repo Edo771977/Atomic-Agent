@@ -60,6 +60,8 @@ export interface ProjectBacklogDraft {
 export interface ProjectBacklogDecision {
   id: string;
   state: "promoted" | "dropped" | "open";
+  /** A surface that previews a call can require the runtime to recheck that snapshot. */
+  expectedFingerprint?: string;
 }
 
 export type ProjectBacklogItemState = "open" | "promoted" | "dropped";
@@ -81,6 +83,18 @@ type BacklogView = Pick<ProjectState, "backlog" | "backlogStates" | "backlogCall
 /** What a person's call on an item is bound to: its title, note and condition (not its source, origin or time). */
 export function backlogItemHash(item: Pick<ProjectBacklogItem, "title" | "note" | "condition">): string {
   return createHash("sha256").update(JSON.stringify([item.title, item.note ?? null, item.condition ?? null])).digest("hex").slice(0, 16);
+}
+
+/** Identity, displayed content and decision evidence a person saw before confirming. */
+export function backlogDecisionFingerprint(
+  item: Pick<ProjectBacklogItem, "id" | "createdAt" | "title" | "note" | "condition"> | undefined,
+  state: ProjectBacklogItemState | undefined,
+  plannedIn?: number,
+  stale?: { state: "promoted" | "dropped"; reason: "changed" | "removed" },
+): string {
+  return createHash("sha256").update(JSON.stringify([
+    item?.id, item?.createdAt, item?.title, item?.note, item?.condition, state, plannedIn, stale?.state, stale?.reason,
+  ])).digest("hex");
 }
 
 /**
@@ -227,6 +241,14 @@ export function applyBacklogDecision(project: ProjectState | undefined, decision
   const orphan = item === undefined && project.backlogStates?.[decision.id] !== undefined;
   if (item === undefined && !(orphan && decision.state === "open")) {
     return { ok: false, error: { code: "invalid", message: `the backlog has no item ${decision.id}` } };
+  }
+  if (decision.expectedFingerprint !== undefined) {
+    const state = item === undefined ? undefined : backlogStateOf(project, decision.id);
+    const plannedIn = state === "promoted" ? project.backlogCalls?.[decision.id]?.plannedIn : undefined;
+    const stale = staleBacklogCalls(project).find(({ id }) => id === decision.id);
+    if (decision.expectedFingerprint !== backlogDecisionFingerprint(item, state, plannedIn, stale)) {
+      return { ok: false, error: { code: "invalid", message: `Backlog item ${decision.id} changed since it was shown. Preview the decision again.` } };
+    }
   }
   const states = { ...(project.backlogStates ?? {}) };
   const calls = { ...(project.backlogCalls ?? {}) };
