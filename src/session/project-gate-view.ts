@@ -63,6 +63,14 @@ export interface ProjectGateView {
    * the person may send `edit` with `edits.decisionStatus` to defer it.
    */
   decisions?: ProjectGateDecision[];
+  /** Active binding lessons for the plan gate, with task coverage and the person's deferrals. */
+  lessonCoverage?: {
+    id: string;
+    title: string;
+    deferred: boolean;
+    citedBy: string[];
+    missingFrom: string[];
+  }[];
   /**
    * Issue #109: the open gate's content changed outside Atomic Agent since
    * the person last decided it (`project.json` edited by hand or by a

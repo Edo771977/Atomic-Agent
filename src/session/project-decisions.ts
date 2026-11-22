@@ -55,6 +55,7 @@ export interface ProjectDecisionRecord extends ProjectDecisionInput {
 }
 
 export interface ProjectLessonCall {
+  always?: boolean;
   state: "approved" | "retired";
   hash: string;
 }
@@ -446,9 +447,9 @@ function readLessonCalls(raw: unknown): Record<string, ProjectLessonCall> | null
   const calls: Record<string, ProjectLessonCall> = {};
   for (const [id, value] of Object.entries(raw)) {
     if (!validProjectLessonId(id) || typeof value !== "object" || value === null) return null;
-    const { state, hash } = value as Partial<ProjectLessonCall>;
+    const { state, hash, always } = value as Partial<ProjectLessonCall>;
     if ((state !== "approved" && state !== "retired") || typeof hash !== "string" || !/^[0-9a-f]{64}$/.test(hash)) return null;
-    calls[id] = { state, hash };
+    calls[id] = { state, hash, ...(typeof always === "boolean" ? { always } : {}) };
   }
   return calls;
 }

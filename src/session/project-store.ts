@@ -6,9 +6,10 @@ import { splitTeamMemberRef } from "../config/llm-fusion-team-config.js";
 import { getConfig } from "../config/index.js";
 import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
-import { approvedProjectLessons } from "./project-lessons.js";
-import { projectLessonReviewSelection } from "./project-lesson-projection.js";
-import { normalizeProject, currentProjectLessonsBasis, type ProjectState } from "./session-project.js";
+import { projectLessonStatus, readProjectLessons } from "./project-lessons.js";
+import { lessonsForCurrentPlan, projectLessonReviewSelection } from "./project-lesson-projection.js";
+import { lessonTouchesTask, taskReferencePaths } from "../tools/fusion/plan-references.js";
+import { normalizeProject, currentProjectLessons, currentProjectLessonsBasis, planReviewFactsOf, type ProjectState } from "./session-project.js";
 import { renderProjectViews } from "./project-store-views.js";
 import { withFileLock } from "./project-lock.js";
 import {
@@ -272,14 +273,37 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   const record = options.records.read(read.stored.folder);
   if (!record.ok) return { ok: false, problem: recordProblem(record.problem, read.stored.folder) };
   const project = resolveProject(read.stored.project, record.record, (options.now ?? Date.now)());
+  const projectFolder = read.stored.folder;
+  const calls = Object.entries(record.record?.lessonCalls ?? {});
+  const lessons = calls.length === 0 ? [] : readProjectLessons(projectFolder).lessons;
+  const byId = new Map(lessons.map((lesson) => [lesson.id, lesson]));
+  const active = calls.flatMap(([id, call]) => {
+    const lesson = byId.get(id);
+    return lesson !== undefined && projectLessonStatus(lesson, call).effectiveStatus === "active" ? [lesson] : [];
+  });
+  const stale = calls.filter(([id, call]) =>
+    call.state === "approved" && call.always !== false && byId.get(id)?.hash !== call.hash).map(([id]) => id);
+  const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), projectFolder);
+  const hasCitations = project.plan?.rows.some((row) => row.lessons !== undefined) === true;
+  if (record.record !== null && (calls.length > 0 || hasCitations)) {
+    project[currentProjectLessons] = {
+      active, stale,
+      workerGetsLessons: (ref) => {
+        const provider = splitTeamMemberRef(ref)?.providerId;
+        return policy === undefined || (provider !== undefined && policy.allows(provider));
+      },
+      taskPaths: (row) => taskReferencePaths(row.files ?? [], row.checks ?? [], projectFolder),
+      matches: (touches, paths) => lessonTouchesTask(touches, paths, process.platform),
+    };
+  }
+  if (project.plan?.status === "draft" && (active.length > 0 || stale.length > 0 || hasCitations)) {
+    project.plan = { ...project.plan, checkResults: [...planReviewFactsOf(project).planChecks] };
+  }
   const review = project.plan?.review;
   if (review?.lessonsBasis !== undefined && review.reviewer !== null) {
     const provider = review.reviewerProviderId ?? splitTeamMemberRef(review.reviewer)?.providerId;
-    const folder = read.stored.folder;
-    const active = approvedProjectLessons(folder, record.record?.lessonCalls);
-    const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), folder);
     const allowed = policy === undefined || (provider !== undefined && policy.allows(provider));
-    project[currentProjectLessonsBasis] = projectLessonReviewSelection(active, allowed).basis;
+    project[currentProjectLessonsBasis] = projectLessonReviewSelection(lessonsForCurrentPlan(active, project.lessonDeferred), allowed).basis;
   }
   return {
     ok: true,

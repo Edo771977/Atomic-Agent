@@ -62,7 +62,7 @@ import { parseAllowedCommand, pinAllowedCommand, type AllowedCommand } from "./r
 import { editProjectStatuses, PROJECT_GATE_EXIT, settleProjectGate } from "./run-project-gate.js";
 import { normalizeCriterionId } from "../session/project-criterion-id.js";
 import { PROJECT_LIMITS } from "../session/project-limits.js";
-import { withProject, type PersonBacklogStatus, type PersonDecisionStatus } from "../session/session-project.js";
+import { parsePlanTaskLessons, withProject, type PersonBacklogStatus, type PersonDecisionStatus, type PersonLessonStatus } from "../session/session-project.js";
 
 interface RunArgs {
   workingDir: string;
@@ -85,6 +85,7 @@ interface RunArgs {
   /** An explicit person-initiated edit for the plan gate before reading stdin. */
   decisionStatus?: Readonly<Record<string, PersonDecisionStatus>>;
   backlogStatus?: Readonly<Record<string, PersonBacklogStatus>>;
+  lessonStatus?: Readonly<Record<string, PersonLessonStatus>>;
   /** Issue #39: `--auto-approve-project`, approve every project gate as it opens (explicit only). */
   autoApproveProject: boolean;
   /** Issue #95: `--allow-command "<exact command>"` (repeatable), pre-approved in `--cwd` or below. */
@@ -115,6 +116,11 @@ const HELP =
     "                       at the version printed with it, then continue; needs --session",
     "  --defer-decision <id>[,<id>]       Defer decisions from the approved brief",
     "  --reactivate-decision <id>[,<id>] Restore decisions to active status",
+    "                       Needs --session at the plan gate. Prints the new plan version",
+    "                       and exits 3 for separate approval. Cannot be combined with",
+    "                       --approve or --auto-approve-project.",
+    "  --defer-lesson <id>[,<id>]       Defer binding lessons for this plan",
+    "  --activate-lesson <id>[,<id>]    Require binding lessons again",
     "                       Needs --session at the plan gate. Prints the new plan version",
     "                       and exits 3 for separate approval. Cannot be combined with",
     "                       --approve or --auto-approve-project.",
@@ -156,6 +162,7 @@ export function parseRunArgs(
   let autoApproveProject = false;
   const decisionStatus = new Map<string, PersonDecisionStatus>();
   const backlogStatus = new Map<string, PersonBacklogStatus>();
+  const lessonStatus = new Map<string, PersonLessonStatus>();
   const allowCommands: AllowedCommand[] = [];
   for (let i = 0; i < args.length; i += 1) {
     const flag = args[i];
@@ -234,6 +241,26 @@ export function parseRunArgs(
         }
         break;
       }
+      case "--defer-lesson":
+      case "--activate-lesson": {
+        const values = args[++i]?.split(",").map((id) => id.trim());
+        const seen = new Set<string>();
+        for (const id of values ?? []) {
+          if (seen.has(id)) return { error: `${flag}: duplicate lesson id ${id}` };
+          seen.add(id);
+        }
+        const ids = parsePlanTaskLessons(values);
+        if (ids === null) return { error: `${flag} expects a comma-separated list of lesson ids` };
+        const status = flag === "--defer-lesson" ? "deferred" : "active";
+        for (const id of ids) {
+          if (lessonStatus.has(id) && lessonStatus.get(id) !== status) {
+            return { error: `cannot defer and activate lesson ${id} in one command` };
+          }
+          lessonStatus.set(id, status);
+        }
+        if (lessonStatus.size > PROJECT_LIMITS.lessonFiles) return { error: `at most ${PROJECT_LIMITS.lessonFiles} lesson ids may be edited` };
+        break;
+      }
       case "--defer-backlog":
       case "--activate-backlog": {
         const value = args[++i];
@@ -299,6 +326,11 @@ export function parseRunArgs(
     if (approve) return { error: "backlog status edits cannot be combined with --approve" };
     if (autoApproveProject) return { error: "backlog status edits cannot be combined with --auto-approve-project" };
   }
+  if (lessonStatus.size > 0) {
+    if (session === null) return { error: "lesson status edits need --session <id>" };
+    if (approve) return { error: "lesson status edits cannot be combined with --approve" };
+    if (autoApproveProject) return { error: "lesson status edits cannot be combined with --auto-approve-project" };
+  }
   if (approve && session === null) return { error: "--approve needs --session <id>" };
   if (session !== null && incognito) return { error: "--session and --incognito cannot be combined" };
   return {
@@ -314,6 +346,7 @@ export function parseRunArgs(
     approveVersion,
     ...(decisionStatus.size === 0 ? {} : { decisionStatus: Object.fromEntries(decisionStatus) }),
     ...(backlogStatus.size === 0 ? {} : { backlogStatus: Object.fromEntries(backlogStatus) }),
+    ...(lessonStatus.size === 0 ? {} : { lessonStatus: Object.fromEntries(lessonStatus) }),
     autoApproveProject,
     allowCommands,
   };
@@ -1033,11 +1066,11 @@ export async function runAgentCommand(args: string[], options: RunAgentCommandOp
       parsed.incognito ? { incognito: true } : undefined,
     );
     incognitoSessionId = parsed.incognito ? session.id : null;
-    const { decisionStatus, backlogStatus } = parsed;
-    if (decisionStatus !== undefined || backlogStatus !== undefined) {
+    const { decisionStatus, backlogStatus, lessonStatus } = parsed;
+    if (decisionStatus !== undefined || backlogStatus !== undefined || lessonStatus !== undefined) {
       // The runtime persists this decision. The ordinary turn save would
       // write the session copy loaded before the edit over its result.
-      const step = inPhase(trace, "settle-gates", () => editProjectStatuses(runtime, session.id, { decisionStatus, backlogStatus }));
+      const step = inPhase(trace, "settle-gates", () => editProjectStatuses(runtime, session.id, { decisionStatus, backlogStatus, lessonStatus }));
       process.stderr.write(`${step.text}\n`);
       exitCode = step.kind === "updated" ? PROJECT_GATE_EXIT : 1;
       return exitCode;

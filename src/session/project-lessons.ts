@@ -170,7 +170,7 @@ function readLesson(id: string, fields: Map<string, string>, body: string[], has
   if (always !== "true" && always !== "false") throw new Error("Expected always to be true or false.");
   return {
     id, title, source, ...(from === undefined ? {} : { from }), declaredStatus,
-    always: always === "true", touches: readTouches(fields.get("touches") ?? ""),
+    always: always === "true", touches: readTouches(fields.get("touches") ?? (always === "true" ? "[]" : "")),
     approvedByPerson: false, sections: readSections(body), hash,
   };
 }

@@ -37,6 +37,9 @@ type DecisionStatusStep = { kind: "updated" | "failed"; text: string };
 function showWaitingGate(view: ProjectGateView, sessionId: string): string {
   return [
     formatProjectGateText(view),
+    ...((view.lessonCoverage?.length ?? 0) === 0 ? [] : [
+      `Change lesson status with: atomic-agent run --session ${sessionId} --defer-lesson <id> or --activate-lesson <id>.`,
+    ]),
     `session: ${sessionId}`,
     `Approve with: atomic-agent run --session ${sessionId} --approve ${view.version ?? ""}`.trimEnd(),
     ...(view.gate.kind === "plan" && (view.decisions?.length ?? 0) > 0
@@ -53,10 +56,10 @@ function showWaitingGate(view: ProjectGateView, sessionId: string): string {
 export function editProjectStatuses(
   runtime: GateRuntime,
   sessionId: string,
-  { decisionStatus, backlogStatus }: Pick<ProjectEdits, "decisionStatus" | "backlogStatus">,
+  { decisionStatus, backlogStatus, lessonStatus }: Pick<ProjectEdits, "decisionStatus" | "backlogStatus" | "lessonStatus">,
 ): DecisionStatusStep {
   const view = runtime.projectState?.(sessionId) ?? null;
-  const subject = decisionStatus === undefined ? "Backlog status" : "Decision status";
+  const subject = lessonStatus !== undefined ? "Lesson status" : decisionStatus === undefined ? "Backlog status" : "Decision status";
   if (view?.gate.kind !== "plan" || view.version === null) {
     return { kind: "failed", text: `${subject} can be changed only at the plan gate.` };
   }
@@ -64,6 +67,8 @@ export function editProjectStatuses(
   if (unknownId !== undefined) {
     return { kind: "failed", text: `${unknownId} is not a decision of the approved brief.` };
   }
+  const unknownLesson = Object.keys(lessonStatus ?? {}).find((id) => !view.lessonCoverage?.some((lesson) => lesson.id === id));
+  if (unknownLesson !== undefined) return { kind: "failed", text: `Unknown active binding lesson ${unknownLesson}.` };
   for (const id of Object.keys(backlogStatus ?? {})) {
     if (view.backlog?.promoted.some((item) => item.id === id && item.citedBy !== undefined)) continue;
     const item = view.backlog?.items.find((entry) => entry.id === id);
@@ -78,6 +83,7 @@ export function editProjectStatuses(
     gate: view.gate, version: view.version, verdict: "edit", edits: {
       ...(decisionStatus === undefined ? {} : { decisionStatus }),
       ...(backlogStatus === undefined ? {} : { backlogStatus }),
+      ...(lessonStatus === undefined ? {} : { lessonStatus }),
     },
   });
   if (!outcome.ok) return { kind: "failed", text: `${subject} was not changed: ${outcome.error.message}` };

@@ -152,9 +152,14 @@ describe("strict tool args (ATO-633): the generic branch", () => {
       for (const kind of ["base", "draft", "review", "final", "unknown"]) {
         const args = {
           milestones: [{ id: "m", title: "Report", kind }],
-          tasks: [{ id: "t", title: "Work on the report", milestone: "m" }],
+          tasks: [{ id: "t", title: "Work on the report", milestone: "m", lessons: ["storage"], files: ["package.json"] }],
         };
         expect(gbnfAccepts(strict, "root", call("project.plan", args)), kind).toBe(kind !== "unknown");
+        if (kind === "base") {
+          expect(gbnfAccepts(strict, "root", call("project.plan", {
+            ...args, tasks: [{ ...args.tasks[0]!, lessons: [42] }],
+          }))).toBe(false);
+        }
       }
     }
   });
