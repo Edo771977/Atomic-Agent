@@ -1150,13 +1150,16 @@ function createProjectCard(opts) {
     const built = pcBacklogCall(state, here, id, to);
     if (built.error) { state = pcReduce(state, {type: 'failed', error: built.error}); return paint(); }
     backlogDeciding.add(here);
+    const seen = frames.get(here) || 0;
     state = pcReduce(state, {type: 'sending'}); paint();
     const call = opts.api.backlog ? () => opts.api.backlog(built.body) : () => ({supported: false});
     const res = await Promise.resolve().then(call).catch((e) => ({supported: true, ok: false, status: 0, code: null, error: String(e)}));
     backlogDeciding.delete(here);
     const out = pcBacklogOutcome(res, id, to);
-    if (out.closed) store.drop(here);
-    else if (out.view) store.put(here, out.view);
+    // A frame that came while the call was out is newer than its answer, as for follow()'s read.
+    const newer = (frames.get(here) || 0) !== seen;
+    if (out.closed && !newer) store.drop(here);
+    else if (out.view && !newer) store.put(here, out.view);
     if (here !== sid) return;
     setView(store.get(here), out.notice);
     if (out.error) state = pcReduce(state, {type: 'failed', error: out.error});

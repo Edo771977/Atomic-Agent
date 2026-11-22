@@ -506,3 +506,23 @@ test('a decided item offers every other call directly, as the TUI\'s backlog', a
   assert.deepEqual(sent, [{sessionId: 'ses-1', item: 'b3', state: 'dropped'}, {sessionId: 'ses-1', item: 'b4', state: 'promoted'}]);
   assert.deepEqual(actions('b3'), ['Promote', 'Reopen']);
 });
+
+test('a backlog answer that lands after a newer frame does not overwrite it', async () => {
+  let release;
+  const p0 = project();
+  const c = controller({read: () => ({supported: true, ok: true, view: view(p0)}), decide: () => ({}),
+    backlog: () => new Promise((r) => { release = r; })});
+  c.card.follow('ses-1');
+  await tick();
+  c.last().on({type: 'backlog', id: 'b3', state: 'promoted'});
+  await tick();
+  // The agent's frame after the call (b3 promoted, then b1 dropped by another surface).
+  const newer = view(call(call(p0, 'b3', 'promoted'), 'b1', 'dropped'));
+  c.card.onFrame({sessionId: 'ses-1', view: newer});
+  release({supported: true, ok: true, view: view(call(p0, 'b3', 'promoted'))});
+  await tick(); await tick();
+  const items = c.last().model.backlog.items;
+  assert.equal(items.find((i) => i.id === 'b1').state, 'dropped', 'the newer frame stands');
+  assert.equal(c.last().model.busy, false);
+  assert.match(c.last().model.notice, /b3 promoted/);
+});
