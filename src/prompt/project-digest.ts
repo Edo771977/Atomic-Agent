@@ -1,4 +1,5 @@
 import { decisionStatusOf, projectExpectation, type ProjectState } from "../session/session-project.js";
+import { openBacklog, openSeeds, promotedForPlan } from "../session/project-backlog.js";
 import { planReviewLine } from "../tools/fusion/plan-review-record.js";
 import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
 
@@ -47,6 +48,18 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
   if (project.milestones.length > 0) {
     lines.push(`milestones: ${project.milestones.map((m) => `${m.id} (${m.kind}) ${m.state}`).join(", ")}`);
   }
+  // Issue #111: the backlog is proposals; the person's calls on it are theirs.
+  if ((project.backlog ?? []).length > 0) {
+    lines.push(`backlog: ${openBacklog(project).length} open; only the person promotes or drops an item`);
+    const promoted = promotedForPlan(project);
+    if (promoted.length > 0) {
+      lines.push(`promoted by the person, for the next plan (a new milestone or task, through the plan gate): ${promoted.map((b) => `${b.id} ${clip(b.title, 120)}`).join("; ")}`);
+    }
+    const seeds = openSeeds(project);
+    if (seeds.length > 0) {
+      lines.push(`seeds (tell the person when a condition looks met): ${seeds.map((b) => `${b.id} ${clip(b.title, 120)} (when: ${clip(b.condition!, 160)})`).join("; ")}`);
+    }
+  }
   const gate = project.gate;
   if (gate.kind !== "none") {
     const what = gate.kind === "brief" ? "the brief" : gate.kind === "plan" ? "the plan" : `milestone ${gate.id}'s result`;
@@ -75,7 +88,11 @@ export function renderProjectDigest(project: ProjectState | undefined): string |
       break;
     }
     case "complete":
-      lines.push("next: every milestone is reviewed; the project is complete.");
+      if (next.openBacklog === undefined) lines.push("next: every milestone is reviewed; the project is complete.");
+      else {
+        const open = openBacklog(project).map((b) => `${b.id} ${clip(b.title, 120)}`).join("; ");
+        lines.push(`next: every milestone is reviewed; the project is complete with ${next.openBacklog} backlog item${next.openBacklog === 1 ? "" : "s"} still open (${open}): say so in your final reply.`);
+      }
       break;
     default:
       break;

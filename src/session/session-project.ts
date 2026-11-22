@@ -23,7 +23,7 @@ import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
-import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, type ProjectBacklogDraft } from "./project-backlog.js";
+import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, openBacklog, type ProjectBacklogDraft } from "./project-backlog.js";
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
@@ -852,7 +852,8 @@ export type ProjectExpectation =
   | { kind: "draft_plan" }
   | { kind: "run_milestone"; id: string }
   | { kind: "await_person"; gate: Exclude<ProjectGate, { kind: "none" }> }
-  | { kind: "complete" }
+  /** `openBacklog` (issue #111): backlog items still open, said before calling the project complete; absent when none. */
+  | { kind: "complete"; openBacklog?: number }
   | { kind: "cancelled" };
 
 /**
@@ -868,7 +869,9 @@ export function projectExpectation(project: ProjectState | undefined): ProjectEx
   if (project.plan === undefined || project.plan.status !== "approved") return { kind: "draft_plan" };
   const open = project.milestones.find((m) => m.state === "approved" || m.state === "in_progress");
   if (open !== undefined) return { kind: "run_milestone", id: open.id };
-  return project.milestones.every((m) => m.state === "reviewed") ? { kind: "complete" } : { kind: "draft_plan" };
+  if (!project.milestones.every((m) => m.state === "reviewed")) return { kind: "draft_plan" };
+  const openItems = openBacklog(project).length;
+  return openItems === 0 ? { kind: "complete" } : { kind: "complete", openBacklog: openItems };
 }
 
 // ---------------------------------------------------------------- session

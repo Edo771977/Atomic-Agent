@@ -13,6 +13,7 @@ import { describeViolation, type PlanEstimate, type PlanViolation } from "./proj
 import type { ProjectGateView, ProjectGateViolation, ProjectGateViolationKind } from "../../session/project-gate-view.js";
 import { evaluatePlanChecks, planCheckHint, type PlanCheckOptions } from "./plan-checks.js";
 import { effectivePlanReview, planReviewFresh, planReviewGate } from "./plan-review-record.js";
+import { backlogStateOf, openBacklog, openSeeds, promotedForPlan } from "../../session/project-backlog.js";
 
 /**
  * Builds the {@link ProjectGateView} every surface draws (issue #39). The
@@ -67,6 +68,12 @@ export const evidenceRetiredHint = (title: string): string => `evidence retired:
 
 /** The milestone gate's hint for a criterion verified with reservations (issue #110). */
 export const verifiedWithReservationsHint = (id: string, reservation: string): string => `verified with reservations: ${id} (${reservation})`;
+
+/** A seed shown at a plan or milestone gate (issue #111): the person decides; nothing activates by itself. */
+export const seedHint = (id: string, title: string, condition: string): string => `seed ${id} "${title}" (when: ${condition}): yours to promote if it is met`;
+
+/** The plan gate's hint for an item the person promoted (issue #111). */
+export const promotedHint = (id: string, title: string): string => `promoted from the backlog: ${id} "${title}": check this plan takes it in before approving`;
 
 /** The gate card's payload. Pure. */
 /** Issue #109: the hint at a gate whose content changed outside Atomic Agent. */
@@ -129,6 +136,24 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
       if (m !== undefined) hints.push(evidenceRetiredHint(m.title));
     }
   }
+  // Issue #111: the seeds at each plan and milestone gate; promoted items at the plan gate; open items at the close.
+  if (project.cancelledAt === undefined && (project.gate.kind === "plan" || project.gate.kind === "milestone")) {
+    for (const s of openSeeds(project)) hints.push(seedHint(s.id, s.title, s.condition!));
+  }
+  if (project.gate.kind === "plan") for (const b of promotedForPlan(project)) hints.push(promotedHint(b.id, b.title));
+  const expectation = projectExpectation(project);
+  if (expectation.kind === "complete" && expectation.openBacklog !== undefined) {
+    const n = expectation.openBacklog;
+    hints.push(`complete with ${n} backlog item${n === 1 ? "" : "s"} open: ${openBacklog(project).map((b) => `${b.id} ${b.title}`).join(", ")}`);
+  }
+  const backlog = (project.backlog ?? []).length === 0
+    ? undefined
+    : {
+        open: openBacklog(project).length,
+        seeds: openSeeds(project).map((b) => ({ id: b.id, title: b.title, condition: b.condition! })),
+        promoted: promotedForPlan(project).map((b) => ({ id: b.id, title: b.title })),
+        items: project.backlog!.map((b) => ({ ...b, ...(b.origin === undefined ? {} : { origin: { ...b.origin } }), state: backlogStateOf(project, b.id) })),
+      };
   // Issue #109: what waits changed outside Atomic Agent since the person decided it.
   const gateLabel = project.gate.kind === "milestone" ? `milestone:${project.gate.id}` : project.gate.kind;
   const changedOutside = project.gate.kind !== "none" && (project.changedOutside ?? []).includes(gateLabel);
@@ -158,12 +183,13 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
         }),
     ...(changedOutside ? { changedOutside: true as const } : {}),
     ...(decisions.length === 0 ? {} : { decisions }),
+    ...(backlog === undefined ? {} : { backlog }),
     schema: 1,
     sessionId: input.sessionId,
     gate: project.gate,
     version: gateVersion(project),
     allowedVerdicts: project.cancelledAt !== undefined ? [] : allowedProjectVerdicts(project.gate, project),
-    expectation: projectExpectation(project),
+    expectation,
     cancelled: project.cancelledAt !== undefined,
     brief:
       project.brief === undefined

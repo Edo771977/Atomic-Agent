@@ -157,3 +157,27 @@ describe("project resume line", () => {
     expect(out).toContain(" d defer d2 ");
   });
 });
+
+describe("the project card's backlog (issue #111)", () => {
+  const backlog = {
+    open: 2,
+    seeds: [{ id: "b1", title: "Sounds", condition: "when the UI exists" }],
+    promoted: [{ id: "b3", title: "PDF export" }],
+    items: [],
+  };
+
+  it("shows the open count and the seeds with their condition at a plan or milestone gate", () => {
+    const out = text(card({ ...fixtureProjectGateView({ kind: "plan" }), backlog }));
+    expect(out).toContain("Backlog: 2 open · 1 seed · 1 promoted");
+    expect(out).toContain("seed b1 Sounds — when the UI exists");
+    const none = text(card({ ...fixtureProjectGateView({ kind: "brief" }), backlog }));
+    expect(none).toContain("Backlog: 2 open · 1 seed · 1 promoted");
+    expect(none).not.toContain("seed b1");
+  });
+
+  it("says nothing without a backlog, and the resume line counts open items", () => {
+    expect(text(card(fixtureProjectGateView({ kind: "plan" })))).not.toContain("Backlog:");
+    const view = { ...fixtureProjectGateView({ kind: "plan" }), backlog };
+    expect(projectResumeLine(view)).toContain(" · backlog: 2 open");
+  });
+});

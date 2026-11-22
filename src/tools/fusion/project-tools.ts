@@ -23,8 +23,10 @@ import {
   type ProjectMilestone,
   type ProjectMilestoneAttachment,
   type ProjectGameBrief,
+  type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
+import { openSeeds, promotedForPlan } from "../../session/project-backlog.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { estimateRow, planDetailFor, withReviewEstimate } from "./project-estimate.js";
@@ -517,6 +519,17 @@ async function reviewDraft(
   return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
 }
 
+/** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */
+function backlogLines(project: ProjectState | undefined): string[] {
+  if (project === undefined) return [];
+  const promoted = promotedForPlan(project);
+  const seeds = openSeeds(project);
+  return [
+    ...(promoted.length === 0 ? [] : [`Promoted by the person, for this plan: ${promoted.map((b) => `${b.id} ${b.title}`).join("; ")}. Take each in as a milestone or task; they see it at the gate.`]),
+    ...(seeds.length === 0 ? [] : [`Open seeds, shown to the person at the gate: ${seeds.map((b) => `${b.id} ${b.title} (when: ${b.condition})`).join("; ")}. Tell them which conditions look met; only they promote one.`]),
+  ];
+}
+
 export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolDefinition, ToolDefinition] {
   const brief: ToolDefinition = {
     name: PROJECT_BRIEF_TOOL,
@@ -580,6 +593,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
             .map((r) => `  ${r.taskId}: ${r.worker}${r.reviewer === null ? "" : `, review ${r.reviewer}`}; ${rowUsd(r)}, ${secs(r.estMs)}`),
         ]),
         "Use these task ids in fusion.delegate when the milestone is approved.",
+        ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
         ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,

@@ -31,7 +31,9 @@ export function describeExpectation(expectation: ProjectExpectation): string {
         ? `you review milestone ${expectation.gate.id}`
         : `you approve the ${expectation.gate.kind}`;
     case "complete":
-      return "nothing: every milestone is reviewed";
+      return expectation.openBacklog === undefined
+        ? "nothing: every milestone is reviewed"
+        : `nothing: every milestone is reviewed; complete with ${expectation.openBacklog} backlog item${expectation.openBacklog === 1 ? "" : "s"} still open`;
     case "cancelled":
       return "nothing: the project was cancelled";
   }
