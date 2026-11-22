@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { FIXTURE_SHOT_PATH, fixtureProjectGateView, withFixtureMilestoneEvidence } from "../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
 import { parseRunArgs } from "./run-agent.js";
-import { editProjectDecisionStatuses, settleProjectGate } from "./run-project-gate.js";
+import { editProjectStatuses, settleProjectGate } from "./run-project-gate.js";
 
 function runtime(view: ProjectGateView | undefined, after?: ProjectGateView) {
   return {
@@ -149,9 +149,9 @@ describe("run flags for project gates", () => {
   it("refuses status edits outside the plan gate or against an unknown brief decision", () => {
     const brief = runtime(fixtureProjectGateView({ kind: "brief" }));
     const plan = runtime(fixtureProjectGateView({ kind: "plan" }));
-    expect(editProjectDecisionStatuses(brief, "s", { d1: "active" }))
+    expect(editProjectStatuses(brief, "s", { decisionStatus: { d1: "active" } }))
       .toMatchObject({ kind: "failed", text: expect.stringContaining("only at the plan gate") });
-    expect(editProjectDecisionStatuses(plan, "s", { d9: "deferred" }))
+    expect(editProjectStatuses(plan, "s", { decisionStatus: { d9: "deferred" } }))
       .toMatchObject({ kind: "failed", text: expect.stringContaining("d9 is not a decision of the approved brief") });
     expect(brief.projectDecision).not.toHaveBeenCalled();
     expect(plan.projectDecision).not.toHaveBeenCalled();

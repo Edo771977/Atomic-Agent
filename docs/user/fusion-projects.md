@@ -82,6 +82,15 @@ The backlog holds work that is not ready for the plan yet. Only you promote, dro
 
 If the item can wait, defer it from the plan gate. It stays promoted, the plan no longer has to take it in, and your choice is saved with your approvals; set it active again to require it. Only the plan you approve takes an item in: `atomic-agent project backlog` shows each one as "promoted, not in any plan", "promoted, deferred at the plan gate, not in any plan" or "promoted, taken in by plan vN". An item you promote while a plan is already running waits for the next plan draft. The gate and `PLAN.md` show which tasks cite each item, and the worker of such a task is given the item's text. When every milestone is reviewed, the project says which promoted items were never done.
 
+Use the plan card in the TUI or Desktop, Telegram's `/defer` and `/activate`, or send a versioned plan-gate `edit` with `edits.backlogStatus` over HTTP. In the CLI, use one of these commands at the plan gate:
+
+```sh
+atomic-agent run --session <session-id> --defer-backlog b1,b2
+atomic-agent run --session <session-id> --activate-backlog b1
+```
+
+The command prints the updated plan and exits 3 while it waits for approval. Review the updated plan, then run `atomic-agent run --session <session-id> --approve <version>` separately with the version shown. Run `atomic-agent project backlog [folder]` to list the items and their current status.
+
 ## Read the plan review
 
 When the Fusion team has a plan reviewer or a reviewer it can use for the plan, a model reads the draft against the approved brief. It looks at coverage, dependencies, scope, estimates and other risks. A failed review can send the draft back to the director for up to two revisions by default. Remaining notes appear at the gate.
