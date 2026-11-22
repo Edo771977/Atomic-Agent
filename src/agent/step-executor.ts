@@ -269,7 +269,7 @@ async function executeStepInner(
     deps.profileWindowApplies === false
       ? deps.contextWindow
       : (deps.profile.contextWindow ?? deps.contextWindow);
-  const projectLessonSource = ctx.session.project === undefined || isIncognitoSession(ctx.session) ? null : readProjectRef(ctx.session);
+  const projectRef = ctx.session.project === undefined ? null : readProjectRef(ctx.session);
   const toolFilter = restrictedProjectLessonsExposed() ? memoryReadOnlyToolFilter(ctx.toolFilter) : ctx.toolFilter;
   const batchOutcome = await runBatch(inputs, deps.registry, {
     ...(ctx.workspace ? { workspaceSkills: ctx.workspace.skills } : {}),
@@ -288,7 +288,7 @@ async function executeStepInner(
     ...(deps.providerId !== undefined ? { providerId: deps.providerId } : {}),
     // The fusion project's gate is enforced at dispatch (issue #39).
     ...(ctx.session.project !== undefined ? { project: ctx.session.project } : {}),
-    ...(projectLessonSource === null ? {} : { projectLessonSource }),
+    ...(projectRef === null ? {} : { projectRef }),
     ...(deps.tracker ? { tracker: deps.tracker } : {}),
     ...(ctx.terminalOnly ? { terminalOnly: true } : {}),
     ...(ctx.toolSet !== undefined ? { toolSet: ctx.toolSet } : {}),

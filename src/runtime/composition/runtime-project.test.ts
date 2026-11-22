@@ -1,9 +1,12 @@
+import * as signing from "../../session/receipt-signing.js";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { projectCardLines } from "../../tui/project/project-card-lines.js";
+import { reduceProjectCard } from "../../tui/project/project-card-state.js";
 import { projectCommand } from "../../cli/projects-command.js";
 import { gateContentHash, projectFolderKey, stateDirProjectRecords } from "../../session/project-decisions.js";
-import { createProjectReceiptWriter, verifyProjectReceipts, type ProjectReceiptWriter } from "../../session/project-receipts.js";
+import { appendProjectReceipt, createProjectReceiptWriter, verifyProjectReceipts, type ProjectReceiptWriter } from "../../session/project-receipts.js";
 import { createSessionProjectStore, type SessionProjectStore } from "../../session/session-project-store.js";
 import { receiptHash, type Receipt } from "../../session/receipt-signing.js";
 import { describe, expect, it, vi } from "vitest";
@@ -70,7 +73,7 @@ function planContext(): ProjectPlanContext {
   };
 }
 
-function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean; folder?: string; incognito?: SessionState["incognito"]; writeProjectReceipt?: ProjectReceiptWriter; session?: SessionState; projectStore?: SessionProjectStore; warnReceipt?: (message: string) => void } = {}) {
+function harness(options: { receiptStateDir?: string; busy?: boolean; dailyRemainingUsd?: number | null; project?: ProjectState; status?: SessionState["status"]; ownerAlive?: boolean; folder?: string; incognito?: SessionState["incognito"]; writeProjectReceipt?: ProjectReceiptWriter; session?: SessionState; projectStore?: SessionProjectStore; warnReceipt?: (message: string) => void } = {}) {
   let stored: SessionState | null = options.session ?? {
     ...createEmptySessionState({ id: "s1", workingDir: options.folder ?? "/w", ...(options.incognito ? { incognito: options.incognito } : {}) }),
     ...(options.status === undefined ? {} : { status: options.status }),
@@ -89,6 +92,7 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
   const save = vi.fn((s: SessionState) => { stored = s; });
   const runtime = createRuntimeProject({
     loadSession: (id) => (id === "s1" ? stored : null),
+    ...(options.receiptStateDir === undefined ? {} : { receiptStateDir: options.receiptStateDir }),
     saveSession: save,
     ...(options.projectStore ? { projectStore: options.projectStore } : {}),
     ...(options.warnReceipt ? { warnReceipt: options.warnReceipt } : {}),
@@ -103,6 +107,119 @@ function harness(options: { busy?: boolean; dailyRemainingUsd?: number | null; p
 }
 
 describe("runtime.projectState / projectDecision (issue #39)", () => {
+  it("summarizes only the displayed milestone's evidence using public keys, and skips incognito", () => {
+    const dir = mkdtempSync(join(tmpdir(), "milestone-receipts-"));
+    try {
+      const running = up(approved(up(approved(up(undefined, brief)), plan)), { kind: "milestone_run", id: "m1", runId: "r1" });
+      const project = up(running, { kind: "milestone", id: "m1", state: "done", summary: "Finished" });
+      const session = createEmptySessionState({ id: "s1", workingDir: dir });
+      session.project = project;
+      session.projectRef = { folder: dir, id: "project-one", revision: 1, decisionSeq: 1 };
+      let pem: string | null = null;
+      const keychain = {
+        read: vi.fn(() => ({ ok: true as const, value: pem })),
+        write: vi.fn((_key: string, value: string) => { pem = value; return true; }),
+      };
+      const evidence = { projectId: "project-one", milestoneId: "m1" };
+      appendProjectReceipt(dir, dir, "artifact-manifest", { ...evidence, runId: "r1", result: "before" }, keychain);
+      appendProjectReceipt(dir, dir, "check-run-record", { ...evidence, runId: "r1" }, { read: () => ({ ok: false }), write: () => false });
+      appendProjectReceipt(dir, dir, "milestone-report", { ...evidence, version: gateVersion(project) }, keychain);
+      appendProjectReceipt(dir, dir, "gate-verdict", evidence, keychain);
+      appendProjectReceipt(dir, dir, "milestone-report", { ...evidence, milestoneId: "m2" }, keychain);
+      appendProjectReceipt(dir, dir, "check-run-record", { ...evidence, projectId: "project-two" }, keychain);
+      appendProjectReceipt(dir, dir, "artifact-manifest", { milestoneId: "m1" }, keychain);
+      keychain.read.mockClear();
+      keychain.write.mockClear();
+
+      const { runtime } = harness({ session, receiptStateDir: dir });
+      const summary = () => runtime.projectState("s1")?.milestones.find(m => m.id === "m1")?.evidenceReceipts;
+      expect(summary()).toEqual({ folder: dir, valid: 2, unsigned: 1, problems: 0 });
+      const card = reduceProjectCard(null, { type: "project_card_shown", sessionId: "s1", view: runtime.projectState("s1")! })!;
+      expect(projectCardLines(card, 90).flatMap(line => line.segments).map(segment => segment.text.trim()).join(" "))
+        .toContain("1 unsigned (not verifiable; the signing key may have been unavailable)");
+      const archive = join(dir, "receipts", projectFolderKey(dir), "receipts.ndjson");
+      writeFileSync(archive, readFileSync(archive, "utf8").replace('"before"', '"Before"'));
+      expect(summary()).toEqual({ folder: dir, valid: 1, unsigned: 1, problems: 1 });
+      expect(runtime.projectState("s1")?.milestones.find(m => m.id === "m2")?.evidenceReceipts).toBeUndefined();
+      session.incognito = { owner: "test", since: NOW };
+      expect(summary()).toBeUndefined();
+      expect(keychain.read).not.toHaveBeenCalled();
+      expect(keychain.write).not.toHaveBeenCalled();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("verifies appended receipts once and skips verification for views that do not show evidence", () => {
+    const folder = mkdtempSync(join(tmpdir(), "cached-receipts-"));
+    const verify = vi.spyOn(signing, "verifyReceipt");
+    try {
+      const active = up(approved(up(approved(up(undefined, brief)), plan)), { kind: "milestone_run", id: "m1", runId: "r1" });
+      const project = up(active, { kind: "milestone", id: "m1", state: "done", summary: "Finished" });
+      const session = createEmptySessionState({ id: "s1", workingDir: folder });
+      session.project = project;
+      session.projectRef = { folder, id: "project-one", revision: 1, decisionSeq: 1 };
+      const { runtime } = harness({ session, receiptStateDir: folder });
+      const append = (name: string) => appendProjectReceipt(folder, folder, "artifact-manifest", {
+        projectId: "project-one", milestoneId: "m1", runId: "r1", name,
+      }, { read: () => ({ ok: false }), write: () => false });
+      append("one");
+      JSON.stringify(runtime.projectState("s1"));
+      expect(verify).not.toHaveBeenCalled();
+      const read = () => runtime.projectState("s1")?.milestones[0]?.evidenceReceipts;
+      expect(read()?.unsigned).toBe(1);
+      expect(read()?.unsigned).toBe(1);
+      expect(verify).toHaveBeenCalledTimes(1);
+      append("two");
+      expect(read()?.unsigned).toBe(2);
+      expect(verify).toHaveBeenCalledTimes(2);
+    } finally {
+      verify.mockRestore();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["corrected", "superseded"] as const)("excludes replaced evidence from a %s milestone", scenario => {
+    const folder = mkdtempSync(join(tmpdir(), "revision-receipts-"));
+    try {
+      let project = approved(up(approved(up(undefined, brief)), plan));
+      project = up(project, { kind: "milestone_run", id: "m1", runId: "old" });
+      project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "First" });
+      const previousVersion = gateVersion(project);
+      const old = project.milestones[0]!;
+      if (scenario === "corrected") {
+        const correction = applyProjectDecision(project, {
+          gate: project.gate, version: previousVersion!, verdict: "edit", edits: { note: "Retry" },
+        }, { now: NOW });
+        if (!correction.ok) throw new Error(correction.error.message);
+        project = correction.project;
+      } else {
+        project = approved(up(approved(project), {
+          ...plan, rows: [row("t1", "m1", { title: "Replacement work" }), row("t2", "m2")],
+        }));
+      }
+      project = up(project, { kind: "milestone_run", id: "m1", runId: "new" });
+      project = up(project, { kind: "milestone", id: "m1", state: "done", summary: "Replacement" });
+      const session = createEmptySessionState({ id: "s1", workingDir: folder });
+      session.project = project;
+      session.projectRef = { folder, id: "project-one", revision: 1, decisionSeq: 1 };
+      const keychain = { read: () => ({ ok: false as const }), write: () => false };
+      const payload = { projectId: "project-one", milestoneId: old.id };
+      vi.useFakeTimers({ now: NOW });
+      appendProjectReceipt(folder, folder, "artifact-manifest", { ...payload, runId: "old" }, keychain);
+      appendProjectReceipt(folder, folder, "milestone-report", { ...payload, version: previousVersion }, keychain);
+      vi.setSystemTime(NOW + 2);
+      appendProjectReceipt(folder, folder, "artifact-manifest", { ...payload, runId: "new" }, keychain);
+      appendProjectReceipt(folder, folder, "check-run-record", payload, keychain);
+      appendProjectReceipt(folder, folder, "milestone-report", { ...payload, version: gateVersion(project) }, keychain);
+      const { runtime } = harness({ session, receiptStateDir: folder });
+      expect(runtime.projectState("s1")?.milestones[0]?.evidenceReceipts).toMatchObject({ unsigned: 2, problems: 0 });
+    } finally {
+      vi.useRealTimers();
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
   it("projectState builds the gate view with live estimates and selectable members", () => {
     const { runtime } = harness({ project: up(approved(up(undefined, brief)), plan) });
     const view = runtime.projectState("s1")!;

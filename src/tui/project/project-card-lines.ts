@@ -20,6 +20,16 @@ import {
   type ProjectCardState,
 } from "./project-card-state.js";
 
+function evidenceVerifyHint(folder: string | undefined): string {
+  const command = "Run atomic-agent project verify";
+  if (folder === undefined) return command;
+  // Keep unusual paths as a quoted display value, away from shell syntax.
+  if (/[\x00-\x1f\x7f-\x9f"$%!`]/.test(folder) || folder.endsWith("\\")) {
+    return command + " for folder " + JSON.stringify(folder).replace(/[\x7f-\x9f]/g, char => "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
+  }
+  return command + ' "' + folder + '"';
+}
+
 export type ProjectLineTone = "title" | "muted" | "warn" | "error" | "ok" | "plain";
 
 export interface ProjectCardSegment {
@@ -230,6 +240,19 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
       text(`${MILESTONE_MARK[m.state]} ${m.title} (${MILESTONE_KIND_LABEL[m.kind] ?? m.kind}) — ${m.state.replace("_", " ")}`, m.state === "failed" ? "error" : "plain");
       if (m.summary && (full || m.id === gateId)) text(m.summary, "muted", 4);
       if (full || m.id === gateId) {
+        const evidence = m.evidenceReceipts;
+        if (evidence !== undefined) {
+          const { folder, valid, unsigned, problems, partial, archiveUnavailable } = evidence;
+          const details: string[] = [];
+          if (valid) details.push(`${valid} signed`);
+          if (unsigned) details.push(`${unsigned} unsigned (not verifiable; the signing key may have been unavailable)`);
+          if (problems) details.push(`${problems} problem${problems === 1 ? "" : "s"}`);
+          if (partial) details.push("partial scan");
+          if (archiveUnavailable) details.push("archive unavailable");
+          const tone = problems || archiveUnavailable ? "error" : unsigned || partial ? "warn" : "ok";
+          text(`Evidence: ${details.join(", ")}`, tone, 4);
+          if (unsigned || problems || partial || archiveUnavailable) text(evidenceVerifyHint(folder), tone, 4);
+        }
         // Evidence of the result (issue #40): never a claim the view does not carry.
         for (const f of m.criteriaFacts ?? []) {
           text(criterionFactLine(f, brief?.criteria), f.state === "passed" && f.reservation === undefined ? "ok" : f.state === "failed" ? "error" : "warn", 4);

@@ -109,7 +109,7 @@ export interface BatchExecutionContext {
   providerId?: string;
   /** The session's fusion project at the step's start (`ToolContext.project`, issue #39). */
   project?: import("../../session/session-project.js").ProjectState;
-  projectLessonSource?: import("../../session/project-lessons.js").ProjectLessonSource;
+  projectRef?: import("../../tools/tool-registry.js").ToolContext["projectRef"];
   /**
    * Fired immediately before the registry is invoked for each call.
    * Order: matches the order the executor reaches each call (within a

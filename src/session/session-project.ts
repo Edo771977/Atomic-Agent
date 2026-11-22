@@ -207,6 +207,10 @@ export interface ProjectMilestone {
   state: MilestoneState;
   /** Fusion run ids (`fusion-runs` checkpoints) that worked on it, oldest first. */
   runIds: string[];
+  /** Earliest receipt time for the current work, set when its first run is recorded. */
+  evidenceSince?: number;
+  /** Runs of results that were sent back for correction. Keep the history for Fusion. */
+  replacedEvidenceRunIds?: string[];
   /** The director's report of the result. */
   summary?: string;
   /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
@@ -685,7 +689,7 @@ export type ProjectUpdate =
        */
       holdForCorrection?: true;
     }
-  | { kind: "milestone_run"; id: string; runId: string }
+  | { kind: "milestone_run"; id: string; runId: string; startedAt?: number }
   /** Issue #111: `project.backlog.add`'s item; opens and moves no gate. */
   | { kind: "backlog_add"; item: ProjectBacklogDraft };
 
@@ -1456,6 +1460,10 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     kind: raw.kind as MilestoneKind,
     state: raw.state as MilestoneState,
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
+    ...(isTime(raw.evidenceSince) ? { evidenceSince: raw.evidenceSince } : {}),
+    ...(Array.isArray(raw.replacedEvidenceRunIds) ? {
+      replacedEvidenceRunIds: raw.replacedEvidenceRunIds.filter(id => (raw.runIds as string[]).includes(id)).slice(-PROJECT_LIMITS.runIds),
+    } : {}),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     ...(attachments.length === 0 ? {} : { attachments }),
@@ -2191,6 +2199,8 @@ function replannedMilestone(
     ...base,
     state: keep ? old.state : "planned",
     runIds: old.runIds,
+    ...(old.evidenceSince === undefined ? {} : { evidenceSince: old.evidenceSince }),
+    ...(old.replacedEvidenceRunIds === undefined ? {} : { replacedEvidenceRunIds: old.replacedEvidenceRunIds }),
     ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
     ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
     // The result's evidence stays with it (issue #74).
@@ -2317,7 +2327,17 @@ function milestoneUpdate(
     const runId = cleanId(update.runId);
     if (runId === null) return invalid("a run id is a short id without spaces");
     const runIds = current.runIds.includes(runId) ? current.runIds : [...current.runIds, runId].slice(-PROJECT_LIMITS.runIds);
-    const run: ProjectMilestone = { ...current, state: "in_progress", runIds, updatedAt: now };
+    const startedAt = isTime(update.startedAt) ? update.startedAt : undefined;
+    const firstCurrentRun = current.runIds.every(id => current.replacedEvidenceRunIds?.includes(id));
+    const evidenceSince = firstCurrentRun
+      ? startedAt ?? current.evidenceSince ?? current.updatedAt
+      : current.evidenceSince !== undefined && startedAt !== undefined
+        ? Math.min(current.evidenceSince, startedAt)
+        : current.evidenceSince;
+    const run: ProjectMilestone = {
+      ...current, state: "in_progress", runIds, updatedAt: now,
+      ...(evidenceSince === undefined ? {} : { evidenceSince }),
+    };
     // Issue #112: a record from before the snapshot takes the approved plan's citations at its run.
     milestones[index] = current.decisionsCited === undefined ? withCited(run, citedIn(project.plan.rows, current.id, approvedDecisionsOf(project))) : run;
     return { ok: true, project: { ...project, milestones } };
@@ -2685,6 +2705,8 @@ function decideProject(
             ...m,
             state: "approved" as const,
             corrections: [...(m.corrections ?? []), { note, at: now }].slice(-PROJECT_LIMITS.corrections),
+            evidenceSince: now,
+            replacedEvidenceRunIds: [...m.runIds],
             updatedAt: now,
           }
         : m,

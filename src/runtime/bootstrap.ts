@@ -1073,6 +1073,7 @@ export async function createAgentRuntime(
     loadSession: (id) => sessionStore.load(id),
     saveSession: (session) => sessionStore.save(session),
     projectStore,
+    receiptStateDir: config.paths.stateDir,
     writeProjectReceipt,
     warnReceipt,
     isBusy: (id) => turnController.isBusy(id),
