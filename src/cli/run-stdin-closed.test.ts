@@ -17,6 +17,7 @@ import {
 import { createEmptySessionState } from "../session/session-state.js";
 import { SessionStore } from "../session/session-store.js";
 import { createSessionProjectStore } from "../session/session-project-store.js";
+import { applyBacklogDecision } from "../session/project-backlog.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 
 /**
@@ -189,6 +190,72 @@ describe("run with stdin closed (issue #100)", () => {
     } finally {
       saved.close();
     }
+  }, 60_000);
+
+  it("defers and activates backlog coverage on the stored plan without approving or starting a turn", async () => {
+    process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
+    resetConfigCache();
+    const id = "s-eof-backlog";
+    const brief = up(undefined, {
+      kind: "brief",
+      brief: { what: "CSV summary", users: "Ops", how: "Node", successCriteria: ["Sums"] },
+      draftedAfterUntrusted: false,
+    });
+    const b1 = up(approve(brief), { kind: "backlog_add", item: { title: "Export to PDF", source: "director" } });
+    const backlog = up(b1, { kind: "backlog_add", item: { title: "Dark mode", source: "director" } });
+    const promoted = applyBacklogDecision(backlog, { id: "b1", state: "promoted" });
+    if (!promoted.ok) throw new Error(promoted.error.message);
+    const plan = up(promoted.project, {
+      kind: "plan", milestones: [{ id: "m1", title: "Base", kind: "base" }], rows: [row("sales")], detail: "compact",
+    });
+    const version = gateVersion(plan)!;
+    const store = new SessionStore();
+    store.save(withProject({ ...createEmptySessionState({ id, workingDir }), turnCount: 1 }, plan));
+    store.close();
+
+    const run = (...args: string[]) => runCli(["--cwd", workingDir, "--session", id, ...args], env);
+    for (const [args, code, message] of [
+      [["--defer-backlog", "b1,b9"], 1, "Unknown backlog item b9"],
+      [["--defer-backlog", "b2"], 1, "b2 is not promoted"],
+      [["--defer-backlog", "b1", "--approve", String(version)], 2, "cannot be combined with --approve"],
+      [["--defer-backlog", "b1", "--incognito"], 2, "--session and --incognito cannot be combined"],
+    ] as const) {
+      const refused = await run(...args);
+      expect(refused.code, refused.stderr).toBe(code);
+      expect(refused.stderr).toContain(message);
+    }
+
+    const deferred = await run("--defer-backlog", "b1");
+    expect(deferred.code, deferred.stderr).toBe(3);
+    expect(deferred.stderr).toContain("Not required: b1 (deferred)");
+    expect(deferred.stderr).toContain(`--approve ${version + 1}`);
+    const load = () => {
+      const saved = new SessionStore({ projectStore: createSessionProjectStore({ stateDir, records: stateDirProjectRecords(stateDir) }) });
+      try {
+        return saved.load(id);
+      } finally {
+        saved.close();
+      }
+    };
+    expect(load()).toMatchObject({ turnCount: 1, project: {
+      gate: { kind: "plan" }, backlogStates: { b1: "promoted" }, backlogCalls: { b1: { deferred: true } },
+      plan: { version: version + 1, status: "draft" },
+    } });
+    const active = await run("--activate-backlog", "b1");
+    expect(active.code, active.stderr).toBe(3);
+    expect(active.stderr).toContain("backlog-coverage: fail:");
+    expect(active.stderr).toContain("No plan task that will run cites promoted backlog items: b1");
+    expect(active.stderr).toContain(`--approve ${version + 2}`);
+    const saved = load();
+    expect(saved).toMatchObject({ turnCount: 1, project: { gate: { kind: "plan" }, plan: { version: version + 2, status: "draft" } } });
+    expect(saved?.project?.backlogCalls?.b1?.deferred).toBeUndefined();
+  }, 60_000);
+
+  it("refuses backlog edits outside the plan gate", async () => {
+    const id = seedFailedMilestone();
+    const ran = await runCli(["--cwd", workingDir, "--session", id, "--defer-backlog", "b1"], env);
+    expect(ran.code, ran.stderr).toBe(1);
+    expect(ran.stderr).toContain("Backlog status can be changed only at the plan gate");
   }, 60_000);
 
   it("a plain chat with nothing waiting still exits 0", async () => {

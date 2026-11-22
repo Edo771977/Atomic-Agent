@@ -222,6 +222,21 @@ describe("run at a fusion project gate", () => {
     expect(stderr).toContain(`atomic-agent run --session ${id} --approve 4`);
   }, 60_000);
 
+  it("refuses a backlog edit when the plan version changes after reading the view", async () => {
+    const backlog = { items: [], promoted: [{ id: "b1", title: "Export to PDF", citedBy: [] }], seeds: [], stale: [], open: 0 };
+    project.openAfterTurn = [{ ...planGate, backlog }];
+    feed(["build the game\n"]);
+    expect(await runAgentCommand(["--cwd", workingDir, "--no-approval"])).toBe(3);
+    const id = sessionIdIn(stderr);
+    project.refusal = { code: "stale-version", message: "The project changed since it was shown; reload it." };
+    stderr = "";
+    expect(await runAgentCommand(["--cwd", workingDir, "--session", id, "--defer-backlog", "b1"])).toBe(1);
+    expect(project.decisions).toEqual([
+      { gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { backlogStatus: { b1: "deferred" } } },
+    ]);
+    expect(stderr).toContain("The project changed since it was shown");
+  }, 60_000);
+
   it("--auto-approve-project approves every gate as it opens and says so", async () => {
     const milestoneGate = fixtureProjectGateView({ kind: "milestone", id: "m1" });
     // The plan gate opens after the first turn; the continuing turn ends at the milestone gate.

@@ -2,7 +2,7 @@ import type { AgentRuntime } from "../runtime/runtime-contract.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { formatProjectGateText, projectApprovalLine, staleApprovalReason } from "../session/project-gate-text.js";
 import type { ProjectGateView } from "../session/project-gate-view.js";
-import type { PersonDecisionStatus, ProjectDecision, ProjectState } from "../session/session-project.js";
+import type { ProjectEdits, ProjectDecision, ProjectState } from "../session/session-project.js";
 
 /**
  * `run` at a fusion project gate (issue #39). An unattended run never
@@ -42,31 +42,45 @@ function showWaitingGate(view: ProjectGateView, sessionId: string): string {
     ...(view.gate.kind === "plan" && (view.decisions?.length ?? 0) > 0
       ? [`Change decision status with: atomic-agent run --session ${sessionId} --defer-decision <id> or --reactivate-decision <id>.`]
       : []),
+    ...(view.gate.kind === "plan" && view.backlog?.promoted.some((item) => item.citedBy !== undefined)
+      ? [`Change backlog status with: atomic-agent run --session ${sessionId} --defer-backlog <id> or --activate-backlog <id>.`]
+      : []),
     "Or continue the chat with --session to ask the director for changes.",
   ].join("\n");
 }
 
 /** A person's explicit plan edit leaves the new version waiting for approval. */
-export function editProjectDecisionStatuses(
+export function editProjectStatuses(
   runtime: GateRuntime,
   sessionId: string,
-  decisionStatus: Readonly<Record<string, PersonDecisionStatus>>,
+  { decisionStatus, backlogStatus }: Pick<ProjectEdits, "decisionStatus" | "backlogStatus">,
 ): DecisionStatusStep {
   const view = runtime.projectState?.(sessionId) ?? null;
+  const subject = decisionStatus === undefined ? "Backlog status" : "Decision status";
   if (view?.gate.kind !== "plan" || view.version === null) {
-    return { kind: "failed", text: "Decision status can be changed only at the plan gate." };
+    return { kind: "failed", text: `${subject} can be changed only at the plan gate.` };
   }
-  const unknownId = Object.keys(decisionStatus).find((id) => !view.decisions?.some((decision) => decision.id === id));
+  const unknownId = Object.keys(decisionStatus ?? {}).find((id) => !view.decisions?.some((decision) => decision.id === id));
   if (unknownId !== undefined) {
     return { kind: "failed", text: `${unknownId} is not a decision of the approved brief.` };
   }
+  for (const id of Object.keys(backlogStatus ?? {})) {
+    if (view.backlog?.promoted.some((item) => item.id === id && item.citedBy !== undefined)) continue;
+    const item = view.backlog?.items.find((entry) => entry.id === id);
+    if (item === undefined) return { kind: "failed", text: `Unknown backlog item ${id}.` };
+    if (item.state !== "promoted") return { kind: "failed", text: `Backlog item ${id} is not promoted.` };
+    return { kind: "failed", text: `Promoted backlog item ${id} is not awaiting coverage in the current plan.` };
+  }
   if (runtime.projectDecision === undefined || !view.allowedVerdicts.includes("edit")) {
-    return { kind: "failed", text: "Decision status cannot be changed at this plan gate." };
+    return { kind: "failed", text: `${subject} cannot be changed at this plan gate.` };
   }
   const outcome = runtime.projectDecision(sessionId, {
-    gate: view.gate, version: view.version, verdict: "edit", edits: { decisionStatus },
+    gate: view.gate, version: view.version, verdict: "edit", edits: {
+      ...(decisionStatus === undefined ? {} : { decisionStatus }),
+      ...(backlogStatus === undefined ? {} : { backlogStatus }),
+    },
   });
-  if (!outcome.ok) return { kind: "failed", text: `Decision status was not changed: ${outcome.error.message}` };
+  if (!outcome.ok) return { kind: "failed", text: `${subject} was not changed: ${outcome.error.message}` };
   return { kind: "updated", text: showWaitingGate(outcome.view, sessionId) };
 }
 
