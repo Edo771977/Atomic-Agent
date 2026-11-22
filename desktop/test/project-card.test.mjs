@@ -838,6 +838,7 @@ test('the view\'s hints are shown; Edit rows is hidden when the plan offers no c
 });
 
 test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as the TUI card', () => {
+  // Issue #126: the core's criterionFactLine ends every fact with its basis; these facts record none.
   const base = milestone();
   const view = milestone({
     brief: Object.assign({}, base.brief, {criteria: [{id: 'c1', text: 'legal moves only'}, {id: 'c2', text: 'Looks right'}]}),
@@ -849,9 +850,9 @@ test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as 
   });
   const m = C.pcModel(C.pcInitial(view));
   assert.deepEqual(m.milestones[0].facts, [
-    {state: 'passed', text: '✓ c1 passed: legal moves only'},
-    {state: 'unverified', text: '? c2 unverified: Looks right (no vision-capable reviewer)'},
-    {state: 'failed', text: '✕ c3 failed (check exited 1)'},
+    {state: 'passed', text: '✓ c1 passed: legal moves only · basis not recorded'},
+    {state: 'unverified', text: '? c2 unverified: Looks right (no vision-capable reviewer) · basis not recorded'},
+    {state: 'failed', text: '✕ c3 failed (check exited 1) · basis not recorded'},
   ]);
   assert.deepEqual(m.milestones[1].facts, []);
   const doc = fakeDoc();
@@ -859,9 +860,9 @@ test('a milestone lists its criteria facts ✓ ✕ ? with the brief\'s text, as 
   C.pcDraw(doc, host, m, () => {});
   const lines = host.findAll((e) => /\bpc-fact\b/.test(e.className));
   assert.deepEqual(lines.map((e) => [e.className, e.textContent]), [
-    ['pc-fact is-passed', '✓ c1 passed: legal moves only'],
-    ['pc-fact is-unverified', '? c2 unverified: Looks right (no vision-capable reviewer)'],
-    ['pc-fact is-failed', '✕ c3 failed (check exited 1)'],
+    ['pc-fact is-passed', '✓ c1 passed: legal moves only · basis not recorded'],
+    ['pc-fact is-unverified', '? c2 unverified: Looks right (no vision-capable reviewer) · basis not recorded'],
+    ['pc-fact is-failed', '✕ c3 failed (check exited 1) · basis not recorded'],
   ]);
 });
 

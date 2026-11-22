@@ -97,3 +97,62 @@ test('the evidence line is text: a folder with markup stays text', () => {
   assert.match(texts(host, 'pc-evidence').join('\n'), /<img src=x onerror=alert\(1\)>/);
   assert.equal(host.findAll((e) => e.tagName === 'IMG').length, 0);
 });
+
+/* ---------------- issue #126: criteria bases, the director report and runtime notes ---------------- */
+
+const FACTS = [
+  {id: 'c1', state: 'passed', basis: {kind: 'check', checks: [{index: 1}]}},
+  {id: 'c2', state: 'unverified', why: 'no vision-capable reviewer'},
+  {id: 'c3', state: 'passed', basis: {kind: 'vision', model: 'openrouter:<b>eye</b>'}},
+  {id: 'c4', state: 'failed', why: 'check exited 1', basis: {kind: 'person'}},
+  {id: 'c1', state: 'passed', reservation: 'the check greps its own output', basis: {kind: 'check', checks: [{index: 2}]}},
+];
+
+test('each criterion fact carries its basis mark, worded as the TUI card (measured, judged by, declared by you, basis not recorded)', () => {
+  const v = view({criteriaFacts: FACTS});
+  const tui = tuiLines(v);
+  const host = draw(v);
+  const facts = host.findAll((e) => /\bpc-fact\b/.test(e.className));
+  const m1 = facts.slice(0, FACTS.length).map((e) => e.textContent);
+  for (const line of m1) assert.ok(tui.includes(line), line + '\n' + tui.join('\n'));
+  assert.deepEqual(m1, [
+    '✓ c1 passed: Runs in a browser · measured',
+    '? c2 unverified: Ten levels (no vision-capable reviewer) · basis not recorded',
+    '✓ c3 passed · judged by openrouter:<b>eye</b>',
+    '✕ c4 failed (check exited 1) · declared by you',
+    '~ c1 passed with reservations: Runs in a browser (reservations: the check greps its own output) · measured',
+  ]);
+  assert.deepEqual(facts.map((e) => e.className), ['pc-fact is-passed', 'pc-fact is-unverified', 'pc-fact is-passed', 'pc-fact is-failed', 'pc-fact is-reserved']);
+  assert.equal(host.findAll((e) => e.tagName === 'B').length, 0, 'a model name is text');
+});
+
+test('the per-basis summary line heads the facts: the view\'s own counts, else counted from the facts, as the TUI', () => {
+  const counted = view({criteriaFacts: FACTS});
+  const line = (v) => texts(draw(v), 'pc-basis');
+  assert.deepEqual(line(counted), ['5 criteria: 2 measured, 1 judged by a model, 1 declared by you, 1 basis not recorded']);
+  assert.ok(tuiLines(counted).includes(line(counted)[0]));
+  const given = view({criteriaFacts: FACTS.slice(0, 1), criteriaBasisSummary: {check: 1, vision: 0, person: 0, unrecorded: 0}});
+  assert.deepEqual(line(given), ['1 criterion: 1 measured']);
+  assert.ok(tuiLines(given).includes(line(given)[0]));
+  assert.deepEqual(line(view()), [], 'no facts, no summary');
+});
+
+test('the director report is shown apart from the runtime\'s notes, with a warning for each unsupported claim', () => {
+  const v = view({
+    summary: 'The board renders. Everything is verified.',
+    reportNotes: ['Runtime: 2 checks ran.', 'Runtime: a screenshot was taken.'],
+    directorReportWarnings: ['Everything is verified.'],
+    criteriaFacts: FACTS.slice(0, 2),
+  });
+  const tui = tuiLines(v);
+  const host = draw(v);
+  assert.deepEqual(texts(host, 'pc-summary'), ['Director report: The board renders. Everything is verified.']);
+  assert.deepEqual(texts(host, 'pc-report-note'), ['Runtime: 2 checks ran.', 'Runtime: a screenshot was taken.']);
+  assert.deepEqual(texts(host, 'pc-claim-warning'), ['Warning: no matching passed criterion fact for director claim: Everything is verified.']);
+  for (const l of [...texts(host, 'pc-summary'), ...texts(host, 'pc-report-note'), ...texts(host, 'pc-claim-warning')]) assert.ok(tui.includes(l), l);
+  // The notes are not the director's: the report's own line does not carry them.
+  assert.equal(texts(host, 'pc-summary').join('').includes('Runtime:'), false);
+  // An older agent: no notes, no warnings; the report alone.
+  const old = draw(view({summary: 'The board renders.'}));
+  assert.deepEqual([texts(old, 'pc-report-note'), texts(old, 'pc-claim-warning')], [[], []]);
+});

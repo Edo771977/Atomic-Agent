@@ -60,8 +60,11 @@ the totals, the limits the plan breaks (hard ones marked; Approve waits while
 one stands), the view's `hints` (`ℹ` lines, the TUI card's prefix), the
 milestones, and under every milestone that has them (the card lists all
 milestones, as the TUI's full `/plan` view does; its compact card shows only
-the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` lines in the
-core's `criterionFactLine` words and its `attachments` as text only: an
+the gate milestone's) its `criteriaFacts` as `✓` / `✕` / `?` / `~` lines in the
+core's `criterionFactLine` words, each ending with its basis (measured,
+judged by <model>, declared by you, basis not recorded; issue #126) under
+the per-basis count line (`criteriaBasisSummary`, else counted from the
+facts), and its `attachments` as text only: an
 "N pictures" line, then each caption with its criteria (the core's
 `attachmentLabel`) and the file's name, where the TUI shows the full path as
 a file link; no file is read and no image or file link is drawn. A
@@ -69,7 +72,12 @@ milestone whose view carries `evidenceReceipts` (issue #119) shows the TUI
 card's one "Evidence:" line (signed, unsigned, problems, partial scan,
 archive unavailable) and, unless every receipt is signed, the TUI's
 "Run atomic-agent project verify" hint with the folder; text only, as
-`test/project-card-evidence.test.mjs` checks against the TUI's own lines. Under the
+`test/project-card-evidence.test.mjs` checks against the TUI's own lines.
+Below the milestones, the gate milestone's report reads "Director report:
+…"; the runtime's `reportNotes` follow as lines of their own, never inside
+the report, then a warning for each sentence in `directorReportWarnings`
+(a claim of verified or working work no passed criterion supports), in the
+core's `directorReportWarningLine` words. Under the
 plan comes the core's own note that
 approving lets the tasks write in this chat's folder. Its buttons are
 `view.allowedVerdicts` only: Approve, Edit rows (a worker and a reviewer per

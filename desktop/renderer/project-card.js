@@ -340,18 +340,63 @@ function pcPictureLine(a) {
   return pcStr(a.caption) + (ids.length ? ' [' + ids.join(', ') + ']' : '') + (name ? ' · ' + name : '');
 }
 
+/** Issue #126: what a fact rests on, as the core's criterionBasisLabel (project-gate-text.ts). */
+function pcBasisLabel(basis) {
+  switch (basis && basis.kind) {
+    case 'check': return 'measured';
+    case 'person': return 'declared by you';
+    case 'vision': return 'judged by ' + pcStr(basis.model);
+    default: return 'basis not recorded';
+  }
+}
+
+/** A fact passed only on checks that may pass on the wrong thing (issue #110): never plain green. */
+const pcReserved = (fact) => !!fact && fact.state === 'passed' && typeof fact.reservation === 'string';
+
 /**
  * One criterion fact as a line, as the core's criterionFactLine words it
- * (issue #40): "✓ c1 passed: Runs offline", "? c2 unverified: Looks right
- * (no vision-capable reviewer)". The text is the brief's when it names the id.
+ * (issues #40, #110, #126): "✓ c1 passed: Runs offline · measured", "? c2
+ * unverified: Looks right (no vision-capable reviewer) · basis not recorded",
+ * "~ c3 passed with reservations: … (reservations: …) · measured". The text
+ * is the brief's when it names the id.
  */
 function pcFactLine(fact, criteria) {
   const id = pcStr(fact && fact.id), state = pcStr(fact && fact.state);
   const c = pcList(criteria).find((x) => x && x.id === id);
   const text = c ? pcStr(c.text) : '';
+  const reserved = pcReserved(fact);
   const why = pcStr(fact && fact.why);
-  return (PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + state + (c ? ': ' + text : '') + (why ? ' (' + why + ')' : '');
+  const notes = (why ? [why] : []).concat(reserved ? ['reservations: ' + fact.reservation] : []);
+  return (reserved ? '~' : PC_FACT_MARK[state] || '?') + ' ' + id + ' ' + (reserved ? 'passed with reservations' : state)
+    + (c ? ': ' + text : '') + (notes.length ? ' (' + notes.join('; ') + ')' : '') + ' · ' + pcBasisLabel(fact && fact.basis);
 }
+
+/**
+ * Issue #126: the facts counted by basis in one line, as the core's
+ * criterionBasisSummaryLine: the view's `criteriaBasisSummary`, else
+ * counted from the facts (summarizeCriterionBases), as the TUI card does.
+ */
+function pcBasisSummary(summary, facts) {
+  let counts = summary && typeof summary === 'object' ? summary : null;
+  if (!counts || ['check', 'vision', 'person', 'unrecorded'].some((k) => pcNum(counts[k]) === null)) {
+    counts = {check: 0, vision: 0, person: 0, unrecorded: 0};
+    for (const f of facts) {
+      const kind = f && f.basis && f.basis.kind;
+      counts[kind === 'check' || kind === 'vision' || kind === 'person' ? kind : 'unrecorded'] += 1;
+    }
+  }
+  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
+  const labels = [
+    counts.check > 0 ? counts.check + ' measured' : '',
+    counts.vision > 0 ? counts.vision + ' judged by a model' : '',
+    counts.person > 0 ? counts.person + ' declared by you' : '',
+    counts.unrecorded > 0 ? counts.unrecorded + ' basis not recorded' : '',
+  ];
+  return total + ' ' + (total === 1 ? 'criterion' : 'criteria') + ': ' + labels.filter(Boolean).join(', ');
+}
+
+/** Issue #126: a director claim no passed fact supports, as the core's directorReportWarningLine. */
+const pcClaimWarning = (sentence) => 'Warning: no matching passed criterion fact for director claim: ' + sentence;
 
 /**
  * Issue #119: the `project verify` hint, as the TUI card's evidenceVerifyHint
@@ -667,13 +712,14 @@ function pcModel(state, env) {
     totals = rows.length + ' task' + (rows.length === 1 ? '' : 's') + ' · ' + pcUsd(pcNum(t.costUsd)) + unpriced + ' · ' + pcDuration(pcNum(t.ms));
   }
   const gateId = gate === 'milestone' ? view.gate.id : null;
-  const milestones = gate === 'brief' ? [] : pcList(view.milestones).map((m) => ({
+  const milestones = gate === 'brief' ? [] : pcList(view.milestones).map((m) => ({ m, facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object') })).map(({m, facts}) => ({
     id: pcStr(m.id), title: pcStr(m.title), state: pcStr(m.state), mark: PC_MARK[m.state] || '·',
     current: m.id === gateId,
     estimate: pcNum(m.estCostUsd) === null && pcNum(m.estMs) === null ? '' : pcUsd(pcNum(m.estCostUsd)) + ' · ' + pcDuration(pcNum(m.estMs)),
     // Evidence of the result (issue #40), the runtime's facts only: never a claim the view does not carry.
-    facts: pcList(m.criteriaFacts).filter((f) => f && typeof f === 'object')
-      .map((f) => ({state: PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    facts: facts.map((f) => ({state: pcReserved(f) ? 'reserved' : PC_FACT_MARK[f.state] ? f.state : 'unverified', text: pcFactLine(f, brief && brief.criteria)})),
+    // Issue #126: how the facts were established, counted by basis.
+    basis: facts.length ? pcBasisSummary(m.criteriaBasisSummary, facts) : null,
     pictures: pcList(m.attachments).filter((a) => a && typeof a === 'object').map(pcPictureLine),
     evidence: pcEvidence(m.evidenceReceipts),
   }));
@@ -698,6 +744,9 @@ function pcModel(state, env) {
     backlog: backlog && {summary: backlog.summary, items: backlog.items, waitTurn: turnRunning ? PC_WAIT_TURN : null},
     milestones,
     summary: current && current.summary ? pcStr(current.summary) : null,
+    // Issue #126: the runtime's notes, apart from the director's report, and the report's unsupported claims.
+    reportNotes: current ? pcList(current.reportNotes).map(pcStr).filter(Boolean) : [],
+    claimWarnings: current ? pcList(current.directorReportWarnings).map(pcStr).filter(Boolean).map(pcClaimWarning) : [],
     corrections: current ? pcList(current.corrections).map((c) => pcStr(c && c.note)).filter(Boolean) : [],
     actions: pcActions(view, state),
     mode: state.mode, note: state.note, noteMax: PC_NOTE_MAX,
@@ -970,6 +1019,7 @@ function pcDraw(doc, host, model, on) {
         li.appendChild(pcEl(doc, 'p', 'pc-evidence is-' + m.evidence.tone, m.evidence.line));
         if (m.evidence.hint) li.appendChild(pcEl(doc, 'p', 'pc-evidence pc-evidence-hint is-' + m.evidence.tone, m.evidence.hint));
       }
+      if (m.basis) li.appendChild(pcEl(doc, 'p', 'pc-basis', m.basis));
       if (m.facts.length) {
         const facts = pcEl(doc, 'ul', 'pc-facts');
         facts.setAttribute('aria-label', 'Success criteria');
@@ -987,7 +1037,9 @@ function pcDraw(doc, host, model, on) {
     }
     body.appendChild(ul);
   }
-  if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', model.summary));
+  if (model.summary) body.appendChild(pcEl(doc, 'p', 'pc-summary', 'Director report: ' + model.summary));
+  for (const n of model.reportNotes) body.appendChild(pcEl(doc, 'p', 'pc-report-note', n));
+  for (const w of model.claimWarnings) body.appendChild(pcEl(doc, 'p', 'pc-warn-item pc-claim-warning', w));
   for (const c of model.corrections) body.appendChild(pcEl(doc, 'p', 'pc-correction', 'Earlier correction: ' + c));
   if (model.notice) {
     const n = body.appendChild(pcEl(doc, 'p', 'pc-notice', model.notice));
