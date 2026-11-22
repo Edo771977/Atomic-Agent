@@ -1,5 +1,6 @@
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
+import { sameMember } from "./member-identity.js";
 import type { TeamMember } from "../../llm/run-mode/fusion-team.js";
 import {
   CRITERION_ID_PATTERN,
@@ -304,8 +305,17 @@ export function parseProjectPlanArgs(raw: Record<string, unknown>): Parsed<{ pla
 function findMember(members: readonly TeamMember[], name: string): TeamMember | undefined {
   const exact = members.find((m) => m.ref === name);
   if (exact !== undefined) return exact;
+  // By identity (issue #98): `codex-cli`, `codex-cli:` and `codex-cli:default` are one member.
+  const same = members.filter((m) => sameMember(m.ref, name));
+  if (same.length === 1) return same[0];
   const byModel = members.filter((m) => m.model === name);
-  return byModel.length === 1 ? byModel[0] : undefined;
+  if (byModel.length === 1) return byModel[0];
+  // A bare provider names its only member there; two or more stay ambiguous.
+  const trimmed = name.trim();
+  const bare = trimmed.endsWith(":") ? trimmed.slice(0, -1) : trimmed;
+  if (bare.includes(":")) return undefined;
+  const byProvider = members.filter((m) => m.providerId === bare);
+  return byProvider.length === 1 ? byProvider[0] : undefined;
 }
 
 /** The plan's rows with workers, reviewers and estimates, or the problems. */
