@@ -66,8 +66,8 @@ export const STRICT_ARGS_LIMITS = {
   totalChars: 120_000,
 } as const;
 
-// This built-in's command, page and artifact fields can need 122 rules
-// when no other tool has already contributed its shared rule bodies.
+// Reserve room for the standalone verify.run schema, including command,
+// page and artifact fields, before any shared rule bodies are available.
 const VERIFY_RUN_RULE_LIMIT = 128;
 
 /** The rule `tool-call` gains, listing every generated call rule. */

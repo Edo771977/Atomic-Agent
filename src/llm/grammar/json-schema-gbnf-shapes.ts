@@ -102,14 +102,22 @@ export function objectRule(sink: RuleSink, schema: Schema, name: string): string
   if (props.length === 0 && (additional === undefined || additional === true) && !patternOpen) {
     return HOST_RULES.object;
   }
+  const keys = props.map(([k]) => k);
+  const requiredKeys = keys.filter(k => required.has(k));
+  const optionalKeys = keys.filter(k => !required.has(k));
+  const useLooseKeys = keys.length > EXACT_OBJECT_KEYS && requiredKeys.length <= TRACKED_REQUIRED_KEYS;
   const kv = new Map<string, string>();
   for (const [key, propSchema] of props) {
     const value = sink.visit(propSchema, `${name}-${key}`);
-    kv.set(key, sink.addRule(`${name}-${key}-kv`, `${literal(key)} ${WS} ":" ${WS} ${value}`));
+    const body = `${literal(key)} ${WS} ":" ${WS} ${value}`;
+    // Language equivalence for every schema using loose keys: each old kv
+    // nonterminal expands to exactly this literal-key / colon / value sequence.
+    // Its only incoming reference is an alternative in the loose-key union.
+    // Substituting that sequence into the same alternative preserves its
+    // token language, repetition and placement relative to required keys.
+    // The tracked, schema-order and additional-property rules are unchanged.
+    kv.set(key, useLooseKeys && !required.has(key) ? body : sink.addRule(`${name}-${key}-kv`, body));
   }
-  const keys = props.map(([k]) => k);
-  const requiredKeys = keys.filter((k) => required.has(k));
-  const optionalKeys = keys.filter((k) => !required.has(k));
   let extra: string | undefined;
   if (additional === true || isSchema(additional) || patternOpen) {
     const value = isSchema(additional)
@@ -123,7 +131,7 @@ export function objectRule(sink: RuleSink, schema: Schema, name: string): string
   if (keys.length <= EXACT_OBJECT_KEYS) {
     return anyOrderObject(sink, name, keys, required, kv, extra, []);
   }
-  if (requiredKeys.length <= TRACKED_REQUIRED_KEYS) {
+  if (useLooseKeys) {
     const loose = [...optionalKeys.map((k) => kv.get(k)!), ...(extra === undefined ? [] : [extra])];
     return anyOrderObject(sink, name, requiredKeys, required, kv, undefined, loose);
   }
