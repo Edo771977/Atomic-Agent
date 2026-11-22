@@ -255,6 +255,13 @@ export interface TurnOutcomeRecord {
   workerMs: number;
   /** Priced worker-leg spend; null when no worker row was priced. */
   workerCostUsd: number | null;
+  /**
+   * Plan reviews before the plan gate (issue #118): how many, their
+   * priced spend (null when none was priced; also in
+   * `orchestrator.costUsd`) and how many were unpriced. Absent: none ran
+   * (or an older record).
+   */
+  planReviews?: { reviews: number; costUsd: number | null; unpriced: number };
 }
 
 export type OutcomeRecord = TaskOutcomeRecord | TurnOutcomeRecord;

@@ -179,6 +179,24 @@ export interface FusionReport {
   strongSpendUsd: number | null;
   /** Some strong-side requests or orchestrator-target tasks were unpriced. */
   strongSpendPartial: boolean;
+  /** Plan reviews before the plan gate (issue #118), over the turns that record them. */
+  planReviews: { reviews: number; costUsd: number | null; unpriced: number };
+}
+
+/** The turns' plan reviews summed; malformed fields count as none. */
+function planReviewStats(turns: readonly TurnOutcomeRecord[]): FusionReport["planReviews"] {
+  let reviews = 0;
+  let unpriced = 0;
+  let cost: number | null = null;
+  const count = (v: unknown): number => (Number.isInteger(v) && (v as number) > 0 ? (v as number) : 0);
+  for (const t of turns) {
+    const p = t.planReviews;
+    if (typeof p !== "object" || p === null) continue;
+    reviews += count(p.reviews);
+    unpriced += count(p.unpriced);
+    if (typeof p.costUsd === "number" && Number.isFinite(p.costUsd) && p.costUsd >= 0) cost = (cost ?? 0) + p.costUsd;
+  }
+  return { reviews, costUsd: cost === null ? null : Math.round(cost * 1e6) / 1e6, unpriced };
 }
 
 function isRecord(value: unknown): value is OutcomeRecord {
@@ -502,6 +520,7 @@ export function aggregateOutcomes(
     strongSpendPartial:
       orchestrator.some((o) => o.unpricedTurns > 0) ||
       tasks.some((r) => r.leg === "orchestrator" && r.costUsd === null),
+    planReviews: planReviewStats(turns),
   };
 }
 
@@ -639,6 +658,11 @@ export function formatFusionReport(report: FusionReport, options: ReportOptions 
         ]),
       ),
     );
+  }
+  // Issue #118: the plan reviews' spend, its own line (it is also in the orchestrator's spend).
+  const reviews = report.planReviews;
+  if (reviews !== undefined && reviews.reviews > 0) {
+    lines.push("", `Plan reviews: ${reviews.reviews}, ${reviews.costUsd === null ? "unpriced" : formatUsdShort(reviews.costUsd)}${reviews.costUsd !== null && reviews.unpriced > 0 ? ` (+${reviews.unpriced} unpriced)` : ""}`);
   }
   lines.push(
     "",

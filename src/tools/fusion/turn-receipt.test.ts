@@ -155,3 +155,25 @@ describe("fusion turn receipt", () => {
     expect(line).toBe("fusion receipt · strong $0.0010, 3 requests, cache hit 90% · workers 500 tokens, 4s, $0.25 · tasks 2 ok");
   });
 });
+
+describe("plan reviews on the turn receipt (issue #118)", () => {
+  it("counts the plan review's spend as its own strong-side part", () => {
+    const ledger = new FusionTurnLedger();
+    ledger.begin("s1", { providerId: "api", model: "strong" });
+    ledger.noteCompletion("s1", { providerId: "api", usage: usage(1000, 100), costUsd: 0.01 });
+    ledger.notePlanReview("s1", 0.03);
+    ledger.notePlanReview("s1", null);
+    ledger.notePlanReview("s2", 1);
+    const receipt = ledger.finish("s1", new Date("2026-11-01T00:00:00Z"))!;
+    expect(receipt.record.planReviews).toEqual({ reviews: 2, costUsd: 0.03, unpriced: 1 });
+    expect(receipt.record.orchestrator.costUsd).toBeCloseTo(0.04);
+    expect(receipt.line).toContain("$0.03 plan review");
+  });
+
+  it("a turn without a plan review records none", () => {
+    const ledger = new FusionTurnLedger();
+    ledger.begin("s1", { providerId: "api", model: "strong" });
+    ledger.noteCompletion("s1", { providerId: "api", usage: usage(1000, 100), costUsd: 0.01 });
+    expect(ledger.finish("s1")!.record.planReviews).toBeUndefined();
+  });
+});
