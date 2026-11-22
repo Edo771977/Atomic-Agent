@@ -1,5 +1,6 @@
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import { runBacklogCommand } from "./backlog-command.js";
+import { runLessonCommand } from "./lesson-command.js";
 import { projectGateNotice, runDecisionStatusCommand, runProjectCommand } from "./project-command.js";
 import {
   buildStatusSnapshot,
@@ -306,6 +307,8 @@ function helpText(ctx: InboundContext): string {
     "  /model — show the provider and model in use; /model <provider> [model-id] switches\n" +
     "  /plan — the fusion project gate waiting on you; /plan approve <version> or /plan cancel decides it\n" +
     "  /defer <id> or /reactivate <id> — review a status change for a decision at the project plan gate\n" +
+    "  /lessons — list project lessons; /lesson-approve, /lesson-retire or /lesson-reopen <id> previews a choice\n" +
+    "  /lesson-defer <id> or /lesson-activate <id> — preview a binding lesson's status change at the plan gate\n" +
     "  /backlog — list the project's backlog; /promote <id>, /drop <id> or /reopen <id> previews a change\n" +
     "  /defer <backlog-id> or /activate <backlog-id> — preview a promoted item's status change at the plan gate\n" +
     "  /cron — list scheduled tasks; /cron add <cron> <task>, /cron pause|resume|delete <id> (/cron help)\n" +
@@ -454,7 +457,7 @@ export function addressedText(
     "iu",
   );
   const targetedCommand = new RegExp(
-    `^\\s*/[A-Za-z0-9_]+@${u}(?![\\p{L}\\p{N}_])`,
+    `^\\s*/[A-Za-z0-9_-]+@${u}(?![\\p{L}\\p{N}_])`,
     "iu",
   );
   if (mention.test(update.text) || targetedCommand.test(update.text)) {
@@ -478,7 +481,7 @@ export function stripBotMention(text: string, username: string | null): string {
       "",
     )
     .replace(
-      new RegExp(`^(/[A-Za-z0-9_]+)@${u}(?![\\p{L}\\p{N}_])`, "iu"),
+      new RegExp(`^(/[A-Za-z0-9_-]+)@${u}(?![\\p{L}\\p{N}_])`, "iu"),
       "$1",
     );
 }
@@ -801,7 +804,13 @@ async function handleSlashCommand(
     case "/backlog":
     case "/promote":
     case "/drop":
-    case "/reopen": {
+    case "/reopen":
+    case "/lessons":
+    case "/lesson-approve":
+    case "/lesson-retire":
+    case "/lesson-reopen":
+    case "/lesson-defer":
+    case "/lesson-activate": {
       // Issue #39: the fusion project gate's text fallback.
       const sessionId = ctx.sessionPointer.get(ref.key).current;
       if (sessionId && channelSendWithheld(ctx.runtime, sessionId)()) {
@@ -813,6 +822,12 @@ async function handleSlashCommand(
         sessionId: sessionId ?? null,
         busy: ctx.inflight.has(ref.key),
       };
+      if (verb === "/lessons" || verb === "/lesson-approve" || verb === "/lesson-retire" ||
+          verb === "/lesson-reopen" || verb === "/lesson-defer" || verb === "/lesson-activate") {
+        const text = runLessonCommand(verb, rest, { ...deps, chatKey: ref.key });
+        await sendText(ctx, ref.target, text);
+        return;
+      }
       const deferId = verb === "/defer" ? normalizeCriterionId(rest[0]) : null;
       const view = deferId !== null && sessionId ? ctx.runtime.projectState?.(sessionId) : undefined;
       const deferBacklog = deferId !== null && (

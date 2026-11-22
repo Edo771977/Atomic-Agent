@@ -412,6 +412,7 @@ describe("TelegramChannel", () => {
       "plan",
       "defer",
       "reactivate",
+      "lessons",
       "backlog",
       "promote",
       "drop",

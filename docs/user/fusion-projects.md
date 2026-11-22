@@ -45,6 +45,8 @@ atomic-agent project lessons ./my-project --reopen local-storage
 
 Replace the example fingerprint with the one displayed for the lesson. Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
 
+In your paired Telegram chat, send `/lessons` to list that project's lessons and skipped files. Between turns in a regular chat, use `/lesson-approve <id>`, `/lesson-retire <id>` or `/lesson-reopen <id>` to preview a choice. Repeat the command with the displayed code to confirm it. If the file changes after previewing, read it again and request a new code.
+
 The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to make it binding. Every task whose declared files or checks match its `touches` must cite the lesson. A binding lesson with omitted or empty `touches`, or with `touches: ["."]`, applies to every task in a milestone that has yet to start. Existing approvals of unchanged `always: true` lessons with `touches: []` also apply to every such task. The existing approval remains valid because it covers the same file fingerprint. You can defer the lesson at the plan gate to set it aside for the current plan. Missing citations block approval, and assigned workers receive the cited lessons as binding project data. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
 ## Read the plan checks
@@ -63,6 +65,8 @@ The plan card lists each binding lesson and the tasks that cite it. Press **l** 
 atomic-agent run --session <session-id> --defer-lesson <lesson-id>
 atomic-agent run --session <session-id> --activate-lesson <lesson-id>
 ```
+
+In Telegram, use `/lesson-defer <id>` or `/lesson-activate <id>` at the plan gate and repeat the command with the displayed confirmation code. If the plan version changes, request a fresh preview.
 
 The choice stays with the current plan and is saved with your approvals. The plan version changes and the earlier review becomes stale. Review the updated plan before approving it.
 

@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import { join, posix, resolve, win32 } from "node:path";
 
-import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
+import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall, type ProjectLessonDecision, type ProjectRecord, type ProjectRecordStore } from "./project-decisions.js";
 import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
@@ -307,6 +307,31 @@ export function projectLessonStatus(lesson: ProjectLesson, call?: ProjectLessonC
     : lesson.declaredStatus !== "active" ? lesson.declaredStatus
     : approvedByPerson ? "active" : "unapproved";
   return { personState, approvedByPerson, effectiveStatus, stale } as const;
+}
+
+export function projectLessonFingerprint(lesson: ProjectLesson): string {
+  return lesson.hash.slice(0, 12);
+}
+
+export function prepareProjectLessonDecision(
+  id: string,
+  state: ProjectLessonCall["state"] | null,
+  lesson: ProjectLesson | undefined,
+  previous: ProjectLessonCall | undefined,
+): { ok: true; decision: ProjectLessonDecision } | { ok: false; message: string } {
+  const source = lesson ?? previous;
+  if (source === undefined || (state === "approved" && lesson === undefined)) {
+    return { ok: false, message: `No valid lesson named ${id}.` };
+  }
+  if (state === "approved" && lesson?.declaredStatus !== "active") {
+    return { ok: false, message: `Cannot approve ${id} with status: ${lesson?.declaredStatus}. Set status: active first.` };
+  }
+  const { hash, always } = source;
+  return { ok: true, decision: { id, call: state === null ? null : { state, hash, ...(always === undefined ? {} : { always }) } } };
+}
+
+export function writeProjectLessonDecision(records: ProjectRecordStore, record: ProjectRecord, decision: ProjectLessonDecision) {
+  return records.write(record.folder, record.id, record.seq, record.state, undefined, decision);
 }
 
 export interface ProjectLessonSource {

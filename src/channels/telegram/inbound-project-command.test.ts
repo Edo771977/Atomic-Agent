@@ -1,11 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { createEmptySessionState, type SessionState } from "../../session/index.js";
+import { stateDirProjectRecords } from "../../session/project-decisions.js";
+import { readProjectLessons } from "../../session/project-lessons.js";
 import type { ProjectBacklogDecision } from "../../session/project-backlog.js";
 import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
 import type { ProjectGateView } from "../../session/project-gate-view.js";
@@ -13,7 +15,7 @@ import type { ProjectDecision } from "../../session/session-project.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { createAttachmentInbox } from "../attachments/inbox.js";
 import { CHANNEL_RESTRICTED_NOTICE } from "../channel-egress.js";
-import { handleInboundText, type InboundContext } from "./inbound-handler.js";
+import { addressedText, handleInboundText, type InboundContext } from "./inbound-handler.js";
 import { TelegramSessionPointer } from "./telegram-session-pointer.js";
 
 /** Issue #39: `/plan` and the after-turn gate notice, through `handleInboundText`. */
@@ -28,6 +30,8 @@ describe("Telegram project gate", () => {
   let backlogDecisions: Array<{ sessionId: string; decision: ProjectBacklogDecision }>;
   let sent: string[];
   let withholdProject: boolean;
+  let projectSession: SessionState | undefined;
+  let liveProjectTurn: string | null;
   let ctx: InboundContext;
 
   beforeEach(() => {
@@ -38,6 +42,8 @@ describe("Telegram project gate", () => {
     backlogDecisions = [];
     sent = [];
     withholdProject = false;
+    projectSession = undefined;
+    liveProjectTurn = null;
     const sessions: SessionState[] = [];
     const runtime = {
       createSession: () => {
@@ -45,7 +51,11 @@ describe("Telegram project gate", () => {
         sessions.push(s);
         return s;
       },
-      sessionStore: { load: (id: string) => sessions.find((s) => s.id === id) ?? null },
+      config: { paths: { stateDir: join(dir, "state") } },
+      sessionStore: {
+        load: (id: string) => projectSession?.id === id ? projectSession : sessions.find((s) => s.id === id) ?? null,
+        liveProjectTurn: () => liveProjectTurn,
+      },
       turnController: { isBusy: () => false },
       runTurn: async (session: SessionState, text: string, opts?: { eventHook?: (e: AgentLoopEvent) => void }) => {
         messages.push(text);
@@ -211,6 +221,151 @@ describe("Telegram project gate", () => {
       expect(messages).toEqual(["build a puzzle game"]);
     },
   );
+
+  function writeLesson(status = "active", decided = "<b>Keep SQLite</b>") {
+    const folder = join(dir, ".atomic", "project", "lessons");
+    mkdirSync(folder, { recursive: true });
+    writeFileSync(join(folder, "storage.md"), [
+      "---", "id: storage", "title: Local storage", "source: person",
+      "status: " + status, "always: true", "touches: [src/storage]", "---",
+      "## Decided", decided, "## Tried and ruled out", "Remote storage",
+      "## Watch out", "Check migrations",
+    ].join("\n"));
+    writeFileSync(join(folder, "invalid.md"), "invalid lesson");
+  }
+
+  async function openLessons(status?: string, incognito = false) {
+    await say("build a puzzle game");
+    const records = stateDirProjectRecords(join(dir, "state"));
+    expect(records.write(dir, "project1", 0, { gate: { kind: "none" }, milestones: [] }).ok).toBe(true);
+    const session = createEmptySessionState({ id: "s-1", workingDir: dir });
+    projectSession = {
+      ...session,
+      projectRef: { folder: dir, id: "project1", revision: 1, decisionSeq: 1 },
+      ...(incognito ? { incognito: { owner: "fixture", since: 1 } } : {}),
+    };
+    writeLesson(status);
+    const record = () => {
+      const read = records.read(dir);
+      if (!read.ok || read.record === null) throw new Error("Missing fixture record");
+      return read.record;
+    };
+    return record;
+  }
+
+  async function previewLesson(command: string) {
+    await say(command + " storage");
+    const preview = sent.at(-1)!;
+    const code = preview.match(/storage ([0-9a-f]{16})/)?.[1];
+    expect(code).toBeDefined();
+    return { preview, confirm: command + " storage " + code };
+  }
+
+  it("recognizes a lesson command addressed to the bot in a group", () => {
+    const update = { from: { id: OWNER }, chat: { id: CHAT, type: "group" }, text: "/lesson-approve@lesson_bot storage", message_id: 1 };
+    expect(addressedText(update, { id: 1, username: "lesson_bot" })).toEqual({ text: "/lesson-approve storage" });
+  });
+
+  it("lists lessons and skipped files without changing the record", async () => {
+    const record = await openLessons();
+    const before = record();
+    await say("/lessons");
+    expect(sent.at(-1)).toMatch(/storage.*Local storage.*active.*unapproved.*always: true.*src\/storage/i);
+    expect(sent.at(-1)).toMatch(/Skipped.*invalid\.md.+/i);
+    expect(record()).toEqual(before);
+  });
+
+  it("previews the current fingerprint and lets only the paired owner approve it", async () => {
+    const record = await openLessons();
+    const hash = readProjectLessons(dir).lessons[0]!.hash;
+    const { preview, confirm } = await previewLesson("/lesson-approve");
+    expect(preview).toContain(hash.slice(0, 12));
+    for (const part of ["Local storage", "always: true", "src/storage", "<b>Keep SQLite</b>", "Remote storage", "Check migrations"]) {
+      expect(preview).toContain(part);
+    }
+    expect(vi.mocked(ctx.api.sendMessage).mock.lastCall?.[2]?.parse_mode).toBeUndefined();
+    await say(confirm, OWNER + 1);
+    await say(confirm, OWNER, CHAT + 1);
+    withholdProject = true;
+    await say(confirm);
+    expect(sent.at(-1)).toBe(CHANNEL_RESTRICTED_NOTICE);
+    expect(record().lessonCalls).toBeUndefined();
+    withholdProject = false;
+    await say(confirm);
+    expect(record().lessonCalls?.storage).toEqual({ state: "approved", hash, always: true });
+    await say("/lessons");
+    expect(sent.at(-1)).toMatch(/declared: active.*effective: approved/i);
+  });
+
+  it("refuses a changed file and a proposed lesson", async () => {
+    const record = await openLessons();
+    const { confirm } = await previewLesson("/lesson-approve");
+    writeLesson("active", "Changed");
+    await say(confirm);
+    expect(sent.at(-1)).toMatch(/lesson has changed.*read it again/i);
+    writeLesson("proposed");
+    await say("/lesson-approve storage");
+    expect(sent.at(-1)).toMatch(/cannot approve.*proposed/i);
+    expect(record().lessonCalls).toBeUndefined();
+  });
+
+  it("retires the current file and reopens the protected choice", async () => {
+    const record = await openLessons();
+    await say((await previewLesson("/lesson-retire")).confirm);
+    expect(record().lessonCalls?.storage?.state).toBe("retired");
+    writeLesson("active", "Changed after retirement");
+    await say("/lessons");
+    expect(sent.at(-1)).toMatch(/stale/i);
+    await say((await previewLesson("/lesson-reopen")).confirm);
+    expect(record().lessonCalls?.storage).toBeUndefined();
+  });
+
+  it.each([["/lesson-defer", "deferred", false], ["/lesson-activate", "active", true]] as const)(
+    "confirms %s only against the displayed plan version", async (command, status, deferred) => {
+      await openLessons();
+      await say((await previewLesson("/lesson-approve")).confirm);
+      const base = fixtureProjectGateView({ kind: "plan" }, {
+        lessonCoverage: [{ id: "storage", title: "Local storage", deferred, citedBy: [], missingFrom: ["t1"] }],
+      });
+      view = { ...base, gate: { kind: "none" } };
+      await say(command + " storage");
+      expect(sent.at(-1)).toMatch(/plan.*approval/i);
+      view = base;
+      await say("/plan");
+      expect(sent.at(-1)).toContain("/lesson-defer <id> or /lesson-activate <id>");
+      const { preview, confirm } = await previewLesson(command);
+      expect(preview).toContain("Plan v3");
+      view = { ...base, version: 4 };
+      await say(confirm);
+      expect(sent.at(-1)).toMatch(/preview.*again/i);
+      expect(decisions).toEqual([]);
+      view = base;
+      await say(confirm);
+      expect(decisions).toEqual([{ gate: { kind: "plan" }, version: 3, verdict: "edit", edits: { lessonStatus: { storage: status } } }]);
+    },
+  );
+
+  it("refuses confirmation while a turn is live on the same project", async () => {
+    const record = await openLessons();
+    const { confirm } = await previewLesson("/lesson-approve");
+    ctx.inflight.set(String(CHAT), new AbortController());
+    await say(confirm);
+    expect(sent.at(-1)).toMatch(/wait for the current turn to finish/i);
+    ctx.inflight.clear();
+    liveProjectTurn = "another-chat";
+    await say(confirm);
+    expect(sent.at(-1)).toMatch(/wait for the current turn to finish/i);
+    expect(record().lessonCalls).toBeUndefined();
+  });
+
+  it("refuses lesson commands in incognito", async () => {
+    const record = await openLessons("active", true);
+    for (const command of ["/lessons", "/lesson-approve storage", "/lesson-defer storage"]) {
+      await say(command);
+      expect(sent.at(-1)).toMatch(/unavailable in incognito/i);
+    }
+    expect(record().lessonCalls).toBeUndefined();
+  });
 
   it("does not promote a seed when showing or approving the plan", async () => {
     await say("build a puzzle game");

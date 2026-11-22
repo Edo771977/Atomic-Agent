@@ -473,6 +473,7 @@ export class TelegramChannel implements Channel {
           { command: "plan", description: "The fusion project gate: /plan approve <version> or /plan cancel" },
           { command: "defer", description: "Defer a brief decision at the plan gate" },
           { command: "reactivate", description: "Reactivate a deferred decision at the plan gate" },
+          { command: "lessons", description: "List project lessons and how to review them" },
           { command: "backlog", description: "List the project's backlog and seed conditions" },
           { command: "promote", description: "Propose a backlog item for the next plan" },
           { command: "drop", description: "Drop an item from the active backlog" },

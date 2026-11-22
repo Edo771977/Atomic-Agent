@@ -5,7 +5,7 @@ import { getConfig } from "../config/index.js";
 import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
-import { projectLessonStatus, readProjectLessons } from "../session/project-lessons.js";
+import { prepareProjectLessonDecision, projectLessonFingerprint, projectLessonStatus, readProjectLessons, writeProjectLessonDecision } from "../session/project-lessons.js";
 import { formatProjectGateText } from "../session/project-gate-text.js";
 import { forgetProjectFolder, readProjectRegistry } from "../session/project-registry.js";
 import { commitProject, openProject, projectFilePath } from "../session/project-store.js";
@@ -534,20 +534,16 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
     const { id, state } = decision;
     const lesson = lessons.find((item) => item.id === id);
     const previous = Object.hasOwn(calls, id) ? calls[id] : undefined;
-    if (lesson === undefined && (state === "approved" || previous === undefined)) {
-      return refuse(`No valid lesson named ${id}.`);
-    }
+    const prepared = prepareProjectLessonDecision(id, state, lesson, previous);
+    if (!prepared.ok) return refuse(prepared.message);
     if (state === "approved" && lesson !== undefined) {
-      if (lesson.declaredStatus !== "active") return refuse(`Cannot approve ${id} with status: ${lesson.declaredStatus}. Set status: active first.`);
-      const fingerprint = lesson.hash.slice(0, 12);
+      const fingerprint = projectLessonFingerprint(lesson);
       if (decision.fingerprint === undefined) return refuse(`Current fingerprint: ${fingerprint}. Review the lesson and use --approve ${id}@${fingerprint}.`);
       if (decision.fingerprint !== fingerprint) return refuse("The lesson has changed. Read it again before approving.");
     }
-    const call = state === null ? null : lesson === undefined
-      ? { ...previous!, state }
-      : { state, hash: lesson.hash, always: lesson.always };
-    if (call !== null || Object.hasOwn(calls, id)) {
-      const written = records.write(folder, record.id, record.seq, record.state, undefined, { id, call });
+    const { call } = prepared.decision;
+    if (call !== null || previous !== undefined) {
+      const written = writeProjectLessonDecision(records, record, prepared.decision);
       if (!written.ok) return refuse(written.problem.message);
       if (call === null) delete calls[id];
       else calls[id] = call;
@@ -559,7 +555,7 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
 
   const rows = lessons.map((lesson) => {
     const { id, title, declaredStatus, always, touches } = lesson;
-    return { id, title, fingerprint: lesson.hash.slice(0, 12), declaredStatus, always, touches, ...projectLessonStatus(lesson, Object.hasOwn(calls, id) ? calls[id] : undefined) };
+    return { id, title, fingerprint: projectLessonFingerprint(lesson), declaredStatus, always, touches, ...projectLessonStatus(lesson, Object.hasOwn(calls, id) ? calls[id] : undefined) };
   });
   const staleChoices = Object.entries(calls).flatMap(([id, { state }]) => {
     const row = rows.find((row) => row.id === id);
