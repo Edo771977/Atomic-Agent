@@ -714,16 +714,17 @@ export async function runIsolatedWave(
               changes: () => workspaceChanges(branch.set, ws),
               changedPaths: async signal => {
                 const paths = await workspaceTouches(ws, signal);
-                const existing: string[] = [];
+                const changed: string[] = [];
                 for (const path of [...paths.touched, ...paths.ignored]) {
                   signal.throwIfAborted();
                   try {
-                    if (!(await lstat(join(ws.dir, path))).isDirectory()) existing.push(path);
+                    if (!(await lstat(join(ws.dir, path))).isDirectory()) changed.push(path);
                   } catch (error) {
-                    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+                    if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw error;
+                    changed.push(path);
                   }
                 }
-                return existing;
+                return changed;
               },
             });
           } catch (err) {

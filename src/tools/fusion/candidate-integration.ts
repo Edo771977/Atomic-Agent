@@ -612,8 +612,9 @@ export async function createCandidateIntegration(
           signal: input.signal,
           recordCheckRun: input.recordCheckRun,
           changedPaths: [
-            ...differences(base, beforeChecks).filter(path => beforeChecks.has(path) && beforeChecks.get(path)?.kind !== "directory"),
+            ...differences(base, beforeChecks).filter(path => (beforeChecks.get(path) ?? base.get(path))?.kind !== "directory"),
             ...droppedChanges(baseDropped, beforeDropped).filter(path => beforeDropped.get(path)?.kind !== "directory"),
+            ...[...baseDropped].filter(([path, entry]) => entry.kind !== "directory" && !beforeDropped.has(path) && !beforeChecks.has(path)).map(([path]) => path),
           ],
           inputIntegrity,
         });
