@@ -20,6 +20,7 @@
 
 import { extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { readCriterionBasis, type ProjectCriterionBasis } from "./project-criterion-basis.js";
 import { PROJECT_LIMITS } from "./project-limits.js";
 export { PROJECT_LIMITS } from "./project-limits.js";
 import { CRITERION_ID_PATTERN, normalizeCriterionId } from "./project-criterion-id.js";
@@ -188,6 +189,8 @@ export interface ProjectReviewBlock {
 export interface ProjectCriterionFact {
   id: string;
   state: CriterionFactState;
+  /** Absent for older facts and when no source produced evidence. */
+  basis?: ProjectCriterionBasis;
   /** One line, e.g. the failing check or why it could not be judged. */
   why?: string;
   /**
@@ -214,6 +217,8 @@ export interface ProjectMilestone {
   replacedEvidenceRunIds?: string[];
   /** The director's report of the result. */
   summary?: string;
+  /** Notes appended by the runtime, independently of the director report. */
+  reportNotes?: string[];
   /** The person's corrections at its gate, oldest first ({@link PROJECT_LIMITS}.corrections newest kept). */
   corrections?: MilestoneCorrection[];
   /** Pictures of the reported result ({@link PROJECT_LIMITS}.attachments); a new report replaces them. */
@@ -291,6 +296,8 @@ export interface ProjectMilestoneRevision {
   tasks: string[];
   runIds: string[];
   summary?: string;
+  /** Notes appended by the runtime, independently of the director report. */
+  reportNotes?: string[];
   criteriaFacts?: ProjectCriterionFact[];
   correctionCount?: number;
   attachmentCount?: number;
@@ -706,6 +713,7 @@ export type ProjectUpdate =
       id: string;
       state: "done" | "failed";
       summary: string;
+      reportNotes?: readonly string[];
       /** Checked by {@link validateMilestoneAttachments} when folded. */
       attachments?: ReadonlyArray<ProjectMilestoneAttachment>;
       /**
@@ -854,6 +862,15 @@ function clip(raw: string, max: number): string {
 function clipText(raw: string, max: number): string {
   const text = raw.replace(/\r\n?/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   return text.length <= max ? text : `${text.slice(0, max - 1).trimEnd()}…`;
+}
+
+function reportNotesOf(raw: unknown): { reportNotes?: string[] } {
+  if (!Array.isArray(raw)) return {};
+  const notes = raw.slice(0, 8).flatMap((value: unknown) => {
+    const note = typeof value === "string" ? clipText(value, PROJECT_LIMITS.text) : "";
+    return note.length === 0 ? [] : [note];
+  });
+  return notes.length === 0 ? {} : { reportNotes: notes };
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -1472,7 +1489,8 @@ function cleanCriteriaFacts(raw: readonly unknown[]): ProjectCriterionFact[] {
     if (!CRITERION_FACT_STATES.includes(f.state as CriterionFactState)) continue;
     const why = typeof f.why === "string" ? clip(f.why, PROJECT_LIMITS.shortText) : "";
     const reservation = f.state === "passed" && typeof f.reservation === "string" ? clip(f.reservation, PROJECT_LIMITS.shortText) : "";
-    out.push({ id, state: f.state as CriterionFactState, ...(why.length === 0 ? {} : { why }), ...(reservation.length === 0 ? {} : { reservation }) });
+    const basis = readCriterionBasis(f.basis);
+    out.push({ id, state: f.state as CriterionFactState, ...(basis === undefined ? {} : { basis }), ...(why.length === 0 ? {} : { why }), ...(reservation.length === 0 ? {} : { reservation }) });
   }
   return out;
 }
@@ -1521,6 +1539,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
       replacedEvidenceRunIds: raw.replacedEvidenceRunIds.filter(id => (raw.runIds as string[]).includes(id)).slice(-PROJECT_LIMITS.runIds),
     } : {}),
     ...(raw.summary === undefined ? {} : { summary: clipText(raw.summary, PROJECT_LIMITS.text) }),
+    ...reportNotesOf(raw.reportNotes),
     ...(corrections === undefined || corrections.length === 0 ? {} : { corrections }),
     ...(attachments.length === 0 ? {} : { attachments }),
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
@@ -1582,6 +1601,7 @@ function readRevision(raw: unknown): ProjectMilestoneRevision | null {
     tasks,
     runIds: (raw.runIds as string[]).slice(-PROJECT_LIMITS.runIds),
     ...(summary.length === 0 ? {} : { summary }),
+    ...reportNotesOf(raw.reportNotes),
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(corrections === 0 ? {} : { correctionCount: corrections }),
     ...(attachments === 0 ? {} : { attachmentCount: attachments }),
@@ -1994,6 +2014,7 @@ function supersede(
       tasks: oldTasks.map((t) => t.title),
       runIds: old.runIds,
       ...(summary.length === 0 ? {} : { summary }),
+      ...(old.reportNotes === undefined ? {} : { reportNotes: old.reportNotes }),
       ...(old.criteriaFacts === undefined ? {} : { criteriaFacts: old.criteriaFacts }),
       ...(old.corrections === undefined || old.corrections.length === 0 ? {} : { correctionCount: old.corrections.length }),
       ...(old.attachments === undefined || old.attachments.length === 0 ? {} : { attachmentCount: old.attachments.length }),
@@ -2285,6 +2306,7 @@ function replannedMilestone(
     ...(old.evidenceSince === undefined ? {} : { evidenceSince: old.evidenceSince }),
     ...(old.replacedEvidenceRunIds === undefined ? {} : { replacedEvidenceRunIds: old.replacedEvidenceRunIds }),
     ...(keep && old.summary !== undefined ? { summary: old.summary } : {}),
+    ...(keep && old.reportNotes !== undefined ? { reportNotes: old.reportNotes } : {}),
     ...(keep && old.corrections !== undefined ? { corrections: old.corrections } : {}),
     // The result's evidence stays with it (issue #74).
     ...(keep && old.attachments !== undefined ? { attachments: old.attachments } : {}),
@@ -2474,7 +2496,8 @@ function milestoneUpdate(
     }
   }
   // A new report describes a new result: the old pictures go with it.
-  const reported: ProjectMilestone = { ...current, state: update.state, summary, updatedAt: now };
+  const { reportNotes: _oldNotes, ...previous } = current;
+  const reported: ProjectMilestone = { ...previous, state: update.state, summary, updatedAt: now, ...reportNotesOf(update.reportNotes) };
   delete reported.attachments;
   delete reported.criteriaFacts;
   delete reported.reviewBlocks;
@@ -2670,7 +2693,7 @@ function decideProject(
         return {
           ...rest,
           state: "done" as const,
-          summary: clipText(rest.summary === undefined ? line : `${rest.summary}\n${line}`, PROJECT_LIMITS.text),
+          ...reportNotesOf([...(rest.reportNotes ?? []), line].slice(-8)),
           reviewOverride: { note, at: now, blocks },
         };
       }),

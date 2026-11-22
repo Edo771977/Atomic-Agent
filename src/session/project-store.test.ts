@@ -23,6 +23,23 @@ import {
 } from "./project-store.js";
 import { applyProjectDecision, applyProjectUpdate, currentProjectLessons, currentProjectLessonsBasis, gateVersion, normalizeProject, type AssignmentRow, type ProjectState } from "./session-project.js";
 
+it("labels the director report and warns about unsupported claims in STATUS.md", async () => {
+  const { renderProjectViews } = await import("./project-store-views.js");
+  const project = normalizeProject(fixture.session.project)!;
+  const milestone = project.milestones[0]!;
+  milestone.summary = "The timer works.";
+  const status = renderProjectViews({ name: "Demo", updatedAt: 1 }, project)["STATUS.md"];
+  expect(status).toContain("Director report");
+  expect(status).toContain("Warning: no matching passed criterion fact for director claim: The timer works.");
+});
+
+it("normalizes a clipped vision model reference idempotently without broken surrogate pairs", async () => {
+  const { readCriterionBasis } = await import("./project-criterion-basis.js");
+  const basis = readCriterionBasis({ kind: "vision", model: `${"x".repeat(198)} 😀extra` });
+  expect(basis).toEqual({ kind: "vision", model: "x".repeat(198) });
+  expect(readCriterionBasis(basis)).toEqual(basis);
+});
+
 const fixture = JSON.parse(readFileSync(join(import.meta.dirname, "fixtures", "session-with-embedded-project-109.json"), "utf8")) as {
   session: { project: unknown };
 };

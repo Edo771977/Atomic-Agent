@@ -1,3 +1,4 @@
+import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import { sameMember } from "./member-identity.js";
@@ -701,10 +702,12 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (!parsed.ok) return refuse(PROJECT_MILESTONE_TOOL, parsed.problems);
       let report: Extract<ProjectUpdate, { kind: "milestone" }> = parsed.report;
       const lines: string[] = [];
+      const reportNotes: string[] = [];
       // A done milestone carries its runs' criteria facts (issue #40),
       // and their screenshots when the report names none: the runtime's,
       // never the model's (its arguments cannot carry facts).
       const milestone = ctx.project?.milestones.find((m) => m.id === report.id);
+      const criteria = ctx.project?.approvedCriteria ?? ctx.project?.brief?.successCriteria ?? [];
       // The required tasks: the approved plan's rows for this milestone
       // that name a reviewer (issue #98); a "no review" row records no
       // verdict and never blocks.
@@ -714,8 +717,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
       if (report.state === "failed" && milestone !== undefined && deps.milestoneEvidence !== undefined && requiredTasks.length > 0) {
         // A failed result keeps its open reviews for the person's gate (issue #98).
         const approvals = ctx.project?.briefApprovals;
-        const failedEvidence = deps.milestoneEvidence(milestone, (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id), {
-          criteria: ctx.project?.brief?.successCriteria ?? [],
+        const failedEvidence = deps.milestoneEvidence(milestone, criteria.map((c) => c.id), {
+          criteria,
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
           requiredTasks,
         });
@@ -748,10 +751,10 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         }
       }
       if (report.state === "done" && milestone !== undefined && deps.milestoneEvidence !== undefined) {
-        const order = (ctx.project?.brief?.successCriteria ?? []).map((c) => c.id);
+        const order = criteria.map((c) => c.id);
         const approvals = ctx.project?.briefApprovals;
         const evidence = deps.milestoneEvidence(milestone, order, {
-          criteria: ctx.project?.brief?.successCriteria ?? [],
+          criteria,
           ...(approvals === undefined ? {} : { briefApprovals: approvals }),
           ...(requiredTasks.length === 0 ? {} : { requiredTasks }),
         });
@@ -765,7 +768,8 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         }
         if (evidence.facts.length > 0) {
           report = { ...report, criteriaFacts: evidence.facts };
-          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}${f.state === "passed" && f.reservation !== undefined ? " with reservations" : ""}`).join(", ")}.`);
+          lines.push(criterionBasisSummaryLine(summarizeCriterionBases(evidence.facts)));
+          lines.push(`Criteria: ${evidence.facts.map((f) => `${f.id} ${f.state}${f.state === "passed" && f.reservation !== undefined ? " with reservations" : ""} (${criterionBasisLabel(f.basis)})`).join(", ")}.`);
         }
         if ((evidence.reviewBlocks ?? []).length > 0) {
           // Issue #98: refused like a red criterion, so the milestone stays
@@ -780,13 +784,13 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         if ((evidence.noReviewVerdict ?? []).length > 0) {
           // A task that ended with no review verdict (issue #95): the person sees it at the gate.
           const warning = `Warning: no review verdict: ${(evidence.noReviewVerdict ?? []).map((n) => `${n.taskId} (${n.reason})`).join("; ")}.`;
-          report = { ...report, summary: `${report.summary}\n${warning}` };
+          reportNotes.push(warning);
           lines.push(warning);
         }
         if (evidence.uncovered.length > 0) {
           // On the report itself, so the person sees it at the gate.
           const warning = `Warning: not covered by a check: ${evidence.uncovered.join(", ")}.`;
-          report = { ...report, summary: `${report.summary}\n${warning}` };
+          reportNotes.push(warning);
           lines.push(warning);
         }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
@@ -794,12 +798,13 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
         }
       }
+      lines.push(...directorReportWarnings(parsed.report.summary, report.criteriaFacts ?? [], criteria).map(directorReportWarningLine));
       // Issue #112: the decisions this milestone's tasks cite; nothing checks them automatically.
       const cited = new Set((ctx.project?.plan?.rows ?? []).filter((r) => r.milestoneId === report.id).flatMap((r) => r.decisions ?? []));
       const decisions = ctx.project === undefined ? [] : activeDecisionsOf(ctx.project).filter((d) => cited.has(d.id));
       if (decisions.length > 0) {
         const line = `Decisions cited by this milestone's tasks, not verified automatically (the reviewers were given them): ${decisions.map((d) => `${d.id} (${d.text})`).join(", ")}.`;
-        report = { ...report, summary: `${report.summary}\n${line}` };
+        reportNotes.push(line);
         lines.push(line);
       }
       return accepted(
@@ -809,7 +814,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           ...lines,
           "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
         ].join(" "),
-        report,
+        { ...report, ...(reportNotes.length === 0 ? {} : { reportNotes }) },
       );
     },
   };
