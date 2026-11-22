@@ -352,12 +352,17 @@ export async function authorizeVerifyBatch(
 
 /** Attach the lazy network approval without repeating the local preflight. */
 export function researchUrlMayBeDisclosed(url: string, known: readonly KnownSecret[]): boolean {
-  if (maskVerificationSecrets(url, known) !== url) return false;
+  return redactResearchUrl(url, known) === url;
+}
+
+export function redactResearchUrl(url: string, known: readonly KnownSecret[]): string {
+  const masked = maskVerificationSecrets(url, known);
+  if (masked !== url) return masked;
   try {
     const decoded = decodeURIComponent(url);
-    return maskVerificationSecrets(decoded, known) === decoded;
+    return maskVerificationSecrets(decoded, known) === decoded ? url : "[redacted:source URL]";
   } catch {
-    return false;
+    return url;
   }
 }
 
@@ -378,7 +383,7 @@ export function attachResearchNetworkApproval(
     if (urls.some(url => !researchUrlMayBeDisclosed(url, known))) return "source URLs contain a hidden value";
     const decision = await options.approvals.request({
       sessionId: ctx.sessionId, tool: "verify.run", category: "http", workdir: project,
-      reason: `verify the reachability of ${urls.length} research URL(s)`,
+      reason: `verify the reachability of ${urls.length} research URL(s), following up to three redirects per URL`,
       preview: urls.join("\n"), affectedResources: urls,
     }, { signal: ctx.signal, requireExplicitDecision: true });
     return decision.approved && decision.automatic !== true ? undefined : "explicit network approval unavailable or declined";

@@ -145,7 +145,7 @@ it("checks build outputs on the integrity-guarded source", async () => {
   const begin = vi.fn(async () => complete);
   expect(await runVerify({ kind: "files", expected: [join("dist", "app.js")] }, {
     workingDir, inputIntegrity: { begin },
-    workspace: async () => ({ dir: workingDir, isolated: false, cleanup: async () => {} }),
+    workspace: async () => ({ dir: workingDir, isolated: false, method: "unavailable", cleanup: async () => {} }),
   })).toMatchObject({ artifactStatus: "pass" });
   expect(begin).toHaveBeenCalledWith(workingDir, expect.anything());
   expect(complete).toHaveBeenCalledOnce();
@@ -166,12 +166,13 @@ it.each([
 it("preserves balanced URL punctuation and leaves ambiguous links unverified", async () => {
   const { evaluateResearch } = await import("./research-check.js");
   const { checkResearchLinks } = await import("./research-links.js");
-  const out = await evaluateResearch(Buffer.from("Claim [1].\nSources\n[1] Notes (2025) **https://example.test/Foo_(bar)**, https://example.test/broken(open"), ".md", true);
+  const out = await evaluateResearch(Buffer.from("Claim [1].\nSources\n[1] Notes (2025) **https://example.test/Foo_(bar)**, https://example.test/broken(open https://example.test/truncated..."), ".md", true);
   const probe = vi.fn(async () => ({ status: "verified" as const, reason: "fixture" }));
   expect(await checkResearchLinks(out, probe)).toMatchObject({
     status: "uncheckable", researchLinks: [
       { url: "https://example.test/Foo_(bar)", status: "verified" },
       { url: "https://example.test/broken(open", status: "unverified" },
+      { url: "https://example.test/truncated...", status: "unverified" },
     ],
   });
   expect(probe).toHaveBeenCalledTimes(1);
@@ -231,7 +232,7 @@ it.each([
   await writeFile(join(workingDir, "research.md"), text);
   const [spec] = await authorizeVerifyBatch([{ kind: "research", path: "research.md", network: true }], {
     approvals: { request } as never, approvalRequired: true,
-    ...(secret === undefined ? {} : { knownSecrets: [{ name: "fixture", value: secret }] }),
+    ...(secret === undefined ? {} : { knownSecrets: [{ label: "fixture", value: secret }] }),
   }, { workingDir, signal, stepIndex: 0, sessionId: "research" });
   const researchProbe = vi.fn(async () => ({ status: "verified" as const, reason: "fixture" }));
   expect(await runVerify(spec!, { workingDir, signal, researchProbe })).toMatchObject({ artifactStatus: secret ? "uncheckable" : "fail" });
@@ -313,4 +314,27 @@ it("lists restricted URLs through the registered verify.run tool", async () => {
   ] });
   expect(request).toHaveBeenCalledTimes(1);
   expect(dispatchGuard).toHaveBeenCalledWith("verify.run", expect.objectContaining({ network: true }), expect.anything());
+});
+
+it("bounds heading recognition on a long near miss", async () => {
+  await writeFile(join(workingDir, "research.md"), "Claim [1].\nSources" + " ".repeat(20000) + "#invalid\nReferences\n[1] Notes (2025)");
+  expect(await runVerify({ kind: "research", path: "research.md", timeoutMs: 2000 }, { workingDir }))
+    .toMatchObject({ artifactStatus: "pass" });
+});
+
+it("redacts percent-encoded known secrets in research evidence", async () => {
+  const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+  const signal = AbortSignal.timeout(10000);
+  const knownSecrets = [{ label: "fixture", value: "fixture-secret-value" }];
+  const request = vi.fn(async () => ({ approved: true }));
+  const url = "https://example.test/?q=fixture%2Dsecret%2Dvalue";
+  await writeFile(join(workingDir, "research.md"), "Claim [1].\nSources\n[1] Notes (2025) " + url);
+  const [spec] = await authorizeVerifyBatch([{ kind: "research", path: "research.md", network: true }], {
+    approvals: { request } as never, approvalRequired: true, knownSecrets,
+  }, { workingDir, signal, stepIndex: 0, sessionId: "research" });
+  const researchProbe = vi.fn(async () => ({ status: "verified" as const, reason: "fixture" }));
+  const result = await runVerify(spec!, { workingDir, signal, researchProbe, knownSecrets });
+  expect(result).toMatchObject({ artifactStatus: "uncheckable", researchLinks: [{ url: "[redacted:source URL]" }] });
+  expect(JSON.stringify(result)).not.toContain("fixture%2D");
+  expect(researchProbe).not.toHaveBeenCalled();
 });

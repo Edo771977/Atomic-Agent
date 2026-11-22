@@ -43,13 +43,14 @@ function sourceUrl(token: string, prefix: string) {
   const tail = token.slice(end);
   const bracketed = prefix.endsWith("<") || (prefix.endsWith("](") && tail.startsWith(")"));
   let url = token.slice(0, end);
-  if (!bracketed) {
+  const truncated = !bracketed && /(?:\.{3}|…)(?:\*\*|__)?$/u.test(url);
+  if (!bracketed && !truncated) {
     url = url.replace(/[.,;!?]+$/u, "");
     if ((prefix.endsWith("**") && url.endsWith("**")) || (prefix.endsWith("__") && url.endsWith("__"))) {
       url = url.slice(0, -2);
     }
   }
-  const ambiguous = invalidPair || stack.length !== 0 ||
+  const ambiguous = truncated || invalidPair || stack.length !== 0 ||
     (tail !== "" && !/^[)\]*_.,;!?]+$/u.test(tail)) || /%(?![\da-f]{2})/iu.test(url);
   return { url, ambiguous };
 }

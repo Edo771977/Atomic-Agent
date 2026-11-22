@@ -10,7 +10,7 @@
 import { resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
-import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
+import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
@@ -181,11 +181,13 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
       out = await checkResearchLinks(out, refusal === undefined ? probe : undefined, args.timeoutMs, ctx.signal, refusal);
     }
     const ok = out.status === "pass";
-    const detail = `${out.status}: ${out.detail}`;
+    let detail = out.status + ": " + out.detail;
+    const researchLinks = out.researchLinks?.map(link => {
+      const url = redactResearchUrl(link.url, known);
+      if (url !== link.url) detail = detail.replaceAll(link.url, () => url);
+      return { ...link, url, reason: maskVerificationSecrets(link.reason, known) };
+    });
     const text = delivery ? maskVerificationSecrets(detail, known) : detail;
-    const researchLinks = out.researchLinks?.map(link => ({
-      ...link, url: maskVerificationSecrets(link.url, known), reason: maskVerificationSecrets(link.reason, known),
-    }));
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
     const findingsBudget = ui?.suppressions?.length ? 4094 : 8188;
     const suppressionsBudget = ui?.findings?.length ? 4094 : 8188;
