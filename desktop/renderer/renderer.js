@@ -2472,7 +2472,8 @@ function renderToolbar() {
     + (open ? '' : sidebarToggleHTML() + searchBtnHTML())
     + (t ? '<div class="tb-title"><b title="' + esc(t) + '">' + esc(t) + '</b></div>' : '')
     + '<div class="tb-right">'
-      /* Issue #39: the project card the person hid, while its gate is still open. */
+      /* Issue #39: the project card the person hid, while its gate is still open, or (issue #146) while
+         its backlog still asks something between gates and no turn runs (project-card.js hiddenOpen). */
       + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the Fusion project card again">Show Fusion project</button>' : '')
       /* ATO-1256: this chat's files in the panel beside it (chat-files.js, file-preview.js). */
       + (S.room === 'chat' ? '<button class="iconbtn' + (filesPanelOpen() ? ' on' : '') + '" data-act="toggle:files"'
