@@ -275,7 +275,7 @@ const retryNote = (error: string): string =>
   `Your previous answer could not be read (${error}). Answer again with the JSON object only, exactly in the shape above, one result per dimension in order.`;
 
 /** What a plan review produced, before `project.plan` adds its round, basis and whether it sends the draft back. */
-export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd" | "lessonsBasis">;
+export type PlanReviewAnswer = Pick<PlanReviewRecord, "outcome" | "reviewer" | "results" | "reason" | "costUsd" | "lessonsBasis" | "reviewerProviderId">;
 
 /** `project.plan`'s plan review: null when no plan reviewer is configured (today's behaviour). */
 export type PlanReviewFn = (args: { input: PlanReviewInput; lessonSource?: ProjectLessonSource; sessionId: string; signal: AbortSignal | undefined }) => Promise<PlanReviewAnswer | null>;
@@ -333,7 +333,7 @@ export function createPlanReview(deps: PlanReviewDeps): PlanReviewFn {
     }
     deps.onSpend?.(sessionId, { costUsd: run.costUsd, sent: run.answered > 0, local: deps.isLocal?.(member) ?? false }, member);
     return run.outcome === "reviewed"
-      ? { outcome: "reviewed", reviewer: member.ref, results: run.results, costUsd: run.costUsd, ...(selection === undefined ? {} : { lessonsBasis: selection.basis }) }
+      ? { outcome: "reviewed", reviewer: member.ref, results: run.results, costUsd: run.costUsd, ...(selection === undefined ? {} : { lessonsBasis: selection.basis, reviewerProviderId: member.providerId }) }
       : { outcome: "not-run", reviewer: member.ref, results: [], reason: run.reason, costUsd: run.costUsd };
   };
 }

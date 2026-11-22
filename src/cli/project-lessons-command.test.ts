@@ -191,10 +191,11 @@ describe("project lessons", () => {
         allows: () => true, restricted: () => false, reachable: () => true, pinsModel: () => false,
         complete, pricing: () => undefined,
       });
-      await review({
+      const result = await review({
         lessonSource: source, signal: undefined, sessionId: "chat",
         input: { brief: { what: "Build", users: "Team", how: "Code" }, rows: [], criteria: [], decisions: [], milestones: [], planChecks: [] },
       });
+      expect(result).toMatchObject({ reviewerProviderId: providerId });
       return complete.mock.calls[0]![0].prompt;
     };
 

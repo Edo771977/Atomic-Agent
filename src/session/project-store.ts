@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 
+import { splitTeamMemberRef } from "../config/llm-fusion-team-config.js";
 import { getConfig } from "../config/index.js";
 import { resolveProjectConstraint } from "../config/project-constraint-match.js";
 import { PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
@@ -273,10 +274,11 @@ export function openProject(folder: string, options: ProjectStoreOptions): Proje
   const project = resolveProject(read.stored.project, record.record, (options.now ?? Date.now)());
   const review = project.plan?.review;
   if (review?.lessonsBasis !== undefined && review.reviewer !== null) {
-    const provider = review.reviewer.split(":", 1)[0]!;
+    const provider = review.reviewerProviderId ?? splitTeamMemberRef(review.reviewer)?.providerId;
     const folder = read.stored.folder;
     const active = approvedProjectLessons(folder, record.record?.lessonCalls);
-    const allowed = active.length === 0 || resolveProjectConstraint(getConfig(), folder)?.allows(provider) !== false;
+    const policy = active.length === 0 ? undefined : resolveProjectConstraint(getConfig(), folder);
+    const allowed = policy === undefined || (provider !== undefined && policy.allows(provider));
     project[currentProjectLessonsBasis] = projectLessonReviewSelection(active, allowed).basis;
   }
   return {

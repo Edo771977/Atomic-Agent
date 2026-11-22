@@ -50,6 +50,8 @@ export interface PlanReviewRecord {
   outcome: PlanReviewOutcome;
   /** The member ref that reviewed (or was asked); null when none was picked. */
   reviewer: string | null;
+  /** Provider id selected for the request that received the lesson projection. */
+  reviewerProviderId?: string;
   /** One per dimension, in {@link PLAN_REVIEW_DIMENSIONS} order; empty unless `reviewed`. */
   results: PlanReviewResult[];
   /** Why it was skipped or did not run. */
@@ -166,6 +168,7 @@ export function readPlanReviewRecord(raw: unknown): PlanReviewRecord | undefined
     round: raw.round as number,
     sentBack: raw.sentBack,
     basis: raw.basis,
+    ...(typeof raw.reviewerProviderId === "string" && raw.reviewerProviderId.trim() !== "" ? { reviewerProviderId: raw.reviewerProviderId } : {}),
     ...(typeof raw.lessonsBasis === "string" && /^[0-9a-f]{16}$/.test(raw.lessonsBasis) ? { lessonsBasis: raw.lessonsBasis } : {}),
     ...(typeof raw.callsBasis === "string" && /^[0-9a-f]{16}$/.test(raw.callsBasis) ? { callsBasis: raw.callsBasis } : {}),
     costUsd: raw.costUsd as number | null,

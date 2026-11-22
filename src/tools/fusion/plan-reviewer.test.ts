@@ -195,7 +195,7 @@ describe("plan review record", () => {
   const record: PlanReviewRecord = { outcome: "reviewed", reviewer: "cloud:r", results, round: 3, sentBack: false, basis: planReviewBasis(rows, ids), costUsd: 0.01 };
   it("makes a passing review stale when a lesson is activated", () => {
     const review = { ...record, results: record.results.map((result) => ({ ...result, verdict: "pass" as const })), lessonsBasis: "0000000000000000" };
-    expect(readPlanReviewRecord(review)).toMatchObject({ lessonsBasis: review.lessonsBasis });
+    expect(readPlanReviewRecord({ ...review, reviewerProviderId: "actual-provider" })).toMatchObject({ lessonsBasis: review.lessonsBasis, reviewerProviderId: "actual-provider" });
     expect(planReviewHints({ rows, review }, ids, { ...facts, personCalls: { lessonsBasis: "1111111111111111" } })[0]).toMatch(/stale.*the lessons changed/);
   });
   it("clears a lesson review block when the rejected approach's lesson is retired", () => {
