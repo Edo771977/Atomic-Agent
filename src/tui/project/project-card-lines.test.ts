@@ -176,6 +176,20 @@ describe("the project card's backlog (issue #111)", () => {
     expect(none).not.toContain("seed b1");
   });
 
+  it("marks changed and removed calls, and offers only Reopen for a removed item", () => {
+    const view: ProjectGateView = { ...fixtureProjectGateView({ kind: "plan" }), backlog: { ...backlog,
+      items: [{ id: "b1", title: "Sounds", state: "open", source: "director", createdAt: 1 }],
+      stale: [{ id: "b1", state: "promoted", reason: "changed" }, { id: "b2", state: "dropped", reason: "removed" }] } };
+    let c = card(view);
+    expect(text(c)).toContain("b Backlog");
+    c = reduceProjectCard(c, { type: "project_card_mode_set", mode: "backlog" })!;
+    expect(text(c)).toContain("changed since you promoted it");
+    c = reduceProjectCard(c, { type: "project_card_backlog_moved", delta: 1 })!;
+    expect(text(c)).toContain("removed outside Atomic Agent");
+    expect(text(c)).toContain("r Reopen");
+    expect(text(c)).not.toContain("p Promote");
+  });
+
   it("says nothing without a backlog, and the resume line counts open items", () => {
     expect(text(card(fixtureProjectGateView({ kind: "plan" })))).not.toContain("Backlog:");
     const view = { ...fixtureProjectGateView({ kind: "plan" }), backlog };

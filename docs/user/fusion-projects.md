@@ -39,6 +39,12 @@ The director can propose decisions in the brief, such as “Use SQLite for local
 
 Ask the director to add the missing citation. If the decision can wait, defer it explicitly from the plan gate. In the terminal UI project card, press `d` to defer uncited decisions. Review and approve the updated plan. Decision status is saved with your approvals.
 
+## Decide on backlog items
+
+Open `/plan` in the TUI and press **b** for the backlog, including between gates. Select an item with **↑/↓**, then press **p** to promote it for planning, **d** to drop it, or **r** to reopen it. The card reports the result. A running turn must finish before the project accepts a decision.
+
+A warning marks an item whose text changed after your decision. Review its current text before deciding again. For an item removed outside Atomic Agent, **r** clears the old decision. **Esc** returns to the project card.
+
 ## Review the backlog in Telegram
 
 In your paired Telegram chat, send `/backlog` to see open, promoted and dropped items, seed conditions, the plan version that took in a promoted item, and stale decisions reported by the project.
@@ -48,8 +54,6 @@ In your paired Telegram chat, send `/backlog` to see open, promoted and dropped 
 - `/reopen <id>` previews taking back the recorded decision.
 
 Confirm by repeating the command with the code shown in the preview, for example `/promote b1 <code>`. If the item or its decision status changed, ask for a fresh preview. You can change the backlog between turns, even when the project has no gate waiting. A seed's condition is a reminder for you to review the item.
-
-If the last item was removed outside Atomic Agent, Telegram can show an empty backlog even when the project retains a stale decision about it.
 
 ## Read the plan review
 
