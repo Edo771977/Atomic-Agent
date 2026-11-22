@@ -61,7 +61,18 @@ function view(p, over = {}) {
     const n = expectation.promotedNotDone;
     hints.push(`complete with ${n} promoted backlog item${n === 1 ? '' : 's'} not done: ${BL.promotedForPlan(p).map((b) => `${b.id} ${b.title}`).join(', ')}`);
   }
-  const backlog = (p.backlog ?? []).length === 0 && BL.staleBacklogCalls(p).length === 0 ? undefined : {
+  // PR #163: every item and stale call carries the fingerprint a decision is bound to.
+  const staleCalls = BL.staleBacklogCalls(p);
+  const staleById = new Map(staleCalls.map((c) => [c.id, c]));
+  const items = (p.backlog ?? []).map((b) => {
+    const state = BL.backlogStateOf(p, b.id);
+    const plannedIn = state === 'promoted' ? BL.backlogTakenIn(p, b.id) : undefined;
+    const deferred = state === 'promoted' && plannedIn === undefined && p.backlogCalls?.[b.id]?.deferred === true;
+    return {...b, ...(b.origin === undefined ? {} : {origin: {...b.origin}}), state, ...(plannedIn === undefined ? {} : {plannedIn}), ...(deferred ? {deferred: true} : {}),
+      fingerprint: BL.backlogDecisionFingerprint(b, state, plannedIn, staleById.get(b.id))};
+  });
+  const itemsById = new Map(items.map((i) => [i.id, i]));
+  const backlog = items.length === 0 && staleCalls.length === 0 ? undefined : {
     open: BL.openBacklog(p).length,
     seeds: BL.openSeeds(p).map((b) => ({id: b.id, title: b.title, condition: b.condition})),
     promoted: BL.promotedForPlan(p).map((b) => ({
@@ -69,13 +80,8 @@ function view(p, over = {}) {
       ...(p.backlogCalls?.[b.id]?.deferred === true ? {deferred: true} : {}),
       citedBy: (plan?.rows ?? []).filter((r) => (r.backlog ?? []).includes(b.id)).map((r) => r.taskId),
     })),
-    stale: BL.staleBacklogCalls(p),
-    items: (p.backlog ?? []).map((b) => {
-      const promoted = BL.backlogStateOf(p, b.id) === 'promoted';
-      const plannedIn = promoted ? BL.backlogTakenIn(p, b.id) : undefined;
-      const deferred = promoted && plannedIn === undefined && p.backlogCalls?.[b.id]?.deferred === true;
-      return {...b, ...(b.origin === undefined ? {} : {origin: {...b.origin}}), state: BL.backlogStateOf(p, b.id), ...(plannedIn === undefined ? {} : {plannedIn}), ...(deferred ? {deferred: true} : {})};
-    }),
+    stale: staleCalls.map((c) => ({...c, fingerprint: itemsById.get(c.id)?.fingerprint ?? BL.backlogDecisionFingerprint(undefined, undefined, undefined, c)})),
+    items,
   };
   return Object.assign({
     schema: 1, sessionId: 'ses-1', gate: p.gate, version: CORE.gateVersion(p),
@@ -541,8 +547,9 @@ test('view()\'s backlog is built as projectGateView builds it', () => {
     assert.ok(to > from, end);
     return src.slice(from, to);
   };
-  const core = block(VIEW_SRC, 'const backlog = (project.backlog ?? []).length === 0', '// Issue #109: what waits changed outside');
-  const mine = block(readFileSync(new URL(import.meta.url), 'utf8'), 'const backlog = (p.backlog ?? []).length === 0', 'return Object.assign({');
+  // PR #163: the core builds the items (with their fingerprint) before the backlog block.
+  const core = block(VIEW_SRC, 'const staleById = new Map(staleCalls', '// Issue #109: what waits changed outside');
+  const mine = block(readFileSync(new URL(import.meta.url), 'utf8'), 'const staleById = new Map(staleCalls', 'return Object.assign({');
   const keys = (s) => [...new Set([...s.matchAll(/\b(\w+):(?=\s)/g), ...s.matchAll(/\{ ?(\w+) ?\}/g)].map((m) => m[1]))].sort();
   const calls = (s) => [...new Set([...s.matchAll(/\b(\w+)\(/g)].map((m) => m[1]))].sort();
   assert.deepEqual(keys(mine), keys(core));
