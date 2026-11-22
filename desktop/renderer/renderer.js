@@ -1419,6 +1419,7 @@ const LLMP = {
   embAct:null, embWatch:0, // ATO-900: {id, busy, error} for the memory model's card while its click runs, or after it failed; the load watch's token
   served:null, // ATO-125: {chat, embedding} — what the managed servers say they run, asked on their ports (cli:modelsServed)
   models:[], modelsFor:null, modelsBusy:false, modelsErr:null, // `atag models search --json` for the Cloud text-models block
+  modelsProviderId:null, modelsRequest:null, // an explicitly opened provider and the current request's identity
   modelsDone:null, // the provider id whose list was answered, even empty (Codex on a subscription lists none), so a repaint does not ask again
   modelsStale:false, modelsRetry:null, // ATO-318: the list is the app's built-in one (the live fetch did not come back); the one timed retry
   filter:'', filterFocused:false, pricing:'all',
@@ -8804,11 +8805,13 @@ document.addEventListener('click', (e) => {
     render(); return;
   }
   if (wizKind) {
+    const picked = KIND_ROWS[+wizKind.dataset.wizKind];
+    if (WIZ.alone && llmOpenAddedSubscription(picked)) return;
     /* A key belongs to the provider it was typed for. WIZ.apiKey survived a
      Back and a different pick, so the field came up pre-filled with the
      previous provider's key — and pressing Next would have saved it to
      the new one. */
-    WIZ.row = KIND_ROWS[+wizKind.dataset.wizKind]; WIZ.phase = 'configure'; ANX.providerStarted(WIZ.row);
+    WIZ.row = picked; WIZ.phase = 'configure'; ANX.providerStarted(WIZ.row);
     WIZ.error = null; WIZ.apiKey = ''; WIZ.baseUrl = ''; WIZ.uncheckedFor = null;
     WIZ.acceptUnchecked = false; WIZ.modelChosen = false;
     render(); return;
@@ -18759,7 +18762,9 @@ async function refreshLiveConfig() {
   const ctxWas = selActiveProviderId() + '\n' + activeModel();
   const cfg = await BR.configGet();
   const cfgWas = LIVE_CONFIG;
+  const activeTextWas = llmActiveTextId();
   if (cfg && cfg.ok && cfg.config) LIVE_CONFIG = cfg.config;
+  if (activeTextWas !== llmActiveTextId()) LLMP.modelsProviderId = null;
   void restrictionConfigChanged(cfgWas, LIVE_CONFIG);   // review of #67: a constraint edited or removed
   const provider = LIVE_CONFIG && LIVE_CONFIG.llm
     && (LIVE_CONFIG.llm.providers || []).find((p) => p.id === LIVE_CONFIG.llm.activeTextProvider);
@@ -18770,6 +18775,7 @@ async function refreshLiveConfig() {
   if (managed && managed.modelId) S.localModel = managed.modelId;
   dropGateNoticesIfCleared();   // B02: a provider or model now set retires "no local model is selected"
   render();
+  if (llmVisible()) llmEnsureModels();
   bswRefreshFacts();
   llmRefreshKeyNames();
   extRefreshModel();
@@ -27811,7 +27817,10 @@ function llmTabEntered() {
   if (BR && (!BSW.readyLoaded || !BSW.localLoaded)) fzLoadFacts().then(() => llmRepaint());
   llmEnsurePoll();
   if (LLMP.lastRefreshedAt === null && !LLMP.inflight) llmRefresh();
-  else if (!LLMP.inflight) llmRefreshStatus();
+  else {
+    llmEnsureModels();
+    if (!LLMP.inflight) llmRefreshStatus();
+  }
 }
 /* local-models-orchestrator refreshes the daemon status every 5 s while the tab is open; here that is one `atag models status` subprocess per tick. */
 function llmEnsurePoll() {
@@ -27947,10 +27956,15 @@ async function llmRefreshStatus(quiet) {
     llmRepaint();
   }
 }
-/* The Cloud text-models block lists the active (or first) cloud provider's catalogue. */
+/* An already-added subscription can be browsed without changing the chat route. */
 function llmCloudSectionProvider(tab) {
   const cloud = llmTabProviders(tab || 'cloud');
-  return cloud.find((p) => p.id === llmActiveTextId()) || cloud[0] || null;
+  return cloud.find((p) => p.id === LLMP.modelsProviderId)
+    || cloud.find((p) => p.id === llmActiveTextId()) || cloud[0] || null;
+}
+function llmModelProviderKind(p) {
+  if (p.kind) return p.kind;
+  return p.subscriptionCli || p.id === 'codex-cli' || p.id === 'claude-cli' ? 'subscription-cli' : '';
 }
 async function llmEnsureModels() {
   const p = llmCloudSectionProvider(llmProvTabNow());
@@ -27970,8 +27984,25 @@ async function llmEnsureModels() {
    the list is that snapshot: the pane says so, asks once more by itself, and
    carries a Retry. A list already on screen stays while it is asked again. */
 async function llmFetchModels(p) {
-  const res = await BR.providerModels(p.id, p.kind || '', true);
   if (LLMP.modelsFor !== p.id) return;
+  const kind = llmModelProviderKind(p);
+  const request = {};
+  LLMP.modelsRequest = request;
+  // Main's live HTTP lookup can take 90 seconds. Local subscription lists should answer much sooner.
+  const seconds = kind === 'subscription-cli' ? 10 : 95;
+  let timer, res;
+  try {
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve({ok:false, error:'the request did not answer within ' + seconds + ' s'}), seconds * 1000);
+    });
+    res = await Promise.race([BR.providerModels(p.id, kind, true), timeout]);
+  } catch (err) {
+    res = {ok:false, error:err && err.message};
+  } finally {
+    clearTimeout(timer);
+  }
+  if (LLMP.modelsRequest !== request || LLMP.modelsFor !== p.id) return;
+  LLMP.modelsRequest = null;
   LLMP.modelsBusy = false;
   if (!res || !res.ok) {
     if (!LLMP.models.length) LLMP.modelsErr = modelListFailLine(res, providerWord(p.id)) || (res && res.error) || 'could not list models';   // ATO-202
@@ -27990,7 +28021,8 @@ async function llmFetchModels(p) {
 /* Ask for the live list again (the Retry under a built-in list, or the one timed retry). */
 function llmRetryModels() {
   const p = llmCloudSectionProvider(llmProvTabNow());
-  if (!p || !BR || LLMP.modelsBusy) return;
+  if (!p || !BR || (LLMP.modelsFor === p.id && LLMP.modelsBusy)) return;
+  if (LLMP.modelsFor !== p.id) return llmEnsureModels();
   LLMP.modelsFor = p.id; LLMP.modelsBusy = true; LLMP.modelsErr = null; LLMP.modelsDone = null;
   llmRepaintList();
   llmFetchModels(p);
@@ -28101,9 +28133,9 @@ function llmEmbRow(p, modelId) {
 /* llm-panel-row-builders.ts inlineModelsForProvider: chatModelOptions + the
    current model first, then the catalogue (`atag models search --json`,
    the same list the composer's selector reads). */
-function llmCloudSection(tab) {
+function llmCloudSection(tab, provider) {
   const t = tab || 'cloud';
-  const p = llmCloudSectionProvider(t);
+  const p = provider || llmCloudSectionProvider(t);
   if (!p) return {provider:null, status:'ready', error:null, models:[], filtered:[], sectionStart:llmTabProviders(t).length};
   const out = [];
   const add = (id) => { if (id && !out.includes(id)) out.push(id); };
@@ -29089,21 +29121,23 @@ function llmProviderModelsHTML(tab, sp) {
       + '<span class="grow"></span>'
       + '<span class="llm-filter"><label class="tk-inpwrap llm-filterbox">' + ic('search')
         + '<input id="llm-filter" value="' + esc(LLMP.filter) + '" autocomplete="off" spellcheck="false" placeholder="Filter models" aria-label="Filter models" title="Filter (f)"></label></span></div>'
-    + '<div id="llm-cloud-models">' + llmCloudModelListHTML(tab) + '</div></section>';
+    + '<div id="llm-cloud-models">' + llmCloudModelListHTML(tab, sp) + '</div></section>';
 }
 /* The 12-row window of the text-model rows around the cursor, and how many there are. */
-function llmCloudModelListHTML(tab) {
+function llmCloudModelListHTML(tab, provider) {
   const t = tab || llmProvTabNow();
-  const section = llmCloudSection(t);
+  const section = llmCloudSection(t, provider);
   const cursor = LLMP.cursor[t];
   const rows = section.filtered.map((id) => llmChatRow(section.provider, id));
   const cursorInSection = Math.max(0, Math.min(cursor - section.sectionStart, rows.length - 1));
   const start = Math.max(0, Math.min(cursorInSection - Math.floor(LLM_MODEL_WINDOW / 2), rows.length - LLM_MODEL_WINDOW));
   const visible = rows.slice(start, start + LLM_MODEL_WINDOW);
   // Codex on a subscription publishes no list and picks its model itself (main/subscription-cli-models.ts).
-  const codexPicks = rows.length === 0 && section.status === 'ready' && !LLMP.filter.trim() && section.provider && modelTierKey(section.provider) === 'codex-cli';
+  const p = section.provider;
+  const codexPicks = section.models.length === 0 && section.status === 'ready' && p && llmModelProviderKind(p) === 'subscription-cli'
+    && (p.id === 'codex-cli' || modelTierKey({...p, kind:'subscription-cli'}) === 'codex-cli');
   const counter = codexPicks ? 'Codex chooses its model itself, so there is nothing to pick here.'
-    : rows.length === 0 ? 'No model matches.'
+    : rows.length === 0 ? (section.status === 'ready' ? 'No model matches.' : '')
     : rows.length > visible.length || rows.length !== section.models.length
       ? 'Showing ' + (start + 1) + '–' + (start + visible.length) + ' of ' + rows.length + (rows.length !== section.models.length ? ' (filtered from ' + section.models.length + ')' : '') + '. Filter to find the rest.'
       : '';
@@ -29112,7 +29146,9 @@ function llmCloudModelListHTML(tab) {
     // ATO-318: the snapshot built into the app is not the provider's list; say so, with the way to ask again.
     + (section.status === 'ready' && LLMP.modelsStale ? '<div class="llm-counter llm-stale">The live list from ' + who + ' did not load, so this is the list built into the app. '
       + '<button class="llm-link" data-act="llm:modelsRetry">Try again</button></div>' : '')
-    + (section.status === 'error' ? '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">Couldn’t fetch the model list (' + esc(section.error || 'unknown error') + '). Showing the current model only.</span></div>' : '')
+    + (section.status === 'error' ? '<div class="tk-notice tk-notice--red">' + ic('alert') + '<span class="grow">Couldn’t fetch the model list (' + esc(section.error || 'unknown error') + ').'
+      + (section.models.length ? ' Showing the current model only.' : '') + '</span>'
+      + '<button class="llm-link" data-act="llm:modelsRetry">Try again</button></div>' : '')
     + (visible.length ? '<div class="tk-list llm-list">' + visible.map((r, i) => llmRowHTML(r, section.sectionStart + start + i, cursor)).join('') + '</div>' : '')
     + (counter ? '<div class="llm-counter">' + esc(counter) + '</div>' : '');
 }
@@ -30298,6 +30334,16 @@ function llmOpenWizard(provider, baseUrl, scope) {
     WIZ.phase = 'configure';
   } else { WIZ.row = null; WIZ.baseUrl = ''; WIZ.phase = 'pick_kind'; }
   render();
+}
+function llmOpenAddedSubscription(row) {
+  if (!row || !row.subscriptionCli) return false;
+  const provider = llmProvider(row.id);
+  if (!provider || llmModelProviderKind(provider) !== 'subscription-cli') return false;
+  LLMP.modelsProviderId = provider.id;
+  LLMP.filter = '';
+  closeSelector();
+  llmSetMode('cloud');
+  return true;
 }
 function llmNormalizeUrl(raw) {
   const trimmed = String(raw || '').trim();

@@ -1460,14 +1460,22 @@ export async function providerModels(
   opts: { live?: boolean } = {},
 ): Promise<{ ok: boolean; models?: SearchedModel[]; error?: string; stale?: boolean } & ModelListFailure> {
   if (!/^[\w.-]{1,48}$/.test(providerId)) return { ok: false, error: "bad provider id" };
-  // ATO-844: a subscription CLI has no endpoint to list; its models are known here.
-  if (kind === SUBSCRIPTION_CLI_KIND) {
+  // The config for this id can be newer than the renderer's caller hint.
+  // Read the persisted entry without starting another process on every list lookup.
+  const configured = configFileHint()?.llm?.providers;
+  let entry = Array.isArray(configured) ? configured.find((p) => p?.id === providerId) : undefined;
+  if (!entry && (!kind || kind === SUBSCRIPTION_CLI_KIND)) {
     const read = await readWholeConfig().catch(() => null);
-    const entry = read?.config?.llm?.providers?.find((p) => p.id === providerId);
+    const providers = read?.config?.llm?.providers;
+    if (Array.isArray(providers)) entry = providers.find((p) => p?.id === providerId);
+  }
+  const providerKind = entry?.kind || kind;
+  // ATO-844: a subscription CLI has no endpoint to list; its models are known here.
+  if (providerKind === SUBSCRIPTION_CLI_KIND) {
     if (!entry) return { ok: false, error: `provider "${providerId}" is not configured` };
     return { ok: true, models: subscriptionCliModels(entry) };
   }
-  const bundled = kind === "openrouter" || kind === "aimlapi";
+  const bundled = providerKind === "openrouter" || providerKind === "aimlapi";
   const live = opts.live === true;
   const limit = live ? String(LIVE_LIST_LIMIT) : "200";
   const args = ["models", "search", " ", "--provider", providerId, "--limit", limit, "--json"];
