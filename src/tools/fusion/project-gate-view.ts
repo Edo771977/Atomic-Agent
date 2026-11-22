@@ -7,6 +7,7 @@ import {
   projectExpectation,
   planCheckData,
   planReviewFactsOf,
+  planReviewPersonCalls,
   type ProjectState,
 } from "../../session/session-project.js";
 import { describeViolation, type PlanEstimate, type PlanViolation } from "./project-estimate.js";
@@ -121,7 +122,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
     const planChecks = evaluatePlanChecks(plan.rows, criteria, { ...input.planChecks, ...planCheckData(project, plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones));
     hints.push(...planChecks.map(planCheckHint));
     // Issue #118: the plan reviewer's summary and every dimension that is not a pass (facts recomputed now).
-    hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
+    hints.push(...planReviewGate(plan, project.milestones.map((m) => m.id), { criteria, planChecks, personCalls: planReviewPersonCalls(project) }, input.planReviewerConfigured ?? plan.review !== undefined).hints);
     if (!(input.reviewersConfigured ?? input.selectable.reviewers.length > 0)) hints.push(NO_REVIEWERS_HINT);
     if (!editable) {
       const others = input.otherMembersConfigured ?? input.reviewersConfigured ?? false;
@@ -195,7 +196,7 @@ export function projectGateView(input: ProjectGateViewInput): ProjectGateView {
             results: (effectivePlanReview(plan, project.milestones.map((m) => m.id), planReviewFactsOf(project, input.planChecks)) ?? review.results).map((r) => ({ ...r, taskIds: [...r.taskIds] })),
             ...(review.reason === undefined ? {} : { reason: review.reason }),
             round: review.round,
-            stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id)),
+            stale: !planReviewFresh(plan!, project.milestones.map((m) => m.id), planReviewPersonCalls(project)),
             autoApprovable: planReviewGate(plan, project.milestones.map((m) => m.id), planReviewFactsOf(project, input.planChecks), input.planReviewerConfigured ?? true).autoApprovable,
           },
         }),

@@ -27,7 +27,7 @@ import { PROJECT_BACKLOG_SOURCES, applyBacklogAdd, markPromotedPlanned, openBack
 import type { ContractCheck } from "../tools/fusion/contract.js";
 import { parsePlanRowChecks } from "../tools/fusion/contract-check-spec.js";
 import { evaluatePlanChecks, planCheckReviewBlocks, readPlanReferenceRecord, type PlanCheckOptions, type PlanCheckResult, type PlanDecision, type PlanReferenceRecord } from "../tools/fusion/plan-checks.js";
-import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
+import { planReviewBlocks, readPlanReviewRecord, type PlanReviewFacts, type PlanReviewPersonCalls, type PlanReviewRecord } from "../tools/fusion/plan-review-record.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ProjectGameBrief {
@@ -858,12 +858,27 @@ export function openPlanReviewBlocks(project: ProjectState): ProjectReviewBlock[
   return planReviewBlocks(project.plan, project.milestones.map((m) => m.id), planReviewFactsOf(project));
 }
 
-/** The plan review's facts as they stand now (issue #118): the approved criteria and the deterministic plan checks. */
+/**
+ * Issue #146: the person's calls a plan review is read under (its
+ * basis): the decisions' statuses and the promoted backlog items
+ * deferred. A change of one at the gate makes the review stale, like a
+ * row edit.
+ */
+export function planReviewPersonCalls(project: Pick<ProjectState, "decisionStatus" | "backlog" | "backlogStates" | "backlogCalls">): PlanReviewPersonCalls {
+  const deferred = promotedForPlan(project).filter((b) => project.backlogCalls?.[b.id]?.deferred === true).map((b) => b.id);
+  return {
+    ...(project.decisionStatus === undefined ? {} : { decisionStatus: project.decisionStatus }),
+    ...(deferred.length === 0 ? {} : { backlogDeferred: deferred }),
+  };
+}
+
+/** The plan review's facts as they stand now (issue #118): the approved criteria, the deterministic plan checks and the person's calls. */
 export function planReviewFactsOf(project: ProjectState, options: PlanCheckOptions = {}): PlanReviewFacts {
   const criteria = project.approvedCriteria ?? (project.brief?.status === "approved" ? project.brief.successCriteria : []);
   const plan = project.plan;
   return {
     criteria,
+    personCalls: planReviewPersonCalls(project),
     planChecks: plan === undefined ? [] : evaluatePlanChecks(plan.rows, criteria, { ...options, ...planCheckData(project, plan) }, planDecisionsOf(project), finishedCitationsOf(project.milestones)),
   };
 }

@@ -82,10 +82,29 @@ const flat = (s: string, max: number): string => {
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
 };
 
-/** What a review read: each task's id, title, milestone, worker, checks and cited decisions, and the milestone order. */
-export function planReviewBasis(rows: readonly AssignmentRow[], milestoneIds: readonly string[]): string {
-  const text = JSON.stringify([milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? []])]);
-  return createHash("sha256").update(text).digest("hex").slice(0, 16);
+/**
+ * Issue #146: the person's calls at the plan gate that change what a plan
+ * must hold, as a review read them: decision statuses (`decisionStatus`)
+ * and the promoted backlog items they deferred. A change of either since
+ * the review makes it stale, exactly like the person's row edit.
+ */
+export interface PlanReviewPersonCalls {
+  decisionStatus?: Readonly<Record<string, string>>;
+  backlogDeferred?: readonly string[];
+}
+
+/**
+ * What a review read: each task's id, title, milestone, worker, checks and
+ * cited decisions, the milestone order, and (issue #146) the person's
+ * calls. With no call made the text is the one before #146, so a stored
+ * review keeps its basis.
+ */
+export function planReviewBasis(rows: readonly AssignmentRow[], milestoneIds: readonly string[], calls: PlanReviewPersonCalls = {}): string {
+  const statuses = Object.entries(calls.decisionStatus ?? {}).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const deferred = [...new Set(calls.backlogDeferred ?? [])].sort();
+  const read: unknown[] = [milestoneIds, rows.map((r) => [r.taskId, r.title, r.milestoneId, r.worker, r.checks ?? [], r.decisions ?? []])];
+  if (statuses.length > 0 || deferred.length > 0) read.push({ decisionStatus: statuses, backlogDeferred: deferred });
+  return createHash("sha256").update(JSON.stringify(read)).digest("hex").slice(0, 16);
 }
 
 function readResult(raw: unknown): PlanReviewResult | undefined {
@@ -146,6 +165,8 @@ export interface ReviewedPlan {
 export interface PlanReviewFacts {
   criteria: readonly { id: string }[];
   planChecks: readonly PlanCheckResult[];
+  /** Issue #146: the person's calls now, for the review's freshness ({@link planReviewBasis}); absent: none. */
+  personCalls?: PlanReviewPersonCalls;
 }
 
 /**
@@ -174,14 +195,14 @@ export function withPlanFacts(results: readonly PlanReviewResult[], rows: readon
   });
 }
 
-/** Whether the stored review read these rows (and milestone order). */
-export function planReviewFresh(plan: ReviewedPlan, milestoneIds: readonly string[]): boolean {
-  return plan.review !== undefined && plan.review.basis === planReviewBasis(plan.rows, milestoneIds);
+/** Whether the stored review read these rows (and milestone order), under the person's calls as they stand. */
+export function planReviewFresh(plan: ReviewedPlan, milestoneIds: readonly string[], calls: PlanReviewPersonCalls = {}): boolean {
+  return plan.review !== undefined && plan.review.basis === planReviewBasis(plan.rows, milestoneIds, calls);
 }
 
 /** A fresh review's results with the facts floor applied now; undefined for a stale, absent or unanswered one. */
 export function effectivePlanReview(plan: ReviewedPlan | undefined, milestoneIds: readonly string[], facts: PlanReviewFacts): PlanReviewResult[] | undefined {
-  if (plan?.review === undefined || plan.review.outcome !== "reviewed" || !planReviewFresh(plan, milestoneIds)) return undefined;
+  if (plan?.review === undefined || plan.review.outcome !== "reviewed" || !planReviewFresh(plan, milestoneIds, facts.personCalls)) return undefined;
   return withPlanFacts(plan.review.results, plan.rows, facts);
 }
 
@@ -240,10 +261,11 @@ export function planReviewGate(plan: ReviewedPlan | undefined, milestoneIds: rea
   if (review.outcome === "not-run") return { hints: [`plan not reviewed: ${review.reason ?? "no answer"}${by === "" ? "" : ` (asked${by})`}; this is not a pass`], autoApprovable: !configured };
   const results = effectivePlanReview(plan, milestoneIds, facts);
   if (results === undefined) {
-    // The person's own edit at the gate is their decision: nothing blocks, but the notes stay in view.
+    // The person's own edit at the gate (a row, a decision's status, a backlog deferral) is their decision:
+    // nothing blocks, but the notes stay in view.
     return {
       hints: [
-        `plan review is stale: the tasks changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`,
+        `plan review is stale: the tasks or your calls on decisions or backlog items changed since review ${review.round}${by}; it was not run again (draft the plan again to review it)`,
         ...review.results.filter((r) => r.verdict !== "pass").map((r) => `notes on an earlier version: ${planReviewLine(r)}`),
       ],
       autoApprovable: !configured,

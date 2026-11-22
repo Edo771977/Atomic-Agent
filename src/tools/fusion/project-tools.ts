@@ -13,6 +13,7 @@ import {
   normalizeCriterionId,
   backlogCheckOptions,
   planDecisionsOf,
+  planReviewPersonCalls,
   planTotals,
   projectVerdictResets,
   type AssignmentRow,
@@ -543,7 +544,8 @@ async function reviewDraft(
   const rounds = deps.planReviewRounds?.() ?? DEFAULT_FUSION_TEAM_PLAN_REVIEW_ROUNDS;
   // The facts floor counts now (a criterion no check names is a fail); the record keeps the model's verdicts only.
   const sentBack = answer.outcome === "reviewed" && withPlanFacts(answer.results, draft.rows, draft).some((r) => r.verdict === "fail") && round <= rounds;
-  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id)) };
+  // Issue #146: read under the person's calls as they stand; changing one at the gate makes it stale.
+  return { ...answer, round, sentBack, basis: planReviewBasis(draft.rows, draft.update.milestones.map((m) => m.id), planReviewPersonCalls(project)) };
 }
 
 /** Issue #111: the backlog the draft should consider: promoted items to take in, open seeds to propose. */
@@ -628,7 +630,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         "Use these task ids in fusion.delegate when the milestone is approved.",
         ...backlogLines(ctx.project),
         ...planChecks.map(planCheckHint),
-        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks }, deps)),
+        ...(review === undefined ? [] : reviewLines(review, rows, parsed.plan.milestones.map((m) => m.id), { criteria, planChecks, ...(ctx.project === undefined ? {} : { personCalls: planReviewPersonCalls(ctx.project) }) }, deps)),
         review?.sentBack === true ? REVISE_FOR_REVIEW : AWAIT_PERSON,
       ];
       // Issue #77: say which results stop counting, so the reply can tell the person.

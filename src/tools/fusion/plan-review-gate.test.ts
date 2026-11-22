@@ -452,9 +452,10 @@ describe("plan gate refusal wording (review round, issue #118)", () => {
     const decided = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "approve" }, { now: NOW + 1 });
     expect(!decided.ok && decided.error.message).toMatch(/plan gate\. Update the plan/);
     expect(!decided.ok && decided.error.message).not.toMatch(/\.\./);
-    const deferred = applyProjectDecision(project, { gate: project.gate, version: gateVersion(project)!, verdict: "edit", edits: { decisionStatus: { d1: "deferred" } } }, { now: NOW + 1 });
-    if (!deferred.ok) throw new Error(deferred.error.message);
-    const review = applyProjectDecision(deferred.project, { gate: deferred.project.gate, version: gateVersion(deferred.project)!, verdict: "approve" }, { now: NOW + 2 });
+    // Issue #146: a deferral at the gate now makes the review stale, so the reviewer's refusal is shown on a plan citing d1.
+    const cited = { ...plan, tasks: plan.tasks.map((t) => ({ ...t, decisions: ["d1"] })) };
+    const citing = (await draft(a.project, cited, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+    const review = applyProjectDecision(citing, { gate: citing.gate, version: gateVersion(citing)!, verdict: "approve" }, { now: NOW + 2 });
     expect(!review.ok && review.error.message).toMatch(/drops the level editor\. Ask the director/);
     expect(!review.ok && review.error.message).not.toMatch(/\.\./);
   });
@@ -496,5 +497,76 @@ describe("plan reviewer at project.plan: the backlog (issue #111)", () => {
     const input = (planReview.mock.calls[0] as unknown as [{ input: { backlog?: unknown; planChecks: Array<{ dimension: string; verdict: string; detail: string }> } }])[0].input;
     expect(input.backlog).toEqual([{ id: "b1", title: "Export PDF", state: "promoted" }, { id: "b2", title: "Sounds", state: "deferred" }]);
     expect(input.planChecks).toContainEqual(expect.objectContaining({ dimension: "backlog-coverage", verdict: "fail", detail: expect.stringContaining("b1 (Export PDF)") }));
+  });
+});
+
+describe("a review the person's decision or backlog call at the gate made stale (issue #146)", () => {
+  /** Brief with d1, d2 approved; b1 promoted; plan citing d1 and b1; the reviewer fails `decisions` on d2. */
+  async function atGate(fail: Record<string, Partial<PlanReviewResult>>): Promise<ProjectState> {
+    const p0 = applyProjectUpdate(undefined, { kind: "brief", brief: { what: "Snake", users: "Kids", how: "One page", successCriteria: [{ id: "c1", text: "Runs" }], decisions: [{ id: "d1", text: "Use canvas" }, { id: "d2", text: "No new dependencies" }] }, draftedAfterUntrusted: false }, NOW);
+    if (!p0.ok) throw new Error(p0.error.message);
+    const a = applyProjectDecision(p0.project, { gate: p0.project.gate, version: gateVersion(p0.project)!, verdict: "approve" }, { now: NOW });
+    if (!a.ok) throw new Error(a.error.message);
+    const complete = vi.fn(async () => ({ content: passAll(fail) }));
+    const plan = { milestones: [{ id: "m1", title: "Build", kind: "base" }], tasks: [{ id: "t1", title: "Build in `game.js`", milestone: "m1", checks: [check(["c1"])], decisions: ["d1", "d2"] }] };
+    return (await draft(a.project, plan, { planReview: createPlanReview(reviewDeps(complete)), planReviewRounds: () => 0 })).project;
+  }
+  const viewOf = (project: ProjectState) => projectGateView({ sessionId: "s1", project, estimate: null, selectable: { workers: [], reviewers: [] }, planReviewerConfigured: true });
+  const edit = (p: ProjectState, edits: object) => {
+    const r = applyProjectDecision(p, { gate: p.gate, version: gateVersion(p)!, verdict: "edit", edits: edits as never }, { now: NOW + 1 });
+    if (!r.ok) throw new Error(r.error.message);
+    return r.project;
+  };
+
+  it("the reviewer fails decisions on d2, the person defers d2: plain approve succeeds, notes are an earlier version's, automation stops", async () => {
+    const before = await atGate({ decisions: { verdict: "fail", detail: "t1 adds a dependency, against d2" } });
+    expect(applyProjectDecision(before, { gate: before.gate, version: gateVersion(before)!, verdict: "approve" }, { now: NOW + 1 })).toMatchObject({ ok: false, error: { code: "review-open" } });
+    const deferred = edit(before, { decisionStatus: { d2: "deferred" } });
+    const state = { project: deferred };
+    const view = viewOf(deferred);
+    expect(view.planReview).toMatchObject({ stale: true, autoApprovable: false });
+    expect(view.hints).toContainEqual(expect.stringMatching(/^plan review is stale: the tasks or your calls on decisions or backlog items changed since review 1/));
+    expect(view.hints).toContainEqual("notes on an earlier version: plan review: decisions: fail: t1 adds a dependency, against d2");
+    expect(view.allowedVerdicts).not.toContain("approveOverReview");
+    const rt = {
+      projectState: () => viewOf(state.project),
+      projectDecision: (_id: string, d: Parameters<typeof applyProjectDecision>[1]) => {
+        const r = applyProjectDecision(state.project, d, { now: NOW + 2 });
+        return r.ok ? { ok: true as const, project: r.project, view: viewOf(r.project) } : r;
+      },
+    };
+    expect((await settleProjectGate(rt, "s1", "approve")).kind).toBe("stop");
+    expect(applyProjectDecision(deferred, { gate: deferred.gate, version: gateVersion(deferred)!, verdict: "approve" }, { now: NOW + 3 }).ok).toBe(true);
+    // Set active again, the plan reads as the review read it: the notes block again.
+    const back = edit(deferred, { decisionStatus: { d2: "active" } });
+    expect(viewOf(back).planReview).toMatchObject({ stale: false });
+    expect(applyProjectDecision(back, { gate: back.gate, version: gateVersion(back)!, verdict: "approve" }, { now: NOW + 3 })).toMatchObject({ ok: false, error: { code: "review-open" } });
+  });
+
+  it("a backlog deferral at the gate makes the review stale the same way", async () => {
+    let p = await atGate({ scope: { verdict: "fail", detail: "b1 is not delivered by t1" } });
+    // b1 and b2 promoted after the review: the person defers b2 at the gate.
+    for (const u of [{ kind: "backlog_add", item: { id: "b1", title: "Export PDF", source: "director" } }, { kind: "backlog_add", item: { id: "b2", title: "Sounds", source: "director" } }] as ProjectUpdate[]) {
+      const r = applyProjectUpdate(p, u, NOW);
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    const { applyBacklogDecision } = await import("../../session/project-backlog.js");
+    for (const id of ["b1", "b2"]) {
+      const r = applyBacklogDecision(p, { id, state: "promoted" });
+      if (!r.ok) throw new Error(r.error.message);
+      p = r.project;
+    }
+    expect(viewOf(p).planReview).toMatchObject({ stale: false });
+    const deferred = edit(p, { backlogStatus: { b2: "deferred" } });
+    expect(viewOf(deferred).planReview).toMatchObject({ stale: true, autoApprovable: false });
+    expect(viewOf(deferred).hints).toContainEqual("notes on an earlier version: plan review: scope: fail: b1 is not delivered by t1");
+  });
+
+  it("a review recorded before the person made any such call keeps its basis (older records stay fresh)", async () => {
+    const p = await atGate({ scope: { verdict: "fail", detail: "drops the level editor" } });
+    const { planReviewBasis } = await import("./plan-review-record.js");
+    expect(p.plan?.review?.basis).toBe(planReviewBasis(p.plan!.rows, p.milestones.map((m) => m.id)));
+    expect(viewOf(p).planReview).toMatchObject({ stale: false });
   });
 });
