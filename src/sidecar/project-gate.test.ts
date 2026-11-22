@@ -96,12 +96,10 @@ it("takes project_backlog_decision, the person's backlog call (issue #111 review
   const config = configuration.loadConfig();
   config.llm = { activeTextProvider: "cloud", activeEmbeddingProvider: "cloud", toolTransport: "auto", providers: [{ id: "cloud", kind: "openai-compatible", baseUrl: "https://paid.invalid" }] };
   vi.spyOn(configuration, "getConfig").mockReturnValue(config);
-  let forward: ((event: AgentLoopEvent) => void) | undefined;
   let view: ProjectGateView | undefined = fixtureProjectGateView({ kind: "plan" });
   const decisions: Array<[string, ProjectDecision]> = [];
   const backlogCalls: Array<[string, unknown]> = [];
-  vi.spyOn(bootstrap, "createAgentRuntime").mockImplementation(async (options) => {
-    forward = (event) => options.handlers?.onAgentEvent?.(event, "chat");
+  vi.spyOn(bootstrap, "createAgentRuntime").mockImplementation(async () => {
     return {
       createSession: () => ({ id: "chat" }),
       shutdown: async () => {},
@@ -123,7 +121,6 @@ it("takes project_backlog_decision, the person's backlog call (issue #111 review
   const names = ["data", "end", "error", "close"];
   const kept = names.map((name, i) => streams[i]!.listeners(name));
   const sidecar = await bootstrapSidecar();
-  const emitted = vi.spyOn(sidecar.protocol, "emitEvent");
   const responses = new Map<string, { ok: boolean; payload: unknown }>();
   vi.spyOn(sidecar.protocol, "respond").mockImplementation((id, payload, ok = true) => {
     responses.set(id, { ok, payload });
