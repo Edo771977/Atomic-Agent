@@ -92,6 +92,36 @@ describe("rewind with files the disk will not let it read or write (issue #80)",
     expect(await copies(store)).toEqual([]);
   });
 
+  it("a one-shot EACCES in the preview preserves the rewind point for a fresh confirmation (issue #80)", async () => {
+    const { a, b, store } = await seed();
+    const transcript = harness.runtime.sessionStore.load("rw-io")?.turns;
+    io.failReadOnce.add(a);
+    const blocked = await post("rw-io/rewind/preview", point);
+    expect(blocked.status).toBe(200);
+    const blockedPlan = (await blocked.json()) as { planHash: string };
+    expect(blockedPlan).toMatchObject({
+      files: [{ path: a, action: "restore", error: expect.stringContaining("EACCES") }, { path: b, action: "restore" }],
+      notRestorable: [],
+    });
+    expect(harness.runtime.sessionStore.load("rw-io")?.turns).toEqual(transcript);
+    expect(await copies(store)).toEqual([a, b]);
+    expect(readFileSync(a, "utf8")).toBe("a1");
+    expect(readFileSync(b, "utf8")).toBe("b1");
+
+    const fresh = await post("rw-io/rewind/preview", point);
+    expect(fresh.status).toBe(200);
+    const plan = (await fresh.json()) as { planHash: string; files: unknown[] };
+    expect(plan.files).toEqual([{ path: a, action: "restore" }, { path: b, action: "restore" }]);
+    expect(plan.planHash).not.toBe(blockedPlan.planHash);
+    const retry = await post("rw-io/rewind", { ...point, expectPlanHash: plan.planHash });
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toMatchObject({ restored: [a, b], failed: [] });
+    expect(readFileSync(a, "utf8")).toBe("a0");
+    expect(readFileSync(b, "utf8")).toBe("b0");
+    expect(turns()).toBe(2);
+    expect(await copies(store)).toEqual([]);
+  });
+
   it("a file the agent created is removed even when it cannot be read (delete needs only stat)", async () => {
     const { a, b, store } = await seed();
     const created = join(harness.workingDir, "created.txt");
