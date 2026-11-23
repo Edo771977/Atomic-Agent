@@ -26,6 +26,38 @@ describe("FileCheckpointStore (ATO-1056)", () => {
     rmSync(work, { recursive: true, force: true });
   });
 
+  it("keeps checkpoints separate for imported IDs that used to collide", async () => {
+    const file = join(work, "a.txt");
+    writeFileSync(file, "first");
+    await store.capture("codex:a_b", file, "os.fs.write");
+    writeFileSync(file, "second");
+    await store.capture("codex_a:b", file, "os.fs.write");
+
+    await store.removeSession("codex:a_b");
+
+    expect((await store.since("codex:a_b", 0)).entries).toEqual([]);
+    const { entries } = await store.since("codex_a:b", 0);
+    expect(entries).toHaveLength(1);
+    expect((await store.readCopy("codex_a:b", entries[0]!)).toString()).toBe("second");
+  });
+
+  it("still reads unambiguous legacy checkpoints and leaves ambiguous folders alone", async () => {
+    const file = join(work, "a.txt");
+    writeFileSync(file, "before");
+    await store.capture("s-legacy", file, "os.fs.write");
+    const original = store.sessionDir("s-legacy");
+    rmSync(join(original, "session-id"));
+    expect((await store.since("s-legacy", 0)).entries).toHaveLength(1);
+
+    const ambiguous = join(root, "codex_a_b");
+    mkdirSync(ambiguous);
+    writeFileSync(join(ambiguous, "index.json"), readFileSync(join(original, "index.json")));
+    expect((await store.since("codex:a_b", 0)).entries).toEqual([]);
+    await store.removeSession("codex:a_b");
+    await store.removeSession("codex_a_b");
+    expect(existsSync(ambiguous)).toBe(true);
+  });
+
   it("saves what a file held, and that a missing file did not exist", async () => {
     const a = join(work, "a.txt");
     writeFileSync(a, "before");
