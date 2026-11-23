@@ -171,6 +171,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 
 ## Security and reliability
 
+Child process environment filtering depends on the launcher. The shell builder normally filters provider credentials and supports explicit `tools.shell.envPassthrough`. A command job given a prepared environment uses that environment with the serve key removed. Browser launches using the tool-child marker also remove the serve key while retaining other inherited variables. Coverage and compatibility for a common provider-credential filter are tracked in the [triage](upstream-2026-11-triage.md).
+
 - **Dispatch-time bypasses closed.** The shell guard, approvals, read scope and memory ([#2](https://github.com/Edo771977/atomic-agent/pull/2)).
 - **Spend and lifecycle.**
   - Spend caps use the billed cost.
