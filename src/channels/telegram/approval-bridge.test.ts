@@ -7,7 +7,7 @@ import type {
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 
 import {
-  APPROVAL_FROM_BEFORE_RESTART,
+  EXPIRED_APPROVAL_NOTICE,
   ApprovalBridge,
   type ApprovalBridgeDeps,
   type InboundCallbackUpdate,
@@ -478,18 +478,24 @@ describe("ApprovalBridge.handleCallback", () => {
   });
 
   it("says a button from before a restart expired, runs nothing and removes the keyboard (ATO-613)", async () => {
+    const previous = makeHarness();
+    await previous.bridge.dispatch(req("old"), 7);
+    previous.bridge.cancelAll();
     const h = makeHarness();
-    // This process never posted "old": the prompt came from an earlier run.
     await h.bridge.handleCallback(callback("old", "y"));
 
     expect(h.approvals.decisions).toEqual([]);
     expect(h.api.answerCallbackQuery).toHaveBeenCalledWith("cb-1", {
-      text: APPROVAL_FROM_BEFORE_RESTART,
+      text: EXPIRED_APPROVAL_NOTICE,
     });
     await vi.waitFor(() => expect(h.api.editMessageText).toHaveBeenCalledTimes(1));
     expect(h.api.editMessageText.mock.calls[0]![0]).toBe(7);
     expect(h.api.editMessageText.mock.calls[0]![1]).toBe(99);
-    expect(String(h.api.editMessageText.mock.calls[0]![2])).toContain("agent restarted");
+    expect(String(h.api.editMessageText.mock.calls[0]![2])).toContain("expired");
+
+    await h.bridge.dispatch(req("new"), 7);
+    await h.bridge.handleCallback(callback("new", "y"));
+    expect(h.approvals.decisions).toEqual([{ approvalId: "new", approved: true }]);
   });
 
   it("still says Already resolved for a prompt this run posted and closed", async () => {

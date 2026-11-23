@@ -101,7 +101,7 @@ interface PendingState {
  *    `resolve`. A late-arriving stale button is acknowledged ("Already
  *    resolved.") but never resolves a second time. A button from a
  *    prompt an earlier run of the agent posted (ATO-613) says it expired
- *    with the restart and nothing ran, and its keyboard is removed.
+ *    and its keyboard is removed.
  * 3. **Send failure auto-denies immediately.** If `sendMessage`
  *    rejects, the operator cannot reply; the bridge resolves with
  *    `approved: false, reason: "telegram delivery failed"` so the
@@ -152,9 +152,9 @@ interface PendingState {
 /** Approval ids remembered per process, to tell an old prompt from one this run posted. */
 export const POSTED_IDS_MAX = 2_000;
 
-/** The toast on a button whose prompt was posted before the agent restarted (ATO-613). */
-export const APPROVAL_FROM_BEFORE_RESTART =
-  "This request expired: the agent restarted before you answered. Nothing was run. Send your request again.";
+/** The toast for an approval button whose request is no longer known. */
+export const EXPIRED_APPROVAL_NOTICE =
+  "This request expired. Send your request again if you still need it.";
 
 export class ApprovalBridge {
   /** Not readonly: `rebind()` swaps the bot and owner after a reconnect. */
@@ -162,9 +162,7 @@ export class ApprovalBridge {
   private readonly pending = new Map<string, PendingState>();
   /**
    * Approval ids this process has posted (ATO-613), newest last, capped.
-   * A click on an id outside it is a prompt from before the agent
-   * restarted: the turn that asked is gone, and saying "Already
-   * resolved" would read as if the action had run.
+   * An unfamiliar id could be from before a restart or have aged out.
    */
   private readonly posted = new Set<string>();
   private readonly timeoutMs: number;
@@ -296,14 +294,13 @@ export class ApprovalBridge {
     const pending = this.pending.get(approvalId);
     if (!pending) {
       if (!this.posted.has(approvalId)) {
-        // A prompt from before the agent restarted (ATO-613): nothing
-        // waits on it any more. Say so, and take the buttons off.
-        await this.acknowledge(update.id, APPROVAL_FROM_BEFORE_RESTART);
+        // An untracked prompt can no longer resolve an approval.
+        await this.acknowledge(update.id, EXPIRED_APPROVAL_NOTICE);
         if (update.message) {
           void this.editFinal(
             update.message.chat.id,
             update.message.message_id,
-            "⏹ expired: the agent restarted before this was answered. Send your request again.",
+            "⏹ expired. Send your request again if you still need it.",
           );
         }
         return;
