@@ -19,16 +19,14 @@ npm start
 One child process, one transport. The main process spawns
 
 ```
-ATOMIC_AGENT_API_KEY=<random per launch> atag serve --host 127.0.0.1 --port <ephemeral>
+atag serve --host 127.0.0.1 --port <ephemeral> --api-key-file <private-path>
 ```
 
-with `cwd` set to the chosen workspace, waits for `/health`, and speaks HTTP to
-it. The port is ephemeral, the bind is loopback-only, and the bearer token is
-generated per launch, so nothing outside this app can reach the agent. The
-token travels in the child's environment, not as `--api-key` on the command
-line other users see in `ps` (issue #74); every agent the app can pick reads
-it there (serve's env fallback predates the desktop app), so no flag fallback
-is kept, and a current agent deletes it from its own environment once read.
+The main process sets `cwd` to the chosen workspace, waits for `/health`,
+and sends the per-launch bearer on authenticated HTTP requests. The local
+agent binary must support `--api-key-file`. If the agent rejects the token,
+Desktop reports the authentication error and stops reconnecting the events
+stream until the connection is restarted.
 
 **Folder trust (ATO-1250).** A folder's own skills and instruction files
 (`AGENTS.md`, `.atomic-agent/skills`, …) load only after the person trusts
@@ -482,6 +480,22 @@ also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
 `.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
 `.xbap`, and macOS `.mobileconfig`/`.configprofile`) is shown in the file
 manager instead.
+
+## Security
+
+The supervised agent listens on loopback. For each launch, Desktop creates
+a regular file with a random name under Electron's private
+`userData/serve-keys` directory. The file is created exclusively with mode
+`0600` on POSIX. On Windows, Desktop applies an ACL granting access only to the
+current user before writing the token. Desktop passes the file path in the
+child's arguments and removes any inherited `ATOMIC_AGENT_API_KEY` entry from
+its environment.
+
+Desktop deletes the file when `/health` confirms startup, if startup fails,
+or when the agent exits or Desktop quits. The next startup removes leftover
+key files from crashed Desktop processes. Restarting the local agent rotates
+the bearer. A process running as the same OS user may still access resources
+available to that user. See the [core HTTP security guide](../src/http/README.md).
 
 ## Process model
 
