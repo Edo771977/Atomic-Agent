@@ -310,6 +310,7 @@ describe("Privacy Shield in the fork", () => {
     const prefix = (call: number) => JSON.stringify(JSON.parse(sentBody(fetchImpl, call)).messages[0]);
     expect(JSON.parse(prefix(0))).toMatchObject({ role: "system" });
     expect(prefix(0)).toContain("[EMAIL_1]");
+    expect(prefix(0)).toContain("Use these references exactly as written");
     expect(prefix(0)).toBe(prefix(1));
     expect(sentBody(fetchImpl, 0)).toContain("First");
     expect(sentBody(fetchImpl, 1)).toContain("Second");
@@ -329,6 +330,7 @@ describe("Privacy Shield in the fork", () => {
     setPrivacyShieldEnabled(false);
     expect((await p.complete(request)).content).toBe("[EMAIL_1]");
     expect(sentBody(fetchImpl, 0)).toBe(sentBody(fetchImpl, 2));
+    expect(sentBody(fetchImpl, 0)).not.toContain("Use these references exactly as written");
     expect(sentBody(fetchImpl, 1)).not.toBe(sentBody(fetchImpl, 0));
   });
 });

@@ -66,6 +66,7 @@ import { describeAudioViaOpenAi } from "./openai-describe-audio.js";
 import { isAnthropicHost, isAnthropicModel } from "./prompt-cache-control.js";
 import { isLocalServerUrl } from "./local-server-url.js";
 import {
+  addPrivacyInstructions,
   createChunkUnmasker,
   maskOpenAiBody,
   shieldVaultFor,
@@ -585,7 +586,10 @@ export class OpenAiProvider implements LlmProvider {
     ) {
       body.response_format = toGeminiResponseFormat(body.response_format);
     }
-    if (vault) maskOpenAiBody(body, vault);
+    if (vault) {
+      maskOpenAiBody(body, vault);
+      addPrivacyInstructions(body);
+    }
     return this.wire ? this.wire.toWireBody(body) : body;
   }
 

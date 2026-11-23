@@ -48,6 +48,19 @@ export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVaul
   }
 }
 
+const REFERENCE_INSTRUCTIONS =
+  "Privacy Shield uses bracketed references for private values. Use these references exactly as written. The agent resolves them locally, so there is no need to ask for the original values.";
+
+export function addPrivacyInstructions(body: Record<string, unknown>): void {
+  if (!Array.isArray(body.messages) || body.messages.length === 0) return;
+  const first = body.messages[0] as { content?: unknown };
+  if (typeof first.content === "string") {
+    body.messages = [{ ...first, content: `${REFERENCE_INSTRUCTIONS}\n\n${first.content}` }, ...body.messages.slice(1)];
+  } else if (Array.isArray(first.content)) {
+    body.messages = [{ ...first, content: [{ type: "text", text: REFERENCE_INSTRUCTIONS }, ...first.content] }, ...body.messages.slice(1)];
+  }
+}
+
 function unmaskToolCalls(
   calls: ReadonlyArray<OpenAiToolCall> | undefined,
   vault: PrivacyVault,
