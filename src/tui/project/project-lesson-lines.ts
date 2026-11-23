@@ -1,7 +1,6 @@
-import { bindingProjectLessonEntry, PROJECT_LESSON_SECTION_LIMIT } from "../../session/project-lesson-projection.js";
-import { PROJECT_LESSON_INVISIBLE_CHARACTERS, projectLessonFingerprint } from "../../session/project-lessons.js";
+import { projectLessonPromptEnds, PROJECT_LESSON_SECTION_LIMIT } from "../../session/project-lesson-projection.js";
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS, PROJECT_LESSON_TURN_RUNNING, projectLessonFingerprint } from "../../session/project-lesson-text.js";
 import { displayWidth, truncateToWidth } from "../render/display-width.js";
-import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-operations.js";
 import type { ProjectCardLine, ProjectLineTone } from "./project-card-lines.js";
 import { lessonActions, selectedLesson, type ProjectCardState } from "./project-card-state.js";
 
@@ -70,7 +69,7 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
       row.id !== lesson.id && row.lesson?.always && row.status.approvedByPerson &&
       !card.view.lessonCoverage?.some(item => item.id === row.id && item.deferred),
     ).length ?? 0);
-    const binding = lesson.always ? bindingProjectLessonEntry(lesson, bindingCount, true).sections : undefined;
+    const ends = projectLessonPromptEnds(lesson, bindingCount);
     for (const [label, key] of [
       ["Decided", "decided"],
       ["Tried and ruled out", "triedAndRuledOut"],
@@ -78,9 +77,7 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
     ] as const) {
       text(label, "title");
       const section = lesson.sections[key];
-      const standardEnd = section.length > PROJECT_LESSON_SECTION_LIMIT ? PROJECT_LESSON_SECTION_LIMIT - 1 : section.length;
-      const projected = binding?.[key];
-      const bindingEnd = projected !== undefined && projected !== section ? projected.length - 1 : standardEnd;
+      const { standard: standardEnd, planning: bindingEnd } = ends[key];
       if (bindingEnd < standardEnd) {
         text(section.slice(0, bindingEnd));
         text("Model sees only up to here (shared planning budget).", "warn");

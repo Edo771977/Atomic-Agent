@@ -1,3 +1,4 @@
+import { handleProjectLessons } from "./route-project-lessons.js";
 import { createGetProjectHandler, createProjectBacklogHandler, createProjectDecisionHandler } from "./route-project.js";
 import { createForgetProjectHandler, createListProjectsHandler, createResumeProjectHandler } from "./route-projects.js";
 import { createFusionTeamHandler } from "./route-fusion-team.js";
@@ -325,6 +326,8 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     { method: "GET", path: "/api/project", handler: createGetProjectHandler() },
     { method: "POST", path: "/api/project/decision", handler: createProjectDecisionHandler() },
     // Issue #111: the person's call on a backlog item.
+    { method: "GET", path: "/api/project/lessons", handler: handleProjectLessons },
+    { method: "POST", path: "/api/project/lessons", handler: handleProjectLessons },
     { method: "POST", path: "/api/project/backlog", handler: createProjectBacklogHandler() },
     // Issue #109: the fusion projects this machine knows, forget one, resume one.
     { method: "GET", path: "/api/projects", handler: createListProjectsHandler() },

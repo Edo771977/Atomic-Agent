@@ -98,3 +98,16 @@ export function projectLessonReviewSelection(active: readonly ProjectLesson[], a
   const basis = createHash("sha256").update(JSON.stringify([sorted, notice ?? null, ...(selection.data.some((lesson) => lesson.binding) ? ["binding-touches"] : [])])).digest("hex").slice(0, 16);
   return { ...selection, notice, basis };
 }
+
+/** Offsets into the full source text where the panel must show prompt cuts. */
+export function projectLessonPromptEnds(lesson: ProjectLesson, bindingCount: number) {
+  const binding = lesson.always ? bindingProjectLessonEntry(lesson, bindingCount, true).sections : undefined;
+  const ends = (key: keyof ProjectLesson["sections"]) => {
+    const section = lesson.sections[key];
+    const standard = section.length > PROJECT_LESSON_SECTION_LIMIT ? PROJECT_LESSON_SECTION_LIMIT - 1 : section.length;
+    const projected = binding?.[key];
+    const planning = projected !== undefined && projected !== section ? projected.length - 1 : standard;
+    return { standard, planning };
+  };
+  return { decided: ends("decided"), triedAndRuledOut: ends("triedAndRuledOut"), watchOut: ends("watchOut") };
+}

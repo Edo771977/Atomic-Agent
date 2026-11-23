@@ -1,6 +1,6 @@
-import { projectDecisionOriginRefusal } from "../../sandbox/project-decision-origin.js";
-import { isIncognitoSession } from "../../session/incognito.js";
-import { stateDirProjectRecords, type ProjectLessonCall } from "../../session/project-decisions.js";
+import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
+import { isIncognitoSession } from "./incognito.js";
+import { stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
 import {
   prepareProjectLessonDecision,
   projectLessonStatus,
@@ -8,9 +8,10 @@ import {
   writeProjectLessonDecision,
   type ProjectLesson,
   type ProjectLessonProblem,
-} from "../../session/project-lessons.js";
-import { readProjectRef } from "../../session/session-project-store.js";
-import type { SessionState } from "../../session/session-state.js";
+} from "./project-lessons.js";
+import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-text.js";
+import { readProjectRef } from "./session-project-store.js";
+import type { SessionState } from "./session-state.js";
 
 export interface ProjectLessonChoice {
   id: string;
@@ -30,16 +31,16 @@ export interface ProjectLessonPanel {
   blocked?: string;
 }
 
-export const PROJECT_LESSON_TURN_RUNNING = "A turn is running. Press f afterward.";
+type LessonError = "incognito" | "no-project" | "turn-running" | "wrong-origin" | "stale-view" | "invalid";
 
 export function projectLessonPanel(
   session: SessionState,
   stateDir: string,
   isBusy: (folder: string, id: string) => boolean,
   choice?: ProjectLessonChoice,
-): { panel: ProjectLessonPanel; notice?: string } {
-  const unavailable = (blocked: string) => ({ panel: { rows: [], problems: [], blocked } });
-  if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.");
+): { panel: ProjectLessonPanel; notice?: string; code?: LessonError } {
+  const unavailable = (blocked: string, code: LessonError = "no-project") => ({ panel: { rows: [], problems: [], blocked }, code });
+  if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.", "incognito");
   const ref = readProjectRef(session);
   if (!ref) return unavailable("Lessons require a chat bound to a saved project.");
   const records = stateDirProjectRecords(stateDir);
@@ -50,10 +51,11 @@ export function projectLessonPanel(
 
   const { lessons, problems } = readProjectLessons(ref.folder);
   const calls = { ...record.lessonCalls };
-  const blocked = projectDecisionOriginRefusal() ??
-    (isBusy(ref.folder, ref.id) ? PROJECT_LESSON_TURN_RUNNING : undefined);
+  const origin = projectDecisionOriginRefusal();
+  const busy = isBusy(ref.folder, ref.id);
+  const blocked = origin ?? (busy ? PROJECT_LESSON_TURN_RUNNING : undefined);
   const current = new Map(lessons.map(lesson => [lesson.id, lesson]));
-  const result = (notice?: string) => {
+  const result = (notice?: string, code?: LessonError) => {
     const rows: ProjectLessonRow[] = lessons.map(lesson => {
       const { id, hash } = lesson;
       const call = Object.hasOwn(calls, id) ? calls[id] : undefined;
@@ -62,9 +64,9 @@ export function projectLessonPanel(
     for (const [id, call] of Object.entries(calls)) {
       if (!current.has(id)) rows.push({ id, hash: call.hash, orphanedChoice: call.state });
     }
-    return { panel: { rows, problems, blocked }, notice };
+    return { panel: { rows, problems, blocked }, notice, code };
   };
-  if (!choice || blocked) return result();
+  if (!choice || blocked) return result(undefined, origin ? "wrong-origin" : busy ? "turn-running" : undefined);
 
   const { id, hash, state, orphaned } = choice;
   const lesson = current.get(id);
@@ -72,13 +74,13 @@ export function projectLessonPanel(
   const matches = orphaned
     ? lesson === undefined && state === null && previous?.hash === hash
     : lesson?.hash === hash;
-  if (!matches) return result("The lesson has changed. Read it again before deciding.");
+  if (!matches) return result("The lesson has changed. Read it again before deciding.", "stale-view");
   const prepared = prepareProjectLessonDecision(id, state, lesson, previous);
-  if (!prepared.ok) return result(prepared.message);
+  if (!prepared.ok) return result(prepared.message, "invalid");
   const { call } = prepared.decision;
-  if (call === null && previous === undefined) return result("No choice to reopen.");
+  if (call === null && previous === undefined) return result("No choice to reopen.", "invalid");
   const written = writeProjectLessonDecision(records, record, prepared.decision);
-  if (!written.ok) return result(written.problem.message);
+  if (!written.ok) return result(written.problem.message, "stale-view");
   if (call === null) delete calls[id];
   else calls[id] = call;
   const verb = state === "approved" ? "Approved" : state === "retired" ? "Retired" : "Reopened";

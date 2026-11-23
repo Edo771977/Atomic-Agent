@@ -36,7 +36,7 @@ import { CodingModePopup } from "./coding-mode/coding-mode-popup.js";
 import { IssueReportPopup } from "./issue-report/issue-report-popup.js";
 import { ProjectCardPopup } from "./project/project-card-popup.js";
 import type { ProjectDecision } from "../session/session-project.js";
-import type { ProjectLessonChoice } from "./project/project-lesson-operations.js";
+import type { ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import type { IssueReportLevel } from "./issue-report/report-levels.js";
 import type { IssueReportToggle } from "./issue-report/issue-report-state.js";
