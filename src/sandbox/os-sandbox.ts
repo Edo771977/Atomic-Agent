@@ -43,7 +43,7 @@ export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST|DBUS_SESSION_BUS_ADDRESS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|TMUX|XDG_RUNTIME_DIR)$/.test(key)));
   const temp = process.platform === "linux" ? "/tmp" : tmpdir();
   const cache = join(temp, `atomic-agent-tool-cache-${randomUUID()}`);
-  return { ...safe, GIT_OPTIONAL_LOCKS: "0", TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
+  return { ...safe, GIT_CONFIG_GLOBAL: "/dev/null", GIT_OPTIONAL_LOCKS: "0", TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
 
 export interface OsSandboxPolicy {

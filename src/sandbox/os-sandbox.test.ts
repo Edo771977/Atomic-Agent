@@ -67,6 +67,7 @@ it("prepares the wrapper without caller-controlled native loader settings", () =
   });
   expect(env).toEqual({
     PATH: "/usr/bin",
+    GIT_CONFIG_GLOBAL: "/dev/null",
     GIT_OPTIONAL_LOCKS: "0",
     TMPDIR: process.platform === "linux" ? "/tmp" : tmpdir(),
     XDG_CACHE_HOME: expect.stringContaining("atomic-agent-tool-cache-"),
@@ -307,4 +308,14 @@ it("round 3 point 7: reopens Node installed under the private tmp mount", () => 
     toolchainDirectories: ["/fixture/toolchain"], network: false,
   });
   expect(scoped.toolchainRoots).toEqual(expect.arrayContaining(["/tmp/fixture-node/bin", "/fixture/toolchain"]));
+});
+
+it("round 3 point 8: drops the host Git config override while preserving explicit identity", () => {
+  expect(buildOsSandboxEnv({
+    GIT_CONFIG_GLOBAL: "/fixture/git.ini",
+    GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+  })).toMatchObject({
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid",
+  });
 });
