@@ -132,7 +132,7 @@ export class MemoryOrchestrator {
         line = `memory backed up to ${path}`;
       } else {
         if (request.directory === undefined) throw new Error("restore requires a backup directory");
-        const { notes, facts } = restoreMemoryBackup(context, request.directory);
+        const { notes, facts } = restoreMemoryBackup({ ...context, maxEntries: this.runtime.config.memory.notes.maxEntries, profileMaxEntries: this.runtime.config.memory.profile.maxEntries }, request.directory);
         line = `restored ${notes} notes and ${facts} profile facts`;
         this.refresh();
       }

@@ -61,7 +61,7 @@ export function handleRestore(directory: string | undefined): number {
   try {
     assertMemoryBackupAllowed();
     const config = getConfig();
-    const { notes, facts } = restoreMemoryBackup(config.paths, directory);
+    const { notes, facts } = restoreMemoryBackup({ ...config.paths, maxEntries: config.memory.notes.maxEntries, profileMaxEntries: config.memory.profile.maxEntries }, directory);
     process.stdout.write(`restored ${notes} notes and ${facts} profile facts\n`);
     return 0;
   } catch (error) {

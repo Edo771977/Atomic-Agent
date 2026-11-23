@@ -125,6 +125,30 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     }
   });
 
+  it("refuses a restore that would evict notes or unpinned facts", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 60 });
+    for (let i = 0; i < 50; i++) notes.store({ content: `backup note ${i}` });
+    notes.close();
+    const facts = new ProfileStore({ dbFile });
+    facts.set("city", "Rome", { pinned: false });
+    facts.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const target = { memoryDbFile: join(dir, "target.sqlite"), maxEntries: 20, profileMaxEntries: 1 };
+    const liveNotes = new MemoryStore({ dbFile: target.memoryDbFile, maxEntries: 20 });
+    const liveFacts = new ProfileStore({ dbFile: target.memoryDbFile });
+    try {
+      for (let i = 0; i < 20; i++) liveNotes.store({ content: `live note ${i}` });
+      liveFacts.set("language", "Italian", { pinned: false });
+      expect(() => restoreMemoryBackup(target, out)).toThrow(/50 notes.*1 profile facts.*50 notes.*1 profile facts/);
+      expect(liveNotes.count()).toBe(20);
+      expect(liveFacts.list().map((fact) => fact.key)).toEqual(["language"]);
+    } finally {
+      liveFacts.close();
+      liveNotes.close();
+    }
+  });
+
   it("rejects a mismatched schema before creating the target", async () => {
     new MemoryStore({ dbFile, maxEntries: 10 }).close();
     const out = join(dir, "bk");

@@ -158,13 +158,18 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
   }
 }
 
+export interface MemoryRestoreContext extends MemoryBackupContext {
+  maxEntries?: number;
+  profileMaxEntries?: number;
+}
+
 export interface MemoryRestoreResult {
   notes: number;
   facts: number;
 }
 
 /** Merge current entries under one SQLite write transaction, including deduplication. */
-export function restoreMemoryBackup(context: MemoryBackupContext, directory: string): MemoryRestoreResult {
+export function restoreMemoryBackup(context: MemoryRestoreContext, directory: string): MemoryRestoreResult {
   assertMemoryBackupAllowed(context.incognito);
   const path = join(resolve(directory), MEMORY_BACKUP_FILE);
   const source = new DatabaseCtor(path, { readonly: true, fileMustExist: true });
@@ -206,6 +211,14 @@ export function restoreMemoryBackup(context: MemoryBackupContext, directory: str
         const result: MemoryRestoreResult = { notes: 0, facts: 0 };
         for (const note of notes) result.notes += insertNote.run(note).changes;
         for (const fact of facts) result.facts += insertFact.run(fact).changes;
+        const count = (sql: string) => Number(target.prepare(sql).pluck().get());
+        const noteOverflow = Math.max(0, count("SELECT count(*) FROM memories") - (context.maxEntries ?? Infinity));
+        const factOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 0") - (context.profileMaxEntries ?? Infinity));
+        if ((result.notes > 0 && noteOverflow > 0) || (result.facts > 0 && factOverflow > 0)) {
+          throw new MemoryBackupError(
+            `Restore would add ${result.notes} notes and ${result.facts} profile facts and evict ${noteOverflow} notes and ${factOverflow} profile facts. Increase the configured limits or restore a smaller subset.`,
+          );
+        }
         return result;
       }).immediate();
     } finally {
