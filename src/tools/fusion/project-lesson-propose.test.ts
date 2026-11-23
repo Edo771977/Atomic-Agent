@@ -22,6 +22,7 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
       from: "milestone m1, run r1", touches: ["package.json"], always: false,
       decided: "Use the existing dependencies.", triedAndRuledOut: "", watchOut: "" };
     expect((await tool.run(args, { ...(ctx as object), projectRef: undefined } as never)).status).toBe("error");
+    expect((await tool.run({ ...args, from: "milestone m1, run made-up" }, ctx)).status).toBe("error");
     await expect(tool.run(args, ctx)).rejects.toThrow("denied");
     expect(readProjectLessons(folder).lessons).toEqual([]);
     vi.mocked(linkSync).mockImplementationOnce(() => {

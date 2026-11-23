@@ -30,7 +30,7 @@ function proposal(raw: Record<string, unknown>) {
     "## Decided", decided, "## Tried and ruled out", triedAndRuledOut, "## Watch out", watchOut, "",
   ].join("\n");
   validateProjectLessonProposal(id, text);
-  return { id, text };
+  return { id, source, from, text };
 }
 
 export function sameLessonProjectFolder(a: string, b: string, platform = process.platform): boolean {
@@ -58,6 +58,14 @@ export function buildProjectLessonTool(options: FsDangerousToolOptions & { trust
           throw new Error("Run this tool from the project folder.");
         }
         draft = proposal(args);
+        const origin = /^milestone ([^, ]+)(?:, run ([^, ]+))?$/.exec(draft.from);
+        const milestone = origin === null ? undefined : ctx.project.milestones.find(item => item.id === origin[1]);
+        const runId = origin?.[2];
+        const runs = milestone === undefined ? [] : [...milestone.runIds, ...(milestone.history ?? []).flatMap(item => item.runIds)];
+        if (milestone === undefined || (runId !== undefined && !runs.includes(runId)) ||
+            (runId === undefined && draft.source !== "director" && runs.length > 0)) {
+          throw new Error("Use from: milestone <id>, run <id> with recorded project evidence. Omit the run only for a director summary or when no run was recorded.");
+        }
         path = projectLessonProposalPath(folder, draft.id);
       } catch (cause) {
         return error(cause);
@@ -76,7 +84,7 @@ export function buildProjectLessonTool(options: FsDangerousToolOptions & { trust
       } catch (cause) {
         return error(cause);
       }
-      return compressToolResult({ tool, status: "ok", output: `Saved proposed lesson ${draft.id}. The person can review it with atomic-agent project lessons.` });
+      return compressToolResult({ tool, status: "ok", output: `Saved director-authored lesson proposal ${draft.id} (declared origin: ${draft.source}, ${draft.from}). The person can review it with atomic-agent project lessons.` });
     },
   };
 }
