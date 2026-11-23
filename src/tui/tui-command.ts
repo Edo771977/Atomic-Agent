@@ -696,6 +696,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onMemoryAutoRefreshStart: () => orchestrator.memory.startAutoRefresh(),
         onMemoryRefreshRequested: (opts) => orchestrator.memory.refresh(opts),
         onMemoryDetailRequested: (row) => orchestrator.memory.openDetail(row),
+        onMemoryToggleDisabledRequested: (row) => orchestrator.memory.toggleDisabled(row),
         onMemoryOpenNoteRequested: (noteId) =>
           orchestrator.memory.openNoteById(noteId),
         onMemoryExpandNeighborsRequested: (noteId) =>

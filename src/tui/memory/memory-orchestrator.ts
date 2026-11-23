@@ -20,7 +20,6 @@ import type {
 import {
   toLessonSummaryRows,
   toLinkSummaryRows,
-  toNoteSummaryRows,
   toNoteSummaryRowsFromEntries,
   toProcedureSummaryRows,
   toProfileSummaryRows,
@@ -139,6 +138,25 @@ export class MemoryOrchestrator {
       this.bus.emit({ type: "runtime_info", line });
     } catch (error) {
       this.bus.emit({ type: "runtime_info", line: `memory ${request.operation} failed: ${String(error)}` });
+    }
+  }
+
+  toggleDisabled(row: MemorySummaryRow): void {
+    if (this.options.isIncognito?.() || process.env.ATOMIC_AGENT_TOOL_CHILD === "1") {
+      this.bus.emit({ type: "runtime_info", line: "memory changes are unavailable in this session" });
+      return;
+    }
+    try {
+      if (row.channel === "notes" && row.numericId !== undefined) {
+        const note = this.runtime.notesStore.get(row.numericId);
+        if (note) this.runtime.notesStore.setDisabled(note.id, note.disabledAt === undefined);
+      } else if (row.channel === "profile" && row.profileKey !== undefined) {
+        const fact = this.runtime.profileStore.get(row.profileKey);
+        if (fact) this.runtime.profileStore.setDisabled(fact.key, fact.disabledAt === undefined);
+      }
+      this.refresh();
+    } catch (error) {
+      this.bus.emit({ type: "memory_refresh_failed", error: String(error) });
     }
   }
 
@@ -261,11 +279,11 @@ function loadChannelRows(
         );
         return { rows: toNoteSummaryRowsFromEntries(archived), hint: null };
       }
-      const index = runtime.notesStore.listIndex({
+      const entries = runtime.notesStore.list({
         limit: NOTES_LIST_LIMIT,
         excludeArchived: opts.notesArchiveFilter === "active",
       });
-      return { rows: toNoteSummaryRows(index), hint: null };
+      return { rows: toNoteSummaryRowsFromEntries(entries), hint: null };
     }
     case "lessons":
       if (!cfg.lessons.enabled) {

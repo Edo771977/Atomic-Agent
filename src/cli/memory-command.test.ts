@@ -77,6 +77,21 @@ describe("memoryCommand", () => {
     expect(stdout()).toMatch(/export \[--vault/);
   });
 
+  it("lists disabled notes, shows their history, and undoes the change", async () => {
+    seedMemory();
+    expect(await memoryCommand(["disable", "note", "1"])).toBe(0);
+    stdoutChunks.length = 0;
+    expect(await memoryCommand(["list", "note"])).toBe(0);
+    expect(JSON.parse(stdout())[0].disabledAt).toEqual(expect.any(Number));
+    stdoutChunks.length = 0;
+    expect(await memoryCommand(["history"])).toBe(0);
+    const change = JSON.parse(stdout())[0];
+    expect(change.op).toBe("set_disabled");
+    stdoutChunks.length = 0;
+    expect(await memoryCommand(["undo", String(change.id)])).toBe(0);
+    expect(JSON.parse(stdout()).note.disabledAt).toBeUndefined();
+  });
+
   it("rejects an unknown subcommand with a usage error", async () => {
     const code = await memoryCommand(["nope"]);
     expect(code).toBe(2);

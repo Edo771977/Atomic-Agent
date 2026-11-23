@@ -635,6 +635,7 @@ export interface TuiAppCallbacks {
   }): void;
   /** Memory tab: open detail for a list row. */
   onMemoryDetailRequested?(row: MemorySummaryRow): void;
+  onMemoryToggleDisabledRequested?(row: MemorySummaryRow): void;
   /** Memory tab: open a note by id (link navigation). */
   onMemoryOpenNoteRequested?(noteId: number): void;
   /** Memory tab: BFS-expand neighbors for the open note (`g`). */

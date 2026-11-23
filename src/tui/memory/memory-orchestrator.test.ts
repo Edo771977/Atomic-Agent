@@ -41,6 +41,25 @@ describe("MemoryOrchestrator notes search", () => {
     return (loaded?.rows ?? []).map((row) => row.numericId ?? -1);
   }
 
+  it("shows a disabled note in the unfiltered list and can enable it", () => {
+    const note = store.store({ content: "the kiwi orchard is in the south field" });
+    store.setDisabled(note.id, true);
+    const emitted: Array<{ type: string; rows?: import("./memory-panel-state.js").MemorySummaryRow[] }> = [];
+    const runtime = {
+      config: { memory: { notes: { enabled: true }, lessons: {}, procedures: {}, links: {} } },
+      notesStore: store,
+      voteStore: null,
+    };
+    const bus = { subscribe: () => () => {}, emit: (action: unknown) => emitted.push(action as never) };
+    const orchestrator = new MemoryOrchestrator(runtime as never, bus as never);
+    orchestrator.refresh({ channel: "notes" });
+    const row = emitted.find((action) => action.type === "memory_rows_loaded")?.rows?.[0];
+    expect(row?.meta).toContain("disabled");
+    expect(searchIds(true)).not.toContain(note.id);
+    orchestrator.toggleDisabled(row!);
+    expect(store.get(note.id)?.disabledAt).toBeUndefined();
+  });
+
   it("a search leaves superseded notes out while memory.notes.reconcile is on", () => {
     const stale = store.store({ content: "the kiwi orchard is in the south field" });
     const live = store.store({ content: "the kiwi orchard moved to the north field" });
