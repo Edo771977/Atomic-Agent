@@ -75,6 +75,26 @@ it("recognizes the destination of aria2c", () => {
   expect([...shellNetworkUrls("aria2c", ["docs:8080/path"])]).toEqual([["http://docs:8080/path", false]]);
 });
 
+it.each([
+  ["curl", "--output", "out.txt", "--upload-file", "payload.txt", "--header", "https://header.example/", "--user-agent", "foo.example", "--cookie", "cookies.txt", "--user", "account.example", "--referer", "https://referer.example/", "--resolve", "other.example:443:127.0.0.1", target],
+  ["wget", "-O", "out.txt", "--load-cookies", "cookies.txt", "--referer", "https://referer.example/", target],
+  ["http", "--output", "out.txt", "--auth", "account.example", "GET", target, "X-Test:https://value.example/"],
+  ["aria2c", "--out", "out.txt", "--referer", "https://referer.example/", target],
+  ["Invoke-WebRequest", "-OutFile", "https://file.example/", "-UserAgent", "https://agent.example/", "-Uri", target],
+])("consumes option values before finding the %s destination", (program, ...args) => {
+  expect([...shellNetworkUrls(program, args).keys()]).toEqual([target]);
+});
+
+it.each([
+  ["busybox wget -O out.txt", "wget"],
+  ["taskset -c 0 curl", "curl"],
+  ["chrt --fifo 10 curl", "curl"],
+])("unwraps %s for both classification and URL inspection", (command, program) => {
+  const cmd = command + " " + target;
+  expect(shellNetworkUse({ cmd })).toEqual({ program, cls: "http" });
+  expect([...shellNetworkUrls("", [], cmd).keys()]).toEqual([target]);
+});
+
 it.each(["https://$host/path", "https://docs.example:$port/path", "$__computed__"])(
   "requires unscoped consent for a curl destination whose origin is computed in %s",
   (operand) => {

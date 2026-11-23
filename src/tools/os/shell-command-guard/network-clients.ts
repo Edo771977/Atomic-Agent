@@ -50,7 +50,14 @@ function unwrap(words: readonly string[], shellSyntax: boolean): readonly string
       continue;
     }
     const program = programName(word);
-    const valueFlags = PREFIX_COMMANDS[program];
+    if (program === "busybox" && programName(words[i + 1] ?? "") === "wget") {
+      i += 1;
+      continue;
+    }
+    const cpuWrapper = program === "taskset" || program === "chrt";
+    const valueFlags = cpuWrapper
+      ? ["-T", "-P", "-D", "--sched-runtime", "--sched-period", "--sched-deadline"]
+      : PREFIX_COMMANDS[program];
     if (valueFlags === undefined) break;
     i += 1;
     while (i < words.length && words[i]!.startsWith("-")) {
@@ -60,12 +67,73 @@ function unwrap(words: readonly string[], shellSyntax: boolean): readonly string
       }
       i += valueFlags.includes(words[i]!) ? 2 : 1;
     }
-    if (program === "timeout" || program === "gtimeout") i += 1;
+    if (cpuWrapper || program === "timeout" || program === "gtimeout") i += 1;
   }
   return words.slice(i);
 }
 
 const curlShortOperands = new Set("AbcCdDeEFHKmoPQrTtUuwxXyYz".split(""));
+
+const curlLongOperands = new Set([
+  "--output", "--output-dir", "--upload-file", "--header", "--proxy-header", "--user-agent",
+  "--cookie", "--cookie-jar", "--user", "--proxy-user", "--referer", "--resolve", "--connect-to",
+  "--request", "--request-target", "--form", "--form-string", "--dump-header", "--write-out",
+  "--cacert", "--capath", "--cert", "--key", "--pass", "--proxy", "--preproxy", "--noproxy",
+  "--connect-timeout", "--max-time", "--retry", "--retry-delay", "--retry-max-time", "--interface",
+  "--range", "--oauth2-bearer", "--netrc-file", "--trace", "--trace-ascii", "--stderr", "--proto", "--proto-redir",
+]);
+
+const wgetLongOperands = new Set([
+  "--output-document", "--output-file", "--append-output", "--header", "--user-agent", "--load-cookies",
+  "--save-cookies", "--user", "--password", "--http-user", "--http-password", "--referer", "--post-data",
+  "--post-file", "--body-data", "--body-file", "--input-file", "--directory-prefix", "--timeout", "--tries",
+]);
+const wgetShortOperands = new Set("OoaUiPtTwQleABXIDR");
+const httpOperands = new Set([
+  "--output", "-o", "--auth", "-a", "--auth-type", "-A", "--proxy", "--verify", "--cert", "--cert-key",
+  "--timeout", "--session", "--session-read-only", "--style", "--pretty", "--print", "-p",
+]);
+const ariaOperands = new Set([
+  "--out", "-o", "--dir", "-d", "--header", "--user-agent", "--load-cookies", "--save-cookies",
+  "--http-user", "--http-passwd", "--referer", "--all-proxy", "--input-file", "-i", "--conf-path",
+]);
+const powershellOperands = new Set([
+  "-outfile", "-infile", "-headers", "-useragent", "-credential", "-authentication", "-token",
+  "-method", "-body", "-contenttype", "-proxy", "-proxycredential", "-websession", "-sessionvariable",
+  "-timeoutsec", "-maximumredirection",
+]);
+
+function clientOperands(program: string, args: readonly string[]): string[] {
+  const wget = program.startsWith("wget");
+  const powershell = !wget && program !== "aria2c" && !HTTP_CLI.has(program);
+  const valueFlags = wget ? wgetLongOperands
+    : program === "aria2c" ? ariaOperands : powershell ? powershellOperands : httpOperands;
+  const operands: string[] = [];
+  let options = true;
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!;
+    if (options && word === "--") {
+      options = false;
+    } else if (options && word.startsWith("-")) {
+      const separator = powershell ? /[:=]/ : /=/;
+      const split = word.search(separator);
+      const flag = split < 0 ? word : word.slice(0, split);
+      const name = powershell ? flag.toLowerCase() : flag;
+      if (name === "-uri" || name === "--url") {
+        const value = split < 0 ? args[++index] : word.slice(split + 1);
+        if (value !== undefined) operands.push(value);
+      } else if (valueFlags.has(name)) {
+        if (split < 0) index++;
+      } else if (wget && /^-[^-]/.test(word)) {
+        const valueAt = [...word].findIndex((short, offset) => offset > 0 && wgetShortOperands.has(short));
+        if (valueAt === word.length - 1) index++;
+      }
+    } else {
+      operands.push(word);
+    }
+  }
+  return operands;
+}
 
 function curlUrlOptions(args: readonly string[]): { sendsData: boolean; hasConfig: boolean; operands: string[] } {
   let get = false;
@@ -86,7 +154,7 @@ function curlUrlOptions(args: readonly string[]): { sendsData: boolean; hasConfi
       if (flag === "--config") hasConfig = true;
       const isData = /^(?:--data(?:-[a-z]+)?|--json)$/.test(flag);
       data ||= isData;
-      if (flag === "--url" || flag === "--url-query" || flag === "--config" || isData) {
+      if (flag === "--url" || flag === "--url-query" || flag === "--config" || isData || curlLongOperands.has(flag)) {
         const value = equals < 0 ? args[++index] : word.slice(equals + 1);
         if (flag === "--url" && value !== undefined) operands.push(value);
       }
@@ -119,8 +187,8 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
       const curl = program === "curl" ? curlUrlOptions(rest) : undefined;
       if (curl?.hasConfig) urls.set("", true);
       const httpCli = HTTP_CLI.has(program);
-      const httpQuery = httpCli && rest.some(word => /^[^:=\s]+==/.test(word));
-      const words = curl?.operands ?? rest;
+      const words = curl?.operands ?? clientOperands(program, rest);
+      const httpQuery = httpCli && words.some(word => /^[^:=\s]+==/.test(word));
       const scheme = program === "https" ? "https" : "http";
       for (const word of words) {
         const operand = word.replace(/^(?:--url=|-uri[:=])/i, "");
