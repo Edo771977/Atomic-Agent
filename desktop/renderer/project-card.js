@@ -356,7 +356,11 @@ function pcPictureLine(a) {
 /** Issue #126: what a fact rests on, as the core's criterionBasisLabel (project-gate-text.ts). */
 function pcBasisLabel(basis) {
   switch (basis && basis.kind) {
-    case 'check': return 'measured';
+    case 'check': {
+      const ui = pcList(basis.checks).filter((check) => check?.kind === 'ui').map((check) =>
+        ['UI', check.impeccableVersion, check.mode === 'rendered' ? 'rendered page' : check.mode].filter(Boolean).join(' · '));
+      return ui.length ? 'measured (' + [...new Set(ui)].join(', ') + ')' : 'measured';
+    }
     case 'person': return 'declared by you';
     case 'vision': return 'judged by ' + pcStr(basis.model);
     default: return 'basis not recorded';
@@ -390,21 +394,26 @@ function pcFactLine(fact, criteria) {
  * counted from the facts (summarizeCriterionBases), as the TUI card does.
  */
 function pcBasisSummary(summary, facts) {
-  let counts = summary && typeof summary === 'object' ? summary : null;
-  if (!counts || ['check', 'vision', 'person', 'unrecorded'].some((k) => pcNum(counts[k]) === null)) {
-    counts = {check: 0, vision: 0, person: 0, unrecorded: 0};
-    for (const f of facts) {
-      const kind = f && f.basis && f.basis.kind;
-      counts[kind === 'check' || kind === 'vision' || kind === 'person' ? kind : 'unrecorded'] += 1;
-    }
+  const labelsByBasis = {check: 'measured', vision: 'judged by a model', person: 'declared by you', unrecorded: 'basis not recorded'};
+  const bases = Object.keys(labelsByBasis);
+  const counted = {check: 0, vision: 0, person: 0, unrecorded: 0};
+  const reservations = {...counted};
+  for (const fact of facts) {
+    const kind = fact?.basis?.kind;
+    const basis = bases.includes(kind) ? kind : 'unrecorded';
+    counted[basis]++;
+    if (pcReserved(fact)) reservations[basis]++;
   }
-  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
-  const labels = [
-    counts.check > 0 ? counts.check + ' measured' : '',
-    counts.vision > 0 ? counts.vision + ' judged by a model' : '',
-    counts.person > 0 ? counts.person + ' declared by you' : '',
-    counts.unrecorded > 0 ? counts.unrecorded + ' basis not recorded' : '',
-  ];
+  const counts = summary && bases.every((basis) => pcNum(summary[basis]) !== null) ? summary : counted;
+  const reservedByBasis = counts.withReservations ?? reservations;
+  const total = bases.reduce((sum, basis) => sum + counts[basis], 0);
+  const labels = [];
+  for (const basis of bases) {
+    const reserved = Math.max(0, Math.min(counts[basis], pcNum(reservedByBasis[basis]) ?? 0));
+    const plain = counts[basis] - reserved;
+    if (plain > 0) labels.push(plain + ' ' + labelsByBasis[basis]);
+    if (reserved > 0) labels.push(reserved + ' ' + labelsByBasis[basis] + ' with reservations');
+  }
   return total + ' ' + (total === 1 ? 'criterion' : 'criteria') + ': ' + labels.filter(Boolean).join(', ');
 }
 
