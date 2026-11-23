@@ -3,10 +3,12 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { Browser } from "playwright-core";
+
+import { findChromeExecutable } from "../browser/find-chrome-executable.js";
 
 import { defaultBrowserLauncher, isLoopbackHost, type BrowserLauncher } from "./run-page-kind.js";
 import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
@@ -367,6 +369,112 @@ describe("isLoopbackHost", () => {
     for (const host of ["example.com", "10.0.0.1", "127.0.0.1.example.com", "192.168.1.5"]) expect(isLoopbackHost(host)).toBe(false);
   });
 });
+
+describe("defaultBrowserLauncher — launch order", () => {
+  beforeEach(() => vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", undefined));
+  afterEach(() => vi.unstubAllEnvs());
+  type LaunchOpts = { executablePath?: string; headless?: boolean; args?: string[]; env?: NodeJS.ProcessEnv };
+  const fakeBrowser = {} as Browser;
+  const recorder = (fail: (opts: LaunchOpts) => boolean = () => false) => {
+    const calls: LaunchOpts[] = [];
+    const loadPlaywright = async () =>
+      ({
+        chromium: {
+          launch: async (opts: LaunchOpts) => {
+            calls.push(opts);
+            if (fail(opts)) throw new Error(opts.executablePath === undefined ? "Executable doesn't exist\nmore" : "spawn failed");
+            return fakeBrowser;
+          },
+        },
+      }) as never;
+    return { calls, loadPlaywright };
+  };
+  const findExecutable = () => ({ kind: "chrome" as const, path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+
+  it("macOS with no explicit browser tries the Playwright Chromium first", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
+    const { calls, loadPlaywright } = recorder();
+    const browser = await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(browser).toBe(fakeBrowser);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.executablePath).toBeUndefined();
+    expect(calls[0]?.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+    expect(calls[0]?.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
+  });
+
+  it("macOS falls back to the system Chrome when the Playwright Chromium is missing", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
+    const { calls, loadPlaywright } = recorder((o) => o.executablePath === undefined);
+    await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(calls.map((c) => c.executablePath)).toEqual([undefined, findExecutable().path]);
+    for (const call of calls) {
+      expect(call.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+      expect(call.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
+    }
+  });
+
+  it("macOS with an explicit executablePath keeps the host browser first", async () => {
+    const { calls, loadPlaywright } = recorder();
+    const config = { browser: { ...CONFIG.browser, executablePath: "/opt/chrome" } };
+    await defaultBrowserLauncher(config, { platform: "darwin", loadPlaywright, findExecutable: () => ({ kind: "custom", path: "/opt/chrome" }) })();
+    expect(calls.map((c) => c.executablePath)).toEqual(["/opt/chrome"]);
+  });
+
+  it("macOS honors an explicit Chrome environment override", async () => {
+    vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", "chrome");
+    try {
+      const { calls, loadPlaywright } = recorder();
+      await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+      expect(calls.map((call) => call.executablePath)).toEqual([findExecutable().path]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("macOS with a non-default channel keeps the host browser first", async () => {
+    const { calls, loadPlaywright } = recorder();
+    const config = { browser: { ...CONFIG.browser, channel: "msedge" as const } };
+    await defaultBrowserLauncher(config, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(calls[0]?.executablePath).toBe(findExecutable().path);
+  });
+
+  it.each(["linux", "win32"] as const)("%s keeps the host browser first", async (platform) => {
+    const { calls, loadPlaywright } = recorder();
+    await defaultBrowserLauncher(CONFIG, { platform, loadPlaywright, findExecutable })();
+    expect(calls.map((c) => c.executablePath)).toEqual([findExecutable().path]);
+  });
+
+  it("names both attempts when neither launches", async () => {
+    const { loadPlaywright } = recorder(() => true);
+    await expect(defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })()).rejects.toThrow(
+      /^no browser available: playwright chromium: Executable doesn't exist; \/Applications\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome: spawn failed$/,
+    );
+  });
+
+  it("says no browser was found when the host has none and Playwright fails", async () => {
+    const { loadPlaywright } = recorder(() => true);
+    await expect(defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable: () => null })()).rejects.toThrow(
+      "no Chromium-family browser found",
+    );
+  });
+});
+
+const macBrowserExpectation = process.env.ATOMIC_AGENT_VERIFY_MAC_BROWSER;
+it.skipIf(!macBrowserExpectation)("launches the expected real macOS browser", async () => {
+  expect(process.platform).toBe("darwin");
+  let lookedUpSystemBrowser = false;
+  const browser = await defaultBrowserLauncher(CONFIG, {
+    findExecutable(options) {
+      lookedUpSystemBrowser = true;
+      return findChromeExecutable(options);
+    },
+  })();
+  try {
+    expect(lookedUpSystemBrowser).toBe(macBrowserExpectation === "system");
+  } finally {
+    await browser.close();
+  }
+}, 30_000);
 
 describe("runVerify — page, real browser", () => {
   let launchable = false;

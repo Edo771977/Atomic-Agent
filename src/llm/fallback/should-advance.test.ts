@@ -1,3 +1,4 @@
+import { parseProviderErrorBody } from "../provider/openai/parse-provider-error-body.js";
 import { PrivacyArchiveLimitError } from "../../privacy/index.js";
 import { describe, it, expect } from "vitest";
 import { shouldAdvance } from "./should-advance.js";
@@ -111,6 +112,63 @@ describe("shouldAdvance", () => {
         }),
       ),
     ).toEqual({ advance: false, immediate: false });
+  });
+
+  it.each([
+    "Invalid schema for function 'set_thermostat': 'temperature' is not permitted",
+    "Invalid schema for a tool: ‘seed’ is not of type ‘integer’",
+    "Invalid 'tools[3].function.parameters': unknown keyword 'top_k'",
+    "response_format json_schema invalid: property 'temperature' must be number",
+    "Invalid 'messages[2].content': seed oil, expected a string",
+  ])("advances past schema or message errors: %s", (message) => {
+    expect(shouldAdvance(new OpenAiHttpError(message, 400, "u")).advance).toBe(true);
+  });
+
+  it("prefers the structured parameter over echoed request wording", () => {
+    const rejection = (param: string, message: string) => new TransportError("request rejected", 400, "u", {
+      cause: new OpenAiHttpError(message, 400, "u", false, null, "", undefined,
+        { body: parseProviderErrorBody(JSON.stringify({ error: { param, message } })) }),
+    });
+    expect(shouldAdvance(rejection("tools[1]", "invalid temperature")).advance).toBe(true);
+    expect(shouldAdvance(rejection("temperature", "value rejected while validating messages[2]")).advance).toBe(false);
+  });
+
+  it("does NOT advance on a cloud 400 that refuses a sampling setting (ATO-1218)", () => {
+    // Nadya's decision (17.11): an invalid parameter stops with a clear
+    // error; it never moves the turn to the next link.
+    expect(
+      shouldAdvance(
+        new OpenAiHttpError(
+          'openai provider 400: {"error":{"message":"invalid temperature: only 1 is allowed for this model"}}',
+          400,
+          "https://api.moonshot.ai/v1/chat/completions",
+          false,
+          null,
+          "kimi",
+        ),
+      ),
+    ).toEqual({ advance: false, immediate: false });
+    expect(
+      shouldAdvance(
+        new TransportError('"kimi" rejected the request (400).', 400, "u", {
+          cause: new OpenAiHttpError("openai provider 400: top_p must be between 0 and 1", 400, "u"),
+        }),
+      ),
+    ).toEqual({ advance: false, immediate: false });
+    expect(
+      shouldAdvance(
+        new OpenAiHttpError("openai provider 422: presence_penalty is out of range", 422, "u"),
+      ),
+    ).toEqual({ advance: false, immediate: false });
+  });
+
+  it("still advances on a 429 or 5xx that mentions temperature: the provider is down (ATO-1218)", () => {
+    expect(
+      shouldAdvance(new OpenAiHttpError("openai provider 429: invalid temperature", 429, "u")),
+    ).toEqual({ advance: true, immediate: true });
+    expect(
+      shouldAdvance(new OpenAiHttpError("openai provider 500: invalid temperature", 500, "u")),
+    ).toEqual({ advance: true, immediate: true });
   });
 
   it("still advances on any other cloud 400 — the body may be wrong for this vendor only", () => {

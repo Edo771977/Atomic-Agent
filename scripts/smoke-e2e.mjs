@@ -20,8 +20,13 @@ const sandbox = await mkdtemp(join(tmpdir(), "atomic-e2e-state-"));
 // with the network tripwire. Any attempt to reach a host that is not this
 // machine is refused before it leaves and logged here; the last check
 // requires the log to be empty.
+// ATO-1507: and the run is in offline mode (ATO-1084), from the config
+// file and the environment, so the check is "zero requests out while
+// offline mode is on": the agent refuses anything but loopback, and the
+// tripwire still catches whatever bypasses its HTTP pool.
 const egressLog = join(sandbox, "egress.ndjson");
 const tripwire = `--import=${pathToFileURL(join(root, "scripts/net-intercept-preload.mjs")).href}`;
+await writeFile(egressLog, "", { mode: 0o600 });
 const state = join(sandbox, "state");
 const cwd = join(sandbox, "workspace");
 await mkdir(state);
@@ -29,7 +34,7 @@ await mkdir(cwd);
 await writeFile(join(cwd, "one.txt"), "E2E-FILE-ONE-9237\n");
 await writeFile(join(cwd, "two.txt"), "E2E-FILE-TWO-7711\n");
 
-const report = { node: process.version, backend: "scripted loopback llama HTTP/SSE", checks: [], requests: [] };
+const report = { node: process.version, backend: "scripted loopback llama HTTP/SSE", offline: true, checks: [], requests: [] };
 const manifest = JSON.parse(await readFile(join(root, "package.json"), "utf8"));
 let queue = [];
 let scenario = "startup";
@@ -47,7 +52,7 @@ const cliChildren = new Set();
 const childEnv = (stateDir) => ({ PATH: process.env.PATH, LANG: "en_US.UTF-8", ATOMIC_AGENT_STATE_DIR: stateDir,
   ATOMIC_AGENT_GRAMMARS_DIR: join(root, "grammars"), ATOMIC_AGENT_BROWSER_ENABLED: "false",
   ATOMIC_AGENT_LLAMA_COMPLETION_RETRIES: "0", ATOMIC_AGENT_LLAMA_HEALTH_RETRIES: "0",
-  NODE_OPTIONS: tripwire, ATOMIC_AGENT_NET_INTERCEPT_LOG: egressLog });
+  NODE_OPTIONS: tripwire, ATOMIC_AGENT_NET_INTERCEPT_LOG: egressLog, ATOMIC_AGENT_OFFLINE: "1" });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function waitFor(predicate, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -157,9 +162,13 @@ async function stop() {
   const result = await waitFor(() => closed && exitPromise, "sidecar exits after shutdown + stdin EOF", 5000);
   assert.deepEqual(await result, { code: 0, signal: null });
 }
-async function runCli(args, stateDir, input = "") {
-  const processHandle = spawn(process.execPath, [join(root, "dist/cli/index.js"), ...args],
-    { cwd, env: childEnv(stateDir), stdio: ["pipe", "pipe", "pipe"] });
+function runCli(args, stateDir, input = "", expectedCode = 0) {
+  return runNode([join(root, "dist/cli/index.js"), ...args], stateDir, input, expectedCode);
+}
+
+async function runNode(args, stateDir, input = "", expectedCode = 0, env = childEnv(stateDir)) {
+  const processHandle = spawn(process.execPath, args,
+    { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   cliChildren.add(processHandle);
   const result = { args, stdout: "", stderr: "", timedOut: false };
   const timer = setTimeout(() => { result.timedOut = true; processHandle.kill("SIGKILL"); }, 20000);
@@ -176,7 +185,7 @@ async function runCli(args, stateDir, input = "") {
     report.cli ??= [];
     report.cli.push(result);
     assert.equal(result.timedOut, false);
-    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.code, expectedCode, result.stderr);
     assert.equal(result.signal, null);
     return result;
   } finally { clearTimeout(timer); cliChildren.delete(processHandle); }
@@ -189,7 +198,9 @@ try {
   config.localModels.url = `http://127.0.0.1:${server.address().port}`;
   config.localModels.mode = "external";
   config.agent.approvalLevel = 1;
-  config.analytics.enabled = false;
+  config.analytics.enabled = true;
+  config.analytics.errorReports = true;
+  config.network = { ...config.network, offline: true };
   for (const feature of Object.values(config.memory)) {
     if (feature && typeof feature === "object" && "enabled" in feature) feature.enabled = false;
   }
@@ -331,11 +342,67 @@ try {
     assert.match(result.stdout, /E2E-CLI-READ-OK/);
     assert.match(inferences("cli-read")[1].body.prompt, /E2E-FILE-ONE-9237/);
   });
-  await check("nothing tried to reach a host outside this machine", async () => {
-    const attempts = (await readFile(egressLog, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+  const offlineConfigModule = new URL("../dist/cli/offline-from-config.js", import.meta.url).href;
+  const configOnlyEnv = childEnv(cliState);
+  delete configOnlyEnv.ATOMIC_AGENT_OFFLINE;
+  await check("offline mode suppresses feature flags and update checks", async () => {
+    const flagsModule = new URL("../dist/analytics/fetch-feature-flag.js", import.meta.url).href;
+    const flagProbe = `
+      import { fetchFeatureFlag } from ${JSON.stringify(flagsModule)};
+      import { applyOfflineModeFromConfigFile } from ${JSON.stringify(offlineConfigModule)};
+      if (process.env.ATOMIC_AGENT_OFFLINE === undefined && !applyOfflineModeFromConfigFile()) {
+        throw new Error("offline configuration was not loaded");
+      }
+      let calls = 0;
+      const enabled = await fetchFeatureFlag({
+        key: "offline-smoke",
+        distinctId: "offline-smoke",
+        fetchImpl: (...args) => { calls++; return fetch(...args); },
+      });
+      if (enabled || calls) throw new Error("offline feature flag attempted a request");
+    `;
+    const flagArgs = ["--input-type=module", "--eval", flagProbe];
+    const envFlags = await runNode(flagArgs, cliState);
+    const configFlags = await runNode(flagArgs, cliState, "", 0, configOnlyEnv);
+    assert.equal(envFlags.stdout, "");
+    assert.equal(configFlags.stdout, "");
+    const update = await runCli(["update", "--check"], cliState, "", 1);
+    assert.match(update.stderr, /offline mode is on, so the update check was skipped/i);
+  });
+  await check("offline mode on: nothing tried to reach a host outside this machine", async () => {
+    const attempts = (await readFile(egressLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
     report.egress = attempts;
     assert.deepEqual(attempts.map((a) => `${a.kind} ${a.host}${a.port ? `:${a.port}` : ""}`), [],
       "outbound attempts (blocked by the tripwire; see report.json egress)");
+  });
+  await check("online control: the tripwire records and blocks product telemetry", async () => {
+    const onlineState = join(sandbox, "online-state");
+    const onlineLog = join(sandbox, "online-egress.ndjson");
+    await mkdir(onlineState);
+    await writeFile(onlineLog, "", { mode: 0o600 });
+    await writeFile(join(onlineState, "config.json"), JSON.stringify({
+      ...config, network: { ...config.network, offline: false },
+    }), { mode: 0o600 });
+    const analyticsModule = new URL("../dist/analytics/analytics-client.js", import.meta.url).href;
+    const posthogModule = new URL("../dist/analytics/posthog-config.js", import.meta.url).href;
+    const { POSTHOG_HOST } = await import(posthogModule);
+    const expectedHost = new URL(POSTHOG_HOST).hostname;
+    await runNode(["--input-type=module", "--eval", `
+      import { createAnalyticsClient } from ${JSON.stringify(analyticsModule)};
+      import { applyOfflineModeFromConfigFile } from ${JSON.stringify(offlineConfigModule)};
+      if (applyOfflineModeFromConfigFile()) throw new Error("online control started offline");
+      const client = createAnalyticsClient({
+        enabled: true, installId: "offline-smoke", platform: process.platform, version: "0",
+      });
+      if (!client) throw new Error("online control did not create an analytics client");
+      if (await client.captureConfirmed("app_opened")) throw new Error("tripwire allowed delivery");
+      await client.shutdown();
+    `], onlineState, "", 0, {
+      ...configOnlyEnv, ATOMIC_AGENT_STATE_DIR: onlineState, ATOMIC_AGENT_NET_INTERCEPT_LOG: onlineLog,
+    });
+    const attempts = (await readFile(onlineLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    report.onlineTelemetryAttempts = attempts;
+    assert(attempts.some(({ host }) => host === expectedHost), "online control made no PostHog attempt");
   });
   for (const inference of report.requests.filter((r) => !r.auxiliary)) {
     assert.equal(typeof inference.body.stream, "boolean");

@@ -4,6 +4,7 @@ import { OpenAiHttpError } from "../provider/openai/openai-http.js";
 import { LlamaServerError } from "../llama-server-client.js";
 import { TransportError } from "../reliability/llm-failures.js";
 import { isRequestSizeRejection } from "../reliability/request-size-rejection.js";
+import { isInvalidParameterRejection } from "../reliability/invalid-parameter-rejection.js";
 import { findDailySpendLimitError } from "../reliability/spend-limit-error.js";
 import { isOfflineRefusal } from "../offline-network.js";
 import { isProviderNotAllowed } from "../provider-policy.js";
@@ -93,6 +94,14 @@ export function shouldAdvance(err: unknown): AdvanceDecision {
   // was sent (issue #33): another, allowed link may serve, and the
   // refusal says nothing about this link's health.
   if (isProviderNotAllowed(err)) return { advance: true, immediate: false };
+  // ATO-1218: a 400/422 that says a sampling setting we sent is invalid
+  // for the model ("invalid temperature: only 1 is allowed", "top_p must
+  // be between 0 and 1") is our request, not the provider being down.
+  // Nadya's decision (17.11): stop with the provider's own error, never a
+  // silent move to the next link (often the local model nobody picked).
+  // A provider that is really down (429 / 5xx / network) still advances
+  // below, and the switch is announced by the `provider_switched` line.
+  if (isInvalidParameterRejection(err)) return NO;
   const category = classifyFailure(err);
   if (category !== "transport" && category !== "model") {
     return NO;

@@ -24,6 +24,8 @@ export interface ProviderErrorBody {
   readonly code?: string;
   /** `error.type`. */
   readonly type?: string;
+  /** Request parameter identified by the provider. */
+  readonly param?: string;
   /** Upstream vendor name from OpenRouter's `metadata.provider_name`. */
   readonly upstream?: string;
   /**
@@ -130,6 +132,7 @@ export function parseProviderErrorBody(text: string): ProviderErrorBody {
     (error === null ? readString(root?.message) : undefined);
   const code = readCode(error?.code);
   const type = readString(error?.type);
+  const param = readString(error?.param) ?? (raw === null ? undefined : readString(readObject(tryParseJson(raw)?.error)?.param));
   const upstream = readString(readObject(error?.metadata)?.provider_name);
   const upstreamMessage = raw !== null ? readUpstreamMessage(raw) : undefined;
   const hint = retryHintMs(`${message ?? ""}\n${raw ?? ""}\n${bounded}`);
@@ -137,6 +140,7 @@ export function parseProviderErrorBody(text: string): ProviderErrorBody {
     ...(message !== undefined ? { message } : {}),
     ...(code !== undefined ? { code } : {}),
     ...(type !== undefined ? { type } : {}),
+    ...(param !== undefined ? { param } : {}),
     ...(upstream !== undefined ? { upstream } : {}),
     ...(upstreamMessage !== undefined ? { upstreamMessage } : {}),
     ...(hint !== null ? { retryHintMs: hint } : {}),

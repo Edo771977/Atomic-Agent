@@ -39,6 +39,13 @@ Selective imports for provider and scheduler reliability:
 - `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.
 - `fix/issue-1735-scheduler-leader-overlap` (`50d34a2544e5eab09dd5b895a0118b2a07b2e6a9`): give the Telegram owner priority for scheduler leadership.
 
+Selective imports for failover, Telegram, verification, and offline CI:
+
+- ATO-1218 (`9e69ac17d535900eecb87ef1f8c3cbd7dbde0c9c`): invalid sampling settings stop provider failover. The fork retains its offline and folder-policy checks and pinned Fusion worker routing.
+- ATO-613 (`9665023eedd858495a28cd8645deb737347ff2db`): old Telegram tool approval buttons expire. The message also covers approvals aged out of the recent-history cache, and project lesson confirmations from #179 continue through their own commands.
+- ATO-1452 (`f67f29834b1b758d8466042f4cf90714a0b9e61f`): default macOS page verification tries Playwright Chromium first. Both launch paths keep the fork’s browser environment and configured browser cache.
+- ATO-1507 (`e594039fc2e41ccbf2f93338b6ddbe13853f9343`): CI runs the built offline smoke with loopback only and checks for zero outbound attempts, including the telemetry, flag and update paths from #188.
+
 The official installer (`curl … atomicagent.io/install`) and upstream's release packages install upstream's code, without any of the changes below. To use this fork:
 
 - Build it from source with `npm ci && npm run build && npm link`.
@@ -168,6 +175,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - No phone push is sent.
 
 ## Security and reliability
+
+Child process environment filtering depends on the launcher. The shell builder normally filters provider credentials and supports explicit `tools.shell.envPassthrough`. A command job given a prepared environment uses that environment with the serve key removed. Browser launches using the tool-child marker also remove the serve key while retaining other inherited variables. Coverage and compatibility for a common provider-credential filter are tracked in the [triage](upstream-2026-11-triage.md).
 
 - **Dispatch-time bypasses closed.** The shell guard, approvals, read scope and memory ([#2](https://github.com/Edo771977/atomic-agent/pull/2)).
 - **Spend and lifecycle.**

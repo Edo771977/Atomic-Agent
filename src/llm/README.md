@@ -37,6 +37,8 @@ Read [per-folder provider constraints](docs/provider-policy.md) for `projects.co
 
 Read [router/README.md](router/README.md) for the opt-in rule-based model router (`llm.router`, ATO-483): it puts a provider first in a turn's fallback chain by request features and stays silent under the local run mode, Fusion or a pinned turn.
 
+A provider rejection that identifies an invalid sampling setting stops failover and names the setting to correct. Network failures and HTTP 5xx still follow the configured fallback policy. Fusion workers keep the provider and model pinned to their turn. See [provider fallback](docs/fallback.md).
+
 ## Validation
 
 `npx vitest run src/llm`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
