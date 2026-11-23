@@ -385,6 +385,16 @@ describe("Telegram project gate", () => {
     expect(list).toMatch(/\+[1-9]\d* lessons: use the CLI/i);
   });
 
+  it("shows only the short previous fingerprint when the lesson file is missing", async () => {
+    await openLessons();
+    const hash = readProjectLessons(dir).lessons[0]!.hash;
+    await say((await previewLesson("/lesson_retire")).confirm);
+    rmSync(join(dir, ".atomic", "project", "lessons", "storage.md"));
+    const { preview } = await previewLesson("/lesson_reopen");
+    expect(preview).toContain("Previous fingerprint: " + hash.slice(0, 12) + ".");
+    expect(preview).not.toContain(hash);
+  });
+
   it("refuses a changed file and a proposed lesson", async () => {
     const record = await openLessons();
     const { confirm } = await previewLesson("/lesson_approve");

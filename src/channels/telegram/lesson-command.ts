@@ -183,7 +183,7 @@ export function runLessonCommand(
   if (confirmation === undefined) {
     const request = `To confirm ${command}, reply ${command} ${id} ${code}.`;
     const preview = lesson === undefined
-      ? [`The file for ${id} is missing or invalid. Previous fingerprint: ${previous?.hash}.`]
+      ? [`The file for ${id} is missing or invalid. Previous fingerprint: ${previous === undefined ? "unavailable" : projectLessonFingerprint(previous)}.`]
       : lessonPreview(lesson, previous, state === "approved");
     if (state === "approved") return { preview: preview.join("\n"), confirmation: request };
     return [...preview, request].join("\n");
