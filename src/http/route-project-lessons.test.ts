@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
@@ -45,14 +46,17 @@ it("lists and records a decision against the current fingerprint, and can reopen
   const first = await list();
   expect(first.status).toBe(200);
   const { panel: { rows: [row] } } = await read(first);
-  expect(row.lesson && row.status.effectiveStatus).toBe("unapproved");
+  assert.ok(row && "status" in row);
+  expect(row.status.effectiveStatus).toBe("unapproved");
   expect(row.promptEnds.decided.standard).toBe("Keep storage local.".length);
   write("active", "Review migrations locally.");
   const stale = await decide("approve", row.hash);
   expect(stale.status).toBe(409);
   const changed = await read(stale);
   expect(changed.error.code).toBe("stale-view");
-  const hash = changed.panel.rows[0].hash;
+  const current = changed.panel.rows[0];
+  assert.ok(current);
+  const { hash } = current;
   const approval = await decide("approve", hash);
   expect(approval.status).toBe(200);
   expect((await read(approval)).panel.rows[0]).toMatchObject({ status: { approvedByPerson: true } });
@@ -67,6 +71,7 @@ it("rejects malformed, proposed, running, and incognito decisions", async () => 
   expect((await decide("approve", "bad")).status).toBe(400);
   write("proposed");
   const { panel: { rows: [row] } } = await read(await list());
+  assert.ok(row);
   expect((await decide("approve", row.hash)).status).toBe(400);
   const live = vi.spyOn(h.runtime.sessionStore, "liveProjectTurn").mockReturnValue("s2");
   expect((await decide("retire", row.hash)).status).toBe(409);
