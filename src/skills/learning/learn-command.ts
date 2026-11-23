@@ -5,7 +5,8 @@ import { skillCuratorPaths } from "../curator/skill-curator-config.js";
 import { listStarterSkillNames } from "../seed-starter-skills.js";
 import { loadSkills } from "../skill-loader.js";
 import { approvePendingDraft, PendingDraftError } from "./experience-review.js";
-import { withLearnedDecision } from "./learn-scope.js";
+import { projectDecisionOriginRefusal } from "../../sandbox/project-decision-origin.js";
+import { learnedTurnRunning, withLearnedDecision } from "./learn-scope.js";
 import { hasUnreviewableSkillText, LEARNED_SKILL_LIMITS } from "./skill-lint.js";
 import { takenSkillNames } from "./learn-targets.js";
 import {
@@ -189,7 +190,15 @@ export async function runLearnCommand(
         return { text: command.json ? JSON.stringify(view, null, 2) : formatDraftView(view, prefix), skillsChanged: false, ok: true };
       }
       case "undo": {
-        const result = await withLearnedDecision(dirs.stateDir, () => undoLearnedChange({ skillsDir: dirs.skillsDir, paths }, command.id));
+        const refusal = () => projectDecisionOriginRefusal() ?? dirs.activationRefusal?.() ??
+          (learnedTurnRunning(dirs.stateDir) ? "A turn is running in this folder. Wait for it to finish." : undefined);
+        const blocked = refusal();
+        if (blocked) return { text: blocked, skillsChanged: false, ok: false };
+        const result = await withLearnedDecision(dirs.stateDir, () => {
+          const blocked = refusal();
+          if (blocked) throw new LearnUndoError(blocked);
+          return undoLearnedChange({ skillsDir: dirs.skillsDir, paths }, command.id);
+        });
         const { name } = result.entry;
         const text =
           result.outcome === "removed"

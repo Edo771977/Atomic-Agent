@@ -109,6 +109,22 @@ describe("learned journal and undo", () => {
     expect((await runLearnCommand({ kind: "list" }, { stateDir: root, skillsDir })).text).toContain("(undone)");
   });
 
+  it("refuses undo from a tool child or during a live turn", async () => {
+    write("deploy-staging", "learned v1");
+    await appendLearnedChange(journal, { id: "c0ffee", at: Date.now(), name: "deploy-staging", action: "create", reason: "deploy" });
+    const command = { kind: "undo", id: "c0ffee" } as const;
+    const child = process.env.ATOMIC_AGENT_TOOL_CHILD;
+    try {
+      process.env.ATOMIC_AGENT_TOOL_CHILD = "1";
+      expect((await runLearnCommand(command, { stateDir: root, skillsDir })).ok).toBe(false);
+    } finally {
+      if (child === undefined) delete process.env.ATOMIC_AGENT_TOOL_CHILD;
+      else process.env.ATOMIC_AGENT_TOOL_CHILD = child;
+    }
+    expect((await runLearnCommand(command, { stateDir: root, skillsDir, activationRefusal: () => "A turn is running." })).ok).toBe(false);
+    expect(read("deploy-staging")).toBe("learned v1");
+  });
+
   it("invalidates the preview fingerprint when draft metadata changes", async () => {
     const content = "---\nname: deploy-staging\ndescription: Deploy to staging.\n---\nConsult the staging deployment checklist before proceeding.\n";
     const draft = await savePendingDraft(root, { kind: "create", name: "deploy-staging", reason: "initial reason", content, sources: [] });
