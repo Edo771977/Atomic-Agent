@@ -19,12 +19,12 @@ npm start
 One child process, one transport. The main process spawns
 
 ```
-atag serve --host 127.0.0.1 --port <ephemeral> --api-key-file <private-path>
+atag serve --host 127.0.0.1 --port <ephemeral> --api-key-stdin
 ```
 
 The main process sets `cwd` to the chosen workspace, waits for `/health`,
 and sends the per-launch bearer on authenticated HTTP requests. The local
-agent binary must support `--api-key-file`. If the agent rejects the token,
+agent binary must support `--api-key-stdin`. If the agent rejects the token,
 Desktop reports the authentication error and stops reconnecting the events
 stream until the connection is restarted.
 
@@ -483,19 +483,17 @@ manager instead.
 
 ## Security
 
-The supervised agent listens on loopback. For each launch, Desktop creates
-a regular file with a random name under Electron's private
-`userData/serve-keys` directory. The file is created exclusively with mode
-`0600` on POSIX. On Windows, Desktop applies an ACL granting access only to the
-current user before writing the token. Desktop passes the file path in the
-child's arguments and removes any inherited `ATOMIC_AGENT_API_KEY` entry from
-its environment.
+The supervised agent listens on loopback. Desktop generates a fresh bearer
+at each launch, writes it as one newline-terminated line through the child's
+stdin pipe, and closes the pipe. The bearer stays off disk and out of the
+child's arguments and launch environment. Desktop also strips any inherited
+`ATOMIC_AGENT_API_KEY`.
 
-Desktop deletes the file when `/health` confirms startup, if startup fails,
-or when the agent exits or Desktop quits. The next startup removes leftover
-key files from crashed Desktop processes. Restarting the local agent rotates
-the bearer. A process running as the same OS user may still access resources
-available to that user. See the [core HTTP security guide](../src/http/README.md).
+At startup, Desktop removes key files left by older versions in the private
+`userData/serve-keys` directory when their launcher is gone. Restarting the
+local agent rotates the bearer. A process running as the same OS user may
+still access resources available to that user. See the
+[core HTTP security guide](../src/http/README.md).
 
 ## Process model
 
