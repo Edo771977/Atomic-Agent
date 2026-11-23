@@ -9,6 +9,7 @@ import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 
 import { HELP, lanUrls, parseArgs } from "./serve-args.js";
+import { readServeKeyFromStdin } from "./serve-api-key-input.js";
 import { resolveServeApiKey, serveApiKeyNotice } from "./serve-api-key.js";
 import {
   MEMORY_GUARD_EXIT_CODE,
@@ -68,19 +69,37 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 1;
   }
 
+  const keyFileError = parsed.deleteKeyFile?.();
+  if (keyFileError !== undefined) {
+    process.stderr.write("serve: " + keyFileError + "\n");
+    return 1;
+  }
+
+  let explicitKey = parsed.apiKey;
+  if (parsed.apiKeyFromStdin && !parsed.reapOnly) {
+    const input = await readServeKeyFromStdin();
+    if ("error" in input) {
+      process.stderr.write("serve: " + input.error + "\n");
+      return 1;
+    }
+    explicitKey = input.key;
+  }
+
   const stateDir = getConfig().paths.stateDir;
   if (parsed.reapOnly) {
     process.stdout.write(formatReapOutcomes(await reapOrphanedServes({ stateDir })));
     return 0;
   }
 
-  if (parsed.apiKeyFromEnvironment) {
-    process.stderr.write("serve: ATOMIC_AGENT_API_KEY can be visible in the startup environment. For explicit keys, use --api-key-file.\n");
+  if (parsed.apiKeyFromEnvironment || parsed.apiKeyFromArgument) {
+    const exposure = parsed.apiKeyFromArgument ? "--api-key can be visible in process arguments" :
+      "ATOMIC_AGENT_API_KEY can be visible in the startup environment";
+    process.stderr.write("serve: " + exposure + ". For explicit keys, use --api-key-file.\n");
   }
 
   // Always a key, on loopback too: the operator's, else the persisted one
   // made on the first run. No key, no server.
-  const apiKey = resolveServeApiKey(parsed.apiKey, stateDir);
+  const apiKey = resolveServeApiKey(explicitKey, stateDir);
   if ("error" in apiKey) {
     process.stderr.write(`serve: ${apiKey.error}\n`);
     return 1;

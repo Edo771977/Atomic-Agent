@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { maskSecrets } from "../error-reporting/secret-detector.js";
 import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { getConfig } from "../config/index.js";
@@ -14,6 +16,8 @@ import { serveCommand } from "./serve-command.js";
 /** What `serveCommand` handed `createAgentRuntime`, the last time it ran. */
 const boot = vi.hoisted(() => ({
   known: null as ReturnType<typeof runtimeKnownSecrets> | null,
+  keyFile: null as string | null,
+  keyFilePresent: null as boolean | null,
   options: null as CreateAgentRuntimeOptions | null,
 }));
 
@@ -27,6 +31,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
     ...actual,
     createAgentRuntime: async (options: CreateAgentRuntimeOptions) => {
       boot.options = options;
+      if (boot.keyFile !== null) boot.keyFilePresent = existsSync(boot.keyFile);
       boot.known = runtimeKnownSecrets({});
       throw new Error("runtime stand-in: not booting");
     },
@@ -223,5 +228,51 @@ it.each(["plainlowercasesynthetickey", undefined])("registers the active serve k
   } finally {
     stderr.mockRestore();
     vi.unstubAllEnvs();
+  }
+});
+
+it("round2-3 warns once when a key was passed on the command line", async () => {
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand(["--api-key", "synthetic-argv-credential"]);
+    const output = stderr.mock.calls.flat().join("");
+    expect(output.match(/use --api-key-file/g)).toHaveLength(1);
+    expect(output).not.toContain("synthetic-argv-credential");
+  } finally {
+    stderr.mockRestore();
+  }
+});
+
+it.skipIf(process.platform === "win32").each([true, false])("applies opt-in key file deletion before runtime boot (%s)", async (remove) => {
+  const directory = mkdtempSync(join(tmpdir(), "serve-delete-before-boot-"));
+  const path = join(directory, "key");
+  writeFileSync(path, "synthetic-delete-before-boot", { mode: 0o600 });
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  boot.keyFile = path;
+  boot.keyFilePresent = null;
+  try {
+    await serveCommand(["--api-key-file", path, ...(remove ? ["--api-key-file-delete"] : [])]);
+    expect(boot.keyFilePresent).toBe(!remove);
+    expect(existsSync(path)).toBe(!remove);
+  } finally {
+    boot.keyFile = null;
+    stderr.mockRestore();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+it("does not delete a file when an agent child was refused startup", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "serve-delete-agent-child-"));
+  const path = join(directory, "key");
+  writeFileSync(path, "synthetic-delete-agent-child", { mode: 0o600 });
+  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    expect(await serveCommand(["--api-key-file", path, "--api-key-file-delete"])).toBe(1);
+    expect(existsSync(path)).toBe(true);
+  } finally {
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+    rmSync(directory, { recursive: true, force: true });
   }
 });

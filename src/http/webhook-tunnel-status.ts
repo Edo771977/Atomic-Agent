@@ -5,7 +5,7 @@
  *
  * `publicUrl` is the tunnel's origin (`https://<name>.trycloudflare.com`
  * or the named tunnel's hostname); the webhook address is that plus
- * `/webhooks/<name>`. The API webhook path also exists with bearer auth.
+ * `/webhooks/<name>`.
  */
 export interface WebhookTunnelStatus {
   state: "off" | "starting" | "up" | "failed";

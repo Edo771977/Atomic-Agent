@@ -40,7 +40,8 @@ export class PortTakenError extends Error {
 /**
  * Model ids the server on `port` reports on `/v1/models` (llama-server
  * lists its `-a` alias there, and the route is exempt from `--api-key`).
- * `null` when the catalog is unavailable, including a 401 from an\n * authenticated HTTP listener such as atomic-agent serve.
+ * `null` when the catalog is unavailable, including a 401 from an
+ * authenticated HTTP listener such as atomic-agent serve.
  */
 export async function fetchServedModelIds(
   port: number,

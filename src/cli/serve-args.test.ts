@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, linkSync, chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -59,9 +59,9 @@ describe("serve refuses a network host without an API key (ATO-760)", () => {
     expect(parsed.apiKey).toBe("from-env-0123456789");
   });
 
-  it("refuses a short key on a network host, and keeps it on loopback (ATO-1126)", () => {
+  it("refuses a short key on a network host, and on loopback (ATO-1126)", () => {
     expect(parseError(["--host", "0.0.0.0", "--api-key", "short"])).toContain("at least 16");
-    expect(parsedOk(["--api-key", "short"]).apiKey).toBe("short");
+    expect(parseError(["--api-key", "short"])).toContain("at least 16");
   });
 
   it("rejects an empty --api-key instead of treating it as a key", () => {
@@ -201,6 +201,52 @@ it.skipIf(process.platform === "win32")("rejects loose permissions and symlinks 
     expect(parseError(["--api-key-file", path])).toMatch(/0600|owner/i);
     chmodSync(path, 0o600);
     expect(parsedOk(["--api-key-file", path]).apiKey).toBe("synthetic-file-key");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("round2-2 rejects a short environment key on loopback", () => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "short");
+  expect(parseError([])).toContain("at least 16");
+});
+
+it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked explicit key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "explicit-linked-key-"));
+  try {
+    const path = join(dir, "key");
+    writeFileSync(path, "synthetic-explicit-linked-key", { mode: 0o600 });
+    linkSync(path, join(dir, "other"));
+    expect(parseError(["--api-key-file", path])).toMatch(/hard link/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("round2-6 documents ancestor symlinks", () => {
+  expect(HELP).toContain("ancestor directories may be symlinks");
+});
+
+it.each([
+  { flags: ["--api-key", "synthetic-argv-key"], environment: undefined },
+  { flags: ["--api-key-file", "some-file"], environment: undefined },
+  { flags: [], environment: "synthetic-env-credential" },
+])("rejects conflicting --api-key-stdin sources (%j)", ({ flags, environment }) => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", environment);
+  expect(parseError(["--api-key-stdin", ...flags])).toMatch(/cannot be combined/i);
+});
+
+it("refuses deletion without an explicit key file", () => {
+  expect(parseError(["--api-key-file-delete"])).toMatch(/requires --api-key-file/);
+});
+
+it.skipIf(process.platform === "win32")("keeps an invalid file even when deletion is requested", () => {
+  const dir = mkdtempSync(join(tmpdir(), "invalid-delete-key-"));
+  try {
+    const path = join(dir, "key");
+    writeFileSync(path, "short\n", { mode: 0o600 });
+    expect(parseError(["--api-key-file", path, "--api-key-file-delete"])).toMatch(/at least 16/i);
+    expect(readFileSync(path, "utf8")).toBe("short\n");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

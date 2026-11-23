@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { linkSync, chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -84,7 +84,7 @@ describe("serveApiKeyNotice", () => {
     expect(serveApiKeyNotice({ key: "k", source: "given" }, "http://127.0.0.1:8787")).toBe("");
   });
 
-  it("says where the generated key is and how to print it, without the key itself", () => {
+  it("says where the generated key is and how to send it, without the key itself", () => {
     const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787");
     expect(notice).toContain("/s/serve-api.key");
     expect(notice).toContain("generated");
@@ -97,4 +97,21 @@ describe("serveApiKeyNotice", () => {
     expect(notice).toContain("http://127.0.0.1:8787/panel");
     expect(notice).not.toContain("abc123");
   });
+});
+
+it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked persisted key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "persisted-linked-key-"));
+  try {
+    const path = serveApiKeyPath(dir);
+    writeFileSync(path, "synthetic-persisted-linked-key", { mode: 0o600 });
+    linkSync(path, join(dir, "other"));
+    expect(resolveServeApiKey(null, dir)).toHaveProperty("error");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it("round2-9 completes the generated-file notice", () => {
+  const key = { key: "synthetic", path: "/state/serve-api.key", created: true, source: "file" } as const;
+  expect(serveApiKeyNotice(key, "http://localhost")).toContain("key generated at /state/serve-api.key");
 });

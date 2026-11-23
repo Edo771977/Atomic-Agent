@@ -164,31 +164,55 @@ export function findStateSecretReads(
     } catch {
       continue; // The tool refuses this path itself.
     }
-    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
+    for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     const hit = secretNamedBy(path, known, RECURSIVE_READ_TOOLS.has(tool));
     if (hit !== null) hits.add(hit);
   }
   return dedupe([...hits]);
 }
 
-const PROC_ENVIRON = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/environ)(?=$|[^\w/.-])/g;
+const PROC_SECRETS = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/([-\w.*?\[\]{}!,]+))(?=$|[^\w/.-])/g;
 
-function processEnvironments(text: string): string[] {
-  return [...text.matchAll(PROC_ENVIRON)].map(match => match[1]!);
+function processSecretPaths(text: string): string[] {
+  return [...text.matchAll(PROC_SECRETS)]
+    .filter(match => namesProcSecret(match[2]!))
+    .map(match => match[1]!);
 }
 
-function psShowsEnvironment(line: string): boolean {
+function namesProcSecret(name: string): boolean {
+  return ["environ", "cmdline"].some(file => matchesName(name, file, "linux"));
+}
+
+/** Match glob atoms and non-nested brace alternatives without enumerating combinations. */
+function matchesName(pattern: string, file: string, platform: NodeJS.Platform): boolean {
+  try {
+    const atom = (value: string) => globToRegExp(value, platform).source.slice(1, -1);
+    const parts = pattern.split(/(\{[^{}]+,[^{}]+\})/).map((part, index) =>
+      index % 2 === 0 ? atom(part) : "(?:" + part.slice(1, -1).split(",").map(atom).join("|") + ")");
+    return new RegExp("^" + parts.join("") + "$", platform === "win32" ? "i" : "").test(file);
+  } catch {
+    return false; // An invalid glob is not a match.
+  }
+}
+
+function psShowsProcessSecrets(line: string): boolean {
   return line.split(/[;|&\n]+/).some(segment => {
     const match = /(?:^|\s)(?:[^\s]+\/)?ps\s+(.+)$/.exec(segment);
     if (!match?.[1]) return false;
     const words = match[1].split(/\s+/);
     for (let index = 0; index < words.length; index++) {
       const word = words[index]!;
-      if (/^(?:-[opqgGstTuU]|--(?:format|pid|ppid|sid|user|group|tty|sort))$/.test(word)) {
+      const format = /^(?:-o|--format=?)(.*)$/.exec(word);
+      if (format) {
+        const columns = format[1] || words[++index] || "";
+        if (/(?:^|[,\s])(?:args|arguments|cmd|command)(?=$|[=,\s])/.test(columns)) return true;
+        continue;
+      }
+      if (/^(?:-[pqgGstTuU]|--(?:format|pid|ppid|sid|user|group|tty|sort))$/.test(word)) {
         index++;
         continue;
       }
-      if (word === "--environment" || word === "-E" || /^[a-zA-Z]*e[a-zA-Z]*$/.test(word)) return true;
+      if (/^-\p{L}*[fF]\p{L}*$/u.test(word) || word === "--environment" || /^-[A-Za-z]*E[A-Za-z]*$/.test(word) || /^[a-zA-Z]*[efu][a-zA-Z]*$/.test(word)) return true;
     }
     return false;
   });
@@ -271,13 +295,32 @@ export function findShellStateSecrets(
   line = line.replace(/["']/g, "");
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
-  const hits = new Set(processEnvironments(line));
-  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line)) {
+  const hits = new Set(processSecretPaths(line));
+  const nameTokens = line.split(/[\s;|&<>()`]+/);
+  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line) || nameTokens.some(token => {
+    const name = token.split(/[\\/=]/).at(-1) ?? "";
+    return name !== "*" && matchesName(name, "serve-api.key", env.platform);
+  })) {
     for (const file of known.files) {
       if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
     }
   }
-  if (psShowsEnvironment(line)) hits.add("process environment (ps)");
+  // Track literal procfs directories in simple command lists.
+  let procCwd: string | undefined;
+  for (const segment of line.split(/[;&|\n]+/)) {
+    const cd = /^\s*cd\s+([^\s]+)\s*$/.exec(segment);
+    if (cd) {
+      const directory = cd[1]!;
+      procCwd = directory === "/proc" || directory.startsWith("/proc/") ? directory : undefined;
+    }
+    else if (procCwd) {
+      for (const token of segment.trim().split(/\s+/)) {
+        const path = pathOfToken(token, procCwd, env.home);
+        if (path !== null) for (const resource of processSecretPaths(path)) hits.add(resource);
+      }
+    }
+  }
+  if (psShowsProcessSecrets(line)) hits.add("process environment or arguments (ps)");
   // A secret spelled out in full anywhere on the line, glued to code
   // (`python3 -c open(/…/.env)`) or not.
   for (const file of [...known.files, ...known.directories]) {
@@ -288,7 +331,7 @@ export function findShellStateSecrets(
     if (token.length === 0) continue;
     const path = pathOfToken(token, cwd, env.home);
     if (path === null) continue;
-    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
+    for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     if (GLOB.test(path)) {
       const pattern = globToRegExp(path, env.platform);
       for (const candidate of candidates) {

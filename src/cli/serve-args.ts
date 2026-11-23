@@ -4,13 +4,14 @@
  * command file stays about running a server rather than describing one.
  */
 
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, type Stats } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
 
 import { hasOwnerOnlyWindowsAcl } from "../config/windows-acl.js";
 
+import { MIN_EXPLICIT_KEY_LENGTH, validateExplicitKey } from "./serve-api-key-input.js";
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
 export interface ServeArgs {
@@ -24,6 +25,9 @@ export interface ServeArgs {
    */
   apiKey: string | null;
   apiKeyFromEnvironment: boolean;
+  apiKeyFromArgument: boolean;
+  apiKeyFromStdin: boolean;
+  deleteKeyFile?: () => string | undefined;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -48,10 +52,15 @@ export const HELP =
     "                      and /panel (falls back to env ATOMIC_AGENT_API_KEY when the flag is omitted).",
     "                      Without either, serve uses the key in <state dir>/serve-api.key,",
     "                      generated on the first run: a key is always required, on loopback too.",
-    "                      On a network host it must be at least 16 characters, and an address",
+    "                      Explicit keys must be at least 16 characters. On a network host, an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
     "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
+    "                      The file itself cannot be a symlink. Its ancestor directories may be symlinks.",
+    "                      Use a path whose directories you control.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
+    "  --api-key-file-delete  Remove the explicit key file after reading it, before runtime startup.",
+    "  --api-key-stdin     Read one newline-terminated key from stdin before startup, then close stdin.",
+    "                      Cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY.",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
     "  --no-parent-exit    Keep running after the parent exits — the way to daemonise from a shell,",
@@ -101,7 +110,20 @@ export const HELP =
     "  POST /api/webhooks/{name}                Deliver a webhook (x-webhook-secret, or a signature per the binding's verify)",
   ].join("\n") + "\n";
 
-function readExplicitKey(path: string): { key: string } | { error: string } {
+function deleteReadKeyFile(path: string, opened: Stats): string | undefined {
+  try {
+    const current = lstatSync(path);
+    if (!current.isFile() || current.nlink !== 1 || current.dev !== opened.dev || current.ino !== opened.ino) {
+      return "--api-key-file-delete refused because the key file changed after reading";
+    }
+    unlinkSync(path);
+    return undefined;
+  } catch {
+    return "--api-key-file-delete could not remove the key file";
+  }
+}
+
+function readExplicitKey(path: string, deleteAfterRead: boolean): { key: string; remove?: () => string | undefined } | { error: string } {
   const permissions = { error: "--api-key-file must be an owner-only regular file (0600 or stricter on POSIX), without symlinks" };
   let fd: number | undefined;
   try {
@@ -111,12 +133,13 @@ function readExplicitKey(path: string): { key: string } | { error: string } {
     fd = openSync(path, windows ? constants.O_RDONLY :
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const opened = fstatSync(fd);
+    if (opened.nlink !== 1) return { error: "--api-key-file must not have additional hard links" };
     if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
     if (windows ? !hasOwnerOnlyWindowsAcl(path)
       : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
-    const key = readFileSync(fd, "utf8").trim();
-    if (!/^[!-~]+$/.test(key)) return { error: "could not read a usable API key from --api-key-file" };
-    return { key };
+    const result = validateExplicitKey(readFileSync(fd, "utf8"), "--api-key-file");
+    if ("error" in result || !deleteAfterRead) return result;
+    return { ...result, remove: () => deleteReadKeyFile(path, opened) };
   } catch {
     return { error: "could not open --api-key-file as an owner-only file" };
   } finally {
@@ -132,7 +155,9 @@ export function parseArgs(
   let workingDir: string | null = null;
   let apiKey: string | null = null;
   let apiKeyProvided = false;
+  let apiKeyFromStdin = false;
   let apiKeyFile: string | null = null;
+  let deleteAfterRead = false;
   let noApproval = false;
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
@@ -176,6 +201,12 @@ export function parseArgs(
         apiKeyProvided = true;
         break;
       }
+      case "--api-key-file-delete":
+        deleteAfterRead = true;
+        break;
+      case "--api-key-stdin":
+        apiKeyFromStdin = true;
+        break;
       case "--api-key-file": {
         const value = args[++i];
         if (!value || value.startsWith("--")) return { error: "--api-key-file requires a path" };
@@ -223,14 +254,22 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  if (deleteAfterRead && (apiKeyFile === null || reapOnly)) {
+    return { error: "--api-key-file-delete requires --api-key-file on server startup" };
+  }
+  let deleteKeyFile: ServeArgs["deleteKeyFile"];
+  if (apiKeyFromStdin && (apiKeyProvided || apiKeyFile !== null || process.env.ATOMIC_AGENT_API_KEY !== undefined)) {
+    return { error: "--api-key-stdin cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY" };
+  }
   let apiKeyFromEnvironment = false;
   if (apiKeyFile !== null && apiKeyProvided) {
     return { error: "use either --api-key or --api-key-file" };
   }
   if (apiKeyFile !== null && !reapOnly) {
-    const explicit = readExplicitKey(apiKeyFile);
+    const explicit = readExplicitKey(apiKeyFile, deleteAfterRead);
     if ("error" in explicit) return explicit;
     apiKey = explicit.key;
+    deleteKeyFile = explicit.remove;
   } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;
@@ -245,15 +284,15 @@ export function parseArgs(
         "the API key is only whitespace (--api-key or ATOMIC_AGENT_API_KEY); set a real token",
     };
   }
-  if (!reapOnly && apiKey === null && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey === null && !apiKeyFromStdin && !isLoopbackListenHost(host)) {
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
-  if (!reapOnly && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey !== null && apiKey.trim().length < MIN_EXPLICIT_KEY_LENGTH) {
     return {
       error:
-        `--host ${host} accepts connections from other machines, and an API key of ${apiKey.length} characters can be guessed. ` +
-        `Use at least ${MIN_NETWORK_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
+        "Explicit API keys must have at least " + MIN_EXPLICIT_KEY_LENGTH + " characters. " +
+        `Use at least ${MIN_EXPLICIT_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
     };
   }
   let tunnel: TunnelRequest | null = null;
@@ -274,6 +313,9 @@ export function parseArgs(
     workingDir: workingDir ?? process.cwd(),
     apiKey,
     apiKeyFromEnvironment,
+    apiKeyFromArgument: apiKeyProvided,
+    apiKeyFromStdin,
+    ...(deleteKeyFile === undefined ? {} : { deleteKeyFile }),
     noApproval,
     parentPid,
     noParentExit,
@@ -281,9 +323,6 @@ export function parseArgs(
     tunnel,
   };
 }
-
-/** ATO-1126: the shortest API key serve takes on a network host. */
-export const MIN_NETWORK_KEY_LENGTH = 16;
 
 /**
  * Whether a `--host` value only accepts connections from this machine.
