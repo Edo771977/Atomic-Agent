@@ -63,6 +63,18 @@ it.each([["-K", "example.conf"], ["--config=example.conf"], ["-Kexample.conf"]])
   expect([...shellNetworkUrls("curl", args)]).toEqual([["", true]]);
 });
 
+it.each([
+  ["xh", "http://docs.example:8443/path", "GET", "docs.example:8443/path", "name==fixture"],
+  ["http", "http://docs:8080/path", "GET", "docs:8080/path", "name==fixture"],
+  ["https", "https://localhost:8080/path", ":8080/path", "name==fixture"],
+])("recognizes the schemeless %s destination and query item", (program, expected, ...args) => {
+  expect([...shellNetworkUrls(program, args)]).toEqual([[expected, true]]);
+});
+
+it("recognizes the destination of aria2c", () => {
+  expect([...shellNetworkUrls("aria2c", ["docs:8080/path"])]).toEqual([["http://docs:8080/path", false]]);
+});
+
 it.each(["https://$host/path", "https://docs.example:$port/path", "$__computed__"])(
   "requires unscoped consent for a curl destination whose origin is computed in %s",
   (operand) => {

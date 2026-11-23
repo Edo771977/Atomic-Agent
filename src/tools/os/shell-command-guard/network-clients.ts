@@ -31,7 +31,8 @@ const HTTP_CLIENTS = new Set([
   "curl", "wget", "wget2", "http", "https", "xh", "aria2c", "lwp-request",
   "invoke-webrequest", "iwr", "invoke-restmethod", "irm", "start-bitstransfer", "bitsadmin",
 ]);
-const URL_CLIENTS = new Set(["curl", "wget", "wget2", "invoke-webrequest", "iwr", "invoke-restmethod", "irm"]);
+const HTTP_CLI = new Set(["http", "https", "xh"]);
+const URL_CLIENTS = new Set([...HTTP_CLI, "aria2c", "curl", "wget", "wget2", "invoke-webrequest", "iwr", "invoke-restmethod", "irm"]);
 const RAW_CLIENTS = new Set(["ssh", "scp", "sftp", "nc", "ncat", "netcat", "telnet", "ftp", "socat", "mosh"]);
 const GIT_NETWORK_VERBS = new Set(["push", "fetch", "pull", "clone", "ls-remote"]);
 const PUBLISHERS = new Set(["npm", "pnpm", "yarn", "bun"]);
@@ -117,18 +118,26 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
     if (urls && URL_CLIENTS.has(program)) {
       const curl = program === "curl" ? curlUrlOptions(rest) : undefined;
       if (curl?.hasConfig) urls.set("", true);
-      for (const word of curl?.operands ?? rest) {
+      const httpCli = HTTP_CLI.has(program);
+      const httpQuery = httpCli && rest.some(word => /^[^:=\s]+==/.test(word));
+      const words = curl?.operands ?? rest;
+      const scheme = program === "https" ? "https" : "http";
+      for (const word of words) {
         const operand = word.replace(/^(?:--url=|-uri[:=])/i, "");
         if (program === "curl" && /^(?:https?:\/\/)?[^/?#]*[$`]/i.test(operand)) {
           urls.set("", true);
           continue;
         }
+        const destination = httpCli && /^:\d+(?:[/?#]|$)/.test(operand) ? `localhost${operand}` : operand;
         const url = /^https?:\/\//i.test(operand)
           ? operand
-          : (program === "curl" || program.startsWith("wget")) && /^(?:localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d+)?(?:[/?#]|$)/i.test(operand)
-            ? `http://${operand}`
+          : (program === "curl" || program.startsWith("wget") || httpCli || program === "aria2c") && /^(?:(?:localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d+)?|[a-z0-9-]+:\d+)(?:[/?#]|$)/i.test(destination)
+            ? `${scheme}://${destination}`
             : null;
-        if (url !== null) urls.set(url, curl?.sendsData === true || (program === "curl" && /[$`]/.test(operand)) || urls.get(url) === true);
+        if (url !== null) {
+          urls.set(url, httpQuery || curl?.sendsData === true || (program === "curl" && /[$`]/.test(operand)) || urls.get(url) === true);
+          if (httpCli) break;
+        }
       }
     }
     return { program, cls: "http" };
