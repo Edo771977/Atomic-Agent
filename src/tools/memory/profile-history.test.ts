@@ -71,6 +71,15 @@ describe("memory.profile.history", () => {
     expect(enabled.details.count).toBe(2);
   });
 
+  it("shows all versions once the profile key is re-enabled", async () => {
+    store.set("language", "it", 1_000);
+    store.setDisabled("language", true);
+    store.set("language", "en", 2_000);
+    store.setDisabled("language", false);
+    const result = await buildProfileHistoryTool({ store }).run({ key: "language" }, makeCtx());
+    expect(result.details.history).toMatchObject([{ value: "it" }, { value: "en" }]);
+  });
+
   it("returns an error result for a malformed key", async () => {
     const tool = buildProfileHistoryTool({ store });
     const result = await tool.run({ key: "has space" }, makeCtx());

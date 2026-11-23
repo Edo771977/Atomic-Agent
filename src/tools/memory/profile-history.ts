@@ -39,7 +39,7 @@ export function buildProfileHistoryTool(
           typeof keyRaw === "string" ? keyRaw : "",
         );
         const active = rows.find((row) => row.supersededBy === null);
-        const chain = active?.disabledAt !== undefined ? [] : rows.filter((row) => row.disabledAt === undefined);
+        const chain = active?.disabledAt !== undefined ? [] : rows;
         if (chain.length === 0) {
           return compressToolResult({
             tool: "memory.profile.history",
