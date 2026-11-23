@@ -9,6 +9,7 @@ import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 
 import { HELP, lanUrls, parseArgs } from "./serve-args.js";
+import { readServeKeyFromStdin } from "./serve-api-key-input.js";
 import { resolveServeApiKey, serveApiKeyNotice } from "./serve-api-key.js";
 import {
   MEMORY_GUARD_EXIT_CODE,
@@ -68,6 +69,16 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 1;
   }
 
+  let explicitKey = parsed.apiKey;
+  if (parsed.apiKeyFromStdin && !parsed.reapOnly) {
+    const input = await readServeKeyFromStdin();
+    if ("error" in input) {
+      process.stderr.write("serve: " + input.error + "\n");
+      return 1;
+    }
+    explicitKey = input.key;
+  }
+
   const stateDir = getConfig().paths.stateDir;
   if (parsed.reapOnly) {
     process.stdout.write(formatReapOutcomes(await reapOrphanedServes({ stateDir })));
@@ -82,7 +93,7 @@ export async function serveCommand(args: string[]): Promise<number> {
 
   // Always a key, on loopback too: the operator's, else the persisted one
   // made on the first run. No key, no server.
-  const apiKey = resolveServeApiKey(parsed.apiKey, stateDir);
+  const apiKey = resolveServeApiKey(explicitKey, stateDir);
   if ("error" in apiKey) {
     process.stderr.write(`serve: ${apiKey.error}\n`);
     return 1;

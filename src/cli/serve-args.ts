@@ -11,6 +11,7 @@ import { resolve } from "node:path";
 
 import { hasOwnerOnlyWindowsAcl } from "../config/windows-acl.js";
 
+import { MIN_EXPLICIT_KEY_LENGTH, validateExplicitKey } from "./serve-api-key-input.js";
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
 export interface ServeArgs {
@@ -25,6 +26,7 @@ export interface ServeArgs {
   apiKey: string | null;
   apiKeyFromEnvironment: boolean;
   apiKeyFromArgument: boolean;
+  apiKeyFromStdin: boolean;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -55,6 +57,8 @@ export const HELP =
     "                      The file itself cannot be a symlink. Its ancestor directories may be symlinks.",
     "                      Use a path whose directories you control.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
+    "  --api-key-stdin     Read one newline-terminated key from stdin before startup, then close stdin.",
+    "                      Cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY.",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
     "  --no-parent-exit    Keep running after the parent exits — the way to daemonise from a shell,",
@@ -118,9 +122,7 @@ function readExplicitKey(path: string): { key: string } | { error: string } {
     if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
     if (windows ? !hasOwnerOnlyWindowsAcl(path)
       : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
-    const key = readFileSync(fd, "utf8").trim();
-    if (!/^[!-~]+$/.test(key)) return { error: "could not read a usable API key from --api-key-file" };
-    return { key };
+    return validateExplicitKey(readFileSync(fd, "utf8"), "--api-key-file");
   } catch {
     return { error: "could not open --api-key-file as an owner-only file" };
   } finally {
@@ -136,6 +138,7 @@ export function parseArgs(
   let workingDir: string | null = null;
   let apiKey: string | null = null;
   let apiKeyProvided = false;
+  let apiKeyFromStdin = false;
   let apiKeyFile: string | null = null;
   let noApproval = false;
   let parentPid: number | null = null;
@@ -180,6 +183,9 @@ export function parseArgs(
         apiKeyProvided = true;
         break;
       }
+      case "--api-key-stdin":
+        apiKeyFromStdin = true;
+        break;
       case "--api-key-file": {
         const value = args[++i];
         if (!value || value.startsWith("--")) return { error: "--api-key-file requires a path" };
@@ -227,6 +233,9 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  if (apiKeyFromStdin && (apiKeyProvided || apiKeyFile !== null || process.env.ATOMIC_AGENT_API_KEY !== undefined)) {
+    return { error: "--api-key-stdin cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY" };
+  }
   let apiKeyFromEnvironment = false;
   if (apiKeyFile !== null && apiKeyProvided) {
     return { error: "use either --api-key or --api-key-file" };
@@ -249,7 +258,7 @@ export function parseArgs(
         "the API key is only whitespace (--api-key or ATOMIC_AGENT_API_KEY); set a real token",
     };
   }
-  if (!reapOnly && apiKey === null && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey === null && !apiKeyFromStdin && !isLoopbackListenHost(host)) {
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
@@ -279,6 +288,7 @@ export function parseArgs(
     apiKey,
     apiKeyFromEnvironment,
     apiKeyFromArgument: apiKeyProvided,
+    apiKeyFromStdin,
     noApproval,
     parentPid,
     noParentExit,
@@ -286,9 +296,6 @@ export function parseArgs(
     tunnel,
   };
 }
-
-/** ATO-1126: the shortest explicit API key serve takes. */
-export const MIN_EXPLICIT_KEY_LENGTH = 16;
 
 /**
  * Whether a `--host` value only accepts connections from this machine.

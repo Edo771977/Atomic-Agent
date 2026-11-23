@@ -226,3 +226,12 @@ it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked explicit
 it("round2-6 documents ancestor symlinks", () => {
   expect(HELP).toContain("ancestor directories may be symlinks");
 });
+
+it.each([
+  { flags: ["--api-key", "synthetic-argv-key"], environment: undefined },
+  { flags: ["--api-key-file", "some-file"], environment: undefined },
+  { flags: [], environment: "synthetic-env-credential" },
+])("rejects conflicting --api-key-stdin sources (%j)", ({ flags, environment }) => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", environment);
+  expect(parseError(["--api-key-stdin", ...flags])).toMatch(/cannot be combined/i);
+});
