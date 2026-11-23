@@ -8,6 +8,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { Browser } from "playwright-core";
 
+import { findChromeExecutable } from "../browser/find-chrome-executable.js";
+
 import { defaultBrowserLauncher, isLoopbackHost, type BrowserLauncher } from "./run-page-kind.js";
 import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
 import { createVerifyWorkspace } from "./verify-workspace-copy.js";
@@ -369,7 +371,7 @@ describe("isLoopbackHost", () => {
 });
 
 describe("defaultBrowserLauncher — launch order", () => {
-  type LaunchOpts = { executablePath?: string; headless?: boolean; args?: string[] };
+  type LaunchOpts = { executablePath?: string; headless?: boolean; args?: string[]; env?: NodeJS.ProcessEnv };
   const fakeBrowser = {} as Browser;
   const recorder = (fail: (opts: LaunchOpts) => boolean = () => false) => {
     const calls: LaunchOpts[] = [];
@@ -393,12 +395,16 @@ describe("defaultBrowserLauncher — launch order", () => {
     expect(browser).toBe(fakeBrowser);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.executablePath).toBeUndefined();
+    expect(calls[0]?.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
   });
 
   it("macOS falls back to the system Chrome when the Playwright Chromium is missing", async () => {
     const { calls, loadPlaywright } = recorder((o) => o.executablePath === undefined);
     await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
     expect(calls.map((c) => c.executablePath)).toEqual([undefined, findExecutable().path]);
+    for (const call of calls) {
+      expect(call.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+    }
   });
 
   it("macOS with an explicit executablePath keeps the host browser first", async () => {
@@ -415,9 +421,9 @@ describe("defaultBrowserLauncher — launch order", () => {
     expect(calls[0]?.executablePath).toBe(findExecutable().path);
   });
 
-  it("Linux keeps the host browser first", async () => {
+  it.each(["linux", "win32"] as const)("%s keeps the host browser first", async (platform) => {
     const { calls, loadPlaywright } = recorder();
-    await defaultBrowserLauncher(CONFIG, { platform: "linux", loadPlaywright, findExecutable })();
+    await defaultBrowserLauncher(CONFIG, { platform, loadPlaywright, findExecutable })();
     expect(calls.map((c) => c.executablePath)).toEqual([findExecutable().path]);
   });
 
@@ -435,6 +441,23 @@ describe("defaultBrowserLauncher — launch order", () => {
     );
   });
 });
+
+const macBrowserExpectation = process.env.ATOMIC_AGENT_VERIFY_MAC_BROWSER;
+it.skipIf(!macBrowserExpectation)("launches the expected real macOS browser", async () => {
+  expect(process.platform).toBe("darwin");
+  let lookedUpSystemBrowser = false;
+  const browser = await defaultBrowserLauncher(CONFIG, {
+    findExecutable(options) {
+      lookedUpSystemBrowser = true;
+      return findChromeExecutable(options);
+    },
+  })();
+  try {
+    expect(lookedUpSystemBrowser).toBe(macBrowserExpectation === "system");
+  } finally {
+    await browser.close();
+  }
+}, 30_000);
 
 describe("runVerify — page, real browser", () => {
   let launchable = false;
