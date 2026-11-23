@@ -12,6 +12,8 @@ const status = {
   "turn-running": 409,
   "stale-view": 409,
   "invalid": 400,
+  "busy": 503,
+  "io": 500,
 } as const;
 
 export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
@@ -63,7 +65,10 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
   } : row);
   const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT };
   if (result.code && (choice || result.code !== "turn-running")) {
-    const message = result.code === "turn-running" ? "Wait for the turn to finish." : result.notice ?? result.panel.blocked ?? "Lesson choice refused.";
+    const message = result.code === "turn-running" ? "Wait for the turn to finish."
+      : result.code === "busy" ? "Another process is saving the project record. Try again."
+      : result.code === "io" ? "The project lesson choice could not be saved."
+      : result.notice ?? result.panel.blocked ?? "Lesson choice refused.";
     return sendJson(res, status[result.code], { ...openaiError(message, "invalid_request_error", null, result.code), panel });
   }
   sendJson(res, 200, {

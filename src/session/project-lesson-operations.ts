@@ -31,7 +31,7 @@ export interface ProjectLessonPanel {
   blocked?: string;
 }
 
-type LessonError = "incognito" | "no-project" | "turn-running" | "stale-view" | "invalid";
+type LessonError = "incognito" | "no-project" | "turn-running" | "stale-view" | "invalid" | "busy" | "io";
 
 export function projectLessonPanel(
   session: SessionState,
@@ -83,8 +83,20 @@ export function projectLessonPanel(
   if (!prepared.ok) return result(prepared.message, "invalid");
   const { call } = prepared.decision;
   if (call === null && previous === undefined) return result("No choice to reopen.", "invalid");
-  const written = writeProjectLessonDecision(records, record, prepared.decision);
-  if (!written.ok) return result(written.problem.message, "stale-view");
+  let written: ReturnType<typeof writeProjectLessonDecision>;
+  try {
+    written = writeProjectLessonDecision(records, record, prepared.decision);
+  } catch (error) {
+    return result(error instanceof Error ? error.message : String(error), "io");
+  }
+  if (!written.ok) {
+    const { code, message } = written.problem;
+    if (code === "conflict") {
+      const latest = projectLessonPanel(session, stateDir, isBusy, undefined, originRefusal);
+      return { ...latest, code: "stale-view", notice: "The project's record changed. Read it again before deciding." };
+    }
+    return result(message, code === "locked" ? "busy" : "io");
+  }
   if (call === null) delete calls[id];
   else calls[id] = call;
   const verb = state === "approved" ? "Approved" : state === "retired" ? "Retired" : "Reopened";

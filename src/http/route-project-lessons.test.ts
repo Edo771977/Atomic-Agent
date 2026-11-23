@@ -3,6 +3,7 @@ import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
+import * as lessons from "../session/project-lessons.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 import type { ProjectLessonPanel } from "../session/project-lesson-operations.js";
 import { createEmptySessionState } from "../session/session-state.js";
@@ -118,4 +119,31 @@ it.each(["folder mismatch", "failed project load"])("refuses a bound project aft
     expect(body.error.code).toBe("no-project");
     expect(body.panel.rows).toEqual([]);
   }
+});
+
+it("rereads the current lesson choices after a record sequence conflict", async () => {
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  vi.spyOn(lessons, "writeProjectLessonDecision").mockImplementationOnce((records, record) => {
+    expect(records.write(record.folder, record.id, record.seq, record.state, undefined,
+      { id: row.id, call: { hash: row.hash, state: "retired" } }).ok).toBe(true);
+    return { ok: false, problem: { code: "conflict", message: "stale record" } };
+  });
+  const response = await decide("approve", row.hash);
+  expect(response.status).toBe(409);
+  const body = await read(response);
+  expect(body.error.code).toBe("stale-view");
+  expect(body.panel.rows[0]).toMatchObject({ status: { effectiveStatus: "retired" } });
+  expect(body).not.toHaveProperty("session_id");
+});
+
+it.each([["locked", 503, "busy"], ["io", 500, "io"]] as const)("reports record write %s separately", async (problem, status, code) => {
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  vi.spyOn(lessons, "writeProjectLessonDecision").mockReturnValueOnce({
+    ok: false, problem: { code: problem, message: h.stateDir },
+  });
+  const response = await decide("approve", row.hash);
+  expect(response.status).toBe(status);
+  expect((await read(response)).error.code).toBe(code);
 });
