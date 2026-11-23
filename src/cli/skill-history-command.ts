@@ -1,3 +1,4 @@
+import { formatDraftView, showPendingDraft } from "../skills/learning/learn-command.js";
 import { readLearnFingerprint } from "./learn-terminal.js";
 import { learnedSkillScope, learnedTurnRunning, withLearnedDecision } from "../skills/learning/learn-scope.js";
 import { SessionStore } from "../session/session-store.js";
@@ -56,11 +57,18 @@ export async function handleSkillLearned(args: string[]): Promise<number> {
     }
     const origin = projectDecisionOriginRefusal();
     if (origin) { process.stderr.write(origin + "\n"); return 1; }
-    const preview = await runLearnCommand({ kind: "show", id, json: false }, scope, "atomic-agent skill learned");
-    if (!preview.ok) { process.stderr.write(preview.text + "\n"); return 1; }
-    const fingerprint = await readLearnFingerprint(preview.text);
+    const view = await showPendingDraft(scope, id);
+    if (!view) { process.stderr.write(`No pending draft with id ${id}.\n`); return 1; }
+    const prefix = "atomic-agent skill learned";
+    const fingerprint = await readLearnFingerprint(formatDraftView(view, prefix));
     if (!fingerprint || !/^[0-9a-f]{64}$/.test(fingerprint)) {
       process.stderr.write("Approval requires an interactive terminal and the displayed fingerprint.\n");
+      return 1;
+    }
+    if (fingerprint !== view.fingerprint) {
+      const latest = await showPendingDraft(scope, id);
+      process.stderr.write("The fingerprint does not match the displayed draft. Review it again.\n");
+      if (latest) process.stderr.write(formatDraftView(latest, prefix) + "\n");
       return 1;
     }
     command = { kind: "approve", id, fingerprint };

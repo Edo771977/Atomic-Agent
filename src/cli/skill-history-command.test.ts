@@ -172,6 +172,18 @@ describe("skill history / restore / curate", () => {
     expect(existsSync(join(scope().skillsDir, "console-check"))).toBe(false);
   });
 
+  it("refuses a fingerprint for bytes that changed while the terminal was open", async () => {
+    const content = "---\nname: changing-draft\ndescription: Check the review.\n---\nRead the report and compare it with the approved checklist.\n";
+    const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changing-draft", reason: "review", content, sources: [] });
+    const changed = content.replace("approved checklist", "latest release checklist");
+    vi.spyOn(terminal, "readLearnFingerprint").mockImplementation(async () => {
+      writeFileSync(join(scope().stateDir, "skills-pending", draft.id, "SKILL.md"), changed);
+      return draftFingerprint(draft, changed);
+    });
+    expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
+    expect(existsSync(join(scope().skillsDir, "changing-draft"))).toBe(false);
+  });
+
   it("skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)", async () => {
     const content = "---\nname: changelog-notes\ndescription: Collect release notes from the changelog.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n2. Copy the newest section.\n";
     const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changelog-notes", reason: "changelog steps", content, sources: ["os.web.fetch"], origin: "discord" });
