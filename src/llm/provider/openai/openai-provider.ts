@@ -68,7 +68,7 @@ import { isLocalServerUrl } from "./local-server-url.js";
 import {
   addPrivacyInstructions,
   createChunkUnmasker,
-  maskOpenAiBody,
+  maskWithArchiveRecovery,
   shieldVaultFor,
   unmaskCompletion,
   type ChunkUnmasker,
@@ -471,7 +471,7 @@ export class OpenAiProvider implements LlmProvider {
     // The body the response actually came from; see `OnOpenAiRequestBody`.
     let sentBody: Record<string, unknown> | undefined;
     // Privacy Shield (ATO-1081): one vault for the body and the reply.
-    const vault = shieldVaultFor(request.sessionId, this.localServer, this.privacyShield);
+    const shield = { vault: shieldVaultFor(request.sessionId, this.localServer, this.privacyShield) };
     const post = (body: Record<string, unknown>) =>
       openAiPostJson(
         this.http,
@@ -492,10 +492,10 @@ export class OpenAiProvider implements LlmProvider {
               logger: this.http.logger,
             },
             request,
-            (req) => this.buildBody(req, false, shape, vault),
+            (req) => this.buildBody(req, false, shape, shield),
             post,
           )
-        : post(this.buildBody(request, false, shape, vault));
+        : post(this.buildBody(request, false, shape, shield));
     // One resend per completion when the service names the only
     // temperature it takes, or refuses the field altogether
     // (`allowed-temperature.ts`); the rebuilt body carries the lesson.
@@ -539,7 +539,7 @@ export class OpenAiProvider implements LlmProvider {
       this.reasoningFormat,
     );
     return this.withRateLimits(withSentMaxTokens(
-      vault ? unmaskCompletion(normalised, vault, sentJsonResponseFormat(sentBody)) : normalised,
+      shield.vault ? unmaskCompletion(normalised, shield.vault, sentJsonResponseFormat(sentBody)) : normalised,
       sentBody,
     ));
   }
@@ -558,7 +558,7 @@ export class OpenAiProvider implements LlmProvider {
     request: CompletionRequest,
     stream: boolean,
     shape: "native" | "flat",
-    vault: PrivacyVault | null = null,
+    shield: { vault: PrivacyVault | null },
   ): Record<string, unknown> {
     const body = buildOpenAiChatBody(
       request,
@@ -586,8 +586,8 @@ export class OpenAiProvider implements LlmProvider {
     ) {
       body.response_format = toGeminiResponseFormat(body.response_format);
     }
-    if (vault) {
-      maskOpenAiBody(body, vault);
+    if (shield.vault) {
+      shield.vault = maskWithArchiveRecovery(body, shield.vault, request.sessionId);
       addPrivacyInstructions(body);
     }
     return this.wire ? this.wire.toWireBody(body) : body;
@@ -894,8 +894,8 @@ export class OpenAiProvider implements LlmProvider {
     let activeRequest = known.request;
     // Privacy Shield (ATO-1081): one vault for every attempt of this
     // completion, so a reopen masks the same way and the reply unmasks.
-    const vault = shieldVaultFor(request.sessionId, this.localServer, this.privacyShield);
-    let body = this.buildBody(activeRequest, true, shape, vault);
+    const shield = { vault: shieldVaultFor(request.sessionId, this.localServer, this.privacyShield) };
+    let body = this.buildBody(activeRequest, true, shape, shield);
     const path = this.chatPath();
     let accumulated = "";
     let accumulatedReasoning = "";
@@ -970,7 +970,7 @@ export class OpenAiProvider implements LlmProvider {
         const stream = this.streamConsumer.consume(res.body, request.signal);
         // Placeholders back in the text as it streams; a fresh hold-back
         // per attempt, like the transcript above.
-        const unmasker: ChunkUnmasker | null = vault ? createChunkUnmasker(vault, sentJsonResponseFormat(sentBody)) : null;
+        const unmasker: ChunkUnmasker | null = shield.vault ? createChunkUnmasker(shield.vault, sentJsonResponseFormat(sentBody)) : null;
         // Whether this pump reached the consumer's own `done`. A pump that
         // did not has abandoned a live stream; see the release below.
         let drained = false;
@@ -1083,7 +1083,7 @@ export class OpenAiProvider implements LlmProvider {
             toolDropped = reduced.dropped;
             schemaError = err;
             activeRequest = reduced.request;
-            body = this.buildBody(activeRequest, true, shape, vault);
+            body = this.buildBody(activeRequest, true, shape, shield);
             continue;
           }
         }
@@ -1097,7 +1097,7 @@ export class OpenAiProvider implements LlmProvider {
           this.learnTemperature(request, err, body)
         ) {
           temperatureRetried = true;
-          body = this.buildBody(activeRequest, true, shape, vault);
+          body = this.buildBody(activeRequest, true, shape, shield);
           continue;
         }
         // The service refused the message layout, before any byte of
@@ -1108,7 +1108,7 @@ export class OpenAiProvider implements LlmProvider {
         if (!committed && this.shouldFallBackToFlat(request, shape, err)) {
           this.markFlat(request, err);
           shape = "flat";
-          body = this.buildBody(activeRequest, true, shape, vault);
+          body = this.buildBody(activeRequest, true, shape, shield);
           continue;
         }
         // An error event inside the stream (OpenRouter's `504 Upstream
@@ -1184,7 +1184,7 @@ export class OpenAiProvider implements LlmProvider {
     );
     const safe = withSentMaxTokens(
       applyToolCallTerminationSafety(
-        vault ? unmaskCompletion(adaptedFinal, vault, sentJsonResponseFormat(sentBody)) : adaptedFinal,
+        shield.vault ? unmaskCompletion(adaptedFinal, shield.vault, sentJsonResponseFormat(sentBody)) : adaptedFinal,
         // A stream the consumer ended itself has no provider terminal
         // event by definition, and it kept only calls whose arguments had
         // fully arrived — so the missing terminal is not a sign of a cut

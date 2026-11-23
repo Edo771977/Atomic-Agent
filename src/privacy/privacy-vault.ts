@@ -57,6 +57,13 @@ export interface UnmaskOptions {
   json?: boolean;
 }
 
+export class PrivacyArchiveLimitError extends Error {
+  constructor() {
+    super("Privacy Shield archive limit reached. Shorten or compact the conversation, or remove large inputs before trying again.");
+    this.name = "PrivacyArchiveLimitError";
+  }
+}
+
 export class PrivacyVault {
   readonly #byValue = new Map<string, string>();
   #archiveChars = 0;
@@ -84,7 +91,7 @@ export class PrivacyVault {
     const existing = this.#byValue.get(value);
     if (existing !== undefined) return existing;
     if (this.#byValue.size >= MAX_ARCHIVE_ENTRIES || this.#archiveChars + value.length > MAX_ARCHIVE_CHARS) {
-      throw new Error("Privacy Shield archive limit reached");
+      throw new PrivacyArchiveLimitError();
     }
     this.#archiveChars += value.length;
     this.counters[kind] += 1;

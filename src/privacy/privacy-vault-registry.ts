@@ -60,6 +60,18 @@ export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVa
   return vault;
 }
 
+/** Rebuild without invalidating the references used by an in-flight response. */
+export function rebuildPrivacyVault(
+  sessionId: string | undefined,
+  previous: PrivacyVault,
+  mask: (fresh: PrivacyVault) => void,
+): PrivacyVault {
+  const fresh = new PrivacyVault(() => knownSecrets());
+  mask(fresh);
+  if (sessionId && vaults.get(sessionId) === previous) vaults.set(sessionId, fresh);
+  return fresh;
+}
+
 /** Drop a session's vault (the session was deleted). */
 export function forgetPrivacyVault(sessionId: string): void {
   vaults.delete(sessionId);

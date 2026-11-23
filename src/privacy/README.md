@@ -20,7 +20,7 @@ Checks: `npx vitest run src/privacy`; `npm run lint`; `npm run docs:check`.
 
 For a gateway, proxy or SSH tunnel on a local-looking address that forwards to a cloud model, set `llm.providers[].privacy.shield` to `"on"` on that entry. The default `"auto"` uses the global setting and classifies by the gateway address. Use `"off"` to bypass the shield on a specific provider.
 
-Completed sessions and ephemeral worker turns release their archives. The process retains up to 128 recently used session archives. A session can grow to 4,096 values or 1 Mi UTF-16 code units of private values. Inference stops before sending a request that would exceed that archive limit.
+Completed sessions and ephemeral worker turns release their archives. The process targets 128 recently used session archives and retains those of active turns until they finish. A session can grow to 4,096 values or 1 Mi UTF-16 code units of private values. When an existing archive fills up, the provider rebuilds it from the current window. If that window still exceeds the limit, inference stops before sending it and tells the operator to shorten or compact it. The request does not fail over to another provider.
 
 The direct HTTP skills-eval judge uses the global setting and address classification. For a local-looking judge gateway forwarding to the cloud, configure it as a provider and use that provider as the judge.
 

@@ -8,6 +8,7 @@ export {
 export {
   PLACEHOLDER,
   PrivacyVault,
+  PrivacyArchiveLimitError,
   type PrivacyVaultStats,
   type UnmaskOptions,
 } from "./privacy-vault.js";
@@ -18,6 +19,7 @@ export {
   privacyShieldTotals,
   privacyVaultFor,
   pinPrivacyVault,
+  rebuildPrivacyVault,
   resetPrivacyVaults,
   setPrivacyKnownSecrets,
   setPrivacyShieldEnabled,

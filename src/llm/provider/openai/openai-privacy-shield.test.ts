@@ -1,3 +1,6 @@
+import { ProviderFallbackChain } from "../../fallback/provider-fallback-chain.js";
+import { DEFAULT_FALLBACK_TIMING } from "../../fallback/fallback-config.js";
+import { runWithFallback } from "../../fallback/run-with-fallback.js";
 import { parseToolCalls } from "../../grammar/tool-call-grammar.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -390,4 +393,28 @@ it("preserves JSON escaping in live structured-output chunks", async () => {
   }));
   expect(chunks.map(chunk => chunk.delta).join("")).toBe(result.content);
   expect(JSON.parse(result.content)).toEqual({ value: secret });
+});
+
+it("blocks oversized protected windows before send and rebuilds after compaction", async () => {
+  setPrivacyShieldEnabled(true);
+  const fetchImpl = vi.fn(async () => json({
+    model: "m", choices: [{ message: { content: "[EMAIL_1]" }, finish_reason: "stop" }],
+  }));
+  const p = provider(fetchImpl);
+  const sessionId = "compact-shield";
+  const crowded = Array.from({ length: 4096 }, (_, i) => `old-${i}@example.test`).join("\n");
+  const original = privacyVaultFor(sessionId);
+  original.maskDeep(crowded);
+  const fallback = vi.fn(async () => { throw new Error("unprotected provider received the request"); });
+  const chain = new ProviderFallbackChain({
+    resolve: () => ({ chain: ["protected", "unprotected"], timing: DEFAULT_FALLBACK_TIMING }),
+    noticeSink: () => {},
+  });
+  await expect(runWithFallback(chain, id => id === "protected"
+    ? p.complete({ sessionId, prompt: crowded + "\nnew@example.test" }) : fallback()))
+    .rejects.toMatchObject({ name: "PrivacyArchiveLimitError", message: expect.stringContaining("Shorten") });
+  expect(fetchImpl).not.toHaveBeenCalled();
+  expect(fallback).not.toHaveBeenCalled();
+  expect((await p.complete({ sessionId, prompt: "new@example.test" })).content).toBe("new@example.test");
+  expect(original.unmask("[EMAIL_1]")).toBe("old-0@example.test");
 });

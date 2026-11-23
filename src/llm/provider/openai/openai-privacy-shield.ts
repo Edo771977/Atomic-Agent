@@ -4,6 +4,8 @@ import {
   createStreamUnmasker,
   isPrivacyShieldEnabled,
   privacyVaultFor,
+  rebuildPrivacyVault,
+  PrivacyArchiveLimitError,
   type PrivacyVault,
 } from "../../../privacy/index.js";
 
@@ -45,6 +47,21 @@ export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVaul
     if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages, { jsonField: "arguments", request });
   } finally {
     vault.endRequest(request);
+  }
+}
+
+export function maskWithArchiveRecovery(
+  body: Record<string, unknown>,
+  vault: PrivacyVault,
+  sessionId: string | undefined,
+): PrivacyVault {
+  const couldRebuild = !vault.isEmpty;
+  try {
+    maskOpenAiBody(body, vault);
+    return vault;
+  } catch (error) {
+    if (!couldRebuild || !(error instanceof PrivacyArchiveLimitError)) throw error;
+    return rebuildPrivacyVault(sessionId, vault, fresh => maskOpenAiBody(body, fresh));
   }
 }
 
