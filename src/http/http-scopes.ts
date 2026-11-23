@@ -137,7 +137,7 @@ export const ROUTE_SCOPES: Readonly<Record<string, HttpScope>> = {
   "POST /api/tasks/drain": "admin",
   "GET /api/ideas": "read",
   "POST /api/ideas/refresh": "chat",
-  "POST /api/ideas/{id}/accept": "chat",
+  "POST /api/ideas/{id}/accept": "admin",
   "POST /api/ideas/{id}/dismiss": "chat",
   "GET /api/webhooks": "admin",
   "POST /api/tasks/wake": "admin",

@@ -48,6 +48,11 @@ describe("ROUTE_SCOPES", () => {
     expect(scopeForRoute("GET", "/api/sessions")).toBe("read");
   });
 
+  it("requires the same permission for both ways of creating a task", () => {
+    expect(scopeForRoute("POST", "/api/ideas/{id}/accept")).toBe("admin");
+    expect(scopeForRoute("POST", "/api/tasks")).toBe("admin");
+  });
+
   it("asks the owner for a route the table does not know", () => {
     expect(scopeForRoute("POST", "/api/not-a-route")).toBe("owner");
   });

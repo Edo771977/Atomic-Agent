@@ -302,7 +302,7 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/tasks/drain` | Administration (admin) |
 | `GET /api/ideas` | Read (read) |
 | `POST /api/ideas/refresh` | Ordinary action (chat) |
-| `POST /api/ideas/{id}/accept` | Ordinary action (chat) |
+| `POST /api/ideas/{id}/accept` | Administration (admin) |
 | `POST /api/ideas/{id}/dismiss` | Ordinary action (chat) |
 | `GET /api/webhooks` | Administration (admin) |
 | `POST /api/tasks/wake` | Administration (admin) |
