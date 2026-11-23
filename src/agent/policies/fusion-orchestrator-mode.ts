@@ -1,4 +1,4 @@
-import { PROJECT_LESSON_PROPOSE_TOOL } from "../../tools/fusion/project-tools.js";
+import { PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 import type { CompressedToolResult } from "../../compressor/result-compressor.js";
 import { MCP_TOOL_PREFIX } from "../../mcp/mcp-resource-class.js";
 import type { ToolRegistry } from "../../tools/tool-registry.js";

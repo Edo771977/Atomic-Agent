@@ -1,5 +1,5 @@
 import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
-import { lessonProposalHint } from "../../session/project-lesson-hints.js";
+import { lessonProposalHint, PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 import { lessonTouchesTask } from "./plan-references.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
@@ -73,7 +73,7 @@ export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
 /** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
 export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
-export const PROJECT_LESSON_PROPOSE_TOOL = "project.lesson.propose";
+export { PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 /** In catalog order. */
 export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL, PROJECT_LESSON_PROPOSE_TOOL] as const;
 
