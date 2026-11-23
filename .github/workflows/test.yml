@@ -179,8 +179,6 @@ jobs:
     name: macOS verify browser
     runs-on: macos-latest
     timeout-minutes: 15
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/verify-playwright
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -188,6 +186,8 @@ jobs:
           node-version: "25.7"
           cache: npm
       - run: npm ci
+      - name: Set the isolated Playwright browser directory
+        run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/verify-playwright" >> "$GITHUB_ENV"
       - name: Verify real system Chrome fallback
         run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=system npx vitest run src/tools/verify/run-verify.test.ts -t 'expected real macOS browser'
       - name: Install Playwright Chromium
