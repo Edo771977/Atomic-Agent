@@ -346,22 +346,27 @@ export async function authorizeVerifyBatch(
       markUiUnavailable(spec, "impeccable approval gate is unavailable");
       continue;
     }
-    for (const [url, sendsQueryData] of urls) {
-      await requireUrlSendApproval(options, {
-        mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
-        tool: "verify.run",
-        url,
-        sendsQueryData,
-        sessionId: ctx.sessionId,
-        signal: ctx.signal,
-      });
-    }
+    const authorizeUrls = async () => {
+      for (const [url, sendsQueryData] of urls) {
+        await requireUrlSendApproval(options, {
+          mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+          tool: "verify.run",
+          url,
+          sendsQueryData,
+          sessionId: ctx.sessionId,
+          signal: ctx.signal,
+        });
+      }
+    };
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "");
-    if (scoped) continue;
+    if (scoped) {
+      await authorizeUrls();
+      continue;
+    }
     // A local page probe of a folder already approved this turn (in the
     // approved plan's folder) runs unasked, unless a saved rule asks or
     // denies, or the person declined the target (the gate also refuses it
@@ -369,7 +374,10 @@ export async function authorizeVerifyBatch(
     const page = prompt.category === "verify_page_local" && opensFileInside(logical, cwd);
     if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
-      !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) continue;
+      !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) {
+      await authorizeUrls();
+      continue;
+    }
     // The gate records the turn grant only if a person approves this request.
     const withdraw = page && options.approvalRequired && options.turnGrantFolder !== undefined &&
       relative(resolve(options.turnGrantFolder), resolve(cwd)) === ""
@@ -377,6 +385,10 @@ export async function authorizeVerifyBatch(
       : undefined;
     try {
       const outcome = await requireApproval(options, prompt, ctx.signal);
+      const actualArgs = Array.isArray(spec.args) ? spec.args : [];
+      const pin = outcome.pinnedExec;
+      if (logical.kind === "ui" || pin === undefined || pin.argv.length !== actualArgs.length + 1 ||
+        !actualArgs.every((arg, index) => arg === pin.argv[index + 1])) await authorizeUrls();
       // Issue #95: a host's pin (`run --allow-command`) is what runs: the
       // real program file with the approved argv, never a name the copy's
       // PATH could resolve to something else. The private copy stays the cwd.

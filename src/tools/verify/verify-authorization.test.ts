@@ -125,3 +125,25 @@ it("holds curl query data in a verification command before execution", async () 
   )).rejects.toMatchObject({ name: "ApprovalDeniedError" });
   expect(categories).toContain("http_write");
 });
+
+it("uses an exact host pin for verify URL consent in strict mode", async () => {
+  const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+  const cwd = realpathSync.native(tmpdir());
+  const argv = ["curl", "https://docs.example/"];
+  const requested: string[] = [];
+  const approvals = {
+    request: async (request: { category: string }) => {
+      requested.push(request.category);
+      return request.category === "shell"
+        ? { approvalId: "fixture", approved: true, pinnedExec: { file: process.execPath, argv, cwd, path: "/usr/bin" } }
+        : { approvalId: "fixture", approved: false };
+    },
+  };
+  const result = await authorizeVerifyBatch(
+    [{ kind: "command", cmd: argv[0], args: argv.slice(1) }],
+    { approvals: approvals as never, approvalRequired: true, urlDataGuard: "strict" },
+    { sessionId: "s", workingDir: cwd, stepIndex: 0, signal: new AbortController().signal },
+  );
+  expect(requested).toEqual(["shell"]);
+  expect(result[0]?.cmd).toBe(process.execPath);
+});
