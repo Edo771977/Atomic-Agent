@@ -1,7 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, mkdirSync, openSync, readFileSync, rmSync, rmdirSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
+import { renameWithRetrySync, syncDirectoryBestEffort, writeFileSyncedSync } from "../config/durable-write.js";
+import { hasOwnerOnlyWindowsAcl, restrictWindowsAcl } from "../config/windows-acl.js";
 import { isHttpRole, type HttpRole } from "./http-scopes.js";
 
 /**
@@ -16,6 +18,7 @@ export const HTTP_TOKENS_FILE = "http-tokens.json";
 /** Tokens start with this, so a leaked one is easy to search for. */
 export const HTTP_TOKEN_PREFIX = "atag_";
 
+const TOKEN_PATTERN = /atag_[A-Za-z0-9_-]{43}/;
 const NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 
 export interface StoredHttpToken {
@@ -39,7 +42,7 @@ export function hashHttpToken(token: string): string {
 }
 
 export function isValidHttpTokenName(name: string): boolean {
-  return NAME_PATTERN.test(name);
+  return NAME_PATTERN.test(name) && !TOKEN_PATTERN.test(name);
 }
 
 function parseToken(raw: unknown): StoredHttpToken | null {
@@ -48,15 +51,40 @@ function parseToken(raw: unknown): StoredHttpToken | null {
   if (typeof r.name !== "string" || !isValidHttpTokenName(r.name)) return null;
   if (!isHttpRole(r.role)) return null;
   if (typeof r.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(r.sha256)) return null;
-  const createdAt = typeof r.createdAt === "string" ? r.createdAt : "";
+  if (typeof r.createdAt !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(r.createdAt)) return null;
+  const createdAt = r.createdAt;
   return { name: r.name, role: r.role, sha256: r.sha256, createdAt };
+}
+
+function isPrivateFile(st: Stats): boolean {
+  return st.isFile() && st.nlink === 1 &&
+    (process.platform === "win32" ||
+      ((st.mode & 0o7177) === 0 && st.uid === process.getuid?.()));
+}
+
+function readRegistryFile(path: string): string {
+  const before = lstatSync(path);
+  if (!isPrivateFile(before) ||
+      (process.platform === "win32" && !hasOwnerOnlyWindowsAcl(path))) {
+    throw new Error("expected an owner-only regular file without links");
+  }
+  const fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
+  try {
+    const opened = fstatSync(fd);
+    if (!isPrivateFile(opened) || before.dev !== opened.dev || before.ino !== opened.ino) {
+      throw new Error("file changed while opening");
+    }
+    return readFileSync(fd, "utf8");
+  } finally {
+    closeSync(fd);
+  }
 }
 
 /** The file as it is now. A missing file is an empty list, a broken one an error. */
 export function readHttpTokens(stateDir: string): HttpTokensRead {
   let text: string;
   try {
-    text = readFileSync(httpTokensPath(stateDir), "utf8");
+    text = readRegistryFile(httpTokensPath(stateDir));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return { ok: true, tokens: [] };
     return { ok: false, error: `cannot read ${HTTP_TOKENS_FILE}: ${(err as Error).message}` };
@@ -67,7 +95,9 @@ export function readHttpTokens(stateDir: string): HttpTokensRead {
   } catch {
     return { ok: false, error: `${HTTP_TOKENS_FILE} is not valid JSON` };
   }
-  const list = (parsed as { tokens?: unknown } | null)?.tokens;
+  const registry = parsed as { version?: unknown; tokens?: unknown } | null;
+  if (registry?.version !== 1) return { ok: false, error: `${HTTP_TOKENS_FILE} has an unsupported version` };
+  const list = registry.tokens;
   if (!Array.isArray(list)) return { ok: false, error: `${HTTP_TOKENS_FILE} has no "tokens" list` };
   const tokens: StoredHttpToken[] = [];
   for (const entry of list) {
@@ -81,13 +111,45 @@ export function readHttpTokens(stateDir: string): HttpTokensRead {
 function writeHttpTokens(stateDir: string, tokens: StoredHttpToken[]): void {
   const path = httpTokensPath(stateDir);
   const tmp = `${path}.${process.pid}.${randomBytes(4).toString("hex")}.tmp`;
-  mkdirSync(stateDir, { recursive: true });
+  writeFileSyncedSync(tmp, `${JSON.stringify({ version: 1, tokens }, null, 2)}\n`, { mode: 0o600, flag: "wx" });
   try {
-    writeFileSync(tmp, `${JSON.stringify({ version: 1, tokens }, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, path);
-  } catch (err) {
+    if (process.platform === "win32") {
+      restrictWindowsAcl(tmp);
+      if (!hasOwnerOnlyWindowsAcl(tmp)) throw new Error("could not restrict token registry ACL");
+    }
+    renameWithRetrySync(tmp, path);
+    syncDirectoryBestEffort(stateDir);
+  } finally {
     rmSync(tmp, { force: true });
-    throw err;
+  }
+}
+
+function editHttpTokens<T>(
+  stateDir: string,
+  edit: (tokens: StoredHttpToken[]) => T | { ok: false; error: string },
+): T | { ok: false; error: string } {
+  const lock = `${httpTokensPath(stateDir)}.lock`;
+  try {
+    mkdirSync(stateDir, { recursive: true, mode: 0o700 });
+    mkdirSync(lock, { mode: 0o700 });
+  } catch (err) {
+    const error = (err as NodeJS.ErrnoException).code === "EEXIST"
+      ? "token registry is locked by another edit"
+      : "cannot lock the token registry";
+    return { ok: false, error };
+  }
+  try {
+    const current = readHttpTokens(stateDir);
+    if (!current.ok) return current;
+    return edit(current.tokens);
+  } catch {
+    return { ok: false, error: "cannot update the token registry" };
+  } finally {
+    try {
+      rmdirSync(lock);
+    } catch {
+      // A completed write remains valid. A leftover lock blocks later edits.
+    }
   }
 }
 
@@ -105,27 +167,27 @@ export function addHttpToken(
   if (!isValidHttpTokenName(name)) {
     return { ok: false, error: `invalid token name "${name}": use letters, digits, ".", "_" or "-" (up to 64)` };
   }
-  const current = readHttpTokens(stateDir);
-  if (!current.ok) return current;
-  if (current.tokens.some((t) => t.name === name)) {
-    return { ok: false, error: `a token named "${name}" already exists; remove it first` };
-  }
-  const token = `${HTTP_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
-  const entry: StoredHttpToken = { name, role, sha256: hashHttpToken(token), createdAt: now().toISOString() };
-  writeHttpTokens(stateDir, [...current.tokens, entry]);
-  return { ok: true, token, entry };
+  return editHttpTokens<AddHttpTokenResult>(stateDir, (tokens) => {
+    if (tokens.some((t) => t.name === name)) {
+      return { ok: false, error: `a token named "${name}" already exists; remove it first` };
+    }
+    const token = `${HTTP_TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
+    const entry: StoredHttpToken = { name, role, sha256: hashHttpToken(token), createdAt: now().toISOString() };
+    writeHttpTokens(stateDir, [...tokens, entry]);
+    return { ok: true, token, entry };
+  });
 }
 
 export type RemoveHttpTokenResult = { ok: true } | { ok: false; error: string };
 
 export function removeHttpToken(stateDir: string, name: string): RemoveHttpTokenResult {
-  const current = readHttpTokens(stateDir);
-  if (!current.ok) return current;
-  if (!current.tokens.some((t) => t.name === name)) {
-    return { ok: false, error: `no token named "${name}"` };
-  }
-  writeHttpTokens(stateDir, current.tokens.filter((t) => t.name !== name));
-  return { ok: true };
+  return editHttpTokens<RemoveHttpTokenResult>(stateDir, (tokens) => {
+    if (!tokens.some((t) => t.name === name)) {
+      return { ok: false, error: `no token named "${name}"` };
+    }
+    writeHttpTokens(stateDir, tokens.filter((t) => t.name !== name));
+    return { ok: true };
+  });
 }
 
 /**
@@ -140,8 +202,9 @@ export function createHttpTokenSource(stateDir: string): () => readonly StoredHt
   return () => {
     let next: string;
     try {
-      const st = statSync(path);
-      next = `${st.mtimeMs}:${st.size}:${st.ino}`;
+      const st = lstatSync(path);
+      if (!isPrivateFile(st)) throw new Error("insecure token registry");
+      next = `${st.dev}:${st.ino}:${st.ctimeMs}:${st.mtimeMs}:${st.size}`;
     } catch {
       stamp = "";
       cached = [];
@@ -150,7 +213,7 @@ export function createHttpTokenSource(stateDir: string): () => readonly StoredHt
     if (next !== stamp) {
       const read = readHttpTokens(stateDir);
       cached = read.ok ? read.tokens : [];
-      stamp = next;
+      stamp = read.ok ? next : "";
     }
     return cached;
   };

@@ -1,3 +1,5 @@
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
+import { maskSecrets } from "../error-reporting/secret-detector.js";
 import { resolveStateDir } from "../config/index.js";
 import { HTTP_ROLES, isHttpRole, ROLE_SCOPES, type HttpRole } from "../http/http-scopes.js";
 import {
@@ -10,7 +12,7 @@ import {
 /**
  * ATO-583 — `atag http tokens list|add|remove`: named API tokens for
  * `atag serve`, each with a role (OpenClaw operator scopes, AnythingLLM
- * roles). The serve key stays admin; a named token gets its role's scopes.
+ * roles). The serve key stays owner; a named token gets its role's scopes.
  */
 export const HTTP_HELP = [
   "Usage: atomic-agent http tokens <list|add|remove> [options]",
@@ -22,9 +24,8 @@ export const HTTP_HELP = [
   "  http tokens add <name> --role <role>    Make a token and print it once; only its hash is stored",
   "  http tokens remove <name>               Revoke a token; serve stops accepting it at once",
   "",
-  "The serve API key (--api-key / ATOMIC_AGENT_API_KEY) is always admin. Named tokens",
-  "apply only while serve has an API key; without one serve listens on this machine",
-  "only and asks for no token. A token without the scope a route needs gets 403.",
+  "The serve API key is the owner credential and can access every authenticated route.",
+  "Named tokens without the required scope receive HTTP 403 insufficient_scope.",
   "Tokens live in <stateDir>/http-tokens.json (owner-only).",
 ].join("\n");
 
@@ -36,7 +37,8 @@ export interface HttpCommandDeps {
 
 export async function httpCommand(args: string[], deps: HttpCommandDeps = {}): Promise<number> {
   const write = deps.write ?? ((t: string) => { process.stdout.write(t); });
-  const writeErr = deps.writeErr ?? ((t: string) => { process.stderr.write(t); });
+  const sendError = deps.writeErr ?? ((t: string) => { process.stderr.write(t); });
+  const writeErr = (text: string): void => sendError(maskSecrets(text));
   const usage = (message: string): number => {
     writeErr(`http: ${message}\n\n${HTTP_HELP}\n`);
     return 2;
@@ -48,6 +50,10 @@ export async function httpCommand(args: string[], deps: HttpCommandDeps = {}): P
     return 0;
   }
   if (group !== "tokens") return usage(`unknown subcommand ${group}`);
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    writeErr("http: token management is unavailable from an agent tool child\n");
+    return 1;
+  }
   const stateDir = (deps.stateDir ?? resolveStateDir)();
 
   if (action === "list") {
@@ -62,7 +68,7 @@ export async function httpCommand(args: string[], deps: HttpCommandDeps = {}): P
       return 0;
     }
     for (const t of read.tokens) {
-      write(`${t.name.padEnd(24)} ${t.role.padEnd(7)} ${t.createdAt}\n`);
+      write(maskSecrets(`${t.name.padEnd(24)} ${t.role.padEnd(7)} ${t.createdAt}\n`));
     }
     return 0;
   }
@@ -92,7 +98,7 @@ export async function httpCommand(args: string[], deps: HttpCommandDeps = {}): P
       writeErr(`http: ${result.error}\n`);
       return 1;
     }
-    write(`Removed token "${name}".\n`);
+    write(maskSecrets(`Removed token "${name}".\n`));
     return 0;
   }
 

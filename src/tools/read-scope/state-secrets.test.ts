@@ -286,6 +286,17 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(innerReads + innerShells).toBe(0);
   });
 
+  it("guards tool reads and shell reads and writes of the named token registry", async () => {
+    const path = join(s.stateDir, "http-tokens.json");
+    writeFileSync(path, '{"version":1,"tokens":[]}');
+    answer = { approved: false };
+    await expect(read(path)).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "find . -name 'http-tokens.jso?' -exec cat {} +" })).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "rm", args: [path] })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["state_secret", "state_secret", "trust_config"]);
+    expect(innerReads + innerShells).toBe(0);
+  });
+
   it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
     answer = { approved: false };
     await expect(shell({ cmd, args: [...(cmd === "sed -i" ? ["s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))

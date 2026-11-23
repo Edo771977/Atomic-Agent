@@ -1,10 +1,16 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { IncomingMessage, ServerResponse } from "node:http";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createHttpServer, type HttpServerHandle, type RouteDefinition } from "./http-server.js";
 import type { HttpRole } from "./http-scopes.js";
-import { hashHttpToken, type StoredHttpToken } from "./http-token-store.js";
+import { AuthThrottle } from "./auth-throttle.js";
+import { buildRouteTable } from "./route-table.js";
+import { addHttpToken, createHttpTokenSource, removeHttpToken, hashHttpToken, type StoredHttpToken } from "./http-token-store.js";
 import { sendJson } from "./request-context.js";
-import { identifyCaller } from "./scoped-auth.js";
+import { authorizeRequest, identifyCaller } from "./scoped-auth.js";
 
 /**
  * ATO-583: the 401 / 403 matrix on a real server with stub routes. The
@@ -13,6 +19,7 @@ import { identifyCaller } from "./scoped-auth.js";
 const KEY = "k".repeat(32);
 const TOKENS: Record<HttpRole, string> = {
   admin: "atag_admin-token-0000000000000000",
+  operator: "atag_operator-token-000000000000",
   member: "atag_member-token-000000000000000",
   viewer: "atag_viewer-token-000000000000000",
 };
@@ -27,7 +34,8 @@ const ROUTES: RouteDefinition[] = [
   { method: "GET", path: "/read", handler: ok, scope: "read" },
   { method: "POST", path: "/chat", handler: ok, scope: "chat" },
   { method: "POST", path: "/admin", handler: ok, scope: "admin" },
-  // Not in ROUTE_SCOPES and not tagged: needs admin.
+  { method: "POST", path: "/decide", handler: ok, scope: "decide" },
+  // An unclassified route is owner-only.
   { method: "POST", path: "/untagged", handler: ok },
 ];
 
@@ -66,7 +74,7 @@ async function call(
 }
 
 const bearer = (token: string) => ({ authorization: `Bearer ${token}` });
-const ALL = [stored("admin"), stored("member"), stored("viewer")];
+const ALL = [stored("admin"), stored("operator"), stored("member"), stored("viewer")];
 
 describe("scoped auth: roles against route scopes", () => {
   const matrix: Array<[HttpRole | "key", string, string, number]> = [
@@ -77,7 +85,12 @@ describe("scoped auth: roles against route scopes", () => {
     ["admin", "GET", "/read", 200],
     ["admin", "POST", "/chat", 200],
     ["admin", "POST", "/admin", 200],
-    ["admin", "POST", "/untagged", 200],
+    ["admin", "POST", "/untagged", 403],
+    ["admin", "POST", "/decide", 200],
+    ["operator", "POST", "/decide", 200],
+    ["operator", "POST", "/admin", 403],
+    ["member", "POST", "/decide", 403],
+    ["viewer", "POST", "/decide", 403],
     ["member", "GET", "/read", 200],
     ["member", "POST", "/chat", 200],
     ["member", "POST", "/admin", 403],
@@ -94,13 +107,13 @@ describe("scoped auth: roles against route scopes", () => {
     expect((await call(base, method, path, bearer(token))).status).toBe(status);
   });
 
-  it("a 403 names the token, its role, the route and the scope it lacks", async () => {
+  it("a 403 describes the role, route and missing scope", async () => {
     const base = await start(KEY, ALL);
     const out = await call(base, "POST", "/admin", bearer(TOKENS.viewer));
     expect(out.status).toBe(403);
     expect(out.code).toBe("insufficient_scope");
     expect(out.message).toBe(
-      'Token "viewer-laptop" has the viewer role and cannot use POST /admin: it needs the admin scope',
+      'Token has the viewer role and cannot use POST /admin: it needs the admin scope',
     );
   });
 
@@ -121,16 +134,44 @@ describe("scoped auth: roles against route scopes", () => {
     expect((await call(base, "GET", "/open")).status).toBe(200);
   });
 
-  it("a removed token stops working on the next request", async () => {
-    const named = [...ALL];
-    const handle = await createHttpServer({
-      runtime: {} as never, host: "127.0.0.1", port: 0, apiKey: KEY, routes: ROUTES, namedTokens: () => named,
-    });
-    servers.push(handle);
-    const base = `http://127.0.0.1:${handle.port}`;
-    expect((await call(base, "GET", "/read", bearer(TOKENS.viewer))).status).toBe(200);
-    named.splice(named.findIndex((t) => t.role === "viewer"), 1);
-    expect((await call(base, "GET", "/read", bearer(TOKENS.viewer))).status).toBe(401);
+  it("applies scope on registered routes and revokes the persisted token on the next request", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "atag-live-tokens-"));
+    try {
+      const viewer = addHttpToken(dir, "reader", "viewer");
+      if (!viewer.ok) throw new Error(viewer.error);
+      const handle = await createHttpServer({
+        runtime: {} as never, host: "127.0.0.1", port: 0, apiKey: KEY,
+        routes: buildRouteTable().map(route => ({ ...route, handler: ok })),
+        namedTokens: createHttpTokenSource(dir),
+      });
+      servers.push(handle);
+      const base = `http://127.0.0.1:${handle.port}`;
+      expect((await call(base, "GET", "/v1/models", bearer(viewer.token))).status).toBe(200);
+      expect((await call(base, "GET", "/v1/models")).status).toBe(401);
+      expect((await call(base, "POST", "/api/project/backlog", bearer(viewer.token))).code).toBe("insufficient_scope");
+      expect((await call(base, "POST", "/api/project/backlog", bearer(KEY))).status).toBe(200);
+      expect(removeHttpToken(dir, "reader").ok).toBe(true);
+      expect((await call(base, "GET", "/v1/models", bearer(viewer.token))).status).toBe(401);
+      expect((await call(base, "GET", "/v1/models", bearer(KEY))).status).toBe(200);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("counts unknown tokens against the network throttle before reading the registry", () => {
+    const throttle = new AuthThrottle({ maxFailures: 1 });
+    const req = {
+      headers: bearer("atag_unknown"), socket: { remoteAddress: "192.0.2.4" },
+    } as IncomingMessage;
+    const namedTokens = vi.fn(() => ALL);
+    const input = { apiKey: KEY, namedTokens, scope: "read" as const, route: "GET /read" };
+    const writeHead = vi.fn();
+    const res = { writeHead, end: vi.fn() } as unknown as ServerResponse;
+    expect(authorizeRequest(req, res, input, throttle)).toBe(false);
+    expect(writeHead.mock.calls.at(-1)?.[0]).toBe(401);
+    expect(authorizeRequest(req, res, input, throttle)).toBe(false);
+    expect(writeHead.mock.calls.at(-1)?.[0]).toBe(429);
+    expect(namedTokens).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -144,16 +185,8 @@ describe("scoped auth: backward compatibility", () => {
     }
   });
 
-  it("no key and no named tokens: every route is open, as before", async () => {
-    const base = await start(null, []);
-    expect((await call(base, "POST", "/admin")).status).toBe(200);
-    expect((await call(base, "POST", "/admin", bearer("anything"))).status).toBe(200);
-  });
-
-  it("no key with named tokens on disk: still open; a viewer token narrows nothing", async () => {
-    const base = await start(null, ALL);
-    expect((await call(base, "POST", "/admin")).status).toBe(200);
-    expect((await call(base, "POST", "/admin", bearer(TOKENS.viewer))).status).toBe(200);
+  it("rejects keyless production startup even when named tokens exist", async () => {
+    await expect(start(null, ALL)).rejects.toThrow("an API key is required");
   });
 
   it("no namedTokens option at all behaves like an empty list", async () => {
@@ -166,14 +199,14 @@ describe("scoped auth: backward compatibility", () => {
 });
 
 describe("identifyCaller", () => {
-  it("the serve key is always admin", () => {
-    expect(identifyCaller(KEY, KEY, ALL)).toEqual({ name: "api-key", role: "admin" });
+  it("the serve key is the owner", () => {
+    expect(identifyCaller(KEY, KEY, () => ALL)).toEqual({ name: "api-key", role: "owner" });
   });
 
   it("finds a named token by its hash and refuses empty or unknown values", () => {
-    expect(identifyCaller(TOKENS.member, KEY, ALL)).toEqual({ name: "member-laptop", role: "member" });
-    expect(identifyCaller("", KEY, ALL)).toBeNull();
-    expect(identifyCaller(null, KEY, ALL)).toBeNull();
-    expect(identifyCaller(hashHttpToken(TOKENS.member), KEY, ALL)).toBeNull();
+    expect(identifyCaller(TOKENS.member, KEY, () => ALL)).toEqual({ name: "member-laptop", role: "member" });
+    expect(identifyCaller("", KEY, () => ALL)).toBeNull();
+    expect(identifyCaller(null, KEY, () => ALL)).toBeNull();
+    expect(identifyCaller(hashHttpToken(TOKENS.member), KEY, () => ALL)).toBeNull();
   });
 });

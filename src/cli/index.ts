@@ -141,7 +141,7 @@ const COMMANDS: CommandDescriptor[] = [
   },
   {
     name: "http",
-    summary: "Named API tokens for serve, each with a role: admin, member, viewer (tokens list|add|remove)",
+    summary: "Named API tokens for serve, with route permissions (tokens list|add|remove)",
     run: httpCommand,
   },
   {

@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { httpTokensPath } from "../http/http-token-store.js";
 import { httpCommand } from "./http-command.js";
@@ -81,4 +81,18 @@ describe("atag http tokens (ATO-583)", () => {
     expect(out.out).toContain("member  read + chat");
     expect(out.out).toContain("viewer  read");
   });
+});
+
+it("refuses token management from an agent tool child", async () => {
+  expect((await run(["tokens", "add", "existing", "--role", "viewer"])).code).toBe(0);
+  const original = readFileSync(httpTokensPath(dir), "utf8");
+  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+  try {
+    for (const command of [["add", "another", "--role", "admin"], ["remove", "existing"], ["list"]]) {
+      expect(await run(["tokens", ...command])).toMatchObject({ code: 1, out: "", err: expect.stringContaining("agent tool child") });
+    }
+    expect(readFileSync(httpTokensPath(dir), "utf8")).toBe(original);
+  } finally {
+    vi.unstubAllEnvs();
+  }
 });

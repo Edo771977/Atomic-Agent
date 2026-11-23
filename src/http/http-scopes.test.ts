@@ -33,9 +33,9 @@ describe("ROUTE_SCOPES", () => {
     for (const scope of Object.values(ROUTE_SCOPES)) expect(HTTP_SCOPES).toContain(scope);
   });
 
-  it("keeps the pre-auth probes open: /health, /v1/models and the panel shell", () => {
+  it("keeps only health and the panel shell public", () => {
     expect(open).toEqual(
-      expect.arrayContaining(["GET /health", "GET /v1/models", "GET /panel", "GET /panel/app.js"]),
+      ["GET /health", "GET /panel", "GET /panel/app.js"],
     );
   });
 
@@ -48,8 +48,21 @@ describe("ROUTE_SCOPES", () => {
     expect(scopeForRoute("GET", "/api/sessions")).toBe("read");
   });
 
-  it("asks admin for a route the table does not know", () => {
-    expect(scopeForRoute("POST", "/api/not-a-route")).toBe("admin");
+  it("asks the owner for a route the table does not know", () => {
+    expect(scopeForRoute("POST", "/api/not-a-route")).toBe("owner");
+  });
+
+  it("gives no write route to read-only tokens", () => {
+    for (const key of authed.filter((key) => /^(POST|PUT|PATCH|DELETE) /.test(key))) {
+      expect(ROUTE_SCOPES[key], key).not.toBe("read");
+    }
+  });
+
+  it.each([
+    "/api/approval/resolve", "/api/question/answer", "/api/project-trust",
+    "/api/project/decision", "/api/project/backlog", "/api/project/lessons",
+  ])("requires the decision scope on %s", (path) => {
+    expect(scopeForRoute("POST", path)).toBe("decide");
   });
 
   it("leaves the tunnel gateway unauthenticated, so scopes never apply there", () => {

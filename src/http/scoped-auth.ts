@@ -31,20 +31,20 @@ export interface ScopedAuthInput {
 }
 
 /**
- * Match a presented token against the serve key (admin) and every named
+ * Match a presented token against the serve key (owner) and every named
  * token. Each named token is compared in constant time on its hash, and
  * the loop never stops early, so timing does not say which one matched.
  */
 export function identifyCaller(
   presented: string | null,
   apiKey: string,
-  namedTokens: readonly StoredHttpToken[],
+  namedTokens: () => readonly StoredHttpToken[],
 ): HttpCaller | null {
   if (secretEquals(presented, apiKey)) return { name: "api-key", role: "owner" };
   if (typeof presented !== "string" || presented.length === 0) return null;
   const hash = hashHttpToken(presented);
   let found: StoredHttpToken | null = null;
-  for (const token of namedTokens) {
+  for (const token of namedTokens()) {
     if (secretEquals(hash, token.sha256) && found === null) found = token;
   }
   return found ? { name: found.name, role: found.role } : null;
@@ -72,7 +72,7 @@ export function authorizeRequest(
     return false;
   }
   const presented = getBearerToken(req) ?? getHeader(req, "x-api-key");
-  const caller = identifyCaller(presented, input.apiKey, input.namedTokens());
+  const caller = identifyCaller(presented, input.apiKey, input.namedTokens);
   if (!caller) {
     throttle?.failed(address);
     sendInvalidApiKey(res);

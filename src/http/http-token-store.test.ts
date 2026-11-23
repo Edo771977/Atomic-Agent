@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, linkSync, symlinkSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -63,10 +63,11 @@ describe("http token store (ATO-583)", () => {
   });
 
   it("never writes over a broken file", () => {
+    expect(addHttpToken(dir, "existing", "viewer").ok).toBe(true);
     writeFileSync(httpTokensPath(dir), "{ not json");
     expect(addHttpToken(dir, "a", "viewer")).toMatchObject({ ok: false, error: expect.stringContaining("not valid JSON") });
     expect(readFileSync(httpTokensPath(dir), "utf8")).toBe("{ not json");
-    writeFileSync(httpTokensPath(dir), JSON.stringify({ tokens: [{ name: "x", role: "owner", sha256: "0".repeat(64) }] }));
+    writeFileSync(httpTokensPath(dir), JSON.stringify({ version: 1, tokens: [{ name: "x", role: "owner", sha256: "0".repeat(64) }] }));
     expect(readHttpTokens(dir).ok).toBe(false);
   });
 
@@ -84,4 +85,28 @@ describe("http token store (ATO-583)", () => {
     rmSync(httpTokensPath(dir));
     expect(source()).toEqual([]);
   });
+});
+
+it.skipIf(process.platform === "win32")("fails closed if a cached registry becomes public or linked", () => {
+  expect(addHttpToken(dir, "phone", "operator").ok).toBe(true);
+  const path = httpTokensPath(dir);
+  const source = createHttpTokenSource(dir);
+  expect(source()).toHaveLength(1);
+  chmodSync(path, 0o644);
+  expect(source()).toEqual([]);
+  expect(readHttpTokens(dir).ok).toBe(false);
+  chmodSync(path, 0o600);
+  const alias = join(dir, "alias");
+  linkSync(path, alias);
+  expect(source()).toEqual([]);
+  rmSync(path);
+  symlinkSync(alias, path);
+  expect(source()).toEqual([]);
+});
+
+it("does not store a bearer token accidentally supplied as a name", () => {
+  const issued = addHttpToken(dir, "existing", "viewer");
+  if (!issued.ok) throw new Error(issued.error);
+  expect(addHttpToken(dir, issued.token, "viewer").ok).toBe(false);
+  expect(readFileSync(httpTokensPath(dir), "utf8")).not.toContain(issued.token);
 });

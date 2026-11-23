@@ -306,12 +306,15 @@ export function findShellStateSecrets(
 
   const hits = new Set(processSecretPaths(line));
   const nameTokens = line.split(/[\s;|&<>()`]+/);
-  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line) || nameTokens.some(token => {
-    const name = token.split(/[\\/=]/).at(-1) ?? "";
-    return name !== "*" && matchesName(name, "serve-api.key", env.platform);
-  })) {
-    for (const file of known.files) {
-      if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
+  for (const filename of ["serve-api.key", "http-tokens.json"]) {
+    const literal = new RegExp(`(^|[^\\w.-])${filename.replace(".", "\\.")}(?=$|[^\\w.-])`, "i");
+    if (literal.test(line) || nameTokens.some(token => {
+      const name = token.split(/[\\/=]/).at(-1) ?? "";
+      return name !== "*" && matchesName(name, filename, env.platform);
+    })) {
+      for (const file of known.files) {
+        if (file.split(/[\\/]/).at(-1)?.toLowerCase() === filename) hits.add(file);
+      }
     }
   }
   // Track simple directory changes and inspect paths after lifting shell substitutions.
@@ -366,7 +369,7 @@ export function shellServerKeyMutation(
   secrets: StateSecrets,
   env?: ShellScopeEnv,
 ): boolean {
-  const files = secrets.files.filter(path => /(?:^|[\\/])(?:serve-api|llama-server)\.key$/i.test(path));
+  const files = secrets.files.filter(path => /(?:^|[\\/])(?:(?:serve-api|llama-server)\.key|http-tokens\.json)$/i.test(path));
   if (files.length === 0) return false;
   return shellCommandLine(args).split(/[;|&\n]+/).some(cmd => {
     const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;

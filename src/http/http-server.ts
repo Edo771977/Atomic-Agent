@@ -43,8 +43,8 @@ export interface RouteDefinition {
   handler: HttpHandler;
   /**
    * Whether to enforce bearer-token auth when an `apiKey` is
-   * configured. Defaults to `true`; set to `false` for `/health` and
-   * `/v1/models` which OpenAI SDKs probe pre-auth.
+   * configured. Defaults to `true`. Main API routes under `/api` and
+   * `/v1` always require it.
    */
   requiresAuth?: boolean;
   /** ATO-583: the scope a named token needs here; defaults to the `ROUTE_SCOPES` entry. */
