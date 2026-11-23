@@ -1579,11 +1579,11 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
-      const isEscalationLeg = (leg: { providerId: string; model: string }): boolean =>
+      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean =>
         escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
         (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
-          `${leg.providerId}:${leg.model}`,
-          `${escalationTarget.providerId}:${escalationTarget.model ?? "default"}`,
+          leg.pinModel === undefined && leg.model === leg.providerId ? leg.providerId : `${leg.providerId}:${leg.model}`,
+          `${escalationTarget.providerId}:${escalationTarget.pinModel ?? escalationTarget.model ?? "default"}`,
           deps.resolveDefaultModel,
         ));
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;

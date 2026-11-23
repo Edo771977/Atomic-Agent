@@ -34,6 +34,7 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
     { roleLeg: false, target: "other", expected: true },
     { roleLeg: true, target: "other", expected: true },
     { roleLeg: true, target: "role-model", expected: false },
+    { roleLeg: true, target: null, expected: false },
   ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target", async ({ roleLeg, target, expected }) => {
     const budget = new FusionTurnBudget();
     budget.begin("s-parent");
@@ -65,9 +66,9 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
       slotManager: { poolSize: () => 4 },
       resolveRunMode: () => ({
         ...mode(),
-        escalation: { ...mode().escalation!, model: target, pinModel: target },
+        escalation: { ...mode().escalation!, model: target, ...(target === null ? {} : { pinModel: target }) },
         ...(roleLeg ? { roles: { byRole: {
-          review: { providerId: "third", model: "role-model", pinModel: "role-model", local: false },
+          review: { providerId: "third", model: target === null ? null : "role-model", local: false },
         }, mixLocalModels: false, localLegProviderIds: [] } } : {}),
       }),
       workerSupportsSlotAffinity: () => false,
