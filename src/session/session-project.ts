@@ -194,9 +194,9 @@ export interface ProjectCriterionFact {
   /** One line, e.g. the failing check or why it could not be judged. */
   why?: string;
   /**
-   * Issue #110: `passed`, but only checks with a lint warning support it
-   * (they may also pass on the wrong thing): "verified with
-   * reservations". One line, what those checks prove too little about.
+   * `passed` with reservations. The supporting checks have verification
+   * warnings, unresolved lint warnings, or unavailable negative controls.
+   * One line describes the reservations.
    * Never on another state; no verdict reads it.
    */
   reservation?: string;

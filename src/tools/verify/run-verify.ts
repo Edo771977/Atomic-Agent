@@ -39,12 +39,14 @@ export interface VerifyRunResult {
   readonly ok: boolean;
   readonly kind: VerifyRunKind;
   readonly isolated: boolean;
+  readonly warningCount?: number;
   readonly artifactStatus?: ArtifactOutcome["status"];
   readonly researchLinks?: readonly ResearchLinkVerdict[];
   readonly impeccableVersion?: string;
   readonly impeccableFindings?: readonly string[];
   readonly impeccableSuppressions?: readonly string[];
   readonly impeccableExceptions?: readonly string[];
+  readonly impeccableExceptionCount?: number;
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -197,10 +199,13 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     });
     const text = delivery ? maskVerificationSecrets(detail, known) : detail;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
+    const warningCount = ui === undefined
+      ? (out.warningCount ?? 0)
+      : (ui.findings?.filter(line => line.startsWith("warning: ")).length ?? 0);
     const evidenceCount = [ui?.findings, ui?.suppressions, ui?.usedExceptions].filter(lines => lines?.length).length;
     const evidenceBudget = Math.floor(8188 / Math.max(1, evidenceCount));
-    return finish({ ...common, artifactStatus: out.status, ...(researchLinks === undefined ? {} : { researchLinks }), stdoutTail: ui === undefined && !delivery ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
-      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, evidenceBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, evidenceBudget), ...(ui.usedExceptions === undefined ? {} : { impeccableExceptions: boundedDetectorDetails(ui.usedExceptions, evidenceBudget) }) }),
+    return finish({ ...common, artifactStatus: out.status, ...(warningCount > 0 ? { warningCount } : {}), ...(researchLinks === undefined ? {} : { researchLinks }), stdoutTail: ui === undefined && !delivery ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, evidenceBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, evidenceBudget), ...(ui.usedExceptions === undefined ? {} : { impeccableExceptions: boundedDetectorDetails(ui.usedExceptions, evidenceBudget), impeccableExceptionCount: ui.usedExceptions.length }) }),
       ...(out.status === "uncheckable" ? { error: ui !== undefined ? text.split("\n", 1)[0] : delivery ? text.slice(0, OUTPUT_TAIL_CHARS) : text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
@@ -280,8 +285,9 @@ function finishPage(
     ...(out.screenshots === undefined ? {} : { screenshots: out.screenshots }),
     ...(out.screenshotErrors === undefined ? {} : { screenshotErrors: out.screenshotErrors }),
   };
+  const warningCount = out.consoleWarnings.length;
   return finish(
-    { ...common, ...extra, errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...games, ...shots, ...(out.error === undefined ? {} : { error: out.error }) },
+    { ...common, ...extra, ...(warningCount > 0 ? { warningCount } : {}), errors: out.errors, consoleErrors: out.consoleErrors, consoleWarnings: out.consoleWarnings, requestFailures: out.requestFailures, missingSelectors: out.missingSelectors, probes: out.probes, ...games, ...shots, ...(out.error === undefined ? {} : { error: out.error }) },
     { kind: "page", errors: out.errors, consoleErrors: out.consoleErrors, missingSelectors: out.missingSelectors, probes: out.probes, ...games },
     args.checks, runOk, started,
   );
@@ -378,7 +384,7 @@ export async function runVerify(
     await workspace?.cleanup();
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    const warned = { ...result, cleanupWarning: `could not remove the verification copy ${workspace?.dir ?? ""}: ${error}` };
+    const warned = { ...result, warningCount: (result.warningCount ?? 0) + 1, cleanupWarning: `could not remove the verification copy ${workspace?.dir ?? ""}: ${error}` };
     result = { ...warned, summary: renderVerifyRunSummary(warned) };
   }
   return result;
