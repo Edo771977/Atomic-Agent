@@ -39,7 +39,7 @@ export function projectLessonPanel(
   isBusy: (folder: string, id: string) => boolean,
   choice?: ProjectLessonChoice,
   originRefusal?: () => string | undefined,
-): { panel: ProjectLessonPanel; notice?: string; code?: LessonError } {
+): { panel: ProjectLessonPanel; notice?: string; code?: LessonError; recordReadFailed?: true } {
   const unavailable = (blocked: string, code: LessonError = "no-project") => ({ panel: { rows: [], problems: [], blocked }, code });
   if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.", "incognito");
   const ref = readProjectRef(session);
@@ -49,7 +49,7 @@ export function projectLessonPanel(
   }
   const records = stateDirProjectRecords(stateDir);
   const read = records.read(ref.folder);
-  if (!read.ok) return unavailable(read.problem.message);
+  if (!read.ok) return { ...unavailable(read.problem.message), recordReadFailed: true };
   const record = read.record;
   if (record?.id !== ref.id) return unavailable("This chat has no matching project decision record.");
 

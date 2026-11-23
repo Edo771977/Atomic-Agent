@@ -65,12 +65,14 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
   } : row);
   const running = result.code === "turn-running";
   const turnMessage = "Wait for the turn to finish.";
-  const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT, ...(running ? { blocked: turnMessage } : {}) };
+  const blocked = result.recordReadFailed ? "This chat's project record is unavailable."
+    : running ? turnMessage : result.panel.blocked;
+  const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT, blocked };
   if (result.code && (choice || !running)) {
     const message = running ? turnMessage
       : result.code === "busy" ? "Another process is saving the project record. Try again."
       : result.code === "io" ? "The project lesson choice could not be saved."
-      : result.notice ?? result.panel.blocked ?? "Lesson choice refused.";
+      : result.notice ?? blocked ?? "Lesson choice refused.";
     return sendJson(res, status[result.code], { ...openaiError(message, "invalid_request_error", null, result.code), panel });
   }
   if (choice && view) ctx.projectGateBus?.publish({ type: "project_gate", sessionId, view });

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import * as lessons from "../session/project-lessons.js";
 import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
-import { stateDirProjectRecords } from "../session/project-decisions.js";
-import type { ProjectLessonPanel } from "../session/project-lesson-operations.js";
+import { projectRecordsDir, stateDirProjectRecords } from "../session/project-decisions.js";
+import { projectLessonPanel, type ProjectLessonPanel } from "../session/project-lesson-operations.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -178,4 +178,23 @@ it("publishes the updated gate and its lesson coverage only after a successful c
   } finally {
     off();
   }
+});
+
+it("keeps local record paths out of damaged-record error messages", async () => {
+  const records = stateDirProjectRecords(h.stateDir);
+  const record = records.read(session.workingDir);
+  assert.ok(record.ok && record.record);
+  const directory = projectRecordsDir(h.stateDir);
+  const recordFile = readdirSync(directory).find(name => name.endsWith(".json"));
+  assert.ok(recordFile);
+  const recordPath = join(directory, recordFile);
+  writeFileSync(recordPath, "broken");
+  const local = projectLessonPanel(session, h.stateDir, () => false);
+  expect(local.panel.blocked).toContain(recordPath);
+  const response = await list();
+  expect(response.status).toBe(404);
+  const body = await read(response);
+  expect(body.error).toMatchObject({ code: "no-project", message: "This chat's project record is unavailable." });
+  expect(body.panel.blocked).toBe("This chat's project record is unavailable.");
+  expect(JSON.stringify(body)).not.toContain(h.stateDir);
 });
