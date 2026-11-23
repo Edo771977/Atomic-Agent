@@ -61,6 +61,8 @@ it("prepares the wrapper without caller-controlled native loader settings", () =
     LD_DEBUG_OUTPUT: "/fixture/loader.log",
     DYLD_INSERT_LIBRARIES: "/fixture/loader.dylib",
     GCONV_PATH: "/fixture",
+    SSH_AUTH_SOCK: "/fixture/ssh-agent.sock",
+    DOCKER_HOST: "unix:///fixture/docker.sock",
     XDG_CACHE_HOME: "/fixture/cache",
   });
   expect(env).toEqual({

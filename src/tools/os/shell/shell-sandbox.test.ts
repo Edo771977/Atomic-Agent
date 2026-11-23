@@ -20,6 +20,8 @@ const availability = smoke.ok ? spawnSync(smoke.command, smoke.args, { encoding:
 const unavailable = !smoke.ok ? smoke.reason : availability?.status === 0 ? undefined
   : availability?.stderr?.trim() || availability?.error?.message || "backend probe failed";
 
+if (unavailable !== undefined) console.warn(`Skipping real OS sandbox tests: ${unavailable}`);
+
 describe.skipIf(unavailable !== undefined)(
   unavailable === undefined ? "os.shell.run inside the Safe Mode sandbox" : `Safe Mode unavailable: ${unavailable}`,
   () => {
@@ -166,6 +168,28 @@ describe.skipIf(unavailable !== undefined)(
         expect(result, result.summary).toMatchObject({ ok: true, ready: true, requests: [{ ok: true }] });
       } finally {
         vi.unstubAllEnvs();
+      }
+    });
+
+    it.skipIf(process.platform !== "linux")("masks a known SSH-agent socket even with networking approved", async () => {
+      const path = join(work, "ssh-agent.sock");
+      const server = createServer(socket => socket.end("synthetic SSH agent"));
+      try {
+        await new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(path, resolve);
+        });
+        vi.stubEnv("SSH_AUTH_SOCK", path);
+        const probe = ["-e", `require('node:net').connect(${JSON.stringify(path)}).pipe(process.stdout)`];
+        const args = { cmd: process.execPath, args: probe };
+        const control = await tool({ mode: "off", network: false }).run(args, ctx());
+        expect(control.summary).toContain("synthetic SSH agent");
+        const confined = await tool({ mode: "workspace", network: true }).run({ ...args, network: true }, ctx());
+        expect(confined.status).toBe("error");
+        expect(confined.summary).not.toContain("synthetic SSH agent");
+      } finally {
+        vi.unstubAllEnvs();
+        server.close();
       }
     });
 

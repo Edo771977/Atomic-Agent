@@ -6,7 +6,7 @@
  */
 import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
@@ -38,7 +38,7 @@ export function readOsSandboxSettings(
 /** Prepare the wrapper environment before the kernel has installed confinement. */
 export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const safe = Object.fromEntries(Object.entries(env).filter(([key]) =>
-    !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR)$/.test(key)));
+    !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST)$/.test(key)));
   const cache = join(tmpdir(), "atomic-agent-tool-cache");
   return { ...safe, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
@@ -127,6 +127,20 @@ export function buildOsSandboxPolicy(
     ...(process.platform === "win32" ? [] : ["/tmp", real("/tmp")]),
   ]);
   const secret = SECRET_HOME_PATHS.flatMap((p) => bothSpellings(join(home, p)));
+  if (process.platform === "linux") {
+    const runtime = process.env.XDG_RUNTIME_DIR;
+    const sockets = [
+      "/var/run/docker.sock",
+      join(home, ".docker/run/docker.sock"),
+      process.env.SSH_AUTH_SOCK,
+      process.env.DOCKER_HOST?.startsWith("unix://") ? process.env.DOCKER_HOST.slice(7) : undefined,
+      runtime === undefined ? undefined : join(runtime, "docker.sock"),
+      runtime === undefined ? undefined : join(runtime, "podman/podman.sock"),
+    ];
+    for (const path of sockets) {
+      if (path !== undefined && path !== "/" && isAbsolute(path)) secret.push(...bothSpellings(path));
+    }
+  }
   const stateDir = input.stateDir ?? process.env.ATOMIC_AGENT_STATE_DIR?.trim();
   secret.push(...bothSpellings(stateDir ? resolve(stateDir.replace(/^~(?=\/|$)/, home)) : join(home, ".atomic-agent")));
   const denyRead = unique(secret);
@@ -225,9 +239,9 @@ export function findBwrap(): string | null {
   return null;
 }
 
-function isFile(path: string): boolean {
+function isDirectory(path: string): boolean {
   try {
-    return statSync(path).isFile();
+    return statSync(path).isDirectory();
   } catch {
     return false;
   }
@@ -245,15 +259,15 @@ function bwrapArgs(
   args: readonly string[],
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid"];
-  for (const dir of policy.writableRoots) {
+  for (const dir of unique(policy.writableRoots.map(real))) {
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
   out.push("--proc", "/proc");
-  for (const path of policy.denyRead) {
+  for (const path of unique(policy.denyRead.map(real))) {
     if (!existsSync(path)) continue;
-    if (isFile(path)) out.push("--ro-bind", "/dev/null", path);
-    else out.push("--tmpfs", path);
+    if (isDirectory(path)) out.push("--tmpfs", path);
+    else out.push("--ro-bind", "/dev/null", path);
   }
   if (!policy.network) out.push("--unshare-net");
   out.push("--die-with-parent", "--new-session", "--", command, ...args);
