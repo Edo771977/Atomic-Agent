@@ -1,6 +1,7 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import { expect, it, vi } from "vitest";
 
 import { resolveVerifyCwd } from "./verify-authorization.js";
@@ -49,4 +50,26 @@ it.skipIf(process.platform !== "linux")("CI regression: supervisor does not depe
     command: "/bin/true", args: [], commandLine: "true", windowsVerbatimArguments: false,
   }, "/tmp/fixture.sock");
   expect(result.args.some(arg => arg.startsWith("data:text/javascript;base64,"))).toBe(true);
+});
+
+it.skipIf(process.platform !== "linux")("round 3 point 9: rejects a symbolic link to a synthetic relay socket", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "relay-identity-"));
+  const realSocket = join(dir, "actual.sock");
+  const alias = join(dir, "alias.sock");
+  const server = createServer({ allowHalfOpen: true }, socket => {
+    socket.resume();
+    socket.on("end", () => socket.end(JSON.stringify({ status: 200, body: "fixture" })));
+  });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(realSocket, resolve);
+    });
+    symlinkSync(realSocket, alias);
+    const { probeLinuxService } = await import("./linux-service-probe.js");
+    await expect(probeLinuxService(alias, { port: 1234 }, AbortSignal.timeout(1000))).rejects.toThrow("relay socket");
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
