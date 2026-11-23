@@ -190,3 +190,17 @@ it("rejects the old key printing flag even from an unmarked process", async () =
     vi.unstubAllEnvs();
   }
 });
+
+it("warns once when the serve key comes from the environment", async () => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-warning-key");
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand([]);
+    const output = stderr.mock.calls.flat().join("");
+    expect(output.match(/use --api-key-file/g)).toHaveLength(1);
+    expect(output).not.toContain("synthetic-serve-warning-key");
+  } finally {
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});

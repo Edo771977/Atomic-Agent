@@ -22,6 +22,7 @@ export interface ServeArgs {
    * (`resolveServeApiKey`), never without one.
    */
   apiKey: string | null;
+  apiKeyFromEnvironment: boolean;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -198,6 +199,7 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  let apiKeyFromEnvironment = false;
   if (apiKeyFile !== null && apiKeyProvided) {
     return { error: "use either --api-key or --api-key-file" };
   }
@@ -209,6 +211,7 @@ export function parseArgs(
   } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;
+    apiKeyFromEnvironment = apiKey !== null;
   }
   // A bearer header is trimmed before it is compared, so a key of only
   // whitespace could never be sent back: serve would start and refuse
@@ -247,6 +250,7 @@ export function parseArgs(
     port,
     workingDir: workingDir ?? process.cwd(),
     apiKey,
+    apiKeyFromEnvironment,
     noApproval,
     parentPid,
     noParentExit,

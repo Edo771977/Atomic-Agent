@@ -72,6 +72,10 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 0;
   }
 
+  if (parsed.apiKeyFromEnvironment) {
+    process.stderr.write("serve: ATOMIC_AGENT_API_KEY can be visible in the startup environment. For explicit keys, use --api-key-file.\n");
+  }
+
   // Always a key, on loopback too: the operator's, else the persisted one
   // made on the first run. No key, no server.
   const apiKey = resolveServeApiKey(parsed.apiKey, stateDir);

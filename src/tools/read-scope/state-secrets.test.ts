@@ -500,3 +500,17 @@ describe("a shell command naming a fusion project's record (issue #109 review)",
   });
 });
 
+
+it.each(["/proc/self/environ", "/proc/123/task/456/environ", "/proc/$PPID/environ", "/proc/$$/environ", "/proc/*/environ", "/proc/$pid/environ"])("classifies %s as a process environment", (path) => {
+  const stateDir = "/atomic-state";
+  expect(findShellStateSecrets({ cmd: "cat", args: [path] }, { workingDir: "/" }, { stateDir, files: [] }, { home: "/", platform: "linux" })).toHaveLength(1);
+});
+it.each(["ps eww -p 123", "/usr/bin/ps axeww", "ps --environment"])("classifies environment-displaying ps (%s)", (cmd) => {
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] }, { home: "/", platform: "linux" })).toHaveLength(1);
+});
+it("keeps ordinary ps format arguments outside the process environment category", () => {
+  expect(findShellStateSecrets({ cmd: "ps -e -o user" }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] }, { home: "/", platform: "linux" })).toEqual([]);
+});
+it("classifies direct procfs reads even without state secret files", () => {
+  expect(findStateSecretReads("os.fs.read", { path: "/proc/self/environ" }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] })).toHaveLength(1);
+});
