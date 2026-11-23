@@ -124,6 +124,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
       runtime: harness.runtime,
       request: { mode: "quick" },
       preflight: { ok: true, binary: "cloudflared", reachable: ["gh", "pay", "std"], withoutSecret: ["open"] },
+      apiKey: "serve-key-0123456789abcdef",
       approvalBus: harness.approvalBus,
       completionRegistry: harness.completionRegistry,
       write: (line) => lines.push(line),
@@ -139,7 +140,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     expect(String(tunnel!.gatewayPort)).not.toBe(harnessPort);
   });
 
-  it("serves nothing but POST /api/webhooks/{name}", async () => {
+  it("serves only webhook delivery routes", async () => {
     const { gateway } = await boot(new FakeChild());
     const probes: Array<[string, string]> = [
       ["GET", "/health"],
@@ -150,6 +151,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
       ["GET", "/api/sessions"],
       ["GET", "/api/webhooks"],
       ["GET", "/api/webhooks/gh"],
+      ["GET", "/webhooks/gh"],
       ["GET", "/api/events"],
       ["GET", "/panel"],
       ["POST", "/api/skills/install"],
@@ -166,21 +168,33 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
 
   it("refuses a binding without a secret, and an unsigned hit on one with a secret", async () => {
     const { gateway } = await boot(new FakeChild());
-    const open = await fetch(`${gateway}/api/webhooks/open`, { method: "POST", body: "{}" });
+    const open = await fetch(`${gateway}/webhooks/open`, { method: "POST", body: "{}" });
     expect(open.status).toBe(403);
-    const unsigned = await fetch(`${gateway}/api/webhooks/gh`, { method: "POST", body: "{}" });
+    const unsigned = await fetch(`${gateway}/webhooks/gh`, { method: "POST", body: "{}" });
     expect(unsigned.status).toBe(401);
     for (const name of ["constructor", "__proto__", "toString"]) {
-      const res = await fetch(`${gateway}/api/webhooks/${name}`, { method: "POST", body: "{}" });
+      const res = await fetch(`${gateway}/webhooks/${name}`, { method: "POST", body: "{}" });
       expect(res.status).toBe(404);
     }
     expect(harness!.runtime.taskStore.list().length).toBe(0);
   });
 
+  it("round2-7 does not mount the old API webhook path", async () => {
+    const { gateway } = await boot(new FakeChild());
+    const body = JSON.stringify({ ref: "refs/heads/main" });
+    const headers = githubHeaders(body, "delivery-api-auth");
+    const send = (authorization?: string) => fetch(`${gateway}/api/webhooks/gh`, {
+      method: "POST", body,
+      headers: { ...headers, ...(authorization ? { authorization } : {}) },
+    });
+    expect((await send()).status).toBe(404);
+    expect((await send("Bearer serve-key-0123456789abcdef")).status).toBe(404);
+  });
+
   it("accepts a GitHub-signed delivery and makes a task", async () => {
     const { gateway } = await boot(new FakeChild());
     const body = JSON.stringify({ ref: "refs/heads/main" });
-    const res = await fetch(`${gateway}/api/webhooks/gh`, {
+    const res = await fetch(`${gateway}/webhooks/gh`, {
       method: "POST",
       headers: githubHeaders(body, "delivery-1"),
       body,
@@ -194,13 +208,13 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     const { gateway } = await boot(new FakeChild());
     const body = JSON.stringify({ ref: "refs/heads/main" });
     const send = () =>
-      fetch(`${gateway}/api/webhooks/gh`, { method: "POST", headers: githubHeaders(body, "delivery-dup"), body });
+      fetch(`${gateway}/webhooks/gh`, { method: "POST", headers: githubHeaders(body, "delivery-dup"), body });
     expect((await send()).status).toBe(202);
     const again = await send();
     expect(again.status).toBe(200);
     expect(await again.json()).toEqual({ taskId: null, duplicate: true, delivery: "delivery-dup" });
     expect(harness!.runtime.taskStore.list().length).toBe(1);
-    const other = await fetch(`${gateway}/api/webhooks/gh`, {
+    const other = await fetch(`${gateway}/webhooks/gh`, {
       method: "POST",
       headers: githubHeaders(body, "delivery-other"),
       body,
@@ -213,7 +227,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     const { gateway } = await boot(new FakeChild());
     const stripeBody = JSON.stringify({ id: "evt_synthetic_1", type: "invoice.paid" });
     const pay = () =>
-      fetch(`${gateway}/api/webhooks/pay`, { method: "POST", headers: stripeHeaders(stripeBody), body: stripeBody });
+      fetch(`${gateway}/webhooks/pay`, { method: "POST", headers: stripeHeaders(stripeBody), body: stripeBody });
     expect((await pay()).status).toBe(202);
     const payAgain = await pay();
     expect(payAgain.status).toBe(200);
@@ -221,7 +235,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
 
     const stdBody = JSON.stringify({ type: "thing.happened" });
     const std = () =>
-      fetch(`${gateway}/api/webhooks/std`, { method: "POST", headers: standardHeaders(stdBody, "msg_synthetic_1"), body: stdBody });
+      fetch(`${gateway}/webhooks/std`, { method: "POST", headers: standardHeaders(stdBody, "msg_synthetic_1"), body: stdBody });
     expect((await std()).status).toBe(202);
     expect((await std()).status).toBe(200);
     expect(harness!.runtime.taskStore.list().length).toBe(2);
@@ -230,7 +244,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
   it("rejects a Standard Webhooks or Stripe signature made 6 minutes ago", async () => {
     const { gateway } = await boot(new FakeChild());
     const stdBody = JSON.stringify({ type: "thing.happened" });
-    const std = await fetch(`${gateway}/api/webhooks/std`, {
+    const std = await fetch(`${gateway}/webhooks/std`, {
       method: "POST",
       headers: standardHeaders(stdBody, "msg_stale", 6 * 60),
       body: stdBody,
@@ -239,7 +253,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     expect(await std.text()).toContain("stale_timestamp");
 
     const stripeBody = JSON.stringify({ id: "evt_stale", type: "invoice.paid" });
-    const pay = await fetch(`${gateway}/api/webhooks/pay`, {
+    const pay = await fetch(`${gateway}/webhooks/pay`, {
       method: "POST",
       headers: stripeHeaders(stripeBody, 6 * 60),
       body: stripeBody,
@@ -261,7 +275,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
       publicUrl: "https://calm-sea-cat-dog.trycloudflare.com",
       error: null,
     });
-    expect(lines.join("")).toContain("webhook gh: https://calm-sea-cat-dog.trycloudflare.com/api/webhooks/gh");
+    expect(lines.join("")).toContain("webhook gh: https://calm-sea-cat-dog.trycloudflare.com/webhooks/gh");
     expect(lines.join("")).toContain("not reachable without a secret: open");
 
     const list = await fetch(`${harness!.baseUrl}/api/webhooks`);
@@ -272,7 +286,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     expect(JSON.stringify(payload)).not.toContain("gh-secret-0123456789");
     expect(payload.webhooks).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ name: "gh", hasSecret: true, publicUrl: "https://calm-sea-cat-dog.trycloudflare.com/api/webhooks/gh" }),
+        expect.objectContaining({ name: "gh", hasSecret: true, publicUrl: "https://calm-sea-cat-dog.trycloudflare.com/webhooks/gh" }),
         expect.objectContaining({ name: "open", hasSecret: false, publicUrl: null }),
       ]),
     );

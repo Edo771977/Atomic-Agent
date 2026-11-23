@@ -91,8 +91,13 @@ export class FakeBrowserBackend implements BrowserBackend {
 }
 
 export interface HarnessOptions {
-  /** When set, the HTTP server requires this bearer token. */
+  /**
+   * When set, the HTTP server requires this bearer token. Unset, the
+   * harness starts it with `unauthenticated: true`, a test-only seam:
+   * `serve` always has a key.
+   */
   apiKey?: string | null;
+  namedTokens?: NonNullable<Parameters<typeof createHttpServer>[0]["namedTokens"]>;
   /** Installed as a metric sink and handed to `GET /metrics`, as serve does (ATO-646). */
   metricsRegistry?: PrometheusRegistry;
   /**
@@ -266,7 +271,10 @@ export async function startTestHarness(
     runtime,
     host: options.host ?? "127.0.0.1",
     port: 0,
-    apiKey: options.apiKey ?? null,
+    apiKey: options.apiKey || null,
+    ...(options.namedTokens ? { namedTokens: options.namedTokens } : {}),
+    // The harness's explicit keyless seam; `serve` itself never runs without a key.
+    unauthenticated: !options.apiKey,
     routes: buildRouteTable(
       options.metricsRegistry ? { metricsRegistry: options.metricsRegistry } : {},
     ),

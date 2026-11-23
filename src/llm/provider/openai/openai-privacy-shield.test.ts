@@ -1,0 +1,420 @@
+import { ProviderFallbackChain } from "../../fallback/provider-fallback-chain.js";
+import { DEFAULT_FALLBACK_TIMING } from "../../fallback/fallback-config.js";
+import { runWithFallback } from "../../fallback/run-with-fallback.js";
+import { parseToolCalls } from "../../grammar/tool-call-grammar.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { CompletionResult, StreamChunk } from "../completion-types.js";
+import {
+  privacyVaultFor,
+  resetPrivacyVaults,
+  setPrivacyKnownSecrets,
+  setPrivacyShieldEnabled,
+} from "../../../privacy/index.js";
+import { OpenAiProvider } from "./openai-provider.js";
+import { jsonSchemaToolModes } from "./json-schema-tool-mode.js";
+import { createChunkUnmasker, maskOpenAiBody, unmaskCompletion } from "./openai-privacy-shield.js";
+
+afterEach(() => { resetPrivacyVaults(); vi.restoreAllMocks(); });
+
+const EMAIL = "jane.doe@example.com";
+const CARD = "4111 1111 1111 1111";
+
+function frame(obj: Record<string, unknown>): string {
+  return `data: ${JSON.stringify(obj)}\n\n`;
+}
+
+function contentFrame(content: string): string {
+  return frame({
+    model: "m",
+    choices: [{ index: 0, delta: { role: "assistant", content }, finish_reason: null }],
+  });
+}
+
+function toolArgsFrame(fragment: string, name?: string): string {
+  return frame({
+    model: "m",
+    choices: [
+      {
+        index: 0,
+        delta: {
+          tool_calls: [
+            {
+              index: 0,
+              ...(name ? { id: "call_1" } : {}),
+              type: "function",
+              function: { ...(name ? { name } : {}), arguments: fragment },
+            },
+          ],
+        },
+        finish_reason: null,
+      },
+    ],
+  });
+}
+
+const stopFrames = (reason = "stop") =>
+  frame({ model: "m", choices: [{ index: 0, delta: {}, finish_reason: reason }] }) + "data: [DONE]\n\n";
+
+/** One SSE frame per pull, so every frame is its own chunk. */
+function sse(frames: readonly string[]): Response {
+  const encoder = new TextEncoder();
+  const queue = [...frames];
+  const body = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const next = queue.shift();
+      if (next === undefined) controller.close();
+      else controller.enqueue(encoder.encode(next));
+    },
+  });
+  return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+}
+
+function json(body: Record<string, unknown>): Response {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+function provider(fetchImpl: unknown, baseUrl = "https://api.example.invalid"): OpenAiProvider {
+  return new OpenAiProvider({
+    id: "cloud",
+    baseUrl,
+    apiKey: "",
+    defaultChatModel: "m",
+    fetchImpl: fetchImpl as typeof fetch,
+  });
+}
+
+function sentBody(fetchImpl: ReturnType<typeof vi.fn>, call = 0): string {
+  return String((fetchImpl.mock.calls[call]?.[1] as RequestInit).body);
+}
+
+async function drain(
+  stream: AsyncGenerator<StreamChunk, CompletionResult, void>,
+): Promise<{ chunks: StreamChunk[]; result: CompletionResult }> {
+  const chunks: StreamChunk[] = [];
+  for (;;) {
+    const next = await stream.next();
+    if (next.done) return { chunks, result: next.value };
+    chunks.push(next.value);
+  }
+}
+
+describe("Privacy Shield helpers (ATO-1081)", () => {
+  it("masks only the messages of a body and counts the request", () => {
+    const vault = privacyVaultFor("s1");
+    const body: Record<string, unknown> = {
+      model: "m",
+      messages: [{ role: "user", content: `mail ${EMAIL}` }],
+      tools: [{ type: "function", function: { name: "send", description: `e.g. ${EMAIL}` } }],
+    };
+    maskOpenAiBody(body, vault);
+    expect(body.messages).toEqual([{ role: "user", content: "mail [EMAIL_1]" }]);
+    // Tool schemas are ours, not the person's.
+    expect(JSON.stringify(body.tools)).toContain(EMAIL);
+    expect(vault.stats().lastRequest).toBe(1);
+  });
+
+  it("unmasks reply, reasoning and tool-call arguments", () => {
+    const vault = privacyVaultFor("s1");
+    vault.mask(`${EMAIL} ${CARD}`);
+    const result = {
+      content: "Sent to [EMAIL_1].",
+      reasoningContent: "card is [CARD_1]",
+      toolCalls: [{ id: "c", type: "function", function: { name: "pay", arguments: '{"card":"[CARD_1]"}' } }],
+    } as unknown as CompletionResult;
+    const out = unmaskCompletion(result, vault);
+    expect(out.content).toBe(`Sent to ${EMAIL}.`);
+    expect(out.reasoningContent).toBe(`card is ${CARD}`);
+    expect(JSON.parse(out.toolCalls![0]!.function.arguments)).toEqual({ card: CARD });
+  });
+
+  it("holds a placeholder split across chunks in both channels", () => {
+    const vault = privacyVaultFor("s1");
+    vault.mask(EMAIL);
+    const unmasker = createChunkUnmasker(vault);
+    const a = unmasker.push({ delta: "to [EMA", reasoningDelta: "[EMAIL", done: false });
+    const b = unmasker.push({ delta: "IL_1]!", reasoningDelta: "_1", done: false });
+    const tail = unmasker.flush();
+    expect(a.delta + b.delta + (tail?.delta ?? "")).toBe(`to ${EMAIL}!`);
+    expect(a.reasoningDelta + b.reasoningDelta + (tail?.reasoningDelta ?? "")).toBe("[EMAIL_1");
+  });
+});
+
+describe("OpenAiProvider with Privacy Shield (ATO-1081)", () => {
+  it("sends placeholders to a cloud endpoint and returns the real values (unary)", async () => {
+    setPrivacyShieldEnabled(true);
+    const fetchImpl = vi.fn(async () =>
+      json({
+        model: "m",
+        choices: [
+          {
+            message: {
+              content: "Done, wrote to [EMAIL_1].",
+              tool_calls: [
+                { id: "c1", type: "function", function: { name: "mail", arguments: '{"to":"[EMAIL_1]"}' } },
+              ],
+            },
+            finish_reason: "tool_calls",
+          },
+        ],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
+    );
+    const result = await provider(fetchImpl).complete({ prompt: `Email ${EMAIL} please`, sessionId: "s1" });
+    const body = sentBody(fetchImpl);
+    expect(body).not.toContain(EMAIL);
+    expect(body).toContain("[EMAIL_1]");
+    expect(result.content).toBe(`Done, wrote to ${EMAIL}.`);
+    expect(JSON.parse(result.toolCalls![0]!.function.arguments)).toEqual({ to: EMAIL });
+    expect(privacyVaultFor("s1").stats().distinct).toBe(1);
+  });
+
+  it("restores placeholders cut across stream chunks, in text and tool arguments", async () => {
+    setPrivacyShieldEnabled(true);
+    const fetchImpl = vi.fn(async () =>
+      sse([
+        contentFrame("Paying with [CA"),
+        contentFrame("RD_1"),
+        contentFrame("] for [EMAIL_"),
+        contentFrame("1]"),
+        toolArgsFrame('{"card":"[CAR', "pay"),
+        toolArgsFrame('D_1]","to":"[EMAIL_1]"}'),
+        stopFrames("tool_calls"),
+      ]),
+    );
+    const { chunks, result } = await drain(
+      provider(fetchImpl).completeStream({ prompt: `card ${CARD}, mail ${EMAIL}`, sessionId: "s1" }),
+    );
+    const body = sentBody(fetchImpl);
+    expect(body).not.toContain(EMAIL);
+    expect(body).not.toContain("4111");
+    const shown = chunks.map((c) => c.delta).join("");
+    expect(shown).toBe(`Paying with ${CARD} for ${EMAIL}`);
+    expect(shown).not.toContain("[");
+    expect(result.content).toBe(`Paying with ${CARD} for ${EMAIL}`);
+    expect(JSON.parse(result.toolCalls![0]!.function.arguments)).toEqual({ card: CARD, to: EMAIL });
+  });
+
+  it("releases text held back at the end of the stream", async () => {
+    setPrivacyShieldEnabled(true);
+    privacyVaultFor("s1").mask(EMAIL);
+    const fetchImpl = vi.fn(async () =>
+      sse([contentFrame("Mail: [EMAIL"), contentFrame("_1], see note [E"), stopFrames()]),
+    );
+    const { chunks, result } = await drain(
+      provider(fetchImpl).completeStream({ prompt: "who?", sessionId: "s1" }),
+    );
+    // `[E` could have become a placeholder; it is shown once the stream ends.
+    expect(chunks.map((c) => c.delta).join("")).toBe(`Mail: ${EMAIL}, see note [E`);
+    expect(result.content).toBe(`Mail: ${EMAIL}, see note [E`);
+  });
+
+  it("masks the same value to the same placeholder on every request of a session", async () => {
+    setPrivacyShieldEnabled(true);
+    const reply = () =>
+      json({ model: "m", choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: {} });
+    const fetchImpl = vi.fn(async () => reply());
+    const p = provider(fetchImpl);
+    await p.complete({ prompt: `a ${EMAIL}`, sessionId: "s1" });
+    await p.complete({ prompt: `b ${EMAIL}`, sessionId: "s1" });
+    expect(sentBody(fetchImpl, 0)).toContain("a [EMAIL_1]");
+    expect(sentBody(fetchImpl, 1)).toContain("b [EMAIL_1]");
+  });
+
+  it("never masks for a server on this machine or the local network", async () => {
+    setPrivacyShieldEnabled(true);
+    for (const baseUrl of ["http://127.0.0.1:1234", "http://192.168.1.20:8080", "http://localhost:11434"]) {
+      const fetchImpl = vi.fn(async () =>
+        json({ model: "m", choices: [{ message: { content: "ok" }, finish_reason: "stop" }], usage: {} }),
+      );
+      await provider(fetchImpl, baseUrl).complete({ prompt: `mail ${EMAIL}`, sessionId: "s1" });
+      expect(sentBody(fetchImpl)).toContain(EMAIL);
+    }
+  });
+
+  it("changes nothing while the shield is off", async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({ model: "m", choices: [{ message: { content: "[EMAIL_1]" }, finish_reason: "stop" }], usage: {} }),
+    );
+    const result = await provider(fetchImpl).complete({ prompt: `mail ${EMAIL}`, sessionId: "s1" });
+    expect(sentBody(fetchImpl)).toContain(EMAIL);
+    expect(result.content).toBe("[EMAIL_1]");
+  });
+});
+
+describe("Privacy Shield in the fork", () => {
+  it("restores JSON-schema tool paths containing quotes in unary and streaming mode", async () => {
+    const path = 'Case3/a"b.txt';
+    vi.spyOn(jsonSchemaToolModes, "isOn").mockReturnValue(true);
+    setPrivacyKnownSecrets(() => [{ label: "path", value: path }]);
+    setPrivacyShieldEnabled(true);
+    const content = '{"calls":[{"name":"read","arguments":{"path":"[SECRET_1]"}}]}';
+    const fetchImpl = vi.fn(async (_url: unknown, init: RequestInit) =>
+      JSON.parse(String(init.body)).stream
+        ? sse([contentFrame(content), stopFrames()])
+        : json({ model: "m", choices: [{ message: { content }, finish_reason: "stop" }] }),
+    );
+    const p = new OpenAiProvider({
+      id: "cloud", baseUrl: "https://api.example.invalid", apiKey: "", defaultChatModel: "m",
+      jsonSchemaToolFallback: true, fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const request = {
+      prompt: `Read ${path}`, sessionId: "schema",
+      tools: [{ type: "function", function: { name: "read", parameters: { type: "object" } } }],
+    };
+    for (const result of [await p.complete(request), (await drain(p.completeStream(request))).result]) {
+      expect(result.toolCalls?.[0]?.function.name).toBe("read");
+      expect(JSON.parse(result.toolCalls![0]!.function.arguments)).toEqual({ path });
+    }
+  });
+
+  it("keeps grammar-shaped fallback content parseable before dispatch", async () => {
+    const path = 'Case3/a"b.txt';
+    setPrivacyKnownSecrets(() => [{ label: "path", value: path }]);
+    setPrivacyShieldEnabled(true);
+    const content = '[{"tool":"os.fs.read","args":{"path":"[SECRET_1]"}}]';
+    const fetchImpl = vi.fn(async () =>
+      sse([contentFrame(content), stopFrames()]),
+    );
+    const { chunks, result } = await drain(provider(fetchImpl).completeStream({
+      prompt: `Read ${path}`, sessionId: "grammar-fallback",
+    }));
+    expect(parseToolCalls(result.content).calls[0]?.args).toEqual({ path });
+    expect(chunks.map(chunk => chunk.delta).join("")).toBe(result.content);
+  });
+
+  it("masks private values in the JSON arguments replayed as chat history", () => {
+    const value = 'Case3/a"b.txt';
+    const argumentsText = JSON.stringify({ path: value, api_key: "UnlistedToken493825" });
+    setPrivacyKnownSecrets(() => [{ label: "path", value }]);
+    const body = {
+      messages: [{ tool_calls: [{ function: { arguments: argumentsText } }] }],
+    };
+    maskOpenAiBody(body, privacyVaultFor("replayed"));
+    expect(body.messages[0]?.tool_calls[0]?.function.arguments).toBe('{"path":"[SECRET_1]","api_key":"[SECRET_2]"}');
+  });
+
+  it("keeps bytes identical for the same session prefix and retains invented placeholders", async () => {
+    setPrivacyShieldEnabled(true);
+    const fetchImpl = vi.fn(async () =>
+      sse([contentFrame("[EMA"), contentFrame("IL_999] [EMAIL_1]"), stopFrames()]),
+    );
+    const p = provider(fetchImpl);
+    const messages = { system: `Stable prefix for ${EMAIL}`, droppedSummary: null, turns: [], tail: "First" };
+    const request = {
+      prompt: messages.system, sessionId: "stable", messages,
+      tools: [{ type: "function", function: { name: "reply", parameters: { type: "object" } } }],
+    };
+    const first = await drain(p.completeStream(request));
+    await drain(p.completeStream({ ...request, messages: { ...messages, tail: "Second" } }));
+    const prefix = (call: number) => JSON.stringify(JSON.parse(sentBody(fetchImpl, call)).messages[0]);
+    expect(JSON.parse(prefix(0))).toMatchObject({ role: "system" });
+    expect(prefix(0)).toContain("[EMAIL_1]");
+    expect(prefix(0)).toContain("Use these references exactly as written");
+    expect(prefix(0)).toBe(prefix(1));
+    expect(sentBody(fetchImpl, 0)).toContain("First");
+    expect(sentBody(fetchImpl, 1)).toContain("Second");
+    expect(first.chunks.map((chunk) => chunk.delta).join("")).toBe(`[EMAIL_999] ${EMAIL}`);
+    expect(first.result.content).toBe(`[EMAIL_999] ${EMAIL}`);
+  });
+
+  it("sends exactly the same bytes with the shield off as a bypassed cloud request", async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({ model: "m", choices: [{ message: { content: "[EMAIL_1]" }, finish_reason: "stop" }] }),
+    );
+    const p = provider(fetchImpl);
+    const request = { prompt: `Mail ${EMAIL}`, sessionId: "off" };
+    expect((await p.complete(request)).content).toBe("[EMAIL_1]");
+    setPrivacyShieldEnabled(true);
+    expect((await p.complete(request)).content).toBe(EMAIL);
+    setPrivacyShieldEnabled(false);
+    expect((await p.complete(request)).content).toBe("[EMAIL_1]");
+    expect(sentBody(fetchImpl, 0)).toBe(sentBody(fetchImpl, 2));
+    expect(sentBody(fetchImpl, 0)).not.toContain("Use these references exactly as written");
+    expect(sentBody(fetchImpl, 1)).not.toBe(sentBody(fetchImpl, 0));
+  });
+});
+
+it("forces protection for a cloud gateway and can opt out a remote provider", async () => {
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn(async () =>
+    json({ model: "m", choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }),
+  );
+  for (const [baseUrl, shield, expected] of [
+    ["http://localhost:4000", "auto", EMAIL],
+    ["http://localhost:4000", "on", "[EMAIL_1]"],
+    ["https://gateway.example.test", "off", EMAIL],
+  ] as const) {
+    const p = new OpenAiProvider({
+      id: "gateway", baseUrl, apiKey: "", defaultChatModel: "m",
+      privacy: { shield }, fetchImpl: replies as unknown as typeof fetch,
+    });
+    await p.complete({ prompt: `Mail ${EMAIL}`, sessionId: "gateway" });
+    expect(sentBody(replies, replies.mock.calls.length - 1)).toContain(expected);
+  }
+});
+
+it("restores plain text after a provider refuses response_format", async () => {
+  const secret = String.raw`Secret"With\Slash42`;
+  setPrivacyKnownSecrets(() => [{ label: "fixture", value: secret }]);
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn()
+    .mockImplementationOnce(async () => Response.json({
+      error: { message: "response_format json_schema is not supported" },
+    }, { status: 400 }))
+    .mockImplementationOnce(async () =>
+      json({ model: "m", choices: [{ message: { content: "Value [SECRET_1]" }, finish_reason: "stop" }] }),
+    );
+  const p = new OpenAiProvider({
+    id: "privacy-refusal", baseUrl: "https://api.example.test", apiKey: "", defaultChatModel: "m",
+    fetchImpl: replies as unknown as typeof fetch,
+  });
+  const result = await p.complete({
+    prompt: `Value ${secret}`, sessionId: "format-refusal",
+    responseFormat: { name: "format", schema: { type: "object" } },
+  });
+  expect(JSON.parse(sentBody(replies, 1))).not.toHaveProperty("response_format");
+  expect(result.content).toBe(`Value ${secret}`);
+});
+
+it("preserves JSON escaping in live structured-output chunks", async () => {
+  const secret = String.raw`Secret"With\Slash42`;
+  setPrivacyKnownSecrets(() => [{ label: "fixture", value: secret }]);
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn(async () => sse([
+    contentFrame('{"value":"[SEC'), contentFrame('RET_1]"}'), stopFrames(),
+  ]));
+  const { chunks, result } = await drain(provider(replies).completeStream({
+    prompt: `Value ${secret}`, sessionId: "format-stream",
+    responseFormat: { name: "format", schema: { type: "object" } },
+  }));
+  expect(chunks.map(chunk => chunk.delta).join("")).toBe(result.content);
+  expect(JSON.parse(result.content)).toEqual({ value: secret });
+});
+
+it("blocks oversized protected windows before send and rebuilds after compaction", async () => {
+  setPrivacyShieldEnabled(true);
+  const fetchImpl = vi.fn(async () => json({
+    model: "m", choices: [{ message: { content: "[EMAIL_1]" }, finish_reason: "stop" }],
+  }));
+  const p = provider(fetchImpl);
+  const sessionId = "compact-shield";
+  const crowded = Array.from({ length: 4096 }, (_, i) => `old-${i}@example.test`).join("\n");
+  const original = privacyVaultFor(sessionId);
+  original.maskDeep(crowded);
+  const fallback = vi.fn(async () => { throw new Error("unprotected provider received the request"); });
+  const chain = new ProviderFallbackChain({
+    resolve: () => ({ chain: ["protected", "unprotected"], timing: DEFAULT_FALLBACK_TIMING }),
+    noticeSink: () => {},
+  });
+  await expect(runWithFallback(chain, id => id === "protected"
+    ? p.complete({ sessionId, prompt: crowded + "\nnew@example.test" }) : fallback()))
+    .rejects.toMatchObject({ name: "PrivacyArchiveLimitError", message: expect.stringContaining("Shorten") });
+  expect(fetchImpl).not.toHaveBeenCalled();
+  expect(fallback).not.toHaveBeenCalled();
+  expect((await p.complete({ sessionId, prompt: "new@example.test" })).content).toBe("new@example.test");
+  expect(original.unmask("[EMAIL_1]")).toBe("old-0@example.test");
+});

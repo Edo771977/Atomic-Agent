@@ -39,7 +39,7 @@ export interface InboundCallbackUpdate {
   /** Sender. Used for the owner check. */
   from?: { id: number };
   /** Original message that hosted the inline keyboard. */
-  message?: { chat: { id: number }; message_id: number };
+  message?: { chat: { id: number }; message_id: number; text?: string };
   /** Verbatim `callback_data` payload from the inline button. */
   data?: string;
 }
@@ -99,7 +99,9 @@ interface PendingState {
  * 2. **Single resolution per approvalId.** Whichever path completes
  *    first (button vs timeout) cancels the other before calling
  *    `resolve`. A late-arriving stale button is acknowledged ("Already
- *    resolved.") but never resolves a second time.
+ *    resolved.") but never resolves a second time. A button from a
+ *    prompt an earlier run of the agent posted (ATO-613) says it expired
+ *    and its keyboard is removed.
  * 3. **Send failure auto-denies immediately.** If `sendMessage`
  *    rejects, the operator cannot reply; the bridge resolves with
  *    `approved: false, reason: "telegram delivery failed"` so the
@@ -147,10 +149,22 @@ interface PendingState {
  *   non-invasive, scheduled for slice 3 alongside the live-control
  *   surface that is already going to touch this file.
  */
+/** Approval ids remembered per process, to tell an old prompt from one this run posted. */
+export const POSTED_IDS_MAX = 2_000;
+
+/** The toast for an approval button whose request is no longer known. */
+export const EXPIRED_APPROVAL_NOTICE =
+  "This request expired. Send your request again if you still need it.";
+
 export class ApprovalBridge {
   /** Not readonly: `rebind()` swaps the bot and owner after a reconnect. */
   private deps: ApprovalBridgeDeps;
   private readonly pending = new Map<string, PendingState>();
+  /**
+   * Approval ids this process has posted (ATO-613), newest last, capped.
+   * An unfamiliar id could be from before a restart or have aged out.
+   */
+  private readonly posted = new Set<string>();
   private readonly timeoutMs: number;
 
   constructor(deps: ApprovalBridgeDeps) {
@@ -241,6 +255,7 @@ export class ApprovalBridge {
       chatId,
       messageId,
     );
+    this.rememberPosted(request.approvalId);
     this.pending.set(request.approvalId, {
       chatId,
       messageId,
@@ -278,9 +293,27 @@ export class ApprovalBridge {
 
     const pending = this.pending.get(approvalId);
     if (!pending) {
+      if (!this.posted.has(approvalId)) {
+        // An untracked prompt can no longer resolve an approval.
+        await this.acknowledge(update.id, EXPIRED_APPROVAL_NOTICE);
+        if (update.message) {
+          const notice = "⏹ expired. Send your request again if you still need it.";
+          const original = update.message.text?.slice(0, 4096 - notice.length - 2);
+          void this.editFinal(
+            update.message.chat.id,
+            update.message.message_id,
+            original ? `${original}\n\n${notice}` : notice,
+          );
+        }
+        return;
+      }
       // Stale button — the timer fired (or the operator clicked twice
       // in quick succession). Acknowledge so the spinner dismisses.
       await this.acknowledge(update.id, "Already resolved");
+      return;
+    }
+    if (update.message?.message_id !== pending.messageId || update.message.chat.id !== pending.chatId) {
+      await this.acknowledge(update.id, EXPIRED_APPROVAL_NOTICE);
       return;
     }
     // A question is answered by an option or skipped; an option button
@@ -482,6 +515,16 @@ export class ApprovalBridge {
     // process alive for eight minutes.
     handle.unref?.();
     return () => clearTimeout(handle);
+  }
+
+  private rememberPosted(approvalId: string): void {
+    this.posted.delete(approvalId);
+    this.posted.add(approvalId);
+    while (this.posted.size > POSTED_IDS_MAX) {
+      const oldest = this.posted.values().next().value;
+      if (oldest === undefined) break;
+      this.posted.delete(oldest);
+    }
   }
 
   private async acknowledge(

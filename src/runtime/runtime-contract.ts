@@ -265,7 +265,7 @@ export interface AgentRuntime {
    * `RunTurnResult.undelivered` — never stranded. Never starts a turn
    * on its own.
    */
-  steer(sessionId: string, text: string): boolean;
+  steer(sessionId: string, text: string, requestedByToken?: string): boolean;
   /**
    * The running fusion workers of `parentSessionId`'s fan-out, by task
    * id, and the person's two actions on one (ATO-66, ATO-942): `stop`
@@ -592,6 +592,7 @@ export interface AgentRuntime {
       signal?: AbortSignal;
       eventHook?: TurnEventHook;
       origin?: TurnOrigin;
+      requestedByToken?: string;
       providerId?: string;
       /**
        * With `providerId`: the cloud chat model for this turn only
@@ -754,6 +755,7 @@ export interface AgentRuntime {
        * reply gets that surface's `### answer-style` (ATO-966).
        */
       origin?: TurnOrigin;
+      requestedByToken?: string;
       /** See `runTurn`'s `answerChannel`; wins over `origin`. */
       answerChannel?: AnswerChannel;
       /** See `runTurn`'s `questions`. */

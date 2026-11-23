@@ -271,6 +271,7 @@ export function registerOsTools(
       approvals: options.approvals,
       approvalRequired: options.approvalRequired,
       defaultTimeoutMs: options.config.tools.shell.defaultTimeoutMs,
+      ...(options.config.http.urlDataGuard !== undefined ? { urlDataGuard: options.config.http.urlDataGuard } : {}),
       envPassthrough: options.config.tools.shell.envPassthrough,
       ...(options.shellPolicy === undefined
         ? {}
@@ -360,7 +361,10 @@ export function registerOsTools(
         : { egressRefusal: options.webFetchEgressRefusal }),
     }),
   );
-  registry.register(buildOsWebCrawlTool({ config: options.config }));
+  registry.register(buildOsWebCrawlTool({
+    config: options.config,
+    dangerous: { approvals: options.approvals, approvalRequired: options.approvalRequired },
+  }));
   registry.register(osClipboardReadTool);
   registry.register(osClipboardWriteTool);
   registry.register(osWindowListTool);

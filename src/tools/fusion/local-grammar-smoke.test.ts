@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { RunTurnResult } from "../../agent/agent-loop.js";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
+import type { CompletionResult } from "../../llm/provider/completion-types.js";
 import type { GrammarSmokeVerdict } from "../../llm/grammar/grammar-smoke.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
@@ -422,6 +423,32 @@ describe("fusion.delegate with the local format check", () => {
     const noProbe = deps({ localGrammarProbeFor: () => undefined });
     expect((await buildFusionDelegateTool(noProbe).run({ tasks: TASKS }, ctx())).status).toBe("ok");
     expect(failing.run).not.toHaveBeenCalled();
+  });
+
+  it("does not clear a cached failure when a runner reports tools after a grammarless completion", async () => {
+    const smoke = new LocalGrammarSmoke();
+    const failing = probe([FAIL, { kind: "pass" }], "external");
+    const at = { sessionId: "s-parent", leg: "local-llama" };
+    expect(await smoke.check(failing.probe, at)).toMatchObject({ kind: "fail" });
+    const unconstrainedTurn: FusionDelegateDeps["runTurn"] = async (session, message, options) => {
+      options.eventHook?.({
+        type: "llm_event",
+        event: {
+          type: "llm_completed",
+          completion: { grammarSkipped: true } as CompletionResult,
+        },
+      });
+      return workerTurn(session, message, options);
+    };
+    const tool = buildFusionDelegateTool(deps({
+      localGrammarSmoke: smoke,
+      localGrammarProbeFor: () => failing.probe,
+      resolveRunMode: () => fusionMode({ localFormatCheck: false }),
+      runTurn: vi.fn(unconstrainedTurn),
+    }));
+    await tool.run({ tasks: TASKS }, ctx());
+    expect(await smoke.check(failing.probe, at)).toMatchObject({ kind: "fail", cached: true });
+    expect(failing.run).toHaveBeenCalledOnce();
   });
 
   it("dispatches as before when the check has no verdict", async () => {

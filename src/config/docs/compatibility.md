@@ -50,6 +50,10 @@ The desktop app and the terminal share one state dir and one `config.json`, and 
 
 `network.offline` (boolean, ATO-1084) is additive and unversioned: a file without the `network` block reads `false`, which changes nothing. `ATOMIC_AGENT_OFFLINE=1` can only turn it on; `loadConfig` folds it into `config.network.offline`. A non-boolean is a validation error. [Network config tests](../network-config.test.ts) cover it.
 
+## Privacy Shield
+
+`privacy.shield.enabled` (boolean, ATO-599) is additive and unversioned: a file without the `privacy` block reads `false`, which changes nothing. A non-boolean is a validation error. [Privacy config tests](../privacy-config.test.ts) cover it.
+
 ## Approval pending notification
 
 `notifications.approvalPending` (`enabled`, `afterMinutes`, `channel`) is additive and unversioned: a file without it reads `enabled: false`, which sends nothing. `afterMinutes` is a whole number from 1 to 1440 and `channel` one of `telegram`, `discord` or `auto`; anything else is a validation error. [Integration config tests](../integration-config.test.ts) cover it.

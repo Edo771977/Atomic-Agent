@@ -14,12 +14,20 @@ import {
   localPageRefusal,
   type LocalPageRead,
 } from "./gate-page-read.js";
-import type { BrowserBackend } from "./browser-backend.js";
+import type { BrowserBackend, BrowserRedirectGuard } from "./browser-backend.js";
 import {
   blockedDomainMessage,
   checkBrowserUrl,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
+import {
+  checkUrlSend,
+  DEFAULT_URL_DATA_GUARD,
+  noteUrlSendAllowed,
+  urlSendGrantKey,
+  urlSendReason,
+} from "../os/web/url-data-guard.js";
+import { maskUrlSecrets } from "../os/web/http-request-preview.js";
 import {
   isOfflineNetwork,
   offlineRefusal,
@@ -124,6 +132,9 @@ export async function gateBrowserUrl(
     // The user's own Chrome: a new site asks once per session (stricter
     // than `browser_offsite`, which it replaces here).
     await requireUserSite(dangerous, policy, tool, verdict.host, url, ctx);
+    // ATO-1377: a cleared site still asks for an address full of data.
+    // `"strict"`'s once-per-site rule is what `requireUserSite` just did.
+    await requireUrlData(dangerous, policy, tool, url, ctx, "data");
     return null;
   }
   if (verdict.kind === "offsite") {
@@ -140,7 +151,58 @@ export async function gateBrowserUrl(
       ctx.signal,
     );
   }
+  await requireUrlData(dangerous, policy, tool, url, ctx);
   return null;
+}
+
+/** Reuse the dispatch decision for a destination before Chrome follows the redirect. */
+export function browserRedirectGuard(
+  dangerous: DangerousToolOptions,
+  policy: BrowserDomainPolicy,
+  tool: string,
+  ctx: Pick<ToolContext, "sessionId" | "signal">,
+): BrowserRedirectGuard {
+  return {
+    signal: ctx.signal,
+    async authorize(url, signal) {
+      const refused = await gateBrowserUrl(dangerous, policy, tool, url, { sessionId: ctx.sessionId, signal });
+      if (refused) throw new Error(refused.summary);
+    },
+  };
+}
+
+/**
+ * Ask as `http_write` when `checkUrlSend` says `url` must ask first
+ * (`url-data-guard.ts`). `modeCap` lowers `"strict"` to `"data"` where
+ * sites are already asked about another way.
+ */
+async function requireUrlData(
+  dangerous: DangerousToolOptions,
+  policy: BrowserDomainPolicy,
+  tool: string,
+  url: string,
+  ctx: Pick<ToolContext, "sessionId" | "signal">,
+  modeCap?: "data",
+): Promise<void> {
+  const configured = policy.urlDataGuard ?? DEFAULT_URL_DATA_GUARD;
+  const mode = modeCap !== undefined && configured === "strict" ? modeCap : configured;
+  const check = checkUrlSend(mode, url, ctx.sessionId, policy.urlSendSites);
+  if (check === null) return;
+  const shown = maskUrlSecrets(url.trim());
+  await requireApproval(
+    dangerous,
+    {
+      sessionId: ctx.sessionId,
+      tool,
+      category: "http_write",
+      reason: urlSendReason(shown, check),
+      preview: shown,
+      affectedResources: [check.host],
+      grantKey: urlSendGrantKey(check),
+    },
+    ctx.signal,
+  );
+  noteUrlSendAllowed(check, ctx.sessionId, policy.urlSendSites);
 }
 
 /**

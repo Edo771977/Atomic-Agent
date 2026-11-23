@@ -4,6 +4,15 @@ import { isSecretEnvName } from "../sandbox/command-env.js";
 import { commandIssuedSecrets } from "../llm/provider/openai/api-key-command.js";
 import { resolveExtraApiKeys } from "../config/resolve-llm-api-key.js";
 
+const activeServeKeys = new Set<KnownSecret>();
+
+/** Keep an ingress credential in the shared masking set only for the server's lifetime. */
+export function registerServeKeyForRedaction(value: string): () => void {
+  const secret: KnownSecret = { label: "serve-api-key", value, exact: true };
+  activeServeKeys.add(secret);
+  return () => { activeServeKeys.delete(secret); };
+}
+
 /** Header names whose value is a credential (`Authorization`, `X-Api-Key`, `Cookie`, ...). */
 const SECRET_HEADER = /authorization|api[-_]?key|token|secret|password|cookie|auth/i;
 
@@ -21,7 +30,7 @@ export function runtimeKnownSecrets(
   config: Partial<Pick<AtomicAgentConfig, "llm" | "localModels" | "webhooks" | "mcp" | "web" | "composio">>,
   env: NodeJS.ProcessEnv = process.env,
 ): KnownSecret[] {
-  const out = knownSecretsFromEnv(env);
+  const out = [...activeServeKeys, ...knownSecretsFromEnv(env)];
   const add = (label: string, value: unknown): void => {
     if (typeof value === "string" && value.length > 0) out.push({ label, value });
   };

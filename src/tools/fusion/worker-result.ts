@@ -240,6 +240,8 @@ export interface WorkerTaskResult {
   /** Call-wide scheduler wait before dispatch; excluded from durationMs and provider queueWaitMs. */
   schedulerQueueWaitMs?: number;
   tools: WorkerToolStats;
+  /** At least one completion ran without its requested grammar. */
+  grammarSkipped?: true;
   usage?: CompletionUsage;
   /**
    * Token counts of the completions that reported no `usage` (a
@@ -456,6 +458,7 @@ export class WorkerRunCollector {
   /** A refusal no fan-out can lift (`FUSION_WORKER_OPERATOR_ONLY_MARKER`). */
   private operatorOnlyRefused = false;
   private calls = 0;
+  private grammarSkipped = false;
   private errors = 0;
   private writes = 0;
   private readonly byTool: Record<string, number> = {};
@@ -554,6 +557,9 @@ export class WorkerRunCollector {
       );
       if (this.recent.length > FINDINGS_KEPT) this.recent.shift();
       return;
+    }
+    if (inner.type === "llm_completed" && inner.completion.grammarSkipped === true) {
+      this.grammarSkipped = true;
     }
     if (inner.type === "llm_completed" && inner.completion.usage === undefined) {
       const timing = inner.completion.timing;
@@ -703,6 +709,7 @@ export class WorkerRunCollector {
         writes: this.writes,
         byTool: { ...this.byTool },
       },
+      ...(this.grammarSkipped ? { grammarSkipped: true as const } : {}),
       ...(this.usage ? { usage: this.usage } : {}),
       ...(this.localTokens ? { localTokens: { ...this.localTokens } } : {}),
       // A sum that still carries the whole bill (`usage.costUsd`) needs

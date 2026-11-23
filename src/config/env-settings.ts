@@ -131,7 +131,7 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   // Persona, network and server.
   env("ATOMIC_AGENT_PERSONA", null, "Persona name to use for this process, above every config.json setting."),
   env("ATOMIC_AGENT_OFFLINE", null, "Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved."),
-  env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins that may call a keyless local `serve`, besides loopback ones."),
+  env("ATOMIC_AGENT_ALLOWED_ORIGINS", null, "Comma-separated web origins for the unauthenticated HTTP test harness, besides loopback ones."),
   env("ATOMIC_AGENT_MEMORY_GUARD", null, "Set to 0 to turn off `serve`'s memory guard, which shuts the server down cleanly when its heap nears the limit (for a heap raised on purpose)."),
   env("ATOMIC_AGENT_SERVE_NO_PARENT_EXIT", null, "Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit)."),
   env("ATOMIC_AGENT_RUN_RSS_LIMIT_MB", null, "Memory cap, in MB of resident memory, past which the exit watchdog of `run` ends the process. Unset: 4096."),

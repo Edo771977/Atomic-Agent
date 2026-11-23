@@ -107,7 +107,8 @@ export interface TraceRecorder {
    * `turn_started`, then dropped, so a turn that did not note one never
    * inherits the previous turn's.
    */
-  noteTurnRoute(route: SessionRoute): void;
+  noteTurnRoute(route: SessionRoute, requestedByToken?: string): void;
+  noteSteer(requestedByToken: string): void;
   /**
    * Memory-v2 phase 7a. Emit a `vote_applied` trace event. Called
    * from the reflection-slot `VoteRunner` after a vote landed in
@@ -220,6 +221,7 @@ export function createTraceRecorder(
   let currentTurnIndex = 0;
   let currentStepIndex: number | null = null;
   let pendingUserMessage: string | null = null;
+  let pendingToken: string | undefined;
   let pendingRoute: SessionRoute | null = null;
   // For a batched step, multiple `tool_call_parsed` events may arrive
   // before any `tool_call_executed`. We keep the parsed calls keyed by
@@ -554,8 +556,12 @@ export function createTraceRecorder(
         ...(info.metadata !== undefined ? { metadata: info.metadata } : {}),
       });
     },
-    noteTurnRoute(route) {
+    noteTurnRoute(route, requestedByToken) {
       pendingRoute = route;
+      pendingToken = requestedByToken;
+    },
+    noteSteer(requestedByToken) {
+      push({ type: "token_steer", seq: nextSeq(), ts: now(), sessionId, turnIndex: currentTurnIndex, requestedByToken });
     },
     onAgentEvent(event) {
       switch (event.type) {
@@ -581,9 +587,11 @@ export function createTraceRecorder(
               ? { userMessage: pendingUserMessage }
               : {}),
             ...(pendingRoute !== null ? { route: pendingRoute } : {}),
+            ...(pendingToken ? { requestedByToken: pendingToken } : {}),
           });
           pendingUserMessage = null;
           pendingRoute = null;
+          pendingToken = undefined;
           return;
         case "turn_finished":
           push({

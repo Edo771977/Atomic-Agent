@@ -59,6 +59,7 @@ interface Run {
   profile?: ModelProfile;
   signal?: AbortSignal;
   maxTokens?: number;
+  toolRole?: "builder";
 }
 
 function harness(run: Run) {
@@ -76,6 +77,7 @@ function harness(run: Run) {
         stepIndex: 0,
         signal: run.signal ?? new AbortController().signal,
         userMessage: "explain it in full",
+        ...(run.toolRole ? { toolRole: run.toolRole } : {}),
         ...(run.maxTokens !== undefined ? { maxTokens: run.maxTokens } : {}),
       },
       {
@@ -102,6 +104,20 @@ function harness(run: Run) {
 }
 
 describe("a reply cut at its length limit is continued once (ATO-1031)", () => {
+  it("rejects a worker continuation cut short without the grammar", async () => {
+    const h = harness({
+      toolRole: "builder",
+      script: [
+        cutAtCap('[{"tool":"reply","args":{"text":"First half of a long answer'),
+        cutAtCap('[{"tool":"reply","args":{"text":"Unconstrained second half', {
+          grammarSkipped: true,
+        }),
+      ],
+    });
+    await expect(h.step().then(() => "dispatched")).rejects.toThrow(/worker tool protocol mismatch/i);
+    expect(h.requests).toHaveLength(2);
+  });
+
   it("asks once for the rest and joins the two into one reply", async () => {
     const partial = "The answer has two parts. Part one: apples are red";
     const h = harness({

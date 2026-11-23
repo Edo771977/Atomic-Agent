@@ -362,6 +362,8 @@ New to this? [MEMORY_GUIDE.md](docs/user/memory.md) walks the whole loop end to 
 
 ## Ways to Use It
 
+For a client connecting to `atag serve`, issue its own credential with `atag http tokens add <name> --role viewer`. The token is printed once. Select the role for the client's operations and revoke it with `atag http tokens remove <name>`. The serve key remains the owner credential. [HTTP roles and route matrix](src/http/README.md#named-http-tokens)
+
 <details>
 <summary><b>TUI and CLI</b></summary>
 
@@ -572,13 +574,22 @@ Run `atomic-agent` as a local HTTP service:
 atomic-agent serve \
   --host 127.0.0.1 \
   --port 8787 \
-  --cwd /path/to/work \
-  --api-key "$ATOMIC_AGENT_API_KEY"
+  --cwd /path/to/work
 ```
 
-Without a key, anyone who reaches the port can run the agent and its tools, so `serve` refuses to start on a host other than loopback (`0.0.0.0`, a LAN address) unless `--api-key` or `ATOMIC_AGENT_API_KEY` is set. On loopback it still starts without one and prints a one-line warning. Without a key it answers only requests that name a loopback host (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, this machine's name) and come from no web page or a page on one of those hosts, and it wants request bodies as `application/json`, so a website open in your browser cannot drive it (ATO-1495). To let a specific web origin in, list it in `ATOMIC_AGENT_ALLOWED_ORIGINS` (comma-separated, a trailing `*` matches a prefix, for example `chrome-extension://*`).
+Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials return HTTP 401. Non-loopback callers can receive HTTP 429 after repeated failures. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders using the former tunnel path `/api/webhooks/{name}` must switch to the URL shown at startup.
 
-`POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
+If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward the serve credential in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include the serve key, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds the serve key must limit this to the exact configured webhook path and method and preserve signed request bodies.
+
+On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Read the file from your own account and enter its contents in the local panel, or send them as `Authorization: Bearer <key>` or `x-api-key`. The generated file uses mode `0600` on POSIX and an owner-only ACL on Windows.
+
+To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. Explicit keys must have at least 16 characters, including on loopback. A LAN listen address always requires an explicit key.
+
+Launchers can pipe one newline-terminated key into `--api-key-stdin` to keep the credential out of startup arguments, the environment and files. For an owner-only key file, use `--api-key-file <path>`. Serve keeps the file by default. Add `--api-key-file-delete` to remove it after validation and before runtime startup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`. See the [HTTP guide](src/http/README.md) for the startup input rules.
+
+The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent.
+
+`POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` with `ANTHROPIC_API_KEY` set to the serve key) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
 
 `serve` boots the same runtime the TUI does, so enabled Telegram and Discord bots, and every enabled Swarm bot that has a token, come up in this process too. That makes `serve` the way to keep the bots answering with no TUI open; it stays in the foreground until you stop it and does not restart itself. Each bot runs in one process at a time; see Channels below.
 
@@ -793,6 +804,7 @@ Everything Atomic Agent does is inspectable and interruptible:
 
 > [!IMPORTANT]
 > Treat traces and `<stateDir>/.env` as sensitive local artifacts. Secret redaction and per-tool environment filtering are not complete isolation layers.
+
 
 ### Privacy and Egress
 

@@ -9,6 +9,7 @@ This area owns tool registry and adapters. Read [AGENTS.md](AGENTS.md) before ch
 
 - [tool-registry.ts](tool-registry.ts): `dispatchGuard` / `refusalBeforeDispatch` refuse a call before hooks, approval and the tool itself
 - [tool-egress.ts](tool-egress.ts): which calls send content off the machine, by `allowedEgress` class, and the per-folder refusal ([provider policy](../llm/docs/provider-policy.md#egress-allowedegress))
+- [URL data guard](os/web/url-data-guard.ts): dispatch checks for data-bearing URLs in HTTP GET, web fetch and explicit browser navigation, with per-hop checks in the guarded curl paths.
 - [tool-roles.ts](tool-roles.ts)
 - [unknown-argument-guard.ts](unknown-argument-guard.ts)
 - [argument-aliases.ts](argument-aliases.ts)

@@ -1,12 +1,15 @@
 import {
   existsSync,
   mkdtempSync,
+  promises as fsPromises,
   readFileSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -76,18 +79,31 @@ function parked(data: Buffer): ReadableStream {
   });
 }
 
-/** Body that sends `bytes` every `everyMs` — alive, never silent, slow. */
-function paced(data: Buffer, everyMs: number, bytes: number): ReadableStream {
+/** A body that sends a chunk on each tick until the reader cuts the connection. */
+function paced(data: Buffer, interval: number | ((sent: number) => number), bytes: number): ReadableStream {
   let at = 0;
+  let cancelTick: (() => void) | undefined;
   return new ReadableStream({
-    async pull(controller) {
+    pull(controller) {
       if (at >= data.length) {
         controller.close();
         return;
       }
-      await new Promise((resolve) => setTimeout(resolve, everyMs));
-      controller.enqueue(data.subarray(at, Math.min(at + bytes, data.length)));
-      at += bytes;
+      return new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          cancelTick = undefined;
+          controller.enqueue(data.subarray(at, Math.min(at + bytes, data.length)));
+          at += bytes;
+          resolve();
+        }, typeof interval === "number" ? interval : interval(at));
+        cancelTick = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+    },
+    cancel() {
+      cancelTick?.();
     },
   });
 }
@@ -111,7 +127,7 @@ function rangeServer(opts?: {
   acceptRanges?: boolean;
   override?: Record<
     number,
-    (req: Call, slice: Buffer, range: [number, number]) => Response
+    (req: Call, slice: Buffer, range: [number, number]) => Response | Promise<Response>
   >;
 }): { calls: Call[]; fn: typeof fetch } {
   const calls: Call[] = [];
@@ -172,6 +188,44 @@ async function waitUntil(
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error("waitUntil timed out");
     await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
+/**
+ * Advance the simulated network clock only after each positioned write.
+ * Keep the real file and offsets, and model the fixture's tiny disk writes
+ * as immediate so CPU or disk scheduling cannot change the wire rates.
+ */
+async function runWithPacedNetwork(download: (signal: AbortSignal) => Promise<unknown>): Promise<number> {
+  vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+  const open = fsPromises.open.bind(fsPromises);
+  const spy = vi.spyOn(fsPromises, "open").mockImplementation(async (...args) => {
+    const handle = await open(...args);
+    return Object.assign(handle, {
+      async write(buffer: Buffer, offset: number, length: number, position: number) {
+        return { bytesWritten: writeSync(handle.fd, buffer, offset, length, position), buffer };
+      },
+    });
+  });
+  const controller = new AbortController();
+  const start = Date.now();
+  const realStart = performance.now();
+  let finished = false;
+  const pending = download(controller.signal).finally(() => { finished = true; });
+  void pending.catch(() => undefined);
+  try {
+    while (!finished && Date.now() - start < 15_000 && performance.now() - realStart < 10_000) {
+      if (vi.getTimerCount() > 0) await vi.advanceTimersToNextTimerAsync();
+      else await delay(1);
+    }
+    if (!finished) throw new Error("download did not finish on the simulated network");
+    await pending;
+    return Date.now() - start;
+  } finally {
+    controller.abort();
+    vi.useRealTimers();
+    spy.mockRestore();
+    await pending.catch(() => undefined);
   }
 }
 
@@ -376,8 +430,19 @@ describe("download-file parallel segments", () => {
   });
 
   it("restarts from zero when a segment comes back with a different ETag", async () => {
+    let finishFanOut!: () => void;
+    const fanOut = new Promise<void>((resolve) => { finishFanOut = resolve; });
     const { calls, fn } = rangeServer({
-      override: { 2: (_req, slice, range) => partial206(slice, range, '"v2"') },
+      override: {
+        2: async (_req, slice, range) => {
+          await fanOut;
+          return partial206(slice, range, '"v2"');
+        },
+        4: (_req, slice, range) => {
+          finishFanOut();
+          return partial206(slice, range);
+        },
+      },
     });
     globalThis.fetch = fn;
 
@@ -535,17 +600,17 @@ describe("download-file parallel segments", () => {
     });
     globalThis.fetch = fn;
     const retries: string[] = [];
-    const startedAt = Date.now();
 
-    await downloadFile(URL, dest, {
+    const elapsed = await runWithPacedNetwork((signal) => downloadFile(URL, dest, {
       ...FAST,
+      signal,
       // Two pieces of 32; a remainder under 34 is too small to split, so
       // only the pace check can rescue it.
       minSegmentBytes: 17,
       connections: 2,
       slowCheckMs: 60,
       onRetry: (info) => retries.push(info.error.message),
-    });
+    }));
 
     expect(calls[1]!.range).toBe("bytes=32-63");
     expect(calls).toHaveLength(3);
@@ -554,7 +619,7 @@ describe("download-file parallel segments", () => {
     // A swapped connection is not an outage: nothing reports a retry,
     // so the download chip never flashes "waiting for the network".
     expect(retries).toEqual([]);
-    expect(Date.now() - startedAt).toBeLessThan(500);
+    expect(elapsed).toBeLessThan(500);
     expect(readFileSync(dest).equals(DATA)).toBe(true);
   });
 
@@ -567,12 +632,13 @@ describe("download-file parallel segments", () => {
     });
     globalThis.fetch = fn;
 
-    await downloadFile(URL, dest, {
+    await runWithPacedNetwork((signal) => downloadFile(URL, dest, {
       ...FAST,
+      signal,
       minSegmentBytes: 17,
       connections: 2,
       slowCheckMs: 60,
-    });
+    }));
 
     expect(calls.map((c) => c.range)).toEqual([null, "bytes=32-63"]);
     expect(readFileSync(dest).equals(DATA)).toBe(true);
@@ -597,12 +663,13 @@ describe("download-file parallel segments", () => {
       });
     }) as typeof fetch;
 
-    await downloadFile(URL, dest, {
+    await runWithPacedNetwork((signal) => downloadFile(URL, dest, {
       ...FAST,
+      signal,
       minSegmentBytes: 17,
       connections: 2,
       slowCheckMs: 60,
-    });
+    }));
 
     const ranges = calls.map((c) => c.range);
     expect(ranges[1]).toBe("bytes=32-63");
@@ -624,33 +691,22 @@ describe("download-file parallel segments", () => {
       const res = await honest(url as string, init);
       if (res.status !== 206) return res;
       const buf = Buffer.from(await res.arrayBuffer());
-      let at = 0;
-      const body = new ReadableStream({
-        async pull(controller) {
-          if (at >= buf.length) {
-            controller.close();
-            return;
-          }
-          await new Promise((resolve) =>
-            setTimeout(resolve, at < 4 ? 10 : 400),
-          );
-          controller.enqueue(buf.subarray(at, at + 1));
-          at += 1;
-        },
+      return new Response(paced(buf, (sent) => sent < 4 ? 10 : 400, 1), {
+        status: 206,
+        headers: res.headers,
       });
-      return new Response(body, { status: 206, headers: res.headers });
     }) as typeof fetch;
-    const startedAt = Date.now();
 
-    await downloadFile(URL, dest, {
+    const elapsed = await runWithPacedNetwork((signal) => downloadFile(URL, dest, {
       ...FAST,
+      signal,
       minSegmentBytes: 17,
       connections: 2,
       slowCheckMs: 60,
-    });
+    }));
 
     expect(calls.length).toBeGreaterThan(2 + 3);
-    expect(Date.now() - startedAt).toBeLessThan(4_000);
+    expect(elapsed).toBeLessThan(4_000);
     expect(readFileSync(dest).equals(DATA)).toBe(true);
   });
 
@@ -669,14 +725,14 @@ describe("download-file parallel segments", () => {
     });
     globalThis.fetch = fn;
     const seen: Array<[number, number, number]> = [];
-    const startedAt = Date.now();
 
-    await downloadFile(URL, dest, {
+    const elapsed = await runWithPacedNetwork((signal) => downloadFile(URL, dest, {
       ...FAST,
+      signal,
       connections: 2,
       slowCheckMs: 0,
       onProgress: (p, t, tot) => seen.push([p, t, tot]),
-    });
+    }));
 
     // The lead finishes 0..31 at once, then keeps taking the back half of
     // the throttled 32..63 slice until what is left is under two minimum
@@ -699,7 +755,7 @@ describe("download-file parallel segments", () => {
       if (i > 0) expect(to).toBe(cuts[i - 1]![0] - 1);
     }
     // The throttled connection sent far fewer than its 32 bytes.
-    expect(Date.now() - startedAt).toBeLessThan(32 * 25);
+    expect(elapsed).toBeLessThan(32 * 25);
     expect(readFileSync(dest).equals(DATA)).toBe(true);
     expect(seen.every(([, t]) => t <= 64)).toBe(true);
     expect(seen.at(-1)).toEqual([100, 64, 64]);

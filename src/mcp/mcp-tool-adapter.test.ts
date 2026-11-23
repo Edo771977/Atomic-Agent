@@ -380,6 +380,44 @@ describe("approval gating", () => {
     };
   }
 
+  it("checks URL data in a normalized MCP query containing literal spaces", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(metaOf("docs", "fetch"), fakeClient(invoke), {
+      trust: "pure_read", dangerous, urlDataGuard: "strict",
+    });
+    await def.run({ url: "https://docs.example/?q=" + "long query text ".repeat(30) }, ctx);
+    expect(requests).toEqual([expect.objectContaining({ grantKey: "url-data:https://docs.example" })]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("passes URL-prefixed multiline prose as text in strict mode", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(metaOf("docs", "save"), fakeClient(invoke), {
+      trust: "pure_read", dangerous, urlDataGuard: "strict",
+    });
+    const args = { text: "https://docs.example/\nThis is the source for the note." };
+    await def.run(args, ctx);
+    expect(requests).toHaveLength(0);
+    expect(invoke).toHaveBeenCalled();
+  });
+
+  it("asks before forwarding a data-bearing URL nested in pure-read MCP arguments", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(
+      metaOf("docs", "fetch"),
+      fakeClient(invoke),
+      { trust: "pure_read", dangerous },
+    );
+
+    const result = await def.run({ requests: [{ url: "https://docs.example/?q=first%0Asecond" }] }, ctx);
+    expect(requests).toEqual([expect.objectContaining({ category: "http_write", grantKey: "url-data:https://docs.example" })]);
+    expect(result.details.approvalDenied).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("routes an approval_gated tool through the gate before callTool", async () => {
     const order: string[] = [];
     const { dangerous, requests, signals } = fakeDangerous(true);

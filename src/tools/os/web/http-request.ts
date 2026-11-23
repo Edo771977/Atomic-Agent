@@ -25,6 +25,15 @@ import {
   maskUrlSecrets,
 } from "./http-request-preview.js";
 import type { HostLookup } from "./web-fetch-ssrf-guard.js";
+import {
+  checkUrlSend,
+  DEFAULT_URL_DATA_GUARD,
+  noteUrlSendAllowed,
+  requireUrlSendApproval,
+  urlSendGrantKey,
+  urlSendReason,
+  type UrlSendSites,
+} from "./url-data-guard.js";
 import { offlineRefusal } from "../../../llm/offline-network.js";
 
 export type { HttpMethod } from "./http-request-fetch.js";
@@ -42,6 +51,8 @@ export interface OsHttpRequestOptions extends DangerousToolOptions {
   runCommand?: RunCommandFn;
   /** Injectable DNS lookup for SSRF tests (mirrors os.web.fetch). */
   lookup?: HostLookup;
+  /** Sites a chat already used under `http.urlDataGuard: "strict"` (ATO-1377). Defaults to the shared store. */
+  urlSendSites?: UrlSendSites;
 }
 
 interface HttpArgs {
@@ -93,9 +104,22 @@ export function buildOsHttpRequestTool(
           `os.http.request: host ${args.urlObj.hostname} is not in config.http.hostAllowlist`,
         );
       }
+      // ATO-1377: a GET whose address carries a lot of data (or, under
+      // `"strict"`, the chat's first request to a site) asks like a POST.
+      // `approvalMode: "never"` is the operator saying no HTTP prompts.
+      const urlCheck =
+        args.method === "GET" && httpCfg.approvalMode !== "never"
+          ? checkUrlSend(
+              httpCfg.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+              args.url,
+              ctx.sessionId,
+              options.urlSendSites,
+            )
+          : null;
       if (
         needsApproval(httpCfg.approvalMode, args.method) ||
-        heldForOutsideContent(options, httpCfg, ctx.sessionId)
+        heldForOutsideContent(options, httpCfg, ctx.sessionId) ||
+        urlCheck !== null
       ) {
         // Every text the prompt (and the ledger) shows has secrets in the
         // query, fragment and body masked (ATO-1471).
@@ -105,16 +129,20 @@ export function buildOsHttpRequestTool(
           {
             sessionId: ctx.sessionId,
             tool: "os.http.request",
-            category: httpApprovalCategory(args.method),
-            reason: `${args.method} ${shownUrl}`,
+            category: urlCheck !== null ? "http_write" : httpApprovalCategory(args.method),
+            reason:
+              urlCheck !== null
+                ? urlSendReason(shownUrl, urlCheck)
+                : `${args.method} ${shownUrl}`,
             preview: buildHttpApprovalPreview(args),
             affectedResources: [shownUrl],
             // "Allow for this session" and "Allow always" cover this
             // origin only (ATO-1182, ATO-1471).
-            grantKey: args.urlObj.origin,
+            grantKey: urlCheck ? urlSendGrantKey(urlCheck) : args.urlObj.origin,
           },
           ctx.signal,
         );
+        if (urlCheck !== null) noteUrlSendAllowed(urlCheck, ctx.sessionId, options.urlSendSites);
       }
 
       let guarded;
@@ -136,6 +164,21 @@ export function buildOsHttpRequestTool(
             maxResponseBytes: httpCfg.maxResponseBytes,
             isHostAllowed: (hostname) =>
               hostAllowed(hostname, httpCfg.hostAllowlist),
+            authorizeRedirect: async (url) => {
+              const target = url.toString();
+              const refused = offlineRefusal(target, "os.http.request");
+              if (refused) throw refused;
+              if (httpCfg.approvalMode === "never") return;
+              await requireUrlSendApproval(options, {
+                mode: httpCfg.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+                tool: "os.http.request",
+                url: target,
+                initialUrl: args.url,
+                sessionId: ctx.sessionId,
+                signal: ctx.signal,
+                ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+              });
+            },
           },
         );
       } catch (err) {

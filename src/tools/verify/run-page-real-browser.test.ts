@@ -1,31 +1,14 @@
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Browser } from "playwright-core";
 
 import type { AtomicAgentConfig } from "../../config/index.js";
-import { defaultBrowserLauncher, type BrowserLauncher } from "./run-page-kind.js";
+import { probeVerifyBrowser } from "./verify-browser-test-fixture.js";
 import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
 import { BROWSER_SHOT_MAX_BYTES, BROWSER_SHOT_MAX_SIDE } from "../browser/screenshot-geometry.js";
-
-/**
- * The game harness under a real headless Chromium (issue #40). The host's
- * browser first, else a Playwright-managed headless shell or Chromium
- * from the browsers directory; skipped where none launches.
- */
-function managedExecutables(): string[] {
-  const root = process.env.PLAYWRIGHT_BROWSERS_PATH ?? join(homedir(), ".cache", "ms-playwright");
-  if (!existsSync(root)) return [];
-  const out: string[] = [];
-  for (const dir of readdirSync(root).sort().reverse()) {
-    for (const rel of [["chrome-headless-shell-linux64", "chrome-headless-shell"], ["chrome-linux64", "chrome"], ["chrome-linux", "chrome"]]) {
-      const path = join(root, dir, ...rel);
-      if (existsSync(path)) out.push(path);
-    }
-  }
-  return out;
-}
 
 function config(executablePath: string | null): Pick<AtomicAgentConfig, "browser"> {
   return {
@@ -36,20 +19,11 @@ function config(executablePath: string | null): Pick<AtomicAgentConfig, "browser
   };
 }
 
-let launch: BrowserLauncher | undefined;
+let browser: Awaited<ReturnType<typeof probeVerifyBrowser>>;
 let work: string;
 
 beforeAll(async () => {
-  for (const executable of [null, ...managedExecutables()]) {
-    const candidate = defaultBrowserLauncher(config(executable));
-    try {
-      await (await candidate()).close();
-      launch = candidate;
-      return;
-    } catch {
-      // next candidate
-    }
-  }
+  browser = await probeVerifyBrowser(config(null));
 }, 60_000);
 
 beforeEach(async () => {
@@ -61,7 +35,7 @@ afterEach(async () => {
 });
 
 function ctx(over: Partial<VerifyRunContext> = {}): VerifyRunContext {
-  return { workingDir: work, config: config(null), ...(launch === undefined ? {} : { launchBrowser: launch }), ...over };
+  return { workingDir: work, config: config(null), ...("launch" in browser ? { launchBrowser: browser.launch } : {}), ...over };
 }
 
 const posix = process.platform !== "win32";
@@ -86,7 +60,7 @@ const STUB_GAME = `<html><body><script>
 
 describe("runVerify — page games under a real browser", () => {
   it("plays N games through window.__game in the page and reports duration, winner, moves and errors per game", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "game.html"), STUB_GAME);
     const out = await runVerify({
       kind: "page", path: "game.html", seconds: 0.1,
@@ -110,7 +84,7 @@ describe("runVerify — page games under a real browser", () => {
   }, 60_000);
 
   it("stops a game at maxMoves or maxMsPerGame and counts an uncaught error thrown by step", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "endless.html"), `<html><body><script>
       let m = 0, seed = 0;
       window.__game = {
@@ -135,25 +109,38 @@ describe("runVerify — page games under a real browser", () => {
   }, 60_000);
 
   it("stops a running game when the run is cancelled, even inside a step that never ends", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
+    const launch = browser.launch;
     await writeFile(join(work, "hang.html"), `<html><body><script>
-      window.__game = { start() {}, step() { return new Promise(() => {}); }, state() { return { over: false, winner: null, moves: 0 }; } };
+      window.__game = { start() {}, step() { window.__stepWaiting = true; return new Promise(() => {}); }, state() { return { over: false, winner: null, moves: 0 }; } };
     </script></body></html>`);
     const controller = new AbortController();
     const started = Date.now();
-    const pending = runVerify({ kind: "page", path: "hang.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 60_000 }, checks: ["games finish"] }, ctx({ signal: controller.signal }));
-    // Into the game: the page has loaded and the harness is waiting on step().
-    await new Promise((r) => setTimeout(r, 1_500));
-    const aborted = Date.now();
-    controller.abort();
+    let runningBrowser: Browser | undefined;
+    const pending = runVerify({ kind: "page", path: "hang.html", seconds: 0.1, game: { games: 2, maxMsPerGame: 60_000 }, checks: ["games finish"] }, ctx({
+      signal: controller.signal,
+      launchBrowser: async () => (runningBrowser = await launch()),
+    }));
+    let aborted: number;
+    try {
+      await vi.waitFor(async () => {
+        const page = runningBrowser?.contexts()[0]?.pages()[0];
+        expect(await page?.evaluate("window.__stepWaiting")).toBe(true);
+      }, { timeout: 8_000 });
+    } finally {
+      aborted = Date.now();
+      controller.abort();
+      await pending;
+    }
     const out = await pending;
     expect(Date.now() - aborted).toBeLessThan(1_000);
     expect(Date.now() - started).toBeLessThan(10_000);
+    expect(out.errors).toContain("the run was cancelled");
     expect(out.ok).toBe(false);
   }, 60_000);
 
   it("clips a page's long error, console and winner text in the page, whatever the page did to String.prototype.slice", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "loud.html"), `<html><body><script>
       const big = "x".repeat(100000);
       let n = 0, seed = 0;
@@ -172,7 +159,7 @@ describe("runVerify — page games under a real browser", () => {
   }, 60_000);
 
   it("fails with a clear reason when the page exposes no window.__game", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "plain.html"), "<html><body>no game here</body></html>");
     const out = await runVerify({
       kind: "page", path: "plain.html", seconds: 0.1,
@@ -188,7 +175,7 @@ describe("runVerify — page games under a real browser", () => {
   }, 60_000);
 
   it("passes {seed, mode: 'auto'} to start", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "game.html"), STUB_GAME.replace("</script>", "window.addEventListener('load', () => {});</script>"));
     const out = await runVerify({
       kind: "page", path: "game.html", seconds: 0.3,
@@ -206,7 +193,7 @@ describe("runVerify — page screenshots under a real browser (issue #40)", () =
   });
 
   it("takes one capped JPEG at the end of the run, stored where the caller says, owner-only", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "index.html"), "<html><body style='background:#36c'><h1>Board</h1></body></html>");
     const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "t1" } }));
     expect(out.ok).toBe(true);
@@ -226,7 +213,7 @@ describe("runVerify — page screenshots under a real browser (issue #40)", () =
   }, 60_000);
 
   it("caps a full-page shot of a tall page at the long-side limit", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "tall.html"), "<html><body style='margin:0'><div style='height:3000px;background:linear-gradient(#f00,#00f)'></div></body></html>");
     const out = await runVerify({ kind: "page", path: "tall.html", seconds: 0.1, screenshot: { fullPage: true } }, ctx({ screenshots: { dir: shots, prefix: "tall" } }));
     const [shot] = out.screenshots!;
@@ -235,14 +222,14 @@ describe("runVerify — page screenshots under a real browser (issue #40)", () =
   }, 60_000);
 
   it("takes a shot at the end of each game, at most four per run", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "game.html"), STUB_GAME);
     const out = await runVerify({ kind: "page", path: "game.html", seconds: 0.1, game: { games: 6, maxMsPerGame: 2_000 }, screenshot: {} }, ctx({ screenshots: { dir: shots, prefix: "g" } }));
     expect(out.screenshots?.map((s) => [s.path, s.game])).toEqual([1, 2, 3, 4].map((n) => [join(shots, `g-${n}.jpg`), n - 1]));
   }, 60_000);
 
   it("falls back to the temp screenshot folder without a durable target, and runChecks picks a target per spec", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "index.html"), "<html><body>x</body></html>");
     const out = await runVerify({ kind: "page", path: "index.html", seconds: 0.1, screenshot: {} }, ctx());
     expect(out.screenshots?.[0]?.path.startsWith(join(tmpdir(), "atomic-agent-browser-shots"))).toBe(true);
@@ -256,7 +243,7 @@ describe("runVerify — page screenshots under a real browser (issue #40)", () =
   }, 60_000);
 
   it("never counts the runner's own lookups as the page's missing selectors, at the end or after games", async (test) => {
-    if (launch === undefined) return test.skip();
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(join(work, "index.html"), "<html><body><h1 id='hi'>Ciao</h1><script>document.getElementById('hi')</script></body></html>");
     const end = await runVerify(
       { kind: "page", path: "index.html", seconds: 0.1, screenshot: {}, checks: ["no errors", "missing selectors 0"] },

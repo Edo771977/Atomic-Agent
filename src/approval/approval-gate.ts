@@ -1,3 +1,4 @@
+import { approvalActors } from "./approval-actors.js";
 import { FanoutScopeRegistry, isInside } from "./fanout-scope.js";
 import { ReadScopeGrants } from "./read-scope-grants.js";
 import { randomUUID } from "node:crypto";
@@ -53,6 +54,8 @@ import {
 import type { UserQuestion, UserQuestionAnswer } from "./user-question.js";
 
 export interface ApprovalRequest {
+  requestedByToken?: string;
+  steeredByTokens?: string[];
   approvalId: string;
   sessionId: string;
   tool: string;
@@ -787,8 +790,12 @@ export class ApprovalGate {
       params.category === "user_question" && params.riskNote === undefined
         ? this.taintSourcesOf(params.sessionId)
         : [];
+    const actors = approvalActors.getStore();
+    const sameTurn = actors?.sessionId === params.sessionId ? actors : undefined;
     const request: ApprovalRequest = {
       ...params,
+      ...(sameTurn?.requestedByToken ? { requestedByToken: sameTurn.requestedByToken } : {}),
+      ...(sameTurn?.steeredByTokens.size ? { steeredByTokens: [...sameTurn.steeredByTokens] } : {}),
       approvalId,
       ...(requireExplicitDecision ? { oneShot: true as const } : {}),
       ...(workdir !== undefined ? { workdir } : {}),

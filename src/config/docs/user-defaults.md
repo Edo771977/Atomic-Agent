@@ -83,6 +83,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `http.hostAllowlist` (default `null`).
 - `http.maxResponseBytes` (default `1048576`).
 - `http.defaultTimeoutMs` (default `30000`).
+- `http.urlDataGuard` (default `"data"`: a GET or a page the browser opens asks first when its address carries a lot of data; `"strict"` also asks once per site per chat; `"off"` never asks; ATO-1377).
 
 ## web
 
@@ -141,6 +142,10 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 ## network
 
 - `network.offline` (default `false`): offline mode. Every outbound connection to a host other than this machine (`localhost`, `127.0.0.0/8`, `::1`) is refused; local models keep working. `ATOMIC_AGENT_OFFLINE=1` turns it on for one process. Shell commands and stdio MCP servers are not isolated ([offline mode](../../llm/docs/offline-network.md)).
+
+## privacy
+
+- `privacy.shield.enabled` (default `false`): Privacy Shield. Emails, phone numbers, card numbers, IBANs and keys in a request to a cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply and in tool calls on this machine. Auto skips local-looking endpoints. Use provider-level `privacy.shield: "on"` for a gateway forwarding to the cloud ([privacy shield](../../privacy/README.md)).
 
 ## sessions
 
