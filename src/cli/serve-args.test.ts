@@ -59,9 +59,9 @@ describe("serve refuses a network host without an API key (ATO-760)", () => {
     expect(parsed.apiKey).toBe("from-env-0123456789");
   });
 
-  it("refuses a short key on a network host, and keeps it on loopback (ATO-1126)", () => {
+  it("refuses a short key on a network host, and on loopback (ATO-1126)", () => {
     expect(parseError(["--host", "0.0.0.0", "--api-key", "short"])).toContain("at least 16");
-    expect(parsedOk(["--api-key", "short"]).apiKey).toBe("short");
+    expect(parseError(["--api-key", "short"])).toContain("at least 16");
   });
 
   it("rejects an empty --api-key instead of treating it as a key", () => {
@@ -204,4 +204,9 @@ it.skipIf(process.platform === "win32")("rejects loose permissions and symlinks 
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it("round2-2 rejects a short environment key on loopback", () => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "short");
+  expect(parseError([])).toContain("at least 16");
 });

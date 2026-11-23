@@ -581,7 +581,7 @@ If you forward webhook requests through your own reverse proxy (for example ngro
 
 On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Read the file from your own account and enter its contents in the local panel, or send them as `Authorization: Bearer <key>` or `x-api-key`. The generated file uses mode `0600` on POSIX and an owner-only ACL on Windows.
 
-To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. On a LAN listen address, supply an explicit key of at least 16 characters.
+To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. Explicit keys must have at least 16 characters, including on loopback. A LAN listen address always requires an explicit key.
 
 Start with `--api-key-file <path>` and leave `ATOMIC_AGENT_API_KEY` unset to keep an explicit key out of the startup environment and command line. Use a file that only your account can read. Serve keeps that file, so its creator manages cleanup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`.
 

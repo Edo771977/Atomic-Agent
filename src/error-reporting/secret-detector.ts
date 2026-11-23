@@ -375,7 +375,7 @@ function usableKnownSecrets(known: readonly KnownSecret[]): KnownSecret[] {
     if (seen.has(value)) continue;
     if (!value || (!secret.exact && !usableKnownValue(value))) continue;
     seen.add(value);
-    out.push({ label: secret.label, value });
+    out.push({ ...secret, value });
   }
   return out.sort((a, b) => b.value.length - a.value.length);
 }
@@ -392,8 +392,13 @@ export function maskSecrets(text: string, known: readonly KnownSecret[] = []): s
     out = out.replace(PEM_PRIVATE_KEY, redactedMarker("private-key"));
   }
   for (const secret of usableKnownSecrets(known)) {
-    if (out.includes(secret.value)) {
-      out = out.split(secret.value).join(redactedMarker(secret.label));
+    if (!out.includes(secret.value)) continue;
+    const marker = redactedMarker(secret.label);
+    if (secret.exact) {
+      const literal = secret.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp("(?<![\\p{L}\\p{N}_])" + literal + "(?![\\p{L}\\p{N}_])", "gu"), () => marker);
+    } else {
+      out = out.split(secret.value).join(marker);
     }
   }
   for (const rule of SHAPE_RULES) {

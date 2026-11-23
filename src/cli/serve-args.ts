@@ -48,7 +48,7 @@ export const HELP =
     "                      and /panel (falls back to env ATOMIC_AGENT_API_KEY when the flag is omitted).",
     "                      Without either, serve uses the key in <state dir>/serve-api.key,",
     "                      generated on the first run: a key is always required, on loopback too.",
-    "                      On a network host it must be at least 16 characters, and an address",
+    "                      Explicit keys must be at least 16 characters. On a network host, an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
     "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
@@ -249,11 +249,11 @@ export function parseArgs(
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
-  if (!reapOnly && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey !== null && apiKey.trim().length < MIN_EXPLICIT_KEY_LENGTH) {
     return {
       error:
-        `--host ${host} accepts connections from other machines, and an API key of ${apiKey.length} characters can be guessed. ` +
-        `Use at least ${MIN_NETWORK_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
+        "Explicit API keys must have at least " + MIN_EXPLICIT_KEY_LENGTH + " characters. " +
+        `Use at least ${MIN_EXPLICIT_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
     };
   }
   let tunnel: TunnelRequest | null = null;
@@ -282,8 +282,8 @@ export function parseArgs(
   };
 }
 
-/** ATO-1126: the shortest API key serve takes on a network host. */
-export const MIN_NETWORK_KEY_LENGTH = 16;
+/** ATO-1126: the shortest explicit API key serve takes. */
+export const MIN_EXPLICIT_KEY_LENGTH = 16;
 
 /**
  * Whether a `--host` value only accepts connections from this machine.

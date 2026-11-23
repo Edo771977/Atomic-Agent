@@ -338,3 +338,8 @@ describe("maskSecretsDeep (ATO-1176)", () => {
     });
   });
 });
+
+it("round2-2 masks exact credentials at word boundaries only", () => {
+  expect(maskSecrets("a cat, scatter and catapult", [{label: "serve-api-key", value: "cat", exact: true}]))
+    .toBe("a [redacted:serve-api-key], scatter and catapult");
+});
