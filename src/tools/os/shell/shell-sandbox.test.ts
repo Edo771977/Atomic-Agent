@@ -236,7 +236,9 @@ describe.skipIf(unavailable !== undefined)(
     });
 
     it.skipIf(process.platform !== "linux")("probes a verify service within its private Linux network", async () => {
-      vi.stubEnv("HOME", dirname(process.cwd()));
+      // As root, preserve the actual home. A synthetic nested HOME under
+      // another account's private directory cannot be traversed after dropping caps.
+      if (process.getuid?.() !== 0) vi.stubEnv("HOME", dirname(process.cwd()));
       vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
       vi.stubEnv("ATOMIC_AGENT_STATE_DIR", state);
       try {
