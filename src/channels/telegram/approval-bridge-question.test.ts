@@ -44,7 +44,12 @@ const QUESTION_REQUEST: ApprovalRequest = {
   },
 };
 
-const click = (data: string) => ({ id: "cb", from: { id: 42 }, data });
+const click = (data: string) => ({
+  id: "cb",
+  from: { id: 42 },
+  message: { chat: { id: 1 }, message_id: 7 },
+  data,
+});
 
 describe("Telegram question buttons (ATO-489)", () => {
   it("sends the question with one button per option and a Skip, no Approve", async () => {

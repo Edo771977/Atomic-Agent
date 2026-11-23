@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { resetPrivacyVaults, setPrivacyShieldEnabled } from "../../../privacy/index.js";
 
 import type { CompletionRequest, PromptMessages } from "../completion-types.js";
 import { OfflineNetworkError, isOfflineRefusal } from "../../offline-network.js";
@@ -598,4 +599,23 @@ describe("AnthropicProvider.describeImage", () => {
     expect(p.capabilities).toMatchObject({ vision: true, visionSource: "assumed" });
     expect(sent).toHaveLength(1);
   });
+});
+
+it("masks the native Anthropic request and restores its reply", async () => {
+  const email = "anthropic@example.test";
+  const sent: Sent[] = [];
+  const p = provider(sent, [json({
+    ...MESSAGE,
+    content: [{ type: "text", text: "Mail [EMAIL_1]" }],
+  })]);
+  setPrivacyShieldEnabled(true);
+  try {
+    const result = await p.complete({ prompt: `Mail ${email}`, sessionId: "anthropic-privacy" });
+    expect(sent[0]?.url).toMatch(/\/v1\/messages$/);
+    expect(JSON.stringify(sent[0]?.body)).toContain("[EMAIL_1]");
+    expect(JSON.stringify(sent[0]?.body)).not.toContain(email);
+    expect(result.content).toBe(`Mail ${email}`);
+  } finally {
+    resetPrivacyVaults();
+  }
 });

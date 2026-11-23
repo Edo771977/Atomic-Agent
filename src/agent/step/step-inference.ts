@@ -93,6 +93,9 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     ctx.toolSet !== undefined
       ? narrowDescriptorsToToolSet(roleToolDescriptors, ctx.toolSet)
       : roleToolDescriptors;
+  const reasoningBound = deps.toolTransport === "native_tools"
+    ? undefined
+    : appliedReasoningBound(ctx, deps.grammar, thinkingOff);
   const basePromptInput: BuildPromptInput = {
     ...(ctx.workspace ? { workspace: ctx.workspace } : {}),
     session: ctx.session,
@@ -107,9 +110,18 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     ...(deps.modelMode ? { modelMode: deps.modelMode } : {}),
     ...(deps.modelMode?.mode === "cloud" ? {
       completionMaxTokens: ctx.maxTokens ?? ctx.maxOutputTokens ?? localModels.completionMaxTokens,
-      toolSchemaTokens: deps.toolTransport === "native_tools"
-        ? estimateTokens(JSON.stringify((deps.toolCallAdapter ?? openAiToolCallAdapter).descriptorsToTools(stepDescriptors, { strict: deps.strictTools === true }))) : 0,
     } : {}),
+    // The `tools` array a native-tools link sends beside the text takes
+    // window room in every model mode. Local packing holds the role's
+    // reserve steady when a terminal or restricted step narrows the wire.
+    ...(deps.toolTransport === "native_tools" ? {
+      toolSchemaTokens: nativeToolSchemaTokens(
+        deps.modelMode?.mode === "cloud" ? stepDescriptors : roleToolDescriptors,
+        deps,
+      ),
+    } : {}),
+    // An unbounded turn still falls back to the configured packing reserve.
+    ...(reasoningBound !== undefined ? { reasoningBudgetTokens: reasoningBound } : {}),
     ...(ctx.toolRole !== undefined ? { toolRole: ctx.toolRole } : {}),
     fusionTokensPerSecond: deps.fusionTokensPerSecond?.() ?? null,
     ...(deps.fusionPastRuns !== undefined
@@ -182,12 +194,42 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
         }
       : {}),
   };
-  return { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, stepToolDescriptors, compactDecision, personaResolution };
+  return { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, roleToolDescriptors, stepToolDescriptors, compactDecision, personaResolution };
+}
+
+/**
+ * The prompt input for a grammar fallback link behind a native-tools
+ * primary. The grammar link's template/GBNF prelude also expects the
+ * legacy text-JSON emission mandate, not the native function-calling
+ * guidance the primary prompt carries (issue #285), and it sends no
+ * `tools` array, so none is budgeted (ATO-1678). Exported for the tests.
+ */
+export function grammarFallbackPromptInput(promptInput: BuildPromptInput): BuildPromptInput {
+  return {
+    ...promptInput,
+    toolTransport: "grammar",
+    toolSchemaTokens: 0,
+    suppressReasoningPrefill: false,
+  };
+}
+
+/**
+ * Estimated tokens of the native `tools` array this step sends: the
+ * same adapter and strictness the request is built with. Exported for
+ * the budget tests.
+ */
+export function nativeToolSchemaTokens(
+  descriptors: readonly ToolDescriptor[],
+  deps: Pick<StepDependencies, "toolCallAdapter" | "strictTools">,
+): number {
+  const adapter = deps.toolCallAdapter ?? openAiToolCallAdapter;
+  const tools = adapter.descriptorsToTools(descriptors, { strict: deps.strictTools === true });
+  return tools.length > 0 ? estimateTokens(JSON.stringify(tools)) : 0;
 }
 
 export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
   if (!ctx.workspace) refreshStepWorkspace(ctx, deps);
-  const { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, stepToolDescriptors, compactDecision, personaResolution } = prepareStepPrompt(ctx, deps);
+  const { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, roleToolDescriptors, stepToolDescriptors, compactDecision, personaResolution } = prepareStepPrompt(ctx, deps);
   const prompt = buildPrompt(promptInput);
   if (prompt.cloudContext) ctx.session = { ...ctx.session, cloudContext: prompt.cloudContext };
   // A grammar (llama-server) fallback link behind a native-tools primary
@@ -202,15 +244,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
     deps.profile.requiresPromptThinkPrefix
       ? memoizeText(
           () =>
-            buildPrompt({
-              ...promptInput,
-              // The grammar link's template/GBNF prelude also expects the
-              // legacy text-JSON emission mandate, not the native
-              // function-calling guidance the primary prompt carries
-              // (issue #285) — rebuild for the grammar transport.
-              toolTransport: "grammar",
-              suppressReasoningPrefill: false,
-            }).text,
+            buildPrompt(grammarFallbackPromptInput(promptInput)).text,
         )
       : undefined;
   const slot = deps.supportsSlotAffinity
@@ -319,6 +353,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
   const primaryBound = appliedReasoningBound(ctx, deps.grammar, thinkingOff);
   let grammarLinkBound: { tokens: number | undefined } | undefined;
   const reasoningBoundFor = (completion: CompletionResult): number | undefined => {
+    if (completion.grammarSkipped === true) return undefined;
     if ((completion.servedTransport ?? deps.toolTransport ?? "grammar") !== "grammar") return undefined;
     if ((completion.servedModelMode ?? deps.modelMode)?.mode === "cloud") return undefined;
     return grammarLinkBound ? grammarLinkBound.tokens : primaryBound;
@@ -409,6 +444,12 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
       delete linkPromptInput.compactPromptWindow;
       const next = buildPrompt({ ...linkPromptInput, session: ctx.session, modelMode: link.modelMode,
         toolTransport: link.transport, contextWindow: link.contextWindow, profileWindowApplies: false,
+        toolSchemaTokens: link.transport === "native_tools"
+          ? linked?.promptInput.toolSchemaTokens ?? nativeToolSchemaTokens(
+            link.modelMode.mode === "cloud" ? linkDescriptors : roleToolDescriptors,
+            linkDeps,
+          )
+          : 0,
         suppressReasoningPrefill: link.transport === "native_tools" || template.useServerTemplate,
         completionMaxTokens: link.maxTokens ?? ctx.maxOutputTokens ?? getConfig().localModels.completionMaxTokens,
       });

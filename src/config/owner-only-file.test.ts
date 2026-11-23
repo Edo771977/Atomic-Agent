@@ -156,6 +156,7 @@ describe("config.json gets an owner-only ACL on Windows", () => {
         tmpText: readFileSync(target, "utf8"),
         finalExists: existsSync(path),
       });
+      return true;
     });
     writeOwnerOnlyFileAtomicSync(path, "{}\n");
     // Called on the tmp file, with the payload already in it, before

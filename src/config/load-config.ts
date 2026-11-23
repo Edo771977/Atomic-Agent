@@ -522,6 +522,7 @@ export function loadConfig(options: LoadConfigOptions = {}): AtomicAgentConfig {
       hostAllowlist: user.http.hostAllowlist,
       maxResponseBytes: user.http.maxResponseBytes,
       defaultTimeoutMs: user.http.defaultTimeoutMs,
+      urlDataGuard: user.http.urlDataGuard,
     },
     web: {
       search: { ...user.web.search },
@@ -664,6 +665,10 @@ export function loadConfig(options: LoadConfigOptions = {}): AtomicAgentConfig {
     // off: a file that says offline stays offline whatever the shell has.
     network: {
       offline: user.network.offline || readBool(OFFLINE_ENV, false),
+    },
+    // ATO-599: Privacy Shield, read by the cloud provider adapters.
+    privacy: {
+      shield: { enabled: user.privacy.shield.enabled },
     },
     memory: {
       profile: {

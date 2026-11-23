@@ -143,6 +143,7 @@ function buildAnthropicProvider(
   const chatModel = entry.defaultChatModel;
   return new AnthropicProvider({
     id: entry.id,
+    privacy: entry.privacy,
     ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
     // Extra keys rotate here too (ATO-471): the native client sends
     // through the same transport as the compat kinds.
@@ -217,6 +218,7 @@ export function registerBuiltInProviderKinds(): void {
     const chatModel = entry.defaultChatModel ?? "";
     return new OpenAiProvider({
       id: entry.id,
+      privacy: entry.privacy,
       providerKind: "openai-compatible",
       baseUrl: entry.baseUrl,
       ...keyOptions(entry, ctx.logger),
@@ -265,6 +267,7 @@ export function registerBuiltInProviderKinds(): void {
     const chatModel = entry.defaultChatModel ?? "";
     return new OpenAiProvider({
       id: entry.id,
+      privacy: entry.privacy,
       providerKind: "qwen-openai-compatible",
       baseUrl: entry.baseUrl,
       ...keyOptions(entry, ctx.logger),
@@ -294,6 +297,7 @@ export function registerBuiltInProviderKinds(): void {
     const model = entry.defaultChatModel ?? "openrouter/auto";
     return new OpenRouterProvider({
       id: entry.id,
+      privacy: entry.privacy,
       providerKind: "openrouter",
       baseUrl: entry.baseUrl,
       ...keyOptions(entry, ctx.logger),
@@ -329,6 +333,7 @@ export function registerBuiltInProviderKinds(): void {
     const model = entry.defaultChatModel ?? AIMLAPI_DEFAULT_CHAT_MODEL;
     return new AimlapiProvider({
       id: entry.id,
+      privacy: entry.privacy,
       providerKind: "aimlapi",
       baseUrl: entry.baseUrl,
       ...keyOptions(entry, ctx.logger),
@@ -353,6 +358,7 @@ export function registerBuiltInProviderKinds(): void {
     const model = entry.defaultChatModel ?? GEMINI_DEFAULT_CHAT_MODEL;
     return new GeminiProvider({
       id: entry.id,
+      privacy: entry.privacy,
       providerKind: "gemini",
       baseUrl: entry.baseUrl,
       ...keyOptions(entry, ctx.logger),

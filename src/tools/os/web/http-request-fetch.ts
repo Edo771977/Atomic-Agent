@@ -127,6 +127,7 @@ export interface ExecuteGuardedHttpOptions {
    * means no restriction.
    */
   isHostAllowed?: (hostname: string) => boolean;
+  authorizeRedirect?: (url: URL) => Promise<void>;
 }
 
 /**
@@ -412,6 +413,7 @@ async function sendGuardedRequestOnce(
           command: lastCommand,
         };
       }
+      await opts.authorizeRedirect?.(nextUrl);
       state.redirects += 1;
       method = nextMethod;
       body = nextBody;

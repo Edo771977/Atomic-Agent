@@ -29,6 +29,8 @@ Opening/priming a stream can fail over before committed output; an SSE keep-aliv
 
 Fallback completions and chunks carry servedTransport. Parsing and live reasoning detection use the actual serving link, including when a native-tools primary falls back to grammar. The primary's capabilities are not proof of what the fallback served. Cross-provider strict/parallel capability handling and grammar-primary/native-tail payload limitations remain explicit implementation constraints.
 
+An external llama-server on `/completion` can refuse GBNF with a 400 or an initial SSE error. Its client retries once without the grammar before a chunk is yielded and marks the completed response `grammarSkipped` for the step parser. A late refusal surfaces on the existing stream. The managed engine keeps its grammar, and a Fusion worker format probe treats `grammarSkipped` as a failed check. On OpenAI-compatible chat endpoints, forced grammar transport keeps the text-JSON prompt and parser; the OpenAI request builder strips llama.cpp-specific fields, including GBNF.
+
 ## Sources and tests
 
 - [Key pool](../fallback/key-pool.ts) and [its tests](../fallback/key-pool.test.ts), [HTTP rotation tests](../provider/openai/openai-http-key-rotation.test.ts).

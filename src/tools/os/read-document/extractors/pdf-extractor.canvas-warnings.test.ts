@@ -9,6 +9,9 @@ import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 
 const execFileAsync = promisify(execFile);
+// An inherited NODE_PATH or user-wide installation can supply canvas from
+// outside the copied package tree. Keep both sandbox children isolated.
+const sandboxNodeArgs = ["--no-global-search-paths"];
 
 /**
  * Regression test for issue #117.
@@ -165,7 +168,7 @@ async function runInSandbox(
     await writeFile(pdfPath, buildPdf(), "latin1");
     const scriptPath = join(dir, "run.mjs");
     await writeFile(scriptPath, sandboxScript(pdfPath, applyFix));
-    return await execFileAsync(process.execPath, [scriptPath], {
+    return await execFileAsync(process.execPath, [...sandboxNodeArgs, scriptPath], {
       cwd: dir,
       encoding: "utf8",
     });
@@ -197,7 +200,7 @@ describe("pdf extractor: optional canvas warnings (issue #117)", () => {
           '  process.stdout.write("RESOLVED");\n' +
           '} catch { process.stdout.write("ABSENT"); }\n',
       );
-      const { stdout } = await execFileAsync(process.execPath, [probe], {
+      const { stdout } = await execFileAsync(process.execPath, [...sandboxNodeArgs, probe], {
         cwd: dir,
         encoding: "utf8",
       });

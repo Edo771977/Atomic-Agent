@@ -186,6 +186,7 @@ export async function requireApproval(
   options: DangerousToolOptions,
   prompt: ApprovalPrompt,
   signal: AbortSignal,
+  requireExplicitDecision?: true,
 ): Promise<ApprovalOutcome> {
   if (!options.approvalRequired) return {};
   const decision = await options.approvals.request(
@@ -219,7 +220,7 @@ export async function requireApproval(
         ? { targetPaths: [...prompt.targetPaths] }
         : {}),
     },
-    { signal },
+    { signal, ...(requireExplicitDecision ? { requireExplicitDecision } : {}) },
   );
   if (!decision.approved) {
     throw new ApprovalDeniedError(prompt.tool, decision.reason, {

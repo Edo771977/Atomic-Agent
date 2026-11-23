@@ -1,5 +1,6 @@
 import { createRuntimeTaskStores } from "./runtime-task-services.js";
 import { traceFilePath } from "../../tracing/trace/trace-sink.js";
+import { privacyVaultFor, forgetPrivacyVault } from "../../privacy/index.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -42,6 +43,30 @@ describe("runtime session phases", () => {
     await rm(dir, { recursive: true, force: true });
   });
   async function open() { const store = await prepareRuntimeSessionStore(config, logger); stores.push(store); return store; }
+
+  it("forgets the vault when a regular or incognito chat is deleted", async () => {
+    const store = await open();
+    installRuntimeSessionDelete(store, vi.fn(), { endSession: vi.fn() });
+    for (const incognito of [false, true]) {
+      const id = incognito ? "privacy-incognito" : "privacy-regular";
+      const session = sessions.createEmptySessionState({
+        id, workingDir: dir, ...(incognito ? { incognito: store.newIncognitoMark() } : {}),
+      });
+      try {
+        expect(privacyVaultFor(id).mask("archive-only@example.test")).toBe("[EMAIL_1]");
+        store.save(recordTurn(session, userTurn("Transcript text")));
+        const transcript = JSON.stringify(store.load(id));
+        expect(transcript).toContain("Transcript text");
+        expect(transcript).not.toContain("archive-only@example.test");
+        expect(transcript).not.toContain("[EMAIL_1]");
+        store.delete(id);
+        expect(store.load(id)).toBeNull();
+        expect(privacyVaultFor(id).unmask("[EMAIL_1]")).toBe("[EMAIL_1]");
+      } finally {
+        forgetPrivacyVault(id);
+      }
+    }
+  });
 
   it("the boot sweep drops the tasks of the incognito chats it deletes (ATO-586)", async () => {
     const tasks = new TaskStore({ dbFile: config.paths.tasksDbFile });

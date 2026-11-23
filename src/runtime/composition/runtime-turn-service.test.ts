@@ -1,3 +1,4 @@
+import { forgetPrivacyVault, privacyVaultFor } from "../../privacy/index.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -398,6 +399,21 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.turnRequests.size).toBe(0);
   });
 
+  it("releases a worker archive when its turn throws", async () => {
+    const worker = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "private-parent", taskId: "task" } });
+    const failure = new Error("worker failed");
+    fixture.loop.runTurn.mockImplementationOnce(async () => {
+      expect(privacyVaultFor(worker.id).mask("worker@example.test")).toBe("[EMAIL_1]");
+      throw failure;
+    });
+    try {
+      await expect(fixture.service.executeTurn(worker, "brief")).rejects.toBe(failure);
+      expect(privacyVaultFor(worker.id).unmask("[EMAIL_1]")).toBe("[EMAIL_1]");
+    } finally {
+      forgetPrivacyVault(worker.id);
+    }
+  });
+
   it("a worker browses as its parent's worker and its browser tabs end with its turn, even when it throws (ATO-961)", async () => {
     const ended: string[] = [];
     const stop = onBrowserWorkerEnd(id => { ended.push(id); });
@@ -629,6 +645,38 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.rows.get(output.session.id)?.metadata).toMatchObject({ title: "Operator title", custom: 7 });
     expect(fixture.state.pendingSessionNamings.size).toBe(0);
     expect(vi.getTimerCount()).toBe(1);
+  });
+
+  it("keeps a completed session archive until late side calls settle", async () => {
+    vi.useFakeTimers();
+    fixture.config.agent.nameSessions = true;
+    const id = "completed-private";
+    const archive = privacyVaultFor(id);
+    archive.mask("initial@example.test");
+    const gate = deferred<void>();
+    fixture.deps.execution.llmComplete = async () => {
+      await gate.promise;
+      expect(privacyVaultFor(id)).toBe(archive);
+      return completion("Generated title");
+    };
+    fixture.loop.runTurn.mockImplementationOnce(async (state, options) => {
+      const turn = result(state, options);
+      return { ...turn, session: { ...turn.session, status: "completed" } };
+    });
+    try {
+      const service = createRuntimeTurnService(fixture.config, fixture.deps);
+      expect((await service.executeTurn(session(id), "request")).session.status).toBe("completed");
+      expect(fixture.state.pendingSessionNamings.size).toBe(1);
+      expect(privacyVaultFor(id)).toBe(archive);
+      gate.resolve();
+      await flushNaming();
+      await flushNaming();
+      expect(privacyVaultFor(id)).not.toBe(archive);
+    } finally {
+      gate.resolve();
+      await flushNaming();
+      forgetPrivacyVault(id);
+    }
   });
 
   it("shutdown forbids late naming saves and new naming controllers", async () => {

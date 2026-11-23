@@ -17,7 +17,7 @@ import {
   workerRefusalFor,
 } from "../fusion/worker-tool-policy.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import type { ReadScope } from "../../config/index.js";
+import { getStateSecretPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
@@ -257,7 +257,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: s.secrets,
+      stateSecrets: { stateDir: s.stateDir, files: [
+        ...s.secrets.files,
+        ...getStateSecretPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }),
+      ] },
     });
   }
 
@@ -269,6 +274,49 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     innerShells = 0;
     readScope = "unrestricted";
     install(4);
+  });
+
+  it.each(["os.fs.read", "cat", "type", "Get-Content"])("requires approval for %s on the persisted serve key", async (reader) => {
+    const path = join(s.stateDir, "serve-api.key");
+    writeFileSync(path, "synthetic-serve-key");
+    answer = { approved: false };
+    await expect(reader === "os.fs.read" ? read(path) : shell({ cmd: reader, args: [path] }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["state_secret"]);
+    expect(innerReads + innerShells).toBe(0);
+  });
+
+  it("guards tool reads and shell reads and writes of the named token registry", async () => {
+    const path = join(s.stateDir, "http-tokens.json");
+    writeFileSync(path, '{"version":1,"tokens":[]}');
+    answer = { approved: false };
+    await expect(read(path)).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "find . -name 'http-tokens.jso?' -exec cat {} +" })).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "rm", args: [path] })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["state_secret", "state_secret", "trust_config"]);
+    expect(innerReads + innerShells).toBe(0);
+  });
+
+  it.each(["atag", "npx atomic-agent", "env -u ATOMIC_AGENT_TOOL_CHILD /usr/bin/atag", "node --import tsx src/cli/index.ts", "$(command -v atag)", "xargs -r atag"])(
+    "asks for trust approval when shell invokes token management via %s", async (command) => {
+      answer = { approved: false };
+      await expect(shell({ cmd: `${command} http tokens add integration --role viewer` })).rejects.toThrow(ApprovalDeniedError);
+      expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config"]);
+      expect(innerShells).toBe(0);
+    },
+  );
+
+  it("classifies management inside a nested shell command", async () => {
+    answer = { approved: false };
+    await expect(shell({ cmd: "bash -lc 'atag http tokens list'" })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
+  });
+
+  it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
+    answer = { approved: false };
+    await expect(shell({ cmd, args: [...(cmd === "sed -i" ? ["s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
   });
 
   afterEach(() => {
@@ -311,7 +359,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: s.secrets,
+      stateSecrets: { stateDir: s.stateDir, files: [
+        ...s.secrets.files,
+        ...getStateSecretPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }),
+      ] },
     });
     answer = { approved: false };
     await expect(
@@ -473,3 +526,79 @@ describe("a shell command naming a fusion project's record (issue #109 review)",
   });
 });
 
+
+it.each(["/proc/self/environ", "/proc/123/task/456/environ", "/proc/$PPID/environ", "/proc/$$/environ", "/proc/*/environ", "/proc/$pid/environ"])("classifies %s as a process environment", (path) => {
+  const stateDir = "/atomic-state";
+  expect(findShellStateSecrets({ cmd: "cat", args: [path] }, { workingDir: "/" }, { stateDir, files: [] }, { home: "/", platform: "linux" })).toHaveLength(1);
+});
+it.each(["ps eww -p 123", "/usr/bin/ps axeww", "ps --environment"])("classifies environment-displaying ps (%s)", (cmd) => {
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] }, { home: "/", platform: "linux" })).toHaveLength(1);
+});
+it("keeps ordinary ps format arguments outside the process environment category", () => {
+  expect(findShellStateSecrets({ cmd: "ps -e -o user" }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] }, { home: "/", platform: "linux" })).toEqual([]);
+});
+it("classifies direct procfs reads even without state secret files", () => {
+  expect(findStateSecretReads("os.fs.read", { path: "/proc/self/environ" }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] })).toHaveLength(1);
+});
+
+it.each(["cd ~ && cat .atomic-agent/serve-api.key", "find . -name serve-api.key -exec cat {} +"])("classifies a serve key basename in shell arguments (%s)", (cmd) => {
+  const path = "/home/operator/.atomic-agent/serve-api.key";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir: "/home/operator/.atomic-agent", files: [path] }, { home: "/home/operator", platform: "linux" })).toContain(path);
+});
+
+it.each(["ps -Ef", "ps -fE", "ps -aEw", "ps -p 42 -aEw -o pid", "/usr/bin/ps -aEw"])("round2-1 recognizes %s", (cmd) => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
+});
+
+it.each(["cat /proc/self/cmdline", "ps -o args", "/bin/ps aux"])("round2-3 recognizes %s", (cmd) => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
+});
+
+it.each(["cat /proc/self/envir*", "cd /proc/self && cat environ", "find . -name serve-*.key", "cat serve-api.{key,txt}", "cat {serve-api,other}.key", "cat {serve,other}-{api,misc}.key", "cd /proc && cat self/environ"])("round2-4 recognizes %s", (cmd) => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
+});
+
+it("round2-4 does not classify a bare wildcard outside the state directory", () => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd: "ls *" }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).toEqual([]);
+});
+
+const reviewStateDir = "/home/operator/.atomic-agent";
+function classifyReviewCommand(cmd: string): string[] {
+  return findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" },
+    { stateDir: reviewStateDir, files: [reviewStateDir + "/serve-api.key"] },
+    { home: "/home/operator", platform: "linux" });
+}
+
+it.each([
+  "ps -axo args", "ps -eLo cmd", "ps x", "ps axww", "pgrep -a synthetic",
+  "pgrep -l synthetic", "pgrep -af synthetic", "pgrep -fl synthetic",
+  "pstree -a", "top -b -c -n 1", "cat /proc/$(resolve pid)/environ",
+  "pushd /proc/self && cat environ", "grep -r synthetic /proc/self",
+  "find /proc/123 -type f", "find . -name serve-api.{,key}",
+  "find . -name {serve-{other,api},else}.key",
+])("third round flags %s without reading a real credential", (cmd) => {
+  expect(classifyReviewCommand(cmd)).not.toEqual([]);
+});
+
+
+it.each([
+  "ps -C node -o pid=", "ps -L -o pid=", "ps ax -o pid=", "ps -C node xyz -o args",
+  "docker ps --filter status=exited", "podman ps --filter name=serve",
+  'git commit -m "mention ps -o args"', 'echo "ps -o args"',
+])("third round leaves benign command alone: %s", (cmd) => {
+  expect(classifyReviewCommand(cmd)).toEqual([]);
+});
+
+it.each(["sudo -u operator /usr/bin/ps -o args", "env -i ps axww", "top -bcn1"])(
+  "recognizes bundled options or a process display behind a launcher: %s", (cmd) => {
+    expect(classifyReviewCommand(cmd)).not.toEqual([]);
+  },
+);
+
+it("keeps ps after the executable of a launcher as an operand", () => {
+  expect(classifyReviewCommand("sudo -u operator git commit -m 'ps -o args'")).toEqual([]);
+});

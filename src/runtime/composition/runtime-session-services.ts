@@ -1,3 +1,5 @@
+import { forgetPrivacyVault } from "../../privacy/index.js";
+import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -158,6 +160,7 @@ export function installRuntimeSessionDelete(
   sessionStore.delete = (id: string): void => {
     dropRecorder(id);
     shellJobs.endSession(id);
+    SHARED_URL_SEND_SITES.clearSession(id);
     // The full outputs its clipped results were saved to (ATO-663).
     // Best effort and never throws.
     outputSpill?.removeSession(id);
@@ -169,6 +172,7 @@ export function installRuntimeSessionDelete(
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
+    forgetPrivacyVault(id);
   };
 }
 
