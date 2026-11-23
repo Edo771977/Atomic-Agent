@@ -1098,7 +1098,7 @@ function pcDrawLessonPanel(doc, host, model, on, focusKey, previousBody) {
       body.appendChild(pcEl(doc, 'p', 'pc-warn', pcLessonPlain('Skipped ' + problem.file + ': ' + problem.reason)));
     }
     if (panel && !panel.rows?.length && !panel.problems?.length && !blocked && !error) {
-      body.appendChild(pcEl(doc, 'p', 'pc-meta', 'No project lessons found.'));
+      body.appendChild(pcEl(doc, 'p', 'pc-meta', 'No lessons found.'));
     }
   }
   const actions = pcLessonActions(row);
