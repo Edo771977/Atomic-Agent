@@ -63,7 +63,7 @@ export class AuthThrottle {
     for (const [a, until] of this.blockedUntil) if (until <= t) this.blockedUntil.delete(a);
   }
 
-  succeeded(address: string | undefined): void {
+  ownerSucceeded(address: string | undefined): void {
     if (address) this.failures.delete(address);
   }
 }

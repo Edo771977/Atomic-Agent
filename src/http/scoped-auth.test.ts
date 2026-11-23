@@ -158,6 +158,20 @@ describe("scoped auth: roles against route scopes", () => {
     }
   });
 
+  it.each(["read", "admin"] as const)("named authentication keeps failed attempts for %s routes", (scope) => {
+    const throttle = new AuthThrottle({ maxFailures: 2 });
+    const writeHead = vi.fn();
+    const res = { writeHead, end: vi.fn() } as unknown as ServerResponse;
+    const request = (token: string) => authorizeRequest({
+      headers: bearer(token), socket: { remoteAddress: "192.0.2.8" },
+    } as IncomingMessage, res, { apiKey: KEY, namedTokens: () => ALL, scope, route: "GET /test" }, throttle);
+    request("unknown");
+    request(TOKENS.viewer);
+    request("unknown");
+    request(TOKENS.viewer);
+    expect(writeHead.mock.calls.at(-1)?.[0]).toBe(429);
+  });
+
   it("counts unknown tokens against the network throttle before reading the registry", () => {
     const throttle = new AuthThrottle({ maxFailures: 1 });
     const req = {

@@ -78,7 +78,7 @@ export function authorizeRequest(
     sendInvalidApiKey(res);
     return false;
   }
-  throttle?.succeeded(address);
+  if (caller.role === "owner") throttle?.ownerSucceeded(address);
   if (caller.role === "owner" || roleHasScope(caller.role, input.scope)) return true;
   sendJson(
     res,
