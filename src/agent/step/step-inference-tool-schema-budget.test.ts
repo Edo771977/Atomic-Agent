@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getConfig, resetConfigCache } from "../../config/index.js";
 import { PLAIN_INSTRUCT_PROFILE } from "../../llm/model-profile.js";
+import { openAiToolCallAdapter } from "../../llm/provider/openai/openai-tool-call-adapter.js";
 import { SlotManager } from "../../llm/slot-manager.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
 import { createEmptySessionState } from "../../session/session-state.js";
@@ -88,12 +89,20 @@ describe("native tool schemas in the local step budget (ATO-1678)", () => {
   it("preserves prompt bytes when a native link has no tools to send", () => {
     const { ctx, deps } = fixture("native_tools");
     ctx.toolSet = { names: [], reason: "No tools are available" };
-    const { promptInput } = prepareStepPrompt(ctx, deps);
-    const actual = buildPrompt(promptInput);
-    const { toolSchemaTokens: _omitted, ...reference } = promptInput;
+    const withoutNativeTools = {
+      ...deps,
+      toolCallAdapter: { ...openAiToolCallAdapter, descriptorsToTools: () => [] },
+    };
+    // The ordinary adapter still sends the implicit reply and finish tools.
+    expect(prepareStepInference(ctx, deps).prompt.tokens.toolSchema).toBeGreaterThan(0);
+    const { promptInput } = prepareStepPrompt(ctx, withoutNativeTools);
+    const { prompt: actual, llmParams } = prepareStepInference(ctx, withoutNativeTools);
+    const { toolSchemaTokens: _omitted, ...referenceInput } = promptInput;
+    const reference = buildPrompt(referenceInput);
+    expect(llmParams.tools).toEqual([]);
     expect(actual.tokens.toolSchema).toBeUndefined();
-    expect(actual.conversationCapEffective).toBe(buildPrompt(reference).conversationCapEffective);
-    expect(Buffer.from(actual.text)).toEqual(Buffer.from(buildPrompt(reference).text));
+    expect(actual.conversationCapEffective).toBe(reference.conversationCapEffective);
+    expect(Buffer.from(actual.text)).toEqual(Buffer.from(reference.text));
   });
 
   it("leaves a grammar link's budget without it", () => {
