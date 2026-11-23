@@ -7,6 +7,7 @@ import type { ToolCallBatch } from "../../llm/grammar/tool-call-grammar.js";
 import type { ToolCallBatchParseResult } from "./step-parsing.js";
 import { detectModelFailure } from "../../llm/index.js";
 import { estimateReasoningTokens } from "../../llm/reasoning-budget.js";
+import { requireWorkerGrammar } from "./step-errors.js";
 import { memoizeText, resolveReasoning } from "./step-reasoning.js";
 import { isNativeToolsEmptyCompletionHandledByParser, parseDepsFor, renderOpenReasoningBlock, replyCapSent, stripTrailingReasoningPrefill } from "./step-parsing.js";
 import { cutAgainReplyBatch, extractPartialAnswer, formatContinuationNotice, isContinuableTruncation, rewriteContinuedReply } from "./answer-continuation.js";
@@ -94,6 +95,7 @@ export async function continueCutAnswer(
     return null;
   }
   recordContinuation(args, next, Date.now() - startedAt);
+  requireWorkerGrammar(ctx, next);
 
   const nextFailure = detectModelFailure(next, {
     requestedMaxTokens: replyCapSent(next, prepared.replyCap),
