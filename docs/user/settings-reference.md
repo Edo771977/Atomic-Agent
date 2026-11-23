@@ -328,8 +328,9 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `skills.clawhub.apiBase` | `string` | `"https://clawhub.ai"` | Base URL of the ClawHub registry. |
 | `skills.clawhub.browseLimit` | `number` | `100` | Most skills one ClawHub listing fetches. |
 | `skills.clawhub.nonSuspiciousOnly` | `boolean` | `true` | Hide ClawHub skills the registry flags as suspicious. |
-| `skills.eval.judgeProvider` | `string` | `unset` | Skill Lab settings; absent when config.json has no `skills.eval`. |
+| `skills.selfLearning.enabled` | `boolean` | `false` | After a long turn, propose a project skill draft for explicit approval with `/learn`. |
 | `skills.selfLearning.minSteps` | `number` | `10` | Model steps a turn needs before it is reviewed for something to learn. |
+| `skills.eval.judgeProvider` | `string` | `unset` | Skill Lab settings; absent when config.json has no `skills.eval`. |
 
 ## tui
 

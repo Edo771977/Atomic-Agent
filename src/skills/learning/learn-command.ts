@@ -1,10 +1,12 @@
-import { readFile } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { skillCuratorPaths } from "../curator/skill-curator-config.js";
 import { listStarterSkillNames } from "../seed-starter-skills.js";
 import { loadSkills } from "../skill-loader.js";
 import { approvePendingDraft, PendingDraftError } from "./experience-review.js";
+import { withLearnedDecision } from "./learn-scope.js";
+import { hasUnreviewableSkillText, LEARNED_SKILL_LIMITS } from "./skill-lint.js";
 import { takenSkillNames } from "./learn-targets.js";
 import {
   learnedJournalFile,
@@ -14,6 +16,7 @@ import {
   type LearnedEntry,
 } from "./learned-journal.js";
 import {
+  hashSkillText,
   listPendingDrafts,
   PENDING_ID_PATTERN,
   pendingDraftSkillFile,
@@ -32,15 +35,15 @@ import {
 export type LearnCommand =
   | { kind: "list" }
   | { kind: "undo"; id: string }
-  | { kind: "approve"; id: string }
+  | { kind: "approve"; id: string; fingerprint: string }
   | { kind: "discard"; id: string }
   | { kind: "show"; id: string; json: boolean }
   | { kind: "error"; message: string };
 
 export const LEARN_USAGE =
-  "usage: /learn | /learn show <id> | /learn undo <id> | /learn approve <id> | /learn discard <id>";
+  "usage: /learn | /learn show <id> | /learn undo <id> | /learn approve <id>@<fingerprint> | /learn discard <id>";
 
-const ID_VERBS = new Set(["undo", "approve", "discard"]);
+const ID_VERBS = new Set(["undo", "discard"]);
 
 export function parseLearnCommand(args: string): LearnCommand {
   const words = args.trim().split(/\s+/).filter(Boolean);
@@ -49,8 +52,12 @@ export function parseLearnCommand(args: string): LearnCommand {
   if (verb === "show" && (words.length === 2 || (words.length === 3 && words[2] === "--json")) && PENDING_ID_PATTERN.test(words[1]!.toLowerCase())) {
     return { kind: "show", id: words[1]!.toLowerCase(), json: words.length === 3 };
   }
+  const approval = words[1]?.match(/^([0-9a-f]{4,16})@([0-9a-f]{64})$/i);
+  if (verb === "approve" && words.length === 2 && approval) {
+    return { kind: "approve", id: approval[1]!.toLowerCase(), fingerprint: approval[2]!.toLowerCase() };
+  }
   if (words.length === 2 && verb !== undefined && ID_VERBS.has(verb) && PENDING_ID_PATTERN.test(words[1]!.toLowerCase())) {
-    return { kind: verb as "undo" | "approve" | "discard", id: words[1]!.toLowerCase() };
+    return { kind: verb as "undo" | "discard", id: words[1]!.toLowerCase() };
   }
   return { kind: "error", message: LEARN_USAGE };
 }
@@ -65,7 +72,7 @@ export function parseLearnCommand(args: string): LearnCommand {
  */
 export function oneLine(text: string): string {
   // eslint-disable-next-line no-control-regex
-  return text.replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").replace(/ {2,}/g, " ").trim();
+  return text.replace(/[\p{Cf}\p{Co}\p{Cn}\u2028\u2029]/gu, " ").replace(/[\x00-\x1f\x7f-\x9f]+/g, " ").replace(/ {2,}/g, " ").trim();
 }
 
 export function multiLine(text: string): string {
@@ -109,14 +116,14 @@ export function formatLearnedList(
 ): string {
   const limit = options.limit ?? 30;
   if (entries.length === 0 && pending.length === 0) {
-    return "Nothing learned yet. After a long task the agent may save what it learned as a skill; it shows up here.";
+    return "Nothing learned yet. After a long task the reviewer may propose a draft here.";
   }
   const lines: Array<string | null> = [];
   if (pending.length > 0) {
     lines.push(
-      "Pending review (learned in a task that read outside content, or from a chat or API caller; not used until approved):",
+      "Pending review (drafts awaiting explicit approval):",
       ...[...pending].reverse().map((d) => formatDraft(d, options.stateDir)),
-      `Read one in full with ${prefix} show <id>, then approve it with ${prefix} approve <id> or delete it with ${prefix} discard <id>.`,
+      `Read one in full with ${prefix} show <id>, then approve it with ${prefix} approve <id>@<fingerprint> or delete it with ${prefix} discard <id>.`,
     );
   }
   if (entries.length > 0) {
@@ -142,6 +149,7 @@ export interface LearnCommandResult {
 export interface LearnCommandDirs {
   stateDir: string;
   skillsDir: string;
+  activationRefusal?: () => string | undefined;
   /**
    * Every skill name in use, for an approved new skill to be checked
    * against. The TUI passes its registry's view; by default the global
@@ -181,31 +189,35 @@ export async function runLearnCommand(
         return { text: command.json ? JSON.stringify(view, null, 2) : formatDraftView(view, prefix), skillsChanged: false, ok: true };
       }
       case "undo": {
-        const result = await undoLearnedChange({ skillsDir: dirs.skillsDir, paths }, command.id);
+        const result = await withLearnedDecision(dirs.stateDir, () => undoLearnedChange({ skillsDir: dirs.skillsDir, paths }, command.id));
         const { name } = result.entry;
         const text =
           result.outcome === "removed"
-            ? `Undid ${command.id}: removed the learned skill ${name} (kept in the archive; \`atomic-agent skill restore ${name}\` brings it back).`
+            ? `Undid ${command.id}: removed the learned skill ${name} (kept in the archive; \`atomic-agent skill restore ${name} --learned\` brings it back).`
             : result.outcome === "restored"
               ? `Undid ${command.id}: ${name} is back to the version before the patch${result.savedAs ? ` (the patched copy is saved as ${result.savedAs})` : ""}.`
               : `Undid ${command.id}: the learned skill ${name} was already gone.`;
         return { text, skillsChanged: result.outcome !== "already-gone", ok: true };
       }
       case "approve": {
+        const refusal = dirs.activationRefusal?.();
+        if (refusal) return { text: refusal, skillsChanged: false, ok: false };
         const takenNames = await (dirs.takenNames ?? (() => defaultTakenNames(dirs)))();
-        const change = await approvePendingDraft({ stateDir: dirs.stateDir, skillsDir: dirs.skillsDir, takenNames }, command.id);
+        const change = await approvePendingDraft({ ...dirs, takenNames, expectedFingerprint: command.fingerprint }, command.id);
         const what = change.action === "create" ? `saved the new skill ${change.name}` : `patched ${change.name} (the previous version is saved)`;
         return { text: `Approved ${command.id}: ${what}. Undo it with ${prefix} undo ${change.id}.`, skillsChanged: true, ok: true };
       }
       case "discard": {
-        const removed = await removePendingDraft(dirs.stateDir, command.id);
+        const removed = await withLearnedDecision(dirs.stateDir, () => removePendingDraft(dirs.stateDir, command.id));
         if (!removed) return { text: `learn: no pending draft with id ${command.id} (see ${prefix})`, skillsChanged: false, ok: false };
         return { text: `Discarded draft ${command.id}.`, skillsChanged: false, ok: true };
       }
     }
   } catch (err) {
     const message = err instanceof LearnUndoError || err instanceof PendingDraftError || err instanceof Error ? err.message : String(err);
-    return { text: `learn: ${message}`, skillsChanged: false, ok: false };
+    const latest = command.kind === "approve" && message.startsWith("The draft changed")
+      ? await showPendingDraft(dirs, command.id).catch(() => null) : null;
+    return { text: `learn: ${message}${latest ? "\n\n" + formatDraftView(latest, prefix) : ""}`, skillsChanged: false, ok: false };
   }
 }
 
@@ -226,6 +238,7 @@ export interface PendingDraftView {
   sources: string[];
   reason: string;
   createdAt: number;
+  fingerprint: string;
   skillMd: string;
   currentSkillMd: string | null;
   diff: string | null;
@@ -246,10 +259,14 @@ export async function showPendingDraft(
   const found = await readPendingDraft(dirs.stateDir, id);
   if (found === null) return null;
   const { draft, content } = found;
+  if (hasUnreviewableSkillText(content)) throw new PendingDraftError("Draft contains invisible or text-control characters; discard it.");
   let current: string | null = null;
   if (draft.kind === "patch") {
     try {
-      current = await readFile(join(dirs.skillsDir, draft.name, "SKILL.md"), "utf8");
+      const file = join(dirs.skillsDir, draft.name, "SKILL.md");
+      const info = await lstat(file);
+      if (info.isFile() && info.size <= LEARNED_SKILL_LIMITS.maxBytes) current = await readFile(file, "utf8");
+      if (current !== null && (Buffer.byteLength(current) > LEARNED_SKILL_LIMITS.maxBytes || hasUnreviewableSkillText(current))) current = null;
     } catch {
       current = null;
     }
@@ -263,7 +280,8 @@ export async function showPendingDraft(
     sources: draft.sources.map(oneLine).filter((s) => s.length > 0),
     reason: oneLine(draft.reason),
     createdAt: draft.createdAt,
-    skillMd: multiLine(content),
+    fingerprint: hashSkillText(content),
+    skillMd: content,
     currentSkillMd: current === null ? null : multiLine(current),
     diff: current === null ? null : multiLine(skillMdDiff(draft.name, current, content)),
   };
@@ -278,6 +296,7 @@ function formatDraftView(v: PendingDraftView, prefix: string): string {
     `  origin:  ${v.origin ?? "-"}`,
     `  sources: ${v.sources.length > 0 ? v.sources.join(", ") : "-"}`,
     `  reason:  ${v.reason || "-"}`,
+    `  SHA-256: ${v.fingerprint}`,
     `  created: ${stamp(v.createdAt)}`,
   ];
   if (v.kind === "patch") {
@@ -289,6 +308,6 @@ function formatDraftView(v: PendingDraftView, prefix: string): string {
     }
   }
   lines.push("", "Draft SKILL.md in full:", "-----", v.skillMd.replace(/\n$/, ""), "-----");
-  lines.push(`Approve it with ${prefix} approve ${v.id}, or delete it with ${prefix} discard ${v.id}.`);
+  lines.push(`Approve it with ${prefix} approve ${v.id}@${v.fingerprint}, or delete it with ${prefix} discard ${v.id}.`);
   return lines.join("\n");
 }

@@ -1,5 +1,8 @@
 # Apprendimento delle skill con approvazione
 
+Status: current
+Owner: src/skills/
+
 Confronto di `feat/ato-67-self-learning` a `b17ecacb8043d4f10e8a0854f9ece610c7468dac` con le lezioni del fork. [Upstream #1696](https://github.com/AtomicBot-ai/atomic-agent/pull/1696)
 
 | Aspetto | Upstream | Lezioni del fork | Skill imparate |

@@ -70,6 +70,8 @@ export function getTrustConfigPaths(paths: {
     // `session/project-decisions.ts`, `session/project-registry.ts`): a
     // write there could approve a gate or forge a run.
     join(paths.stateDir, "project-decisions") + sep,
+    // Drafts and activation records are operator-owned.
+    join(paths.stateDir, "learned-projects") + sep,
     join(paths.stateDir, "receipts") + sep,
     join(paths.stateDir, "signing") + sep,
     join(paths.stateDir, "projects") + sep,

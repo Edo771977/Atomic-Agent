@@ -1,9 +1,11 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { learnedTurnRunning, withLearnedDecision } from "./learn-scope.js";
+import { projectDecisionOriginRefusal } from "../../sandbox/project-decision-origin.js";
+import { lstat, mkdir, readFile, rename, realpath, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { ConversationTurn } from "../../session/conversation-turn.js";
 import { isFinalReplyTurn, isStoppedTurnMarker } from "../../session/conversation-turn.js";
 import { SkillChangeRecorder } from "../curator/skill-change-recorder.js";
-import { skillCuratorPaths } from "../curator/skill-curator-config.js";
+import { isCuratableSkillName, skillCuratorPaths } from "../curator/skill-curator-config.js";
 import { readSkillLock } from "../hub/skill-lock.js";
 import { scanSkillFiles } from "../hub/skill-security-scanner.js";
 import {
@@ -14,7 +16,7 @@ import {
   type LearnedChange,
 } from "./learned-journal.js";
 import { hashSkillText, readPendingDraft, removePendingDraft, savePendingDraft, type PendingDraft } from "./pending-drafts.js";
-import { lintLearnedSkill } from "./skill-lint.js";
+import { LEARNED_SKILL_LIMITS, lintLearnedSkill } from "./skill-lint.js";
 
 /**
  * Experience review (ATO-67), the agent's self-learning step, done the
@@ -141,17 +143,16 @@ export interface ReviewGateInput {
 }
 
 export type ReviewGateVerdict =
-  | { review: true; experience: TurnExperience; mode: "auto" | "draft" }
+  | { review: true; experience: TurnExperience; mode: "draft" }
   | { review: false; reason: "disabled" | "short-turn" | "no-reply" | "skills-edited" };
 
-/** Whether a finished turn gets an experience review, and whether its result may go live or waits as a draft. Pure. */
+/** Whether a finished turn is eligible for a background proposal. */
 export function shouldReviewTurn(input: ReviewGateInput): ReviewGateVerdict {
   if (!input.enabled) return { review: false, reason: "disabled" };
   if (input.stepCount < input.minSteps) return { review: false, reason: "short-turn" };
   if (input.experience === null) return { review: false, reason: "no-reply" };
   if (input.turnEditedSkills) return { review: false, reason: "skills-edited" };
-  const draft = input.draftOnly === true || (input.outsideSources?.length ?? 0) > 0;
-  return { review: true, experience: input.experience, mode: draft ? "draft" : "auto" };
+  return { review: true, experience: input.experience, mode: "draft" };
 }
 
 export interface PatchCandidate {
@@ -179,9 +180,9 @@ export function buildExperienceReviewPrompt(
   const shownSteps = experience.steps.slice(-EXPERIENCE_REVIEW_LIMITS.maxStepsShown);
   const skipped = experience.steps.length - shownSteps.length;
   const lines = [
-    "An AI agent just finished the task below. Decide whether it learned something worth saving as a skill: a SKILL.md file the agent loads next time it meets the same kind of task.",
+    "An AI agent just finished the task below. Decide whether to propose a SKILL.md for the operator to review. It can be used for future tasks after the operator approves it.",
     "",
-    "Save something only when the work shows one of these:",
+    "Propose something only when the work shows one of these:",
     "- the user corrected how the agent went about the task;",
     "- the agent found a non-obvious method by trial and error that worked in the end;",
     "- a skill it used (shown below) had a wrong, missing or outdated step that the task exposed.",
@@ -267,7 +268,7 @@ export function parseReviewDecision(raw: string): ReviewDecision | null {
 }
 
 export interface ApplyReviewContext {
-  /** The live global skills folder, `<stateDir>/skills`. */
+  /** The approved skills directory for this project. */
   skillsDir: string;
   /** Snapshots before the write and logs it as an agent change. */
   recorder: SkillChangeRecorder;
@@ -324,13 +325,13 @@ export function checkReviewDecision(
 }
 
 /**
- * The write itself, shared by an auto-save and an approved draft: the
+ * Activation of a reviewed draft: the
  * previous version is saved by the recorder, the SKILL.md is replaced
  * atomically and the change is journaled with an id.
  */
 async function writeLearnedSkill(
   decision: WriteDecision,
-  ctx: Pick<ApplyReviewContext, "skillsDir" | "recorder" | "sessionId" | "now"> & { id?: string; draftId?: string },
+  ctx: Pick<ApplyReviewContext, "skillsDir" | "recorder" | "sessionId" | "now"> & { id: string; draftId: string; beforeInstall: () => Promise<void> },
 ): Promise<ApplyReviewResult> {
   const now = ctx.now ?? Date.now;
   const { name } = decision;
@@ -342,11 +343,17 @@ async function writeLearnedSkill(
   if (decision.action === "patch" && (!before.existed || before.snapshot === null)) {
     return { applied: false, reason: `could not save the current version of ${name}` };
   }
-  await mkdir(dir, { recursive: true });
+  await ctx.beforeInstall();
+  if (decision.action === "create") {
+    await mkdir(ctx.skillsDir, { recursive: true, mode: 0o700 });
+    if (await realpath(ctx.skillsDir) !== ctx.skillsDir) throw new PendingDraftError("The learned skill directory is not canonical.");
+    await mkdir(dir, { mode: 0o700 });
+  }
   const file = join(dir, "SKILL.md");
   const tmp = `${file}.${process.pid}.${now()}.tmp`;
   await writeFile(tmp, decision.content, "utf8");
   await rename(tmp, file);
+
   await ctx.recorder.after(before, "agent", "experience-review");
 
   const journal = learnedJournalFile(ctx.recorder.paths);
@@ -364,21 +371,13 @@ async function writeLearnedSkill(
     ...(ctx.draftId ? { approvedDraft: ctx.draftId } : {}),
   };
   await appendLearnedChange(journal, change);
+  const marker = join(dir, ".approved-sha256");
+  await writeFile(`${tmp}.sha256`, hashSkillText(decision.content), { mode: 0o600 });
+  await rename(`${tmp}.sha256`, marker);
   return { applied: true, change };
 }
 
-/** Check what the review decided, then write it, or refuse it. */
-export async function applyReviewDecision(
-  decision: ReviewDecision,
-  ctx: ApplyReviewContext,
-): Promise<ApplyReviewResult> {
-  if (decision.action === "none") return { applied: false, reason: "nothing to learn" };
-  const check = checkReviewDecision(decision, ctx);
-  if (!check.ok) return { applied: false, reason: check.reason, ...(check.issues ? { issues: check.issues } : {}) };
-  return writeLearnedSkill(decision, ctx);
-}
-
-/** Where a draft goes and what it records, for a turn that may not save live. */
+/** Where a draft goes and what it records. */
 export interface DraftReviewContext {
   stateDir: string;
   /** The outside sources the turn read. */
@@ -393,24 +392,24 @@ export interface RunExperienceReviewInput {
   takenNames: ReadonlySet<string>;
   /** One model call: the prompt in, the answer text (or the emit tool's JSON arguments) out. */
   ask: (prompt: string) => Promise<string>;
-  apply: Omit<ApplyReviewContext, "candidates" | "takenNames">;
-  /** Set: a create or patch that passes the checks is held as a pending draft, not written live. */
-  draft?: DraftReviewContext;
+  apply: Pick<ApplyReviewContext, "recorder" | "sessionId" | "now">;
+  /** Every create or patch that passes the checks is held as a pending draft. */
+  draft: DraftReviewContext;
 }
 
 export type RunExperienceReviewResult =
-  | ApplyReviewResult
+  | Exclude<ApplyReviewResult, { applied: true }>
   | { applied: false; reason: "unreadable answer"; raw: string }
   | { applied: false; reason: "held for review"; draft: PendingDraft };
 
-/** Ask once, parse, then apply or hold as a draft. Throws only when the model call or a write throws. */
+/** Ask once, parse, then hold a validated proposal as a draft. Throws only when the model call or a write throws. */
 export async function runExperienceReview(input: RunExperienceReviewInput): Promise<RunExperienceReviewResult> {
   const prompt = buildExperienceReviewPrompt(input.experience, input.candidates, [...input.takenNames].sort());
   const raw = await input.ask(prompt);
   const decision = parseReviewDecision(raw);
   if (decision === null) return { applied: false, reason: "unreadable answer", raw: clip(raw, 400) };
-  const ctx: ApplyReviewContext = { ...input.apply, candidates: input.candidates, takenNames: input.takenNames };
-  if (input.draft === undefined) return applyReviewDecision(decision, ctx);
+  const ctx = { candidates: input.candidates, takenNames: input.takenNames };
+
 
   if (decision.action === "none") return { applied: false, reason: "nothing to learn" };
   // The same checks as a live write: a draft the linter or the scanner
@@ -448,26 +447,44 @@ export interface ApprovePendingDraftContext {
   /** Every skill name in use now, whatever its source (`takenSkillNames`). */
   takenNames: ReadonlySet<string>;
   now?: () => number;
+  expectedFingerprint: string;
+  activationRefusal?: () => string | undefined;
 }
 
 /**
- * Approve a pending draft: the same write as an auto-save (previous
+ * Approve a pending draft (previous
  * version in the curator history, a line in `learned.jsonl`), after the
  * linter and the scanner run again on today's rules. A patch is refused
  * when its target SKILL.md changed since the draft was made, since the
  * draft was written against the old text. The draft is deleted once
  * written. Throws `PendingDraftError` with a sentence for the owner.
  */
+function turnRefusal(scopeDir: string): string | undefined {
+  return learnedTurnRunning(scopeDir) ? "A turn is running in this folder. Wait for it to finish." : undefined;
+}
+
 export async function approvePendingDraft(ctx: ApprovePendingDraftContext, id: string): Promise<LearnedChange> {
+  const refusal = projectDecisionOriginRefusal() ?? ctx.activationRefusal?.() ?? turnRefusal(ctx.stateDir);
+  if (refusal) throw new PendingDraftError(refusal);
+  if (!(await readPendingDraft(ctx.stateDir, id))) throw new PendingDraftError(`no pending draft with id ${id} (see /learn)`);
+  return withLearnedDecision(ctx.stateDir, () => activateDraft(ctx, id));
+}
+
+async function activateDraft(ctx: ApprovePendingDraftContext, id: string): Promise<LearnedChange> {
+  const refusal = projectDecisionOriginRefusal() ?? ctx.activationRefusal?.() ?? turnRefusal(ctx.stateDir);
+  if (refusal) throw new PendingDraftError(refusal);
   const found = await readPendingDraft(ctx.stateDir, id);
   if (found === null) throw new PendingDraftError(`no pending draft with id ${id} (see /learn)`);
   const { draft, content } = found;
+  if (hashSkillText(content) !== ctx.expectedFingerprint) throw new PendingDraftError("The draft changed since review. Read the current text and fingerprint.");
   const decision: WriteDecision = { action: draft.kind, name: draft.name, reason: draft.reason, content };
   let candidates: PatchCandidate[] = [];
   if (draft.kind === "patch") {
     const dir = join(ctx.skillsDir, draft.name);
+    if (await realpath(ctx.skillsDir) !== ctx.skillsDir) throw new PendingDraftError("The learned skill directory is not canonical.");
     let current: string;
     try {
+      if (!(await lstat(dir)).isDirectory() || !(await lstat(join(dir, "SKILL.md"))).isFile()) throw new Error("Invalid skill path");
       current = await readFile(join(dir, "SKILL.md"), "utf8");
     } catch {
       throw new PendingDraftError(`${draft.name} is no longer installed; discard draft ${id}`);
@@ -486,12 +503,25 @@ export async function approvePendingDraft(ctx: ApprovePendingDraftContext, id: s
   if (!check.ok) {
     throw new PendingDraftError(`${check.reason}${check.issues?.length ? `: ${check.issues.join("; ")}` : ""}; discard draft ${id}`);
   }
+  const lateRefusal = ctx.activationRefusal?.() ?? turnRefusal(ctx.stateDir);
+  if (lateRefusal) throw new PendingDraftError(lateRefusal);
   const paths = skillCuratorPaths(ctx.stateDir);
   const result = await writeLearnedSkill(decision, {
     skillsDir: ctx.skillsDir,
     recorder: new SkillChangeRecorder(ctx.skillsDir, paths),
     id: draft.id,
     draftId: draft.id,
+    beforeInstall: async () => {
+      const latest = await readPendingDraft(ctx.stateDir, id);
+      if (!latest || JSON.stringify(latest.draft) !== JSON.stringify(draft) || hashSkillText(latest.content) !== ctx.expectedFingerprint) {
+        throw new PendingDraftError("The draft changed since review. Read the current text and fingerprint.");
+      }
+      if (draft.kind === "patch" && hashSkillText(await readFile(join(ctx.skillsDir, draft.name, "SKILL.md"), "utf8")) !== draft.targetHash) {
+        throw new PendingDraftError(`${draft.name} changed since draft ${id} was made.`);
+      }
+      const refusal = ctx.activationRefusal?.() ?? turnRefusal(ctx.stateDir);
+      if (refusal) throw new PendingDraftError(refusal);
+    },
     ...(draft.sessionId !== undefined ? { sessionId: draft.sessionId } : {}),
     ...(ctx.now ? { now: ctx.now } : {}),
   });
@@ -508,7 +538,17 @@ export async function readPatchCandidates(
   const out: PatchCandidate[] = [];
   for (const name of names.slice(0, EXPERIENCE_REVIEW_LIMITS.maxPatchCandidates)) {
     try {
-      out.push({ name, content: await readFile(join(skillsDir, name, "SKILL.md"), "utf8") });
+      if (!isCuratableSkillName(name)) continue;
+      const dir = join(skillsDir, name);
+      const file = join(dir, "SKILL.md");
+      const marker = join(dir, ".approved-sha256");
+      if (!(await lstat(dir)).isDirectory() || !(await lstat(marker)).isFile() || (await lstat(marker)).size !== 64) continue;
+      const stat = await lstat(file);
+      if (!stat.isFile() || stat.size > LEARNED_SKILL_LIMITS.maxBytes) continue;
+      const content = await readFile(file, "utf8");
+      if (await readFile(marker, "utf8") !== hashSkillText(content)) continue;
+      if (!lintLearnedSkill({ content, folderName: name, mode: "create", takenNames: new Set() }).ok) continue;
+      out.push({ name, content });
     } catch {
       // vanished or unreadable: not offered
     }

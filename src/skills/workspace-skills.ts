@@ -1,3 +1,6 @@
+import { lstatSync } from "node:fs";
+import { learnedSkillScope } from "./learning/learn-scope.js";
+import { LEARNED_SKILL_LIMITS, lintLearnedSkill } from "./learning/skill-lint.js";
 import { createHash } from "node:crypto";
 import { readdirSync, realpathSync } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
@@ -39,6 +42,7 @@ export interface WorkspaceSkillsOptions {
   projectDirName: string;
   configFile: string;
   defaults: RuntimeSkillsConfig;
+  learnedScope?: { stateDir: string; folder: string };
   /** Skill folders from enabled plugins; they load as user-installed skills named `plugin:skill`. */
   pluginSkills?: () => readonly PluginSkillDir[];
   /**
@@ -136,6 +140,9 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
   const sources = [...dirs.map(dir => ({ dir: resolve(root, dir), source: "project" as const, claude: dir === ".claude/skills" })),
     { dir: resolve(options.globalDir), source: "global" as const, claude: false },
     ...(sharedDir ? [{ dir: sharedDir, source: "global" as const, claude: false, shared: true as const }] : [])];
+  const learnedDir = options.learnedScope && (config.selfLearning?.enabled ?? options.defaults.selfLearning?.enabled)
+    ? learnedSkillScope(options.learnedScope.stateDir, options.learnedScope.folder).skillsDir : undefined;
+  if (learnedDir) sources.push({ dir: learnedDir, source: "project", claude: false });
   const visited = new Set<string>();
   let bytes = 0;
   let count = 0;
@@ -144,10 +151,12 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
   for (const source of sources) {
     if (entryCapHit) break;
     watched.push(source.dir);
+    const learned = learnedDir === source.dir;
     let dir: string;
     try { dir = realpathSync(source.dir); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") diagnostics.push(`${source.dir}: ${String(error)}`); continue; }
-    if (source.source === "project" && !isWithinWorkspace(root, dir)) { diagnostics.push(`${source.dir}: outside workspace`); continue; }
+    if (learned && dir !== resolve(source.dir)) continue;
+    if (!learned && source.source === "project" && !isWithinWorkspace(root, dir)) { diagnostics.push(`${source.dir}: outside workspace`); continue; }
     // Preserve the existing global classification when both roots are identical.
     // A session started in the home folder sees ~/.agents/skills as the shared
     // folder, not as project content waiting for folder trust.
@@ -176,8 +185,21 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
           try { skillRoot = realpathSync(join(dir, name)); }
           catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") continue; throw error; }
         }
-        const file = readWorkspaceFile(skillRoot, manifestPath);
+        if (learned) {
+          const marker = join(dir, name, ".approved-sha256");
+          watched.push(marker);
+          if (!lstatSync(join(dir, name)).isDirectory() || !lstatSync(marker).isFile() || lstatSync(marker).size !== 64) continue;
+          const manifest = lstatSync(manifestPath);
+          if (!manifest.isFile() || manifest.size > LEARNED_SKILL_LIMITS.maxBytes) continue;
+          skillRoot = dir;
+        }
+        const file = readWorkspaceFile(skillRoot, manifestPath, learned ? LEARNED_SKILL_LIMITS.maxBytes : undefined);
         if (!file) continue;
+        if (learned) {
+          const approval = readWorkspaceFile(dir, join(dir, name, ".approved-sha256"), 64);
+          if (approval?.content !== createHash("sha256").update(file.content).digest("hex") ||
+              !lintLearnedSkill({ content: file.content, folderName: name, mode: "create", takenNames: new Set() }).ok) continue;
+        }
         if (bytes + Buffer.byteLength(file.content) > 8 * 1024 * 1024) {
           bytesCapHit = true;
           diagnostics.push(`Skill manifests exceed 8 MiB; skipped ${manifestPath} and later skills.`);
@@ -192,10 +214,11 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
           ...(config.disabled.includes(parsed.manifest.name) ? ["disabled globally"] : []),
           ...(policy?.disabled.includes(parsed.manifest.name) ? ["disabled in workspace"] : []),
           ...(source.source === "project" && !enabled ? ["project skills disabled"] : []),
-          ...(source.source === "project" ? [untrustedSkillReason(skillTrust(trust, parsed.manifest.name))].filter((r): r is string => r !== null) : []),
+          ...(source.source === "project" && !learned ? [untrustedSkillReason(skillTrust(trust, parsed.manifest.name))].filter((r): r is string => r !== null) : []),
           ...(parsed.disableModelInvocation ? ["disable-model-invocation"] : []),
         ];
         const entry: WorkspaceSkill = { record: { manifest: parsed.manifest, manifestPath: file.path, rootDir: dirname(file.path), source: source.source,
+            ...(learned ? { learned: true as const } : {}),
             ...("shared" in source ? { shared: true as const } : {}) },
           body: parsed.body, fingerprint: createHash("sha256").update(file.content).digest("hex"), disabledReasons: reasons, sources: [manifestPath],
           ...("shared" in source ? { shared: true as const } : {}) };

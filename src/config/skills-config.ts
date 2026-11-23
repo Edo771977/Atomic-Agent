@@ -45,7 +45,7 @@ export interface SkillsEvalConfig {
  * defaults below.
  */
 export interface SkillsSelfLearningConfig {
-  /** After a long turn, review it in the background and save what was learned as a skill (a new SKILL.md, or a fix to a skill it used). Every change is listed by `/learn` and undone with `/learn undo <id>`. */
+  /** After a long turn, propose a project skill draft for explicit approval with `/learn`. */
   enabled: boolean;
   /** Model steps a turn needs before it is reviewed for something to learn. */
   minSteps: number;
@@ -128,7 +128,7 @@ export interface UserSkillsConfig {
  * (`autonomous.mode: "auto"`), after a turn of at least 10 model steps,
  * the iteration count OpenClaw and Hermes review at.
  */
-export const DEFAULT_SKILLS_SELF_LEARNING: SkillsSelfLearningConfig = { enabled: true, minSteps: 10 };
+export const DEFAULT_SKILLS_SELF_LEARNING: SkillsSelfLearningConfig = { enabled: false, minSteps: 10 };
 
 /**
  * Default `skills.catalogTokenBudget`, shared by the file defaults and

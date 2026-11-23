@@ -1120,6 +1120,12 @@ export class SessionStore {
     return state === null || this.projectStore === undefined ? state : this.projectStore.load(state);
   }
 
+  /** A live turn started by any process from this folder. */
+  liveFolderTurn(folder: string): boolean {
+    const rows = this.db.prepare(`SELECT id FROM sessions WHERE working_dir = ? AND status IN (${LIVE_STATUS_SQL_LIST})`).all(folder) as { id: string }[];
+    return rows.some(({ id }) => this.liveTurnElsewhere(id));
+  }
+
   /** Live owners of a bound project, including chats running in a worktree. */
   liveProjectTurn(folder: string, projectId: string): string | null {
     const rows = this.db.prepare(`

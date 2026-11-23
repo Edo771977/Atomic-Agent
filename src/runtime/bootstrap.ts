@@ -1109,12 +1109,12 @@ export async function createAgentRuntime(
     },
     emit: (sessionId, event) => emitAgentLoopEventFor(sessionId, { ...event, sessionId }),
   });
-  // Self-learning (ATO-67): after a long turn, one background review may
-  // save a skill; `skills.selfLearning.enabled` (default on) turns it off.
+  // Opt-in self-learning proposes drafts after long turns.
   const experienceReview = createExperienceReviewer({
     getConfig, llmComplete, slotManager,
     resolveTransport: () => resolveActiveLlmSlice().transport,
-    skillRegistry, refreshSkills,
+    skillRegistry,
+    restricted: (session) => sessionProviderPolicy.effectivePolicyForSession(session) !== undefined,
     pending: turnState.pendingSessionNamings,
     isShutdown: () => lifecycle.isShutdown(),
     // A turn that read outside content only drafts a skill for approval (prompt injection).

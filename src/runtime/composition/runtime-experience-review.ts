@@ -1,3 +1,6 @@
+import { join } from "node:path";
+import { learnedSkillScope, withLearnedTurn } from "../../skills/learning/learn-scope.js";
+import { currentProviderPolicy } from "../../llm/provider-policy.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { RunTurnResult } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
@@ -13,7 +16,6 @@ import {
   EXPERIENCE_REVIEW_LIMITS,
   EXPERIENCE_REVIEW_SCHEMA,
   EXPERIENCE_REVIEW_SYSTEM,
-  patchableSkillNames,
   readPatchCandidates,
   runExperienceReview,
   shouldReviewTurn,
@@ -41,8 +43,7 @@ export interface ExperienceReviewerDeps {
   slotManager: Pick<SlotManager, "sideCallSlotId">;
   resolveTransport: () => ToolCallTransport;
   skillRegistry: Pick<SkillRegistry, "listAll">;
-  /** Re-read the skills folder after a write, so the next turn sees the skill. */
-  refreshSkills: () => Promise<void>;
+  restricted?: (state: SessionState) => boolean;
   /** Teardown's handles (`pendingSessionNamings`, shared with naming). */
   pending: Set<AbortController>;
   isShutdown: () => boolean;
@@ -58,28 +59,14 @@ export interface ExperienceReviewerDeps {
   starterNames?: () => Promise<ReadonlySet<string>>;
 }
 
-/**
- * How a turn from each origin is reviewed. `auto`: what it learned is
- * saved live (the owner at the terminal, the desktop sidecar, editors over
- * ACP, and an HTTP turn from the desktop app, `answerChannel: "desktop"`).
- * `skip`: never reviewed (a scheduled task, a fusion worker: OpenClaw
- * skips cron, subagent and hook runs). Every other origin, chat channels
- * (a group or a forwarded message carries other people's words), plain
- * HTTP callers (any program holding the API key) and any origin added
- * later, is reviewed but only into a pending draft the owner approves
- * (decided 18.11).
- */
-export type ReviewMode = "auto" | "draft" | "skip";
+/** Scheduled turns and Fusion workers skip review; eligible turns only draft. */
+export type ReviewMode = "draft" | "skip";
 
-const AUTO_ORIGINS: ReadonlySet<TurnOrigin> = new Set(["cli", "tui", "sidecar"]);
 const SKIPPED_ORIGINS: ReadonlySet<TurnOrigin> = new Set(["scheduler", "fusion"]);
 
 /** The review mode for a turn from `origin`; `undefined` is an in-process caller. */
-export function reviewModeForOrigin(origin: TurnOrigin | undefined, answerChannel?: AnswerChannel): ReviewMode {
-  if (origin === undefined) return "auto";
-  if (SKIPPED_ORIGINS.has(origin)) return "skip";
-  if (AUTO_ORIGINS.has(origin)) return "auto";
-  if (origin === "http" && answerChannel === "desktop") return "auto";
+export function reviewModeForOrigin(origin: TurnOrigin | undefined, _answerChannel?: AnswerChannel): ReviewMode {
+  if (origin !== undefined && SKIPPED_ORIGINS.has(origin)) return "skip";
   return "draft";
 }
 
@@ -117,12 +104,13 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
   const review = async (
     state: SessionState,
     experience: TurnExperience,
-    hold: { sources: readonly string[]; origin?: string } | null,
+    hold: { sources: readonly string[]; origin?: string },
   ): Promise<void> => {
     if (deps.isShutdown()) return;
     const config = deps.getConfig();
-    const skillsDir = config.paths.globalSkillsDir;
-    const paths = skillCuratorPaths(config.paths.stateDir);
+    const scope = learnedSkillScope(config.paths.stateDir, state.projectRef?.folder ?? state.workingDir);
+    const skillsDir = scope.skillsDir;
+    const paths = skillCuratorPaths(scope.stateDir);
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), EXPERIENCE_REVIEW_LIMITS.timeoutMs);
     timer.unref?.();
@@ -134,8 +122,9 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
         globalSkillsDir: skillsDir,
         archiveDir: paths.archiveDir,
       };
-      const candidates = await readPatchCandidates(skillsDir, await patchableSkillNames(experience.usedSkills, targets));
+      const candidates = await readPatchCandidates(skillsDir, experience.usedSkills);
       const takenNames = await takenSkillNames(targets);
+      for (const name of await takenSkillNames({ ...targets, globalSkillsDir: config.paths.globalSkillsDir, archiveDir: join(config.paths.stateDir, "skills-archive") })) takenNames.add(name);
       const sessionId = `${EXPERIENCE_REVIEW_SESSION_PREFIX}${state.id}`;
       const transport = deps.resolveTransport();
       const result = await runExperienceReview({
@@ -176,34 +165,17 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
                       }),
                 };
           const completion = await deps.llmComplete({ ...request, signal: abort.signal });
+          abort.signal.throwIfAborted();
           return answerText(completion);
         },
         apply: {
-          skillsDir,
           recorder: new SkillChangeRecorder(skillsDir, paths),
           sessionId: state.id,
         },
-        ...(hold !== null
-          ? {
-              draft: {
-                stateDir: config.paths.stateDir,
-                sources: hold.sources,
-                ...(hold.origin !== undefined ? { origin: hold.origin } : {}),
-              },
-            }
-          : {}),
+        draft: { stateDir: scope.stateDir, ...hold },
       });
       if (deps.isShutdown()) return;
-      if (result.applied) {
-        deps.logger.info("self-learning: saved a skill", {
-          sessionId: state.id,
-          id: result.change.id,
-          skill: result.change.name,
-          action: result.change.action,
-          reason: result.change.reason,
-        });
-        await deps.refreshSkills();
-      } else if ("draft" in result) {
+      if ("draft" in result) {
         // Not live, so no refresh: the draft folder is outside the skills tree.
         deps.logger.info("self-learning: held a skill for review", {
           sessionId: state.id,
@@ -238,9 +210,8 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
    */
   const maybeReview = (state: SessionState, info: ReviewTurnInfo): boolean => {
     try {
-      if (running || deps.isShutdown()) return false;
-      const originMode = reviewModeForOrigin(info.origin, info.answerChannel);
-      if (originMode === "skip") return false;
+      if (running || deps.isShutdown() || currentProviderPolicy() || deps.restricted?.(state)) return false;
+      if (reviewModeForOrigin(info.origin, info.answerChannel) === "skip") return false;
       if (info.memoryReadOnly === true || isIncognitoSession(state)) return false;
       if (info.result.reason !== "reply" && info.result.reason !== "finish") return false;
       // A ceiling ended the turn: its reply is a summary of unfinished work,
@@ -248,7 +219,8 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
       if (info.result.stopCause !== undefined) return false;
       const config = deps.getConfig();
       const { enabled, minSteps } = selfLearning(config);
-      const experience = enabled && info.result.stepCount >= minSteps ? collectTurnExperience(state.turns) : null;
+      if (!enabled || info.result.stepCount < minSteps) return false;
+      const experience = collectTurnExperience(state.turns);
       // Read now: the taint is cleared when the session's next turn starts.
       const outsideSources = [...deps.outsideContentSources(state.id)];
       const verdict = shouldReviewTurn({
@@ -257,13 +229,10 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
         minSteps,
         experience,
         outsideSources,
-        draftOnly: originMode === "draft",
         turnEditedSkills: experience !== null && editedSkills(experience, state.workingDir, config.paths.globalSkillsDir),
       });
       if (!verdict.review) return false;
-      const hold = verdict.mode === "draft"
-        ? { sources: outsideSources, ...(info.origin !== undefined ? { origin: info.origin } : {}) }
-        : null;
+      const hold = { sources: outsideSources, ...(info.origin !== undefined ? { origin: info.origin } : {}) };
       running = review(state, verdict.experience, hold)
         .catch((err: unknown) => {
           deps.logger.warn("self-learning review failed", { sessionId: state.id, error: err instanceof Error ? err.message : String(err) });
@@ -284,5 +253,11 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
   /** Settles when no review is in flight (tests, an orderly shutdown). */
   const whenIdle = (): Promise<void> => running ?? Promise.resolve();
 
-  return { maybeReview, whenIdle };
+  const withTurn = <T>(state: SessionState, run: () => Promise<T>): Promise<T> => {
+    const config = deps.getConfig();
+    return selfLearning(config).enabled
+      ? withLearnedTurn(config.paths.stateDir, state.projectRef?.folder ?? state.workingDir, run)
+      : run();
+  };
+  return { maybeReview, whenIdle, withTurn };
 }

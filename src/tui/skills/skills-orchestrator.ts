@@ -1,3 +1,5 @@
+import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
+import { isIncognitoSession } from "../../session/incognito.js";
 import { rememberRenderedCommand } from "../../session/rendered-command-texts.js";
 import { pluginSkillPart, setPluginPartEnabled } from "../../plugins/plugin-install.js";
 import {
@@ -369,16 +371,28 @@ export class SkillsOrchestrator {
    */
   async runLearnCommand(command: LearnCommand): Promise<void> {
     const paths = this.runtime.config.paths;
+    const session = this.currentSession();
+    if (!session || isIncognitoSession(session)) {
+      this.bus.emit({ type: "system_message", text: "Open a regular chat in this folder to review learned skills." });
+      return;
+    }
+    const scope = learnedSkillScope(paths.stateDir, session.projectRef?.folder ?? session.workingDir);
     const result = await runLearnCommand(command, {
-      stateDir: paths.stateDir,
-      skillsDir: paths.globalSkillsDir,
+      ...scope,
+      activationRefusal: () => {
+        const current = this.currentSession();
+        if (!current || current.id !== session.id || current.workingDir !== session.workingDir || current.projectRef?.folder !== session.projectRef?.folder || isIncognitoSession(current)) return "The current chat changed. Review the draft again.";
+        if (this.runtime.turnController.isBusy(session.id) || this.runtime.sessionStore.liveFolderTurn(scope.folder)) return "A turn is running in this folder. Wait for it to finish.";
+        return undefined;
+      },
       takenNames: async () => takenSkillNames({
         records: this.runtime.skillRegistry.listAll().map((e) => e.record),
         starterNames: await listStarterSkillNames(),
-        globalSkillsDir: paths.globalSkillsDir,
-        archiveDir: skillCuratorPaths(paths.stateDir).archiveDir,
+        globalSkillsDir: scope.skillsDir,
+        archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
       }),
     });
+    if (this.currentSession()?.id !== session.id) return;
     this.bus.emit({ type: "system_message", text: result.text });
     if (!result.skillsChanged) return;
     try {

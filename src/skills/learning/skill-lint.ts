@@ -1,3 +1,4 @@
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../../session/project-lesson-text.js";
 import { isValidSkillName, parseSkillFile, SKILL_SPEC_LIMITS, SkillManifestError } from "../skill-manifest.js";
 
 /**
@@ -65,10 +66,16 @@ export function findSecretLikeStrings(text: string): string[] {
   return SECRET_PATTERNS.filter((p) => p.re.test(text)).map((p) => p.label);
 }
 
+export function hasUnreviewableSkillText(text: string): boolean {
+  return text.match(PROJECT_LESSON_INVISIBLE_CHARACTERS) !== null ||
+    /\p{Cc}/u.test(text.replace(/\r\n|[\n\t]/g, ""));
+}
+
 export function lintLearnedSkill(input: LintLearnedSkillInput): LintLearnedSkillResult {
   const issues: string[] = [];
   const { content, folderName, mode } = input;
 
+  if (hasUnreviewableSkillText(content)) issues.push("contains invisible or text-control characters");
   const bytes = Buffer.byteLength(content, "utf8");
   if (bytes > LEARNED_SKILL_LIMITS.maxBytes) {
     issues.push(`SKILL.md is ${bytes} bytes; a learned skill may be at most ${LEARNED_SKILL_LIMITS.maxBytes}`);
@@ -88,6 +95,9 @@ export function lintLearnedSkill(input: LintLearnedSkillInput): LintLearnedSkill
     const { manifest, body } = parsed;
     if (manifest.name !== folderName) {
       issues.push(`frontmatter name ${JSON.stringify(manifest.name)} must equal the folder name ${JSON.stringify(folderName)}`);
+    }
+    for (const value of [manifest.description, manifest.version, ...manifest.requiresTools, ...manifest.requiresScripts, ...(manifest.envKeys ?? [])]) {
+      if (hasUnreviewableSkillText(value) || /\p{Cc}/u.test(value)) issues.push("manifest contains invisible or text-control characters");
     }
     if (/[\r\n]/.test(manifest.description)) issues.push("description must be one line");
     if (manifest.description.length > LEARNED_SKILL_LIMITS.maxDescriptionChars) {

@@ -1,25 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdir, readdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readdir, readFile, realpath, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isCuratableSkillName } from "../curator/skill-curator-config.js";
+import { LEARNED_SKILL_LIMITS } from "./skill-lint.js";
 import { newLearnedId, type LearnedAction } from "./learned-journal.js";
 
-/**
- * Learned skills waiting for the owner's yes (ATO-67, decided 18.11): a
- * turn that read outside content (a web page, an MCP answer, an email, an
- * HTTP body) or came from a chat channel or a plain HTTP caller is still
- * reviewed, but what the review wants to save is held here instead of in
- * the live skills folder. `/learn approve <id>` writes it the way an
- * auto-save does, `/learn discard <id>` deletes it.
- *
- * Drafts live in `<stateDir>/skills-pending/<id>/` (a `SKILL.md` and a
- * `draft.json`), next to `skills-history/` and `skills-archive/` and
- * outside the loaded skills tree, so the skill loader never sees them and
- * the model is never offered one. Claude Code holds a project's MCP
- * servers the same way until the user approves them; OpenClaw's skill
- * workshop keeps proposals for review in its "approval" mode.
- */
-
+/** Drafts are scoped to a project and kept outside skill discovery. */
 export const PENDING_DRAFT_LIMIT = 20;
 
 export interface PendingDraft {
@@ -68,7 +54,7 @@ function parseDraft(raw: string, folder: string): PendingDraft | null {
   if (obj.id !== folder || typeof obj.id !== "string" || !PENDING_ID_PATTERN.test(obj.id)) return null;
   if (obj.kind !== "create" && obj.kind !== "patch") return null;
   if (typeof obj.name !== "string" || !isCuratableSkillName(obj.name)) return null;
-  if (typeof obj.createdAt !== "number") return null;
+  if (typeof obj.createdAt !== "number" || !Number.isFinite(obj.createdAt) || Math.abs(obj.createdAt) > 8.64e15) return null;
   if (obj.kind === "patch" && typeof obj.targetHash !== "string") return null;
   return {
     id: obj.id,
@@ -88,9 +74,17 @@ export async function readPendingDraft(stateDir: string, id: string): Promise<{ 
   if (!PENDING_ID_PATTERN.test(id)) return null;
   const dir = join(pendingDraftsDir(stateDir), id);
   try {
+    if (await realpath(dir) !== dir || !(await lstat(dir)).isDirectory()) return null;
+    const skillFile = join(dir, "SKILL.md");
+    const file = await lstat(skillFile);
+    const meta = await lstat(join(dir, "draft.json"));
+    if (!file.isFile() || file.size > LEARNED_SKILL_LIMITS.maxBytes || !meta.isFile() || meta.size > 16_384) return null;
     const draft = parseDraft(await readFile(join(dir, "draft.json"), "utf8"), id);
     if (draft === null) return null;
-    return { draft, content: await readFile(join(dir, "SKILL.md"), "utf8") };
+    const bytes = await readFile(skillFile);
+    const content = bytes.toString("utf8");
+    if (bytes.length > LEARNED_SKILL_LIMITS.maxBytes || !Buffer.from(content).equals(bytes)) return null;
+    return { draft, content };
   } catch {
     return null;
   }
@@ -108,7 +102,10 @@ export async function listPendingDrafts(stateDir: string): Promise<PendingDraft[
   for (const name of names) {
     if (!PENDING_ID_PATTERN.test(name)) continue;
     try {
-      const draft = parseDraft(await readFile(join(pendingDraftsDir(stateDir), name, "draft.json"), "utf8"), name);
+      const metadata = join(pendingDraftsDir(stateDir), name, "draft.json");
+      const info = await lstat(metadata);
+      if (!info.isFile() || info.size > 16_384) continue;
+      const draft = parseDraft(await readFile(metadata, "utf8"), name);
       if (draft) out.push(draft);
     } catch {
       // half-written or foreign folder: not listed
@@ -164,9 +161,11 @@ export async function savePendingDraft(stateDir: string, input: SavePendingDraft
   };
   // Written under a temporary name and renamed, so a listing never sees half a draft.
   const tmp = join(root, `.tmp-${id}-${process.pid}`);
-  await mkdir(tmp, { recursive: true });
-  await writeFile(join(tmp, "SKILL.md"), input.content, "utf8");
-  await writeFile(join(tmp, "draft.json"), `${JSON.stringify(draft, null, 2)}\n`, "utf8");
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  if (await realpath(root) !== root) throw new Error("The learned draft directory is not canonical.");
+  await mkdir(tmp, { mode: 0o700 });
+  await writeFile(join(tmp, "SKILL.md"), input.content, { mode: 0o600 });
+  await writeFile(join(tmp, "draft.json"), `${JSON.stringify(draft, null, 2)}\n`, { mode: 0o600 });
   await rename(tmp, join(root, id));
 
   const limit = input.limit ?? PENDING_DRAFT_LIMIT;

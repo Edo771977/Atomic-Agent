@@ -1,3 +1,5 @@
+import { currentProviderPolicy } from "../llm/provider-policy.js";
+import { isIncognitoSession } from "../session/incognito.js";
 import type { AtomicAgentConfig } from "../config/index.js";
 import type { SessionState } from "../session/session-state.js";
 import type { SessionWorkspace, WorkspacePrepareOptions } from "../session/workspace-context.js";
@@ -13,10 +15,12 @@ export function createWorkspaceLoader(config: AtomicAgentConfig, logger?: Pick<S
   const loadProjectInstructions = createProjectInstructionsCache();
   // One hint per folder and set of withheld items, not one per step.
   const hinted = new Map<string, string>();
-  return (session: Pick<SessionState, "workingDir">, cloud: boolean, signal?: AbortSignal, options: WorkspacePrepareOptions = {}): SessionWorkspace => {
+  return (session: Pick<SessionState, "workingDir" | "incognito" | "inheritedWorkspace" | "projectRef">, cloud: boolean, signal?: AbortSignal, options: WorkspacePrepareOptions = {}): SessionWorkspace => {
     signal?.throwIfAborted();
     const skills = loadWorkspaceSkills(session.workingDir, { globalDir: config.paths.globalSkillsDir,
       projectDirName: config.paths.projectSkillsDirName, configFile: config.paths.userConfigFile, defaults: config.skills,
+      ...(!session.inheritedWorkspace && !isIncognitoSession(session) && !currentProviderPolicy()
+        ? { learnedScope: { stateDir: config.paths.stateDir, folder: session.projectRef?.folder ?? session.workingDir } } : {}),
       pluginSkills: () => listEnabledPluginSkills(config.paths.stateDir) }, cloud);
     // Instruction files a folder ships load only once the operator trusted them (ATO-298),
     // judged with the same policy snapshot the skill scan just read.
@@ -27,7 +31,7 @@ export function createWorkspaceLoader(config: AtomicAgentConfig, logger?: Pick<S
         allow: path => instructionTrust(trust, path) === "trusted", allowKey: [...allowed].sort().join("\0") })
       : { instructions: [], diagnostics: [], found: [] };
     if (logger) {
-      const withheldSkills = skills.entries.filter(e => e.record.source === "project" && skillTrust(trust, e.record.manifest.name) === "pending").map(e => e.record.manifest.name);
+      const withheldSkills = skills.entries.filter(e => e.record.source === "project" && !e.record.learned && skillTrust(trust, e.record.manifest.name) === "pending").map(e => e.record.manifest.name);
       const withheldFiles = instructions.found.filter(path => instructionTrust(trust, path) === "pending");
       const signature = [...withheldSkills, "\0", ...withheldFiles].join("\n");
       if ((withheldSkills.length || withheldFiles.length) && hinted.get(skills.workingDir) !== signature) {

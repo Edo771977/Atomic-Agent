@@ -754,9 +754,8 @@ function matchPluginConsent(
 
 /**
  * The agent approving its own learned skill draft (ATO-67): `atomic-agent
- * skill learned approve <id>`. A draft is held because the turn that made
- * it read outside content, and only a person may let it become a live
- * skill, so this asks every time like `plugin allow-code`. Matched on the
+ * skill learned approve <id>@<fingerprint>`. A person must activate every
+ * learned draft. This asks every time like `plugin allow-code`. Matched on the
  * words, not the binary name (`atag`, `node dist/cli/index.js`); the
  * verb is compared case-insensitively because the command parser is.
  * `undo`, `discard` and the listing stay on the ordinary path.

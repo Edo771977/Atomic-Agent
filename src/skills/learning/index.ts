@@ -16,7 +16,6 @@ export {
 export type { LearnedAction, LearnedChange, LearnedEntry, UndoLearnedResult } from "./learned-journal.js";
 
 export {
-  applyReviewDecision,
   approvePendingDraft,
   buildExperienceReviewPrompt,
   checkReviewDecision,
@@ -42,7 +41,7 @@ export type {
   TurnStep,
 } from "./experience-review.js";
 
-export { isPatchableSkill, patchableSkillNames, takenSkillNames } from "./learn-targets.js";
+export { takenSkillNames } from "./learn-targets.js";
 export type { LearnTargetInput } from "./learn-targets.js";
 
 export {

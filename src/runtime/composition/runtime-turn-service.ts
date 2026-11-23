@@ -157,7 +157,7 @@ export interface RuntimeTurnDependencies {
     metrics?: Pick<AgentMetrics, "recordTurn">;
   };
   state: RuntimeTurnState;
-  experienceReview?: Pick<ReturnType<typeof createExperienceReviewer>, "maybeReview">;
+  experienceReview?: Pick<ReturnType<typeof createExperienceReviewer>, "maybeReview" | "withTurn">;
   lifecycle: { isShutdown(): boolean };
   logger: StructuredLogger;
   /**
@@ -1126,7 +1126,10 @@ export function createRuntimeTurnService(
     });
   };
   const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
-    inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+    inSessionPolicy(session, () => {
+      const run = () => executeTurnInPolicy(session, userMessage, runOptions);
+      return deps.experienceReview?.withTurn(session, run) ?? run();
+    });
 
   // ATO-646: every turn, whatever its origin, counted and timed for
   // `/metrics`. Timed from the queue's hand-over, so the wait behind

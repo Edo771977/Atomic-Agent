@@ -1,3 +1,4 @@
+import { learnedSkillScope } from "../skills/learning/learn-scope.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { setSkillDisabled, setProjectSkillsEnabled } from "../config/skill-policy-commands.js";
@@ -424,7 +425,7 @@ async function handleList(args: string[] = []): Promise<number> {
     for (const name of disabled) {
       if (!installedNames.has(name)) rows.push({ name, version: "-", source: "missing", status: "disabled", description: "(not installed)" });
     }
-    for (const d of await listPendingDrafts(config.paths.stateDir)) {
+    for (const d of await listPendingDrafts(learnedSkillScope(config.paths.stateDir, process.cwd()).stateDir)) {
       rows.push({ name: d.name, version: "-", source: "learned", status: "pending", description: oneLine(d.reason), draftId: d.id, draftKind: d.kind });
     }
     process.stdout.write(`${JSON.stringify(rows, null, 2)}\n`);
@@ -452,7 +453,7 @@ async function handleList(args: string[] = []): Promise<number> {
   for (const e of errors) {
     process.stderr.write(`WARN: ${e.path}: ${e.error}\n`);
   }
-  const pending = await listPendingDrafts(config.paths.stateDir);
+  const pending = await listPendingDrafts(learnedSkillScope(config.paths.stateDir, process.cwd()).stateDir);
   if (pending.length > 0) process.stderr.write(formatPendingSection(pending));
   return 0;
 }
@@ -481,7 +482,7 @@ export function formatPendingSection(pending: readonly PendingDraft[]): string {
       `          review: atomic-agent skill learned show ${d.id}`,
     );
   }
-  lines.push("Then: atomic-agent skill learned approve <id> | atomic-agent skill learned discard <id>");
+  lines.push("Then: atomic-agent skill learned approve <id>@<fingerprint> | atomic-agent skill learned discard <id>");
   return `${lines.join("\n")}\n`;
 }
 
