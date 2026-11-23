@@ -866,6 +866,11 @@ export class TaskStore {
           : row.started_at !== null && row.started_at < now - options.staleAfterMs;
         if (!gone) return null;
       }
+      // Purge error text and session identifiers before deleting task rows.
+      // Match the task ID too, for runs opened before a session was assigned.
+      this.db.prepare(
+        "DELETE FROM task_runs WHERE session_id = ? OR task_id IN (SELECT id FROM tasks WHERE session_id = ?)",
+      ).run(sessionId, sessionId);
       return this.db.prepare("DELETE FROM tasks WHERE session_id = ?").run(sessionId).changes;
     });
     return remove.immediate();

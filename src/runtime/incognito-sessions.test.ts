@@ -160,6 +160,25 @@ describe("incognito sessions in the runtime", () => {
     liveRunner.close();
   });
 
+  it("erases run history for purged private tasks and keeps ordinary history", async () => {
+    alive.add(10);
+    save(open(10), "s-dead", true);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({ dbFile, ownerProbe: probe(10, alive) });
+    const privateTask = tasks.create({ sessionId: "s-dead", userMessage: "private", origin: "cli", maxAttempts: 1 });
+    const ordinaryTask = tasks.create({ sessionId: "s-plain", userMessage: "ordinary", origin: "cli", maxAttempts: 1 });
+    tasks.markRunning(privateTask.id);
+    tasks.markRunning(ordinaryTask.id);
+    expect(tasks.listRuns(privateTask.id)).toHaveLength(1);
+    alive.delete(10);
+
+    await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, dbFile, { ownerProbe: probe(30, alive) });
+    expect(tasks.get(privateTask.id)).toBeNull();
+    expect(tasks.listRuns(privateTask.id)).toEqual([]);
+    expect(tasks.listRuns(ordinaryTask.id)).toHaveLength(1);
+    tasks.close();
+  });
+
   it("keeps a chat whose tasks could not be dropped, for the next start", async () => {
     alive.add(10);
     save(open(10), "s-dead", true);
