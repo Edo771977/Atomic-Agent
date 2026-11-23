@@ -1,3 +1,4 @@
+import { registerServeKeyForRedaction } from "../runtime/runtime-known-secrets.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -552,4 +553,18 @@ describe("scrubError message and the shared secret detector (ATO-1077)", () => {
       STATIC_MESSAGE_ERRORS.delete("AuditedStaticError");
     }
   });
+});
+
+it("round2-8 masks a registered serve key in allowlisted error messages", () => {
+  const key = "a7".repeat(32);
+  const release = registerServeKeyForRedaction(key);
+  const error = new Error("credential " + key);
+  error.name = "SyntheticStaticServeError";
+  STATIC_MESSAGE_ERRORS.add(error.name);
+  try {
+    expect(scrubError(error, { source: "test" }).message).toBe("credential [redacted:serve-api-key]");
+  } finally {
+    STATIC_MESSAGE_ERRORS.delete(error.name);
+    release();
+  }
 });
