@@ -133,6 +133,15 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(notes.recall("dark roast")).toEqual([]);
   });
 
+  it("does not relearn an archived note that the operator disabled", () => {
+    const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.5 } });
+    const off = notes.store({ content: "the user prefers dark roast coffee" });
+    notes.archiveInto([off.id], 10);
+    notes.setDisabled(off.id, true);
+    expect(notes.store({ content: "the user prefers dark roast coffee beans" }).id).toBe(off.id);
+    expect(notes.recall("dark roast")).toEqual([]);
+  });
+
   it("answers null for an unknown note", () => {
     expect(notesStore().setDisabled(999, true)).toBeNull();
   });

@@ -493,15 +493,14 @@ export class MemoryStore {
     // FTS5 candidate fetch for dedup. Returns the top 5 BM25 hits so
     // Jaccard similarity can be computed in JS over a small candidate
     // set without paying the cost of a full scan. Archived and
-    // superseded rows are never candidates: a write merged into a
-    // hidden row would stay hidden (a re-learned fact, a user's note).
+    // superseded rows are excluded from regular merges. Disabled rows
+    // still suppress relearning, including disabled archived rows.
     this.dedupCandidateStmt = this.db.prepare(
       `SELECT m.id, m.content, m.tags, m.disabled_at, bm25(memories_fts) AS score
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
-          AND m.consolidated_into IS NULL
-          AND NOT ${supersededSql("m.tags")}
+          AND (m.disabled_at IS NOT NULL OR (m.consolidated_into IS NULL AND NOT ${supersededSql("m.tags")}))
           AND memory_scope_same(m.constraint_scope)
         ORDER BY (m.disabled_at IS NOT NULL) DESC, score ASC
         LIMIT 5`,
