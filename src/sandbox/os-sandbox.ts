@@ -55,6 +55,8 @@ export interface OsSandboxPolicy {
   denyRead: readonly string[];
   network: boolean;
   stateDir: string;
+  home: string;
+  toolchainRoots: readonly string[];
 }
 
 export interface OsSandboxPolicyInput {
@@ -122,7 +124,7 @@ function unique(paths: readonly string[]): string[] {
 export function buildOsSandboxPolicy(
   input: OsSandboxPolicyInput,
 ): OsSandboxPolicy {
-  const home = input.home ?? homedir();
+  const home = real(input.home ?? homedir());
   const tmp = input.tmp ?? tmpdir();
   const work = unique(input.workspaceRoots.map((p) => real(resolve(p))));
   const writableRoots = unique([
@@ -161,7 +163,12 @@ export function buildOsSandboxPolicy(
     }
   }
   const denyRead = unique(secret);
-  return { writableRoots, denyRead, network: input.network, stateDir: canonicalState };
+  // The running Node installation is the only home-local toolchain reopened.
+  const node = real(process.execPath);
+  const offset = relative(home, node);
+  const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
+    ? [dirname(node)] : [];
+  return { writableRoots, denyRead, network: input.network, stateDir: canonicalState, home, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -200,6 +207,12 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
   lines.push(
     `(allow file-write* ${writable.join(" ")} (literal "/dev/null") (literal "/dev/zero") (literal "/dev/tty") (regex #"^/dev/fd/") (regex #"^/dev/ttys"))`,
   );
+  lines.push('(deny file-read* (subpath (param "HOME_ROOT")))');
+  const readable = [
+    ...policy.writableRoots.map((_, i) => `(subpath (param "W${i}"))`),
+    ...policy.toolchainRoots.map((_, i) => `(subpath (param "T${i}"))`),
+  ];
+  if (readable.length > 0) lines.push(`(allow file-read* ${readable.join(" ")})`);
   if (policy.denyRead.length > 0) {
     const denied = policy.denyRead.map((_, i) => `(subpath (param "R${i}"))`);
     lines.push(`(deny file-read* file-write* ${denied.join(" ")})`);
@@ -221,7 +234,8 @@ function seatbeltArgs(
   command: string,
   args: readonly string[],
 ): string[] {
-  const params: string[] = [];
+  const params: string[] = ["-D", `HOME_ROOT=${policy.home}`];
+  policy.toolchainRoots.forEach((dir, i) => params.push("-D", `T${i}=${dir}`));
   policy.writableRoots.forEach((dir, i) => params.push("-D", `W${i}=${dir}`));
   policy.denyRead.forEach((dir, i) => params.push("-D", `R${i}=${dir}`));
   return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
@@ -279,7 +293,8 @@ function bwrapArgs(
   args: readonly string[],
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
-  out.push("--tmpfs", "/tmp");
+  out.push("--tmpfs", policy.home, "--tmpfs", "/tmp");
+  for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const dir of unique(policy.writableRoots.map(real))) {
     if (dir === "/tmp") continue;
     // An absent directory cannot be bound.
@@ -315,6 +330,12 @@ export function wrapWithOsSandbox(
   options: WrapOptions = {},
 ): OsSandboxWrap {
   const platform = options.platform ?? process.platform;
+  if (policy.writableRoots.some(root => {
+    const offset = relative(root, policy.home);
+    return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+  })) {
+    return { ok: false, reason: "a writable workspace root would expose the full host home directory" };
+  }
   if (policy.writableRoots.some(root => {
     const offset = relative(root, policy.stateDir);
     return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);

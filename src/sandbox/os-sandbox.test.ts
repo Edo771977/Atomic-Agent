@@ -257,3 +257,8 @@ it("review 5: rejects protected state beneath a writable root", () => {
   const result = wrapWithOsSandbox("true", [], p, { platform: "linux", bwrap: "/usr/bin/bwrap" });
   expect(result).toMatchObject({ ok: false });
 });
+
+it("review 6: masks a synthetic home", () => {
+  const wrapper = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(wrapper.ok && wrapper.args.join(" ")).toContain("--tmpfs " + HOME);
+});

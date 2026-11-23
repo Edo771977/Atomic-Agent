@@ -138,6 +138,20 @@ describe.skipIf(unavailable !== undefined)(
       expect(result.summary).toContain("Safe Mode sandbox");
     });
 
+    it.skipIf(process.platform !== "linux")("review 6: ordinary files in a synthetic home are hidden", async () => {
+      const home = join(outside, "synthetic-home");
+      await mkdir(home);
+      const marker = join(home, "ordinary.txt");
+      await writeFile(marker, "synthetic home marker");
+      const invocation = wrapWithOsSandbox("/bin/cat", [marker], buildOsSandboxPolicy({
+        home, workspaceRoots: [work], network: false,
+      }));
+      if (!invocation.ok) throw new Error(invocation.reason);
+      const child = spawnSync(invocation.command, invocation.args, { encoding: "utf8" });
+      expect(child.stderr).toContain("No such file");
+      expect(child.stdout).toBe("");
+    });
+
     it("cannot read the agent's .env", async () => {
       const result = await tool(on).run({ cmd: 'cat "$ATO469_STATE/.env"; echo end' }, ctx());
       expect(result.summary).not.toContain("sandbox-marker-469");
