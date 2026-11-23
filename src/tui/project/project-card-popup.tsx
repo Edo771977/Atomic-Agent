@@ -5,6 +5,7 @@ import { useMouseTarget } from "../mouse/mouse-context.js";
 import { isPrimaryPress } from "../mouse/mouse-event.js";
 import { MOUSE_LAYER_MODAL } from "../mouse/mouse-registry.js";
 import { chromeTheme } from "../theme/theme.js";
+import { displayWidth } from "../render/display-width.js";
 import { fitToWidth } from "../components/fit-to-width.js";
 import type { ProjectCardState } from "./project-card-state.js";
 import { wrapOsc8 } from "../render/osc8-link.js";
@@ -12,6 +13,7 @@ import { projectCardLines, type ProjectLineTone } from "./project-card-lines.js"
 
 export interface ProjectCardPopupProps {
   card: ProjectCardState;
+  turnRunning?: boolean;
   availableRows: number;
   availableColumns: number;
 }
@@ -49,16 +51,16 @@ function linked(text: string, url: string): string {
  * through). The body scrolls (PgUp/PgDn) when taller than the pane; the
  * buttons stay on the last lines.
  */
-export function ProjectCardPopup({ card, availableRows, availableColumns }: ProjectCardPopupProps): ReactElement {
+export function ProjectCardPopup({ card, turnRunning, availableRows, availableColumns }: ProjectCardPopupProps): ReactElement {
   const width = Math.max(40, Math.min(MAX_WIDTH, availableColumns - 2));
   const inner = width - 2;
-  const lines = projectCardLines(card, inner);
+  const lines = projectCardLines(card, inner, turnRunning);
   const room = Math.max(3, availableRows - 2);
   // The last two lines (buttons/hint, or the mode's prompt) always show.
   const footer = Math.min(card.mode === "note" ? 3 : 2, lines.length);
   const body = lines.slice(0, lines.length - footer);
   const bodyRoom = Math.max(1, room - footer);
-  const focused = card.mode === "backlog" ? body.findIndex(row => row.segments.some(segment => segment.inverse)) : -1;
+  const focused = card.mode === "backlog" || (card.mode === "lessons" && !card.lessonDetail) ? body.findIndex(row => row.segments.some(segment => segment.inverse)) : -1;
   const offset = focused < 0 ? card.scroll : focused + card.scroll;
   const top = Math.min(offset, Math.max(0, body.length - bodyRoom));
   const visible = [...body.slice(top, top + bodyRoom), ...lines.slice(lines.length - footer)];
@@ -83,7 +85,9 @@ export function ProjectCardPopup({ card, availableRows, availableColumns }: Proj
             {l.segments.map((s, j) => {
               const room = Math.max(0, inner - used);
               const last = j === l.segments.length - 1;
-              const t = last ? fitToWidth(s.text, room) : s.text.slice(0, room);
+              const t = card.mode === "lessons"
+                ? s.text + " ".repeat(Math.max(0, room - displayWidth(s.text)))
+                : last ? fitToWidth(s.text, room) : s.text.slice(0, room);
               used += t.length;
               return (
                 <Text key={j} color={toneColor(s.tone)} bold={s.bold} inverse={s.inverse}>

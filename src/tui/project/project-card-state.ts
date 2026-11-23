@@ -15,7 +15,9 @@ import { uncitedDecisions } from "../../session/project-gate-text.js";
 import type { ProjectGateRow, ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectVerdict } from "../../session/session-project.js";
 
-export type ProjectCardMode = "actions" | "edit" | "note" | "backlog";
+import type { ProjectLessonPanel } from "./project-lesson-operations.js";
+
+export type ProjectCardMode = "actions" | "edit" | "note" | "backlog" | "lessons";
 
 export function backlogIds(view: ProjectGateView): string[] {
   const backlog = view.backlog;
@@ -36,6 +38,24 @@ export function projectBacklogActions(card: ProjectCardState) {
   return backlogActions.filter(action => item ? stale || item.state !== action.state : stale && action.state === "open");
 }
 
+export function selectedLesson(card: ProjectCardState) {
+  return card.lessons?.rows.find(row => row.lesson.id === card.lessonId);
+}
+
+const actions = [
+  { key: "a", label: "Approve", state: "approved" },
+  { key: "t", label: "Retire", state: "retired" },
+  { key: "r", label: "Reopen", state: null },
+] as const;
+
+export function lessonActions(card: ProjectCardState, turnRunning: boolean) {
+  const row = selectedLesson(card);
+  if (!row || !card.lessonDetail || turnRunning || card.lessons?.blocked) return [];
+  return actions.filter(({ state }) => state === null ? row.hasChoice
+    : state === "approved" ? row.lesson.declaredStatus === "active" && row.status.personState !== "approved"
+    : row.status.personState !== "retired");
+}
+
 export type ProjectCardField = "worker" | "reviewer";
 
 /** A pending per-row change in edit mode; `reviewer: null` is "no review". */
@@ -53,6 +73,10 @@ export interface ProjectCardState {
   mode: ProjectCardMode;
   backlogId?: string;
   backlogNotice?: string;
+  lessons?: ProjectLessonPanel;
+  lessonId?: string;
+  lessonDetail?: boolean;
+  lessonNotice?: string;
   /** Index into {@link projectCardActions} in `actions` mode. */
   cursor: number;
   /** Index into `view.plan.rows` in `edit` mode. */
@@ -199,6 +223,9 @@ export type ProjectCardAction =
   | { type: "project_card_closed" }
   | { type: "project_card_backlog_moved"; delta: number }
   | { type: "project_card_backlog_answer"; sessionId: string; view: ProjectGateView; notice: string }
+  | { type: "project_card_lessons_loaded"; sessionId: string; panel: ProjectLessonPanel; notice?: string }
+  | { type: "project_card_lesson_moved"; delta: number }
+  | { type: "project_card_lesson_detail"; open: boolean }
   | { type: "project_card_cursor_moved"; delta: number }
   | { type: "project_card_mode_set"; mode: ProjectCardMode; noteFor?: "edit" | "approveOverReview" }
   | { type: "project_card_row_moved"; delta: number }
@@ -229,7 +256,7 @@ export function reduceProjectCard(
   switch (action.type) {
     case "project_card_shown": {
       const full = action.full ?? (card !== null && card.sessionId === action.sessionId && card.full);
-      if (card?.sessionId === action.sessionId && card.mode === "backlog") {
+      if (card?.sessionId === action.sessionId && (card.mode === "backlog" || card.mode === "lessons")) {
         return { ...card, full, view: action.view };
       }
       // Nothing waits on the person: the card goes, unless `/plan` asked to look.
@@ -253,6 +280,26 @@ export function reduceProjectCard(
   }
   if (card === null) return null;
   switch (action.type) {
+    case "project_card_lessons_loaded": {
+      if (card.sessionId !== action.sessionId) return card;
+      const selected = action.panel.rows.find(row => row.lesson.id === card.lessonId);
+      const previous = card.lessons?.rows.find(row => row.lesson.id === card.lessonId);
+      const sameLesson = selected !== undefined && selected.lesson.hash === previous?.lesson.hash;
+      const lessonDetail = card.mode === "lessons" && card.lessonDetail === true && sameLesson;
+      return {
+        ...card, mode: "lessons", lessons: action.panel, lessonNotice: action.notice,
+        lessonId: (selected ?? action.panel.rows[0])?.lesson.id, lessonDetail,
+        scroll: lessonDetail ? card.scroll : 0, error: null,
+      };
+    }
+    case "project_card_lesson_moved": {
+      const rows = card.lessons?.rows ?? [];
+      const index = rows.findIndex(row => row.lesson.id === card.lessonId);
+      const lessonId = rows[wrap(index + action.delta, rows.length)]?.lesson.id;
+      return { ...card, lessonId, scroll: 0, lessonNotice: undefined };
+    }
+    case "project_card_lesson_detail":
+      return { ...card, lessonDetail: action.open, scroll: 0, lessonNotice: undefined };
     case "project_card_backlog_answer":
       if (card.sessionId !== action.sessionId) return card;
       return { ...card, view: action.view, pending: false, error: null, backlogNotice: action.notice };
@@ -276,7 +323,9 @@ export function reduceProjectCard(
         mode: action.mode,
         error: null,
         ...(action.mode === "note" ? { noteFor: action.noteFor ?? "edit" } : {}),
-        ...(action.mode === "actions" ? { picks: {}, note: "" } : {}),
+        ...(action.mode === "actions" ? {
+          picks: {}, note: "", lessons: undefined, lessonId: undefined, lessonDetail: false, lessonNotice: undefined,
+        } : {}),
       };
     case "project_card_row_moved":
       return { ...card, row: wrap(card.row + action.delta, projectRows(card.view).length) };
