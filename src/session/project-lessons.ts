@@ -8,6 +8,9 @@ import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall, t
 import { withFileLock } from "./project-lock.js";
 import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "./project-lesson-text.js";
+export { PROJECT_LESSON_INVISIBLE_CHARACTERS, projectLessonFingerprint } from "./project-lesson-text.js";
+
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
 const STATUSES = ["proposed", "active", "retired"] as const;
 const FIELDS = new Set(["id", "title", "source", "from", "touches", "status", "always"]);
@@ -42,9 +45,6 @@ export interface ProjectLessons {
   lessons: ProjectLesson[];
   problems: ProjectLessonProblem[];
 }
-
-/** Unicode formatting, private-use and unassigned characters are not reviewable as lesson text. */
-export const PROJECT_LESSON_INVISIBLE_CHARACTERS = /[\p{Cf}\p{Co}\p{Cn}\u2028\u2029\uFFF9-\uFFFB]/gu;
 
 function rejectInvisibleLessonText(text: string): void {
   const characters = text.match(PROJECT_LESSON_INVISIBLE_CHARACTERS);
@@ -405,10 +405,6 @@ export function projectLessonStatus(lesson: ProjectLesson, call?: ProjectLessonC
     : lesson.declaredStatus !== "active" ? lesson.declaredStatus
     : approvedByPerson ? "active" : "unapproved";
   return { personState, approvedByPerson, effectiveStatus, stale } as const;
-}
-
-export function projectLessonFingerprint({ hash }: Pick<ProjectLesson, "hash">): string {
-  return hash.slice(0, 12);
 }
 
 export function prepareProjectLessonDecision(

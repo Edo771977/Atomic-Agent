@@ -23,7 +23,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true, symlink = false, bound = true } = {}) {
+function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true, symlink = false, bound = true, moved = false, broken = false } = {}) {
   const folder = mkdtempSync(join(tmpdir(), "aa-lessons-tui-"));
   roots.push(folder);
   const refFolder = symlink ? join(folder, "alias") : folder;
@@ -52,7 +52,7 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
   const liveProjectTurn = vi.fn(() => otherChatBusy ? "s2" : null);
   const app = Object.assign(Object.create(ChatOrchestrator.prototype), {
     currentController: busy ? {} : null,
-    session: { id: "s1", ...(bound ? { projectRef: { folder: refFolder, id: "project" } } : {}), ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
+    session: { id: "s1", workingDir: moved ? join(folder, "other") : folder, ...(broken ? { projectProblem: "Broken record" } : {}), ...(bound ? { projectRef: { folder: refFolder, id: "project" } } : {}), ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
     runtime: { config: { paths: { stateDir } }, sessionStore: { liveProjectTurn } },
     bus: { emit: dispatch },
     sendMessage,
@@ -118,6 +118,15 @@ describe("project lessons in the TUI", () => {
     f.press("", { escape: true });
     expect(f.text()).toContain("PROJECT PLAN");
     expect(f.text()).toContain("deciding…");
+  });
+
+  it.each([{ moved: true }, { broken: true }])("refuses to read lessons from an invalid binding (%j)", (options) => {
+    const f = fixture(options);
+    f.write("storage");
+    f.press("v");
+    expect(f.text()).toContain("This chat's project is unavailable.");
+    expect(f.text()).not.toContain("Local storage");
+    expect(f.liveProjectTurn).not.toHaveBeenCalled();
   });
 
   it("uses the exact bound folder for lesson reads and live-turn checks", () => {

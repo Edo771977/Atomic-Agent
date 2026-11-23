@@ -41,7 +41,7 @@ import type { UninstallChoice } from "./uninstall/uninstall-state.js";
 import { handleIssueReportKey } from "./issue-report/issue-report-key-bindings.js";
 import { handleProjectCardKey } from "./project/project-card-keys.js";
 import type { ProjectDecision } from "../session/session-project.js";
-import type { ProjectLessonChoice } from "./project/project-lesson-operations.js";
+import type { ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 
 /**
