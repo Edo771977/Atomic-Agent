@@ -174,9 +174,13 @@ function collectCards(text: string, out: PrivateSpan[]): void {
   }
 }
 
+const GIT_SSH_IDENTITY =
+  /^git@(?:[a-z0-9-]+\.)*(?:github\.com|gitlab\.com|bitbucket\.org|codeberg\.org|sr\.ht)$/i;
+
 function acceptPhone(match: string): boolean {
   const n = digitCount(match);
-  if (n < 8 || n > 15) return false;
+  if (n < 8 || n > 15 || /[.-] *[.-]| {2,}/.test(match)) return false;
+  if (match.includes("(") && !/\(\d{2,5}\)/.test(match)) return false;
   // Brackets must pair up, or this is a formula, not a number.
   return (match.match(/\(/g) ?? []).length === (match.match(/\)/g) ?? []).length;
 }
@@ -193,7 +197,7 @@ export function findPrivateSpans(text: string, known: readonly KnownSecret[] = [
     collect(text, IBAN, "IBAN", (m) => ibanValid(m.replace(/ /g, "")), candidates);
   }
   if (hasDigit) collectCards(text, candidates);
-  if (text.includes("@")) collect(text, EMAIL, "EMAIL", () => true, candidates);
+  if (text.includes("@")) collect(text, EMAIL, "EMAIL", (m) => !GIT_SSH_IDENTITY.test(m), candidates);
   if (hasDigit && text.includes("+")) collect(text, PHONE_INTERNATIONAL, "PHONE", acceptPhone, candidates);
   if (hasDigit && text.includes("(")) collect(text, PHONE_BRACKETED, "PHONE", acceptPhone, candidates);
   if (candidates.length === 0) return [];

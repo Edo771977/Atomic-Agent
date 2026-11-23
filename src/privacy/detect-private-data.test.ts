@@ -90,3 +90,13 @@ describe("findSecretSpans", () => {
     expect(findSecretSpans("key [redacted:openai-key] was hidden")).toEqual([]);
   });
 });
+
+it("ignores Git SSH identities and phone-like punctuation without weakening Luhn", () => {
+  expect(kinds("git@github.com:org/repo git@gitlab.com:org/repo jane@github.com")).toEqual([
+    ["EMAIL", "jane@github.com"],
+  ]);
+  expect(kinds("math +12--345678; reference 4111111111111112")).toEqual([]);
+  expect(kinds("Call +1 (555) 123-4567 or pay 4111111111111111")).toEqual([
+    ["PHONE", "+1 (555) 123-4567"], ["CARD", "4111111111111111"],
+  ]);
+});
