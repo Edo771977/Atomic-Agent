@@ -203,6 +203,24 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     db.close();
   });
 
+  it("rejects malformed archive metadata without importing it", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 5 });
+    notes.store({ content: "a synthetic note" });
+    notes.close();
+    const profile = new ProfileStore({ dbFile });
+    profile.set("city", "Rome");
+    profile.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const archive = new Database(join(out, "memory.sqlite"));
+    archive.exec("UPDATE memories SET session_id = x'ff'");
+    archive.exec("UPDATE profile_facts SET valid_from = -1");
+    archive.close();
+    expect(restoreMemoryBackup({ memoryDbFile: join(dir, "target.sqlite") }, out)).toEqual({
+      notes: 0, facts: 0, rejected: 2, reasons: { "invalid note metadata": 1, "invalid profile metadata": 1 },
+    });
+  });
+
   it("migrates an older archive privately while keeping the original bytes", () => {
     const archive = new Database(dbFile);
     archive.exec(`
