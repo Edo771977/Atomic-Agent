@@ -148,7 +148,7 @@ export function criteriaFactsFor(
         ...(runId === undefined ? {} : { runId }),
         ...(outputHash === undefined ? {} : { outputHash }),
       };
-      if (spec?.kind === "ui") {
+      if (spec !== undefined && (spec.kind ?? spec.type) === "ui") {
         reference.kind = "ui";
         reference.mode = spec.path === undefined ? "rendered" : "file";
         if (outcome.impeccableVersion !== undefined) reference.impeccableVersion = outcome.impeccableVersion;

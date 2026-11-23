@@ -221,7 +221,7 @@ export function commandLineOf(check: ContractCheck): string {
 export const CHECK_RUN_STDERR_CHARS = 2_000;
 
 export function checkRunOf(check: ContractCheck, result: ContractCheckResult, files?: Array<{ path: string; sha256?: string }>): CheckRunRecord | undefined {
-  if ((check.kind ?? "command") !== "command") return undefined;
+  if ((check.kind ?? check.type ?? "command") !== "command") return undefined;
   if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
   // Separate budgets, so a long stderr never pushes the TAP out; a share one stream leaves goes to the other.
   const stdout = result.stdoutTail ?? "";
@@ -690,7 +690,7 @@ export async function runContractChecks(
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
       ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
-      ...(check.kind === "ui" && result.stdoutTail !== undefined ? { outputHash: receiptHash(result.stdoutTail) } : {}),
+      ...((check.kind ?? check.type) === "ui" && result.stdoutTail !== undefined ? { outputHash: receiptHash(result.stdoutTail) } : {}),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),

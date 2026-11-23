@@ -77,7 +77,7 @@ describe("criteria facts (issue #40)", () => {
   });
 
   it.each(["file", "rendered"] as const)("keeps UI provenance and judge outcomes in %s mode", async (mode) => {
-    const ui: DelegateContract = { checks: [{ kind: "ui", task: "ui", criteria: ["c1"],
+    const ui: DelegateContract = { checks: [{ ...(mode === "file" ? { type: "ui" } : { kind: "ui" }), task: "ui", criteria: ["c1"],
       ...(mode === "file" ? { path: "index.html" } : { url: "http://localhost:4173/" }) }] };
     const criteria = taskCriteria("ui", ui, CRITERIA);
     const result = green({ impeccableVersion: "4.10.0", outputHash: receiptHash("detector output") });

@@ -1360,7 +1360,7 @@ export function buildFusionDelegateTool(
       const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined
         ? undefined
         : (check, record, ok) => writeReceipt("check-run-record", () => ({
-            kind: check.kind ?? "command",
+            kind: check.kind ?? check.type ?? "command",
             ...(check.task === undefined ? {} : { task: check.task }),
             definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
             recordHash: receiptHash(record),

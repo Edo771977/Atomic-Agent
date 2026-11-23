@@ -230,8 +230,9 @@ describe("runContractChecks", () => {
       { ok: true, warningCount: 1 },
     ] });
     const { outcomes } = await runContractChecks([
-      { kind: "ui", path: "index.html" }, { kind: "document", path: "report.md" },
+      { type: "ui", path: "index.html" }, { kind: "document", path: "report.md" },
     ], runner, ctx);
+    expect(outcomes[0]?.run).toBeUndefined();
     expect(outcomes[0]).toMatchObject({ ok: true, outputHash: receiptHash("pass: report"), warningCount: 2, impeccableVersion: "4.10.0" });
     expect(outcomes[1]).toMatchObject({ ok: true, warningCount: 1 });
   });
