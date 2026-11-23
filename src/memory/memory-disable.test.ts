@@ -122,13 +122,14 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(notes.recall("allergic").map((e) => e.id)).toEqual([off.id]);
   });
 
-  it("does not fold a new note into a turned-off one", () => {
+  it("does not relearn a turned-off note", () => {
     const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.5 } });
     const off = notes.store({ content: "the user prefers dark roast coffee" });
     notes.setDisabled(off.id, true);
     const fresh = notes.store({ content: "the user prefers dark roast coffee beans" });
-    expect(fresh.id).not.toBe(off.id);
-    expect(notes.count()).toBe(2);
+    expect(fresh.id).toBe(off.id);
+    expect(notes.count()).toBe(1);
+    expect(notes.recall("dark roast")).toEqual([]);
   });
 
   it("answers null for an unknown note", () => {

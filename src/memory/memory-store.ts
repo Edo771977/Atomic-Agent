@@ -495,15 +495,14 @@ export class MemoryStore {
     // superseded rows are never candidates: a write merged into a
     // hidden row would stay hidden (a re-learned fact, a user's note).
     this.dedupCandidateStmt = this.db.prepare(
-      `SELECT m.id, m.content, m.tags, bm25(memories_fts) AS score
+      `SELECT m.id, m.content, m.tags, m.disabled_at, bm25(memories_fts) AS score
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
           AND m.consolidated_into IS NULL
           AND NOT ${supersededSql("m.tags")}
           AND memory_scope_same(m.constraint_scope)
-          AND m.disabled_at IS NULL
-        ORDER BY score ASC
+        ORDER BY (m.disabled_at IS NOT NULL) DESC, score ASC
         LIMIT 5`,
     );
   }
@@ -536,6 +535,15 @@ export class MemoryStore {
     const sessionId = validateOptionalString(input.sessionId, "sessionId");
     const workingDir = validateOptionalString(input.workingDir, "workingDir");
 
+    if (source === "agent") {
+      const disabled = this.db.prepare(
+        `SELECT id FROM memories WHERE disabled_at IS NOT NULL AND content = ? AND memory_scope_same(constraint_scope) LIMIT 1`,
+      ).get(content) as { id: number } | undefined;
+      if (disabled) {
+        const entry = this.get(disabled.id);
+        if (entry) return entry;
+      }
+    }
     if (this.dedupEnabled) {
       const merged = this.tryDedupMerge({ content, tags, now });
       if (merged !== null) return merged;
@@ -647,6 +655,7 @@ export class MemoryStore {
       content: string;
       tags: string | null;
       score: number;
+      disabled_at: number | null;
     };
     let candidates: CandidateRow[];
     try {
@@ -668,6 +677,7 @@ export class MemoryStore {
         tokens,
         tokeniseForSimilarity(row.content),
       );
+      if (row.disabled_at !== null && score >= this.dedupThreshold) return this.get(row.id);
       if (best === null || score > best.score) {
         best = { id: row.id, score, row };
       }
