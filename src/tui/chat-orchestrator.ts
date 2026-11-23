@@ -366,7 +366,7 @@ export class ChatOrchestrator {
       emit: (action) => bus.emit(action),
       refresh: async () => { await runtime.refreshSkills(); this.skills.refresh(); },
     });
-    this.memory = new MemoryOrchestrator(runtime, bus);
+    this.memory = new MemoryOrchestrator(runtime, bus, { isIncognito: () => isIncognitoSession(this.session) });
     this.mcp = new McpOrchestrator(runtime, bus);
     this.import = new ImportOrchestrator(runtime, bus, {
       refreshTasks: () => this.tasks.refresh(),

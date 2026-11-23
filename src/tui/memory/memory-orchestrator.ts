@@ -1,3 +1,4 @@
+import { createMemoryBackup, defaultBackupDir, restoreMemoryBackup } from "../../memory/memory-backup.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { LINK_LIST_ALL_DEFAULT_LIMIT } from "../../memory/links/link-store.js";
 import type { TuiEventBus } from "../tui-app.js";
@@ -28,6 +29,7 @@ import {
 
 export interface MemoryOrchestratorOptions {
   refreshIntervalMs?: number;
+  isIncognito?: () => boolean;
 }
 
 const DEFAULT_REFRESH_INTERVAL_MS = 5_000;
@@ -49,7 +51,7 @@ export class MemoryOrchestrator {
   constructor(
     private readonly runtime: AgentRuntime,
     private readonly bus: TuiEventBus & { emit(action: unknown): void },
-    options: MemoryOrchestratorOptions = {},
+    private readonly options: MemoryOrchestratorOptions = {},
   ) {
     this.refreshIntervalMs =
       options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
@@ -117,6 +119,26 @@ export class MemoryOrchestrator {
         type: "runtime_info",
         line: `memory refresh failed: ${msg}`,
       });
+    }
+  }
+
+  async runBackup(request: { operation: "backup" | "restore"; directory?: string }): Promise<void> {
+    const { paths } = this.runtime.config;
+    const context = { memoryDbFile: paths.memoryDbFile, incognito: this.options.isIncognito?.() ?? false };
+    try {
+      let line: string;
+      if (request.operation === "backup") {
+        const path = await createMemoryBackup(context, request.directory ?? defaultBackupDir(paths.stateDir));
+        line = `memory backed up to ${path}`;
+      } else {
+        if (request.directory === undefined) throw new Error("restore requires a backup directory");
+        const { notes, facts } = restoreMemoryBackup(context, request.directory);
+        line = `restored ${notes} notes and ${facts} profile facts`;
+        this.refresh();
+      }
+      this.bus.emit({ type: "runtime_info", line });
+    } catch (error) {
+      this.bus.emit({ type: "runtime_info", line: `memory ${request.operation} failed: ${String(error)}` });
     }
   }
 
