@@ -8,8 +8,9 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { Browser } from "playwright-core";
 
-import { defaultBrowserLauncher, isLoopbackHost, type BrowserLauncher } from "./run-page-kind.js";
+import { isLoopbackHost, type BrowserLauncher } from "./run-page-kind.js";
 import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
+import { probeVerifyBrowser } from "./verify-browser-test-fixture.js";
 import { createVerifyWorkspace } from "./verify-workspace-copy.js";
 
 const NODE = process.execPath;
@@ -369,22 +370,17 @@ describe("isLoopbackHost", () => {
 });
 
 describe("runVerify — page, real browser", () => {
-  let launchable = false;
+  let browser: Awaited<ReturnType<typeof probeVerifyBrowser>>;
   beforeAll(async () => {
-    try {
-      const browser = await defaultBrowserLauncher(CONFIG)();
-      await browser.close();
-      launchable = true;
-    } catch {
-      launchable = false;
+    if (process.env.ATAG_VERIFY_PAGE_TEST === "0" && process.env.ATAG_VERIFY_REQUIRE_BROWSER !== "1") {
+      browser = { skipReason: "ATAG_VERIFY_PAGE_TEST=0 disables the real browser fixture" };
+    } else {
+      browser = await probeVerifyBrowser(CONFIG);
     }
   }, 60_000);
 
-  it.runIf(process.env.ATAG_VERIFY_PAGE_TEST !== "0")("drives a local page: script, probes, errors, missing selectors", async (test) => {
-    if (!launchable) {
-      test.skip();
-      return;
-    }
+  it("drives a local page: script, probes, errors, missing selectors", async (test) => {
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(
       join(work, "index.html"),
       `<html><body><button id="launch">go</button>
@@ -408,7 +404,7 @@ describe("runVerify — page, real browser", () => {
         probes: [{ name: "score", expr: "window.game.score" }, { name: "launched", expr: "window.game.launched" }],
         checks: ["no errors", "missing selectors 2", "probe score increases", "probe launched stays true"],
       },
-      ctx(),
+      ctx({ launchBrowser: browser.launch }),
     );
     expect(out.errors).toEqual(["Error: boom on load"]);
     expect(out.consoleWarnings).toEqual(["just a warning"]);
@@ -424,11 +420,8 @@ describe("runVerify — page, real browser", () => {
   // A slow machine (the Windows CI runner, a loaded laptop) can take more than
   // 5 s to make a control clickable; the click step waited only 5 s, so a good
   // page failed its check with "page.click: Timeout 5000ms exceeded".
-  it.runIf(process.env.ATAG_VERIFY_PAGE_TEST !== "0")("a click waits for a control that becomes clickable after 6 s", async (test) => {
-    if (!launchable) {
-      test.skip();
-      return;
-    }
+  it("a click waits for a control that becomes clickable after 6 s", async (test) => {
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(
       join(work, "late.html"),
       `<html><body>
@@ -453,7 +446,7 @@ describe("runVerify — page, real browser", () => {
         probes: [{ name: "clicked", expr: "window.clicked" }],
         checks: ["no errors", "probe clicked stays true"],
       },
-      ctx(),
+      ctx({ launchBrowser: browser.launch }),
     );
     expect(out.errors).toEqual([]);
     expect(out.ok).toBe(true);

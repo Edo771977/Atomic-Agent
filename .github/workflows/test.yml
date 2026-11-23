@@ -138,7 +138,13 @@ jobs:
           npm run quarantine:check
           npm run quarantine:self-test
 
+      - name: Install Chromium for the real browser tests
+        if: matrix.drop_canvas == 'false'
+        run: npx playwright-core install --with-deps chromium
+
       - name: Run tests
+        env:
+          ATAG_VERIFY_REQUIRE_BROWSER: ${{ matrix.drop_canvas == 'false' && '1' || '0' }}
         run: node scripts/run-tests.mjs ${{ matrix.scope }}
 
       # The eval harness checks are independent of the main suite: report them
