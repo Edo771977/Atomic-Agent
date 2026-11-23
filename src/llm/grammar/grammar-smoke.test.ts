@@ -89,6 +89,7 @@ it("fails the worker check when a parseable completion skipped the grammar", () 
   expect(judgeGrammarSmokeCompletion({
     content: '[{"tool":"reply","args":{"text":"ok"}}]',
     grammarSkipped: true,
+    truncated: false,
   }, PLAIN_INSTRUCT_PROFILE)).toMatchObject({ kind: "fail", cause: "grammar-rejected" });
 });
 
