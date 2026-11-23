@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
-
 import { visiblePreviewLine } from "../../approval/approval-preview.js";
 import type { AgentRuntime } from "../../runtime/runtime-contract.js";
 import { backlogDecisionFingerprint, type ProjectBacklogDecision } from "../../session/project-backlog.js";
 import { normalizeCriterionId } from "../../session/project-criterion-id.js";
 import type { ProjectGateBacklog, ProjectGateView } from "../../session/project-gate-view.js";
+
+import { confirmationCode } from "./confirmation-code.js";
 
 const TARGET_STATE = { "/promote": "promoted", "/drop": "dropped", "/reopen": "open" } as const satisfies
   Record<string, ProjectBacklogDecision["state"]>;
@@ -53,10 +53,6 @@ function renderBacklog(backlog: ProjectGateBacklog | undefined): string {
     "Use /promote <id>, /drop <id> or /reopen <id> to preview a decision.",
     "At the plan gate, use /defer <id> or /activate <id> to preview a change for a promoted item waiting for the plan.",
   ].join("\n");
-}
-
-function confirmationCode(parts: readonly unknown[]): string {
-  return createHash("sha256").update(JSON.stringify(parts)).digest("hex").slice(0, 16);
 }
 
 function itemFingerprint(
