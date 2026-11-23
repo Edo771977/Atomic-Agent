@@ -7,7 +7,7 @@ import { createEmptySessionState, type SessionState } from "../../session/sessio
 import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
 import { hashSkillText, listPendingDrafts, savePendingDraft } from "../../skills/learning/pending-drafts.js";
 import { SkillsOrchestrator } from "./skills-orchestrator.js";
-import type { TuiEventBus } from "../tui-app.js";
+import { makeTuiEventBus } from "../tui-app.js";
 
 describe("/learn draft approval", () => {
   it("shows the full text and refuses activation in incognito or while a turn is running", async () => {
@@ -16,13 +16,15 @@ describe("/learn draft approval", () => {
       const session = createEmptySessionState({ id: "learn", workingDir: stateDir });
       let current: SessionState = { ...session, incognito: { since: 1, owner: "test" } };
       const emit = vi.fn();
+      const bus = makeTuiEventBus();
+      bus.subscribe(emit);
       const isBusy = vi.fn(() => true);
       const runtime = {
         config: { paths: { stateDir } }, turnController: { isBusy },
         sessionStore: { liveFolderTurn: () => false },
         skillRegistry: { listAll: () => [] }, refreshSkills: vi.fn(async () => {}),
       } as unknown as AgentRuntime;
-      const orchestrator = new SkillsOrchestrator(runtime, { emit } as unknown as TuiEventBus, {
+      const orchestrator = new SkillsOrchestrator(runtime, bus, {
         currentSession: () => current,
       });
       const scope = learnedSkillScope(stateDir, stateDir);
