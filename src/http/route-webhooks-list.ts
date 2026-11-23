@@ -9,7 +9,7 @@ import {
 } from "../config/webhook-config.js";
 
 import { sendJson, type HttpHandler } from "./request-context.js";
-import { getWebhookTunnelStatus } from "./webhook-tunnel-status.js";
+import { getWebhookTunnelStatus, webhookTunnelPath } from "./webhook-tunnel-status.js";
 
 /**
  * One binding as `GET /api/webhooks` shows it. Never carries the secret,
@@ -17,7 +17,7 @@ import { getWebhookTunnelStatus } from "./webhook-tunnel-status.js";
  */
 export interface WebhookListItem {
   name: string;
-  /** Path on this agent's HTTP server (and on the tunnel origin). */
+  /** Path on the main HTTP listener. */
   path: string;
   hasSecret: boolean;
   sessionMode: "ephemeral" | "persistent" | "named";
@@ -50,7 +50,7 @@ export function webhookListItem(
     path,
     hasSecret,
     sessionMode: webhook.sessionMode ?? "ephemeral",
-    publicUrl: publicBase && hasSecret && live ? `${publicBase}${path}` : null,
+    publicUrl: publicBase && hasSecret && live ? `${publicBase}${webhookTunnelPath(name)}` : null,
     verify: webhook.verify ?? "secret",
     ...(webhook.events ? { events: [...webhook.events] } : {}),
     userMessageTemplate: webhook.userMessageTemplate,

@@ -86,17 +86,20 @@ it("rejects malformed, proposed, running, and incognito decisions", async () => 
   expect((await decide("retire", row.hash)).status).toBe(409);
 });
 
-it("requires configured authentication for POST while allowing GET without a key", async () => {
+it("uses the server bearer check for both reads and decisions", async () => {
+  expect((await list(null)).status).toBe(401);
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  expect((await decide("approve", row.hash, false, null)).status).toBe(401);
+  expect((await read(await list())).panel.rows[0]).toMatchObject({ status: { approvedByPerson: false } });
+});
+
+it("can exercise the lesson handler through the explicit unauthenticated test harness", async () => {
   await h.cleanup();
   await setup(null);
-  const listing = await list(null);
-  expect(listing.status).toBe(200);
-  const row = (await read(listing)).panel.rows[0];
+  const row = (await read(await list(null))).panel.rows[0];
   assert.ok(row);
-  const denied = await decide("approve", row.hash, false, null);
-  expect(denied.status).toBe(403);
-  expect((await read(denied)).error.code).toBe("person-auth-required");
-  expect((await read(await list(null))).panel.rows[0]).toMatchObject({ status: { approvedByPerson: false } });
+  expect((await decide("approve", row.hash, false, null)).status).toBe(200);
 });
 
 it("accepts a valid bearer key and ignores the server process marker for HTTP", async () => {

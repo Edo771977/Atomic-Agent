@@ -34,6 +34,7 @@ import {
   findStateSecretReads,
   stateSecretReadPrompt,
   stateSecretShellPrompt,
+  shellServerKeyMutation,
   type StateSecrets,
 } from "./state-secrets.js";
 
@@ -144,14 +145,16 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
         : findShellStateSecrets(args, ctx, secrets, options.shellEnv);
     if (secretPaths.length > 0) {
       const commandLine = shellCommandLine(args);
+      const mutatesKey = secrets !== null && shellServerKeyMutation(args, ctx, secrets, options.shellEnv);
       await asker.confirmStateSecret(
         tool,
         ctx,
         {
-          reason: stateSecretShellPrompt(commandLine, secretPaths),
+          reason: mutatesKey ? "Change a protected server credential" : stateSecretShellPrompt(commandLine, secretPaths),
           preview: commandLine,
         },
         secretPaths,
+        mutatesKey ? "trust_config" : "state_secret",
       );
     }
     if (!scoped()) return null;

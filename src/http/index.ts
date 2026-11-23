@@ -24,6 +24,7 @@ export {
   getWebhookTunnelStatus,
   resetWebhookTunnelStatus,
   setWebhookTunnelStatus,
+  webhookTunnelPath,
 } from "./webhook-tunnel-status.js";
 export type { WebhookTunnelStatus } from "./webhook-tunnel-status.js";
 export type { RouteTableOptions } from "./route-table.js";
