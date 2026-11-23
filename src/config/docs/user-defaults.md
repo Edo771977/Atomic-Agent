@@ -145,7 +145,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 
 ## privacy
 
-- `privacy.shield.enabled` (default `false`): Privacy Shield. Emails, phone numbers, card numbers, IBANs and keys in a request to a cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply and in tool calls on this machine. Local models are never masked ([privacy shield](../../privacy/README.md)).
+- `privacy.shield.enabled` (default `false`): Privacy Shield. Emails, phone numbers, card numbers, IBANs and keys in a request to a cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply and in tool calls on this machine. Auto skips local-looking endpoints. Use provider-level `privacy.shield: "on"` for a gateway forwarding to the cloud ([privacy shield](../../privacy/README.md)).
 
 ## sessions
 

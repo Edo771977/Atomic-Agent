@@ -22,9 +22,8 @@ import {
  *    therefore keeps the real text, and the next request masks it again
  *    to the same placeholders.
  *
- * Never for a server on this machine or the local network (llama.cpp,
- * LM Studio, Ollama, vLLM): the caller passes `local`, and the managed
- * llama-server route is a different provider class altogether.
+ * Auto mode skips local-looking addresses. An explicit on covers a gateway
+ * there that forwards to the cloud. Managed llama-server bypasses this adapter.
  */
 
 /** The vault for this request, or `null` when the shield does not apply. */

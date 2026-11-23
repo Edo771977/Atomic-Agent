@@ -154,8 +154,10 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
         symbol = undefined;
         continue;
       }
-      symbol = checker.getNonNullableType(type).getProperty(part);
+      const element = part.endsWith("[]");
+      symbol = checker.getNonNullableType(type).getProperty(element ? part.slice(0, -2) : part);
       type = symbol ? checker.getTypeOfSymbolAtLocation(symbol, root) : undefined;
+      if (element && type) type = checker.getIndexTypeOfType(checker.getNonNullableType(type), ts.IndexKind.Number);
     }
     return symbol && type ? { symbol, type } : null;
   };
@@ -211,7 +213,9 @@ export function extractSettingDocs(schemaFile: string = SCHEMA_FILE): Record<str
   const docs: Record<string, SettingDoc> = {};
   const leaves = listConfigLeaves();
   const leafKeys = new Set(leaves.map((leaf) => leaf.key));
-  const optional = new Set(optionalKeys(leafKeys));
+  const optional = new Set(optionalKeys(leafKeys).flatMap(key =>
+    key === "llm.providers" ? [key, "llm.providers[].privacy.shield"] : [key],
+  ));
   const allKeys = mergeSettingKeys([...leafKeys], [...optional]);
   for (const key of allKeys) {
     const leaf = { key };

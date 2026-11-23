@@ -10,7 +10,7 @@ Masks personal data and keys before a request goes to a cloud model and puts the
 - [Stream unmasker](stream-unmasker.ts): holds back a tail that could still be a placeholder cut between two chunks (`[EMA` + `IL_1]`).
 - [Registry](privacy-vault-registry.ts): one vault per session id and the process-wide "masked N" totals.
 
-The [provider adapter](../llm/provider/openai/openai-privacy-shield.ts) covers OpenAI, OpenRouter, Gemini, AIMLAPI, hosted OpenAI-compatible endpoints and native Anthropic Messages. It masks messages before transport conversion, restores split placeholders in streamed text and reasoning, and restores JSON-escaped arguments before the agent dispatches tools. Unknown placeholders pass through unchanged. Subscription CLI providers and separate image and audio requests are outside this coverage. Managed local models and endpoints classified as local receive the original text.
+The [provider adapter](../llm/provider/openai/openai-privacy-shield.ts) covers OpenAI, OpenRouter, Gemini, AIMLAPI, hosted OpenAI-compatible endpoints and native Anthropic Messages. It masks messages before transport conversion, restores split placeholders in streamed text and reasoning, and restores JSON-escaped arguments before the agent dispatches tools. Unknown placeholders pass through unchanged. Subscription CLI providers and separate image and audio requests are outside this coverage. Managed local models receive the original text. OpenAI-compatible and Anthropic endpoints classified as local do so in auto mode.
 
 The archive lives in process memory. Chat deletion, including incognito close, drops its archive. Calls without a session use a fresh archive for each completion. The archive is excluded from logs, traces, transcripts, error reports, durable memory and prompt facts. Local conversation history still receives the restored text under its existing retention rules.
 
@@ -19,6 +19,8 @@ The detector reads the fork's current [known credentials](../runtime/runtime-kno
 Checks: `npx vitest run src/privacy`; `npm run lint`; `npm run docs:check`.
 
 For a gateway, proxy or SSH tunnel on a local-looking address that forwards to a cloud model, set `llm.providers[].privacy.shield` to `"on"` on that entry. The default `"auto"` uses the global setting and classifies by the gateway address. Use `"off"` to bypass the shield on a specific provider.
+
+Provider overrides apply to OpenAI-compatible and native Anthropic adapters. Managed `llama-server` and `subscription-cli` entries accept the configuration for compatibility and ignore it because their transports bypass Privacy Shield.
 
 Completed sessions and ephemeral worker turns release their archives. The process targets 128 recently used session archives and retains those of active turns until they finish. A session can grow to 4,096 values or 1 Mi UTF-16 code units of private values. When an existing archive fills up, the provider rebuilds it from the current window. If that window still exceeds the limit, inference stops before sending it and tells the operator to shorten or compact it. The request does not fail over to another provider.
 
@@ -33,5 +35,3 @@ The vault registry deliberately has process scope. Bootstrap sets the default sw
 ## Trust model
 
 References are predictable within an archive. If a model writes a known reference such as `[EMAIL_1]`, including by decoding percent-encoded text or HTML entities read from a file, the agent resolves it to the original value. This is intentional. Privacy Shield replaces detectable values on the protected provider's request, while the model can still refer to the same values the tools would receive without the shield. Existing approval, read-scope and output policies continue to apply after resolution.
-
-Provider overrides apply to OpenAI-compatible and native Anthropic adapters. Managed `llama-server` and `subscription-cli` entries accept the configuration for compatibility and ignore it because their transports bypass Privacy Shield.

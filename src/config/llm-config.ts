@@ -44,7 +44,7 @@ export type UserSubscriptionCliOptions = {
 };
 
 export type ProviderPrivacyConfig = {
-  /** Privacy Shield routing. Use on for a loopback or private gateway forwarding to a cloud model. Auto follows the global setting and skips local-looking endpoints. Off bypasses protection. */
+  /** Privacy Shield routing for OpenAI-compatible and Anthropic providers. The default auto follows the global switch and skips local-looking endpoints. On forces protection for gateways that forward to the cloud. Off bypasses protection. Managed llama-server and subscription-cli ignore this setting. */
   shield?: "on" | "off" | "auto";
 };
 
