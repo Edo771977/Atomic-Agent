@@ -24,9 +24,9 @@ export async function probeVerifyBrowser(config: Pick<AtomicAgentConfig, "browse
     browser = await launch();
   } catch (error) {
     const message = String(error);
-    const [system, managed] = message.split("; playwright chromium: ");
+    const reasons = message.replace(/^Error: no browser available: /, "").split("; ");
     const missing = /no Chromium-family browser found|browser executable not found|executable doesn't exist|does not exist|missing dependencies/i;
-    if (managed && missing.test(system ?? "") && missing.test(managed)) return unavailable(message);
+    if (reasons.length === 2 && reasons.every((reason) => missing.test(reason))) return unavailable(message);
     throw error;
   }
   const dir = await mkdtemp(join(tmpdir(), "atag-browser-probe-"));

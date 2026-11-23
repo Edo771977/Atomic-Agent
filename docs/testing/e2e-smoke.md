@@ -5,6 +5,8 @@ Owner: repository maintainers
 
 Run date: 2026-10-06. Build: atomic-agent 0.6.6, macOS, Node 25.7.0 with the installed native SQLite dependency. This checks actual `dist` processes, HTTP/SSE, filesystem effects and SQLite persistence. The LLM endpoints are local scripted servers; this does not measure model quality.
 
+CI runs the built smoke in a Linux network namespace with only loopback enabled. The smoke opts in to telemetry and crash reporting, exercises feature flags with offline mode set through the environment and through config, and checks for updates. The offline tripwire log must be empty. A separate online control must record a real PostHog attempt that the tripwire blocks before connection.
+
 ## Repeatable offline check
 
 ```sh
@@ -14,7 +16,7 @@ npm run smoke:e2e -- --output /tmp/atomic-e2e-report
 
 [Harness](../../scripts/smoke-e2e.mjs) uses only Node built-ins. It creates temporary state and workspace directories, supplies a clean child environment without inherited cloud credentials, disables analytics/browser and background memory features in the fixture config, and binds an ephemeral loopback port. Workspaces are removed after the run; JSON request evidence and process output remain in the selected output directory. It neither downloads models nor loads `eval/.env`. Loopback binding must be allowed by the execution environment. TUI and the extended eval/native-provider runs below were performed separately and are not part of this command.
 
-Zero egress (ATO-1086): every child runs with [the network tripwire](../../scripts/net-intercept-preload.mjs) in `NODE_OPTIONS`, so Node grandchildren get it too. Any TCP, TLS, UDP or DNS attempt to a host other than this machine is refused before it leaves and logged; the last check requires none, and `report.json` lists them under `egress`. Non-Node child processes (curl, git, a browser) are not covered. The tripwire's own test is `scripts/net-intercept.test.ts` (part of `npm test`). Once the offline switch exists (ATO-1084), the fixture config should turn it on and a cloud provider should be added, so the same check proves the switch.
+Zero egress (ATO-1086): every child runs with [the network tripwire](../../scripts/net-intercept-preload.mjs) in `NODE_OPTIONS`, so Node grandchildren get it too. Any TCP, TLS, UDP or DNS attempt to a host other than this machine is refused before it leaves and logged; the last check requires none, and `report.json` lists them under `egress`. Non-Node child processes (curl, git, a browser) are not covered. The tripwire's own test is `scripts/net-intercept.test.ts` (part of `npm test`). The run is in offline mode (ATO-1507): the fixture config sets `network.offline: true` and every child gets `ATOMIC_AGENT_OFFLINE=1`, so the last check reads "zero requests out while offline mode is on". The agent's own switch refuses non-loopback requests inside its HTTP pool; the tripwire catches anything that goes around it. A fixture cloud provider, so a refused cloud turn is checked too, is not added yet.
 
 The 13 assertions passed:
 

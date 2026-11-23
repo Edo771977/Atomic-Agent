@@ -1,3 +1,7 @@
+import { PrivacyVault } from "../../privacy/index.js";
+import type { KnownSecret } from "../../error-reporting/secret-detector.js";
+import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
+import { addPrivacyInstructions, maskOpenAiBody } from "../../llm/provider/openai/openai-privacy-shield.js";
 import type { LlmProvider } from "../../llm/provider/llm-provider.js";
 import type { CompletionUsage } from "../../llm/provider/completion-types.js";
 import { buildCloudSubcallRequest } from "../../llm/provider/cloud-subcall.js";
@@ -170,6 +174,8 @@ export interface SkillEvalJudgeDeps {
   /** Cost of one call's usage when the service did not bill it; null when the model has no pricing. */
   priceUsage?: (usage: CompletionUsage, modelId: string | null) => number | null;
   fetchImpl?: typeof fetch;
+  privacyShieldEnabled?: boolean;
+  privacyKnownSecrets?: () => readonly KnownSecret[];
 }
 
 /** The emit function a provider judge answers through (native tools links answer in `tool_calls`). */
@@ -240,6 +246,7 @@ export function createSkillEvalJudge(config: SkillEvalJudgeConfig, deps: SkillEv
 
   const fetchImpl = deps.fetchImpl ?? fetch;
   const endpoint = chatCompletionsUrl(config.baseUrl);
+  const protect = deps.privacyShieldEnabled === true && !isLocalServerUrl(config.baseUrl);
   return {
     model: config.model,
     baseUrl: config.baseUrl,
@@ -248,6 +255,18 @@ export function createSkillEvalJudge(config: SkillEvalJudgeConfig, deps: SkillEv
     async score(input) {
       const headers: Record<string, string> = { "content-type": "application/json" };
       if (config.apiKey) headers.authorization = `Bearer ${config.apiKey}`;
+      const vault = protect ? new PrivacyVault(deps.privacyKnownSecrets) : null;
+      const body = {
+        model: config.model,
+        messages: buildJudgeMessages(input),
+        temperature: 0,
+        max_tokens: JUDGE_MAX_TOKENS,
+        response_format: { type: "json_object" },
+      };
+      if (vault) {
+        maskOpenAiBody(body, vault);
+        addPrivacyInstructions(body);
+      }
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), config.timeoutMs);
       try {
@@ -255,13 +274,7 @@ export function createSkillEvalJudge(config: SkillEvalJudgeConfig, deps: SkillEv
           method: "POST",
           headers,
           signal: controller.signal,
-          body: JSON.stringify({
-            model: config.model,
-            messages: buildJudgeMessages(input),
-            temperature: 0,
-            max_tokens: JUDGE_MAX_TOKENS,
-            response_format: { type: "json_object" },
-          }),
+          body: JSON.stringify(body),
         });
         if (!response.ok) {
           const text = await response.text().catch(() => "");
@@ -284,7 +297,8 @@ export function createSkillEvalJudge(config: SkillEvalJudgeConfig, deps: SkillEv
           config.model,
         );
         const content = json.choices?.[0]?.message?.content;
-        return parseJudgeVerdict(typeof content === "string" ? content : "");
+        const text = typeof content === "string" ? content : "";
+        return parseJudgeVerdict(vault ? vault.unmask(text, { json: true }) : text);
       } finally {
         clearTimeout(timer);
       }

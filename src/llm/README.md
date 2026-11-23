@@ -17,6 +17,7 @@ The provider registry keeps defensive construction-entry snapshots and exposes c
 - [slot-manager.ts](slot-manager.ts)
 - [toolcall-bench/](toolcall-bench/index.ts): the fixed tool-call reliability prompts, their scoring, and asking one question to several models (`models toolcall-bench`, `models ask`)
 - [transport-deadlines.ts](transport-deadlines.ts) and [offline-network.ts](offline-network.ts): the process-wide HTTP pool and the offline-mode kill switch composed into it ([offline mode](docs/offline-network.md), ATO-1084)
+- [openai-privacy-shield.ts](provider/openai/openai-privacy-shield.ts): Privacy Shield on the cloud wire (ATO-1081). Every covered cloud provider is an `OpenAiProvider`; for protected requests its body `messages` go out masked by the session vault and the reply, reasoning and tool-call arguments come back unmasked, streamed chunks included. Auto skips local-looking endpoints. A provider override of `on` protects a gateway that forwards to the cloud ([privacy shield](../privacy/README.md)).
 
 ## Ownership and dependencies
 
@@ -35,6 +36,8 @@ Read [the native Anthropic provider](docs/anthropic-messages.md) for the `anthro
 Read [per-folder provider constraints](docs/provider-policy.md) for `projects.constraints` enforcement: the AsyncLocalStorage policy frame (`runWithProviderPolicy`, `currentProviderPolicy`), `ProviderNotAllowedError` / `isProviderNotAllowed`, the guard the registry puts on every provider and how the fallback chain skips disallowed links.
 
 Read [router/README.md](router/README.md) for the opt-in rule-based model router (`llm.router`, ATO-483): it puts a provider first in a turn's fallback chain by request features and stays silent under the local run mode, Fusion or a pinned turn.
+
+A provider rejection that identifies an invalid sampling setting stops failover and names the setting to correct. Network failures and HTTP 5xx still follow the configured fallback policy. Fusion workers keep the provider and model pinned to their turn. See [provider fallback](docs/fallback.md).
 
 ## Validation
 

@@ -20,7 +20,7 @@ describe("AuthThrottle (ATO-1126)", () => {
     for (let i = 0; i < 9; i++) { th.failed("10.0.0.5"); t += 10_000; }
     th.failed("10.0.0.5");
     expect(th.retryAfter("10.0.0.5")).toBe(0);
-    th.succeeded("10.0.0.5");
+    th.ownerSucceeded("10.0.0.5");
     for (let i = 0; i < 9; i++) th.failed("10.0.0.5");
     expect(th.retryAfter("10.0.0.5")).toBe(0);
   });

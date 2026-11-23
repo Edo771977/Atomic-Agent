@@ -1752,7 +1752,10 @@ describe("TelegramChannel per-chat approval bindings", () => {
     // What the retry timer runs; a manual start supersedes it.
     await channel.start();
     expect(channel.state()).toBe("up");
-    await state.callbackHandler!(click("a-1", "y"));
+    await state.callbackHandler!({
+      ...click("a-1", "y"),
+      message: { chat: { id: 42 }, message_id: state.sendMessageCalls.length },
+    });
 
     expect(runtime.approvals.resolve).toHaveBeenCalledWith({
       approvalId: "a-1",

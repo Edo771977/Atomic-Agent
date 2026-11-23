@@ -98,10 +98,10 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
 
   /**
    * Fire the suggestion for a finished turn when the setting, the
-   * origin and the transcript all allow it. Never awaits the call and
+   * origin and the transcript all allow it. Returns the work to its owner and
    * never throws: the caller has already saved and is about to return.
    */
-  const maybeSuggest = (state: SessionState, origin: TurnOrigin | undefined): void => {
+  const maybeSuggest = (state: SessionState, origin: TurnOrigin | undefined): Promise<void> | undefined => {
     try {
       if (origin !== undefined && UNWATCHED_ORIGINS.has(origin)) return;
       if (!nextStepSuggestionsEnabled(deps.getConfig())) return;
@@ -109,7 +109,7 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
       // the late save would write back a row its close deleted.
       if (isIncognitoSession(state)) return;
       if (!shouldSuggestNextStep(state)) return;
-      void store(state);
+      return store(state);
     } catch (err) {
       deps.logger.warn("next-step suggestion skipped", {
         sessionId: state.id,

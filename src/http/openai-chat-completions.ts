@@ -299,6 +299,7 @@ async function handleNonStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       // ATO-42: stamped inside the session's turn lock, so a turn that
       // is running cannot save over it.
       ...(env.request.project !== undefined ? { project: env.request.project } : {}),
@@ -409,6 +410,7 @@ async function handleStream(
 ): Promise<void> {
   // A turn can be silent for minutes (parked on an approval): the
   // heartbeat keeps the client from dropping it (SSE_HEARTBEAT_MS).
+  const controller = new AbortController();
   const sse = beginSse(
     res,
     {
@@ -416,9 +418,8 @@ async function handleStream(
       [COMPLETION_ID_HEADER]: env.completionId,
       ...turnModelHeader(env.request),
     },
-    { heartbeatMs: SSE_HEARTBEAT_MS },
+    { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized, onUnauthorized: () => controller.abort() } : {}) },
   );
-  const controller = new AbortController();
   ctx.completionRegistry.register({
     completionId: env.completionId,
     sessionId: env.session.id,
@@ -492,6 +493,7 @@ async function handleStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       // ATO-1148: a project's own cloud model, for this turn only.
       ...(env.request.turnModel
         ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }
