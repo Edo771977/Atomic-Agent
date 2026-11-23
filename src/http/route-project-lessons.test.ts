@@ -198,3 +198,12 @@ it("keeps local record paths out of damaged-record error messages", async () => 
   expect(body.panel.blocked).toBe("This chat's project record is unavailable.");
   expect(JSON.stringify(body)).not.toContain(h.stateDir);
 });
+
+it("renders invisible characters in skipped-file names and reasons as printable escapes", async () => {
+  const path = join(session.workingDir, ".atomic", "project", "lessons", "invisible\u202E.md");
+  writeFileSync(path, "Invisible \u202E text");
+  const response = await list();
+  const body = await read(response);
+  expect(body.panel.problems[0]?.file).toContain("\\u{202E}");
+  expect(JSON.stringify(body.panel.problems)).not.toContain("\u202E");
+});

@@ -1,10 +1,16 @@
 import { validProjectLessonId } from "../session/project-decisions.js";
 import { projectLessonPanel, type ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import { PROJECT_LESSON_SECTION_LIMIT, projectLessonPromptEnds } from "../session/project-lesson-projection.js";
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../session/project-lesson-text.js";
 import { readProjectRef } from "../session/session-project-store.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
 import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+
+function printableProblem(text: string): string {
+  return text.replace(PROJECT_LESSON_INVISIBLE_CHARACTERS, character =>
+    "\\u{" + character.codePointAt(0)!.toString(16).toUpperCase() + "}");
+}
 
 const status = {
   "no-project": 404,
@@ -63,11 +69,16 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
     ...row,
     promptEnds: projectLessonPromptEnds(row.lesson, 1 + approvedBinding.length - Number(approvedBinding.includes(row))),
   } : row);
+  const problems = result.panel.problems.map(({ file, reason }) => ({
+    file: printableProblem(file), reason: printableProblem(reason),
+  }));
+  const running = result.code === "turn-running";
+  const turnMessage = "Wait for the turn to finish.";
   const running = result.code === "turn-running";
   const turnMessage = "Wait for the turn to finish.";
   const blocked = result.recordReadFailed ? "This chat's project record is unavailable."
     : running ? turnMessage : result.panel.blocked;
-  const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT, blocked };
+  const panel = { rows, problems, sectionLimit: PROJECT_LESSON_SECTION_LIMIT, blocked };
   if (result.code && (choice || !running)) {
     const message = running ? turnMessage
       : result.code === "busy" ? "Another process is saving the project record. Try again."
