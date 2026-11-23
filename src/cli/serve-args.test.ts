@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { linkSync, chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -209,4 +209,16 @@ it.skipIf(process.platform === "win32")("rejects loose permissions and symlinks 
 it("round2-2 rejects a short environment key on loopback", () => {
   vi.stubEnv("ATOMIC_AGENT_API_KEY", "short");
   expect(parseError([])).toContain("at least 16");
+});
+
+it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked explicit key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "explicit-linked-key-"));
+  try {
+    const path = join(dir, "key");
+    writeFileSync(path, "synthetic-explicit-linked-key", { mode: 0o600 });
+    linkSync(path, join(dir, "other"));
+    expect(parseError(["--api-key-file", path])).toMatch(/hard link/i);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

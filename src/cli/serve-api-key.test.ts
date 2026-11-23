@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { linkSync, chmodSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -97,4 +97,16 @@ describe("serveApiKeyNotice", () => {
     expect(notice).toContain("http://127.0.0.1:8787/panel");
     expect(notice).not.toContain("abc123");
   });
+});
+
+it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked persisted key", () => {
+  const dir = mkdtempSync(join(tmpdir(), "persisted-linked-key-"));
+  try {
+    const path = serveApiKeyPath(dir);
+    writeFileSync(path, "synthetic-persisted-linked-key", { mode: 0o600 });
+    linkSync(path, join(dir, "other"));
+    expect(resolveServeApiKey(null, dir)).toHaveProperty("error");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

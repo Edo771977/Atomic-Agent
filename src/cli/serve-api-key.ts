@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, lstatSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, type Stats } from "node:fs";
 import { join } from "node:path";
 
 import { restrictWindowsAcl } from "../config/windows-acl.js";
@@ -35,14 +35,35 @@ export type ServeApiKey =
   /** The key in the state dir; `created` when this run wrote it. */
   | { readonly key: string; readonly source: "file"; readonly path: string; readonly created: boolean; readonly permissionsTightened?: boolean };
 
+/** Allow a concurrent creator to unlink its temporary publication name. */
+function singleLinkKeyFile(path: string): Stats | null {
+  let entry = lstatSync(path);
+  if (entry.isFile() && entry.nlink > 1) {
+    const wait = new Int32Array(new SharedArrayBuffer(4));
+    for (let retry = 0; retry < 5 && entry.nlink > 1; retry++) {
+      Atomics.wait(wait, 0, 0, 10);
+      entry = lstatSync(path);
+    }
+  }
+  return entry.isFile() && entry.nlink === 1 ? entry : null;
+}
+
 function protectServeKey(path: string, onExposed: () => void): boolean {
   try {
-    const entry = lstatSync(path);
-    if (!entry.isFile()) return false;
+    const entry = singleLinkKeyFile(path);
+    if (!entry) return false;
     if (process.platform === "win32") return restrictWindowsAcl(path);
     if ((entry.mode & 0o777) !== 0o600) chmodSync(path, 0o600);
     if ((entry.mode & 0o077) !== 0) onExposed();
     return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSingleLink(path: string): boolean {
+  try {
+    return singleLinkKeyFile(path) !== null;
   } catch {
     return false;
   }
@@ -62,10 +83,10 @@ export function resolveServeApiKey(
   const existed = existsSync(path);
   let permissionsTightened = false;
   const key = ensureSecretKeyFile(path, file => protectServeKey(file, () => { permissionsTightened = true; }));
-  if (key === null) {
+  if (key === null || !hasSingleLink(path)) {
     return {
       error:
-        `no API key given, and the key file ${path} could not be read, created or restricted to the owner. ` +
+        `no API key given, and the key file ${path} could not be read, created or restricted to the owner (symlinks and additional hard links are refused). ` +
         "Fix its permissions, or pass --api-key-file <path>, --api-key <token> or set ATOMIC_AGENT_API_KEY",
     };
   }

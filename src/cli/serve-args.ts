@@ -112,6 +112,7 @@ function readExplicitKey(path: string): { key: string } | { error: string } {
     fd = openSync(path, windows ? constants.O_RDONLY :
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     const opened = fstatSync(fd);
+    if (opened.nlink !== 1) return { error: "--api-key-file must not have additional hard links" };
     if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
     if (windows ? !hasOwnerOnlyWindowsAcl(path)
       : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
