@@ -1,3 +1,4 @@
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, openSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
@@ -20,7 +21,7 @@ export class MemoryBackupError extends Error {}
 
 export function assertMemoryBackupAllowed(incognito?: boolean): void {
   if (incognito) throw new MemoryBackupError("memory backup and restore are unavailable in incognito");
-  if (process.env.ATOMIC_AGENT_TOOL_CHILD === "1") {
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
     throw new MemoryBackupError("memory backup and restore are unavailable to tool subprocesses");
   }
 }

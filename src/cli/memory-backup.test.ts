@@ -154,7 +154,7 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     const context = { memoryDbFile: dbFile };
     await expect(createMemoryBackup({ ...context, incognito: true }, out)).rejects.toThrow(/incognito/);
     expect(() => restoreMemoryBackup({ ...context, incognito: true }, out)).toThrow(/incognito/);
-    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "");
     await expect(createMemoryBackup(context, out)).rejects.toThrow(/tool subprocesses/);
     expect(() => restoreMemoryBackup(context, out)).toThrow(/tool subprocesses/);
     expect(existsSync(join(dir, "nested"))).toBe(false);

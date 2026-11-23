@@ -1,3 +1,4 @@
+import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
 import { createMemoryBackup, defaultBackupDir, restoreMemoryBackup } from "../../memory/memory-backup.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { LINK_LIST_ALL_DEFAULT_LIMIT } from "../../memory/links/link-store.js";
@@ -142,7 +143,7 @@ export class MemoryOrchestrator {
   }
 
   toggleDisabled(row: MemorySummaryRow): void {
-    if (this.options.isIncognito?.() || process.env.ATOMIC_AGENT_TOOL_CHILD === "1") {
+    if (this.options.isIncognito?.() || process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
       this.bus.emit({ type: "runtime_info", line: "memory changes are unavailable in this session" });
       return;
     }
