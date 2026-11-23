@@ -89,3 +89,14 @@ test('removes a crashed Desktop’s leftover key without touching another live l
   assert.equal((await client.start()).state, 'connected');
   assert.deepEqual(readdirSync(keyDir), [active]);
 });
+
+test('Linux procfs contains neither the inherited key nor the file bearer', { skip: process.platform !== 'linux' }, async (t) => {
+  const { client, seen } = fixture(t);
+  assert.equal((await client.start()).state, 'connected');
+  assert.ok(client.pid);
+  const environ = readFileSync(`/proc/${client.pid}/environ`, 'utf8');
+  assert.ok(environ.includes('PATH='), 'read the live process environment');
+  assert.equal(environ.includes('ATOMIC_AGENT_API_KEY='), false);
+  assert.equal(environ.includes(inheritedKey), false);
+  assert.equal(environ.includes(seen().token), false);
+});
