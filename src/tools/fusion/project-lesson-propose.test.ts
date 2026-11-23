@@ -1,4 +1,4 @@
-import { linkSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { linkSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wouldRefuse } from "../../agent/policies/fusion-orchestrator-mode.js";
@@ -38,6 +38,13 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
     expect((await tool.run({ ...args, decided: "replacement" }, ctx)).status).toBe("error");
     expect(readFileSync(path, "utf8")).toBe(original);
     expect((await tool.run({ ...args, id: "other", status: "active" }, ctx)).status).toBe("error");
+    const dir = join(folder, ".atomic", "project", "lessons");
+    for (let i = 0; i < 15; i++) {
+      writeFileSync(join(dir, `existing-${i}.md`), original.replace("id: no-deps", `id: existing-${i}`));
+    }
+    const full = await tool.run({ ...args, id: "one-too-many" }, ctx);
+    expect(full.status).toBe("error");
+    expect(full.summary).toMatch(/proposal limit/i);
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }

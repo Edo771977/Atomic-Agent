@@ -199,9 +199,13 @@ export function projectLessonProposalPath(folder: string, id: string): string {
   }
   const path = join(root, ...PROJECT_STORE_DIR_PARTS, "lessons", id + ".md");
   if (lstatSync(path, { throwIfNoEntry: false }) !== undefined) throw new Error("That lesson id already exists.");
-  if (lstatSync(dirname(path), { throwIfNoEntry: false }) !== undefined &&
-      lessonFiles(dirname(path)).length >= PROJECT_LIMITS.lessonFiles) {
-    throw new Error("The project lesson file limit has been reached.");
+  if (lstatSync(dirname(path), { throwIfNoEntry: false }) !== undefined) {
+    if (lessonFiles(dirname(path)).length >= PROJECT_LIMITS.lessonFiles - 1) {
+      throw new Error("The project lesson proposal limit reserves room for a person's lesson.");
+    }
+    if (readProjectLessons(root).lessons.filter(lesson => lesson.declaredStatus === "proposed").length >= PROJECT_LIMITS.lessonProposals) {
+      throw new Error("The project lesson proposal limit has been reached.");
+    }
   }
   return path;
 }
