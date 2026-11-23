@@ -281,3 +281,13 @@ it("describes file and research verification in the descriptor and schema", () =
     requireDates: { type: "boolean" },
   } });
 });
+
+it("advertises bounded lesson proposal arguments", () => {
+  expect(getDefaultArgsJsonSchema("project.lesson.propose")).toMatchObject({
+    properties: {
+      id: { maxLength: 64 }, title: { maxLength: 160 }, from: { maxLength: 300 },
+      touches: { maxItems: 32, items: { maxLength: 1024 } },
+      decided: { maxLength: 2000 }, triedAndRuledOut: { maxLength: 2000 }, watchOut: { maxLength: 2000 },
+    },
+  });
+});

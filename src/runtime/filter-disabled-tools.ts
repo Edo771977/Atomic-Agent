@@ -162,7 +162,7 @@ const GATED_TOOLS = {
     "sessions.check",
   ],
   // The project tools (issue #39) live and die with the fan-out.
-  fusion: ["fusion.delegate", "project.brief", "project.plan", "project.milestone", "project.backlog.add"],
+  fusion: ["fusion.delegate", "project.brief", "project.plan", "project.milestone", "project.backlog.add", "project.lesson.propose"],
   mcp: [
     "mcp.resource.list",
     "mcp.resource.read",

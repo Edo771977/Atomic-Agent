@@ -82,7 +82,8 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
       const raw = Buffer.concat(chunks).toString("utf8");
       const body = JSON.parse(raw) as { model: string; stream?: boolean };
       const auxiliary = raw.includes("Name this work session.");
-      const content = auxiliary ? "Rapporto settimanale" : scripts.get(body.model)?.shift();
+      const recallRewrite = raw.includes("You rewrite a user's follow-up message into a self-contained search query.");
+      const content = auxiliary || recallRewrite ? "Rapporto settimanale" : scripts.get(body.model)?.shift();
       if (content === undefined) throw new Error(`Unexpected completion for ${body.model}: ${raw.slice(-600)}`);
       const usage = { prompt_tokens: 100, completion_tokens: 20, total_tokens: 120 };
       if (body.stream) {

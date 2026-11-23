@@ -130,7 +130,7 @@ audio-tool ::= "\"audio.transcribe\"" | "\"video.render_html\""
 fusion-tool ::= "\"fusion.delegate\""
 # The fusion project's director tools (issue #39), unconditional like the
 # fan-out: a local director has to be able to spell them.
-project-tool ::= "\"project." ( "brief" | "plan" | "milestone" | "backlog.add" ) "\""
+project-tool ::= "\"project." ( "brief" | "plan" | "milestone" | "backlog.add" | "lesson.propose" ) "\""
 # Read-only verification (syntax per file; a command, service or page
 # run against a throwaway copy). A local orchestrator reviewing a fan-out
 # needs these in its vocabulary for the same reason it needs the fan-out.

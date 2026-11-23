@@ -102,6 +102,7 @@ import {
 } from "./route-mcp.js";
 import { createTelegramPairingHandlers } from "./route-telegram-pairing.js";
 import { createSetActiveLlmHandler } from "./route-llm-active.js";
+import { createLocalModelsTextHandler } from "./route-local-models.js";
 import { createPanelPageHandler, createPanelScriptHandler } from "./route-panel.js";
 import { createSetSessionWorkingDirHandler } from "./session-working-dir.js";
 import { createRestoreFileHandler } from "./route-fs-restore.js";
@@ -349,6 +350,11 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     { method: "POST", path: "/api/local-model/recheck", handler: createLocalModelRecheckHandler() },
     // ATO-1021: the desktop's model pick, swapped live instead of restarting serve.
     { method: "POST", path: "/api/llm/active", handler: createSetActiveLlmHandler() },
+    // ATO-1127: this machine's local models, for a desktop connected from another computer.
+    { method: "GET", path: "/api/local-models/list", handler: createLocalModelsTextHandler("list") },
+    { method: "GET", path: "/api/local-models/status", handler: createLocalModelsTextHandler("status") },
+    // ATO-1213: and its embedding models, which the remote desktop listed as none.
+    { method: "GET", path: "/api/local-models/list-embeddings", handler: createLocalModelsTextHandler("list-embeddings") },
     // ATO-1024: the desktop starts serve first and attaches the embedding server once it is up.
     { method: "POST", path: "/api/memory/embeddings/reconnect", handler: createReconnectMemoryEmbeddingsHandler() },
     // ATO-1124: the person's own list / edit / delete of notes and profile facts (route-memory.ts).

@@ -1,10 +1,11 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
-  closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync,
+  closeSync, constants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
-import { join, posix, resolve, win32 } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 
 import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall, type ProjectLessonDecision, type ProjectRecord, type ProjectRecordStore } from "./project-decisions.js";
+import { withFileLock } from "./project-lock.js";
 import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
 
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
@@ -173,6 +174,71 @@ function readLesson(id: string, fields: Map<string, string>, body: string[], has
     always: always === "true", touches: readTouches(fields.get("touches") ?? (always === "true" ? "[]" : "")),
     approvedByPerson: false, sections: readSections(body), hash,
   };
+}
+
+export function validateProjectLessonProposal(id: string, text: string): void {
+  if (!validProjectLessonId(id)) throw new Error("Invalid lesson id.");
+  if (Buffer.byteLength(text) > PROJECT_LIMITS.lessonFileBytes) throw new Error("Lesson file exceeds its size limit.");
+  const { fields, body } = frontMatter(text.split(/\r?\n/));
+  if (fields.get("id") !== id || readLesson(id, fields, body, "").declaredStatus !== "proposed") {
+    throw new Error("Expected a proposed lesson whose id matches its file.");
+  }
+}
+
+export function projectLessonProposalPath(folder: string, id: string): string {
+  if (!validProjectLessonId(id)) throw new Error("Invalid lesson id.");
+  const requested = resolve(folder);
+  if (!lstatSync(requested).isDirectory()) throw new Error("Expected a project directory.");
+  const root = realpathSync.native(requested);
+  let dir = root;
+  for (const part of [...PROJECT_STORE_DIR_PARTS, "lessons"]) {
+    dir = join(dir, part);
+    const info = lstatSync(dir, { throwIfNoEntry: false });
+    if (info === undefined) break;
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Unsafe project lessons directory.");
+  }
+  const path = join(root, ...PROJECT_STORE_DIR_PARTS, "lessons", id + ".md");
+  if (lstatSync(path, { throwIfNoEntry: false }) !== undefined) throw new Error("That lesson id already exists.");
+  if (lstatSync(dirname(path), { throwIfNoEntry: false }) !== undefined) {
+    if (lessonFiles(dirname(path)).length >= PROJECT_LIMITS.lessonFiles - 1) {
+      throw new Error("The project lesson proposal limit reserves room for a person's lesson.");
+    }
+    if (readProjectLessons(root).lessons.filter(lesson => lesson.declaredStatus === "proposed").length >= PROJECT_LIMITS.lessonProposals) {
+      throw new Error("The project lesson proposal limit has been reached.");
+    }
+  }
+  return path;
+}
+
+export function writeProjectLessonProposal(folder: string, id: string, text: string): void {
+  validateProjectLessonProposal(id, text);
+  const path = projectLessonProposalPath(folder, id);
+  let dir = realpathSync.native(resolve(folder));
+  for (const part of [...PROJECT_STORE_DIR_PARTS, "lessons"]) {
+    dir = join(dir, part);
+    if (lstatSync(dir, { throwIfNoEntry: false }) === undefined) mkdirSync(dir, { recursive: true });
+    if (realpathSync.native(dir) !== dir || !lstatSync(dir).isDirectory()) throw new Error("Unsafe project lessons directory.");
+  }
+  const result = withFileLock(join(dir, ".proposals.lock"), () => {
+    projectLessonProposalPath(folder, id);
+    const temp = join(dir, `.${randomUUID()}.tmp`);
+    try {
+      writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
+      // Publish complete bytes without replacing a competing file.
+      try {
+        linkSync(temp, path);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS" && code !== "EPERM") throw error;
+        // Some shares and removable filesystems cannot create hard links.
+        // COPYFILE_EXCL still refuses an existing destination.
+        copyFileSync(temp, path, constants.COPYFILE_EXCL);
+      }
+    } finally {
+      rmSync(temp, { force: true });
+    }
+  }, { waitMs: 0 });
+  if (!result.ok) throw new Error("Another proposal is being saved. Retry once it finishes.");
 }
 
 function lessonDirectory(root: string): string {

@@ -55,6 +55,8 @@ export interface ProjectGateView {
    * (those are `violations`).
    */
   hints: string[];
+  /** On a successful decision, guidance for the director in the next turn. */
+  lessonProposalHint?: string;
   /**
    * Issue #112: the brief's decisions with the person's status for each
    * and the plan tasks that cite them. Absent when the brief has none.

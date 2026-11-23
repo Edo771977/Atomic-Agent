@@ -130,4 +130,6 @@ The Markdown is author content. The person's choices are kept as `lessonCalls` i
 
 A lesson enters prompts only when the file declares `status: active` and the current fingerprint has the person's approval. These lessons are project data, stored and read separately from personal memory. Incognito chats have no persisted lesson choices.
 
+Fusion's director can save a validated, create-only lesson proposal. The writer checks the same file format and limits as the reader. The proposal stays out of lesson context until the person sets its status to `active` and approves the resulting fingerprint. A done milestone stores changed-file advisories in `reportNotes` beside its director-authored summary.
+
 The session records restricted lesson exposure on the first transcript entry of the affected turn. The marker survives reload and archiving. See [how runtime handles memory for restricted lessons](../runtime/README.md#memory-and-restricted-project-lessons).

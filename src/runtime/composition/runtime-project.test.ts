@@ -303,9 +303,11 @@ describe("runtime.projectState / projectDecision (issue #39)", () => {
   it("a milestone correction goes back to approved", () => {
     const running = approved(up(approved(up(undefined, brief)), plan));
     const reported = up(up(running, { kind: "milestone_run", id: "m1", runId: "r1" }), { kind: "milestone", id: "m1", state: "done", summary: "ok" });
-    const h = harness({ project: reported });
+    const session = { ...createEmptySessionState({ id: "s1", workingDir: process.cwd() }),
+      project: reported, projectRef: { folder: process.cwd(), id: "p", revision: 1, decisionSeq: 1 } };
+    const h = harness({ session });
     const r = h.runtime.projectDecision("s1", { gate: reported.gate, version: gateVersion(reported)!, verdict: "edit", edits: { note: "the score does not reset" } });
-    expect(r).toMatchObject({ ok: true, project: { milestones: [{ state: "approved", corrections: [{ note: "the score does not reset" }] }, { state: "planned" }] } });
+    expect(r).toMatchObject({ ok: true, view: { lessonProposalHint: expect.stringMatching(/project\.lesson\.propose.*correction.*milestone m1, run r1/) }, project: { milestones: [{ state: "approved", corrections: [{ note: "the score does not reset" }] }, { state: "planned" }] } });
   });
 
   it("noteTurnEnd emits only when the turn moved the gate", () => {
@@ -587,4 +589,21 @@ describe("gate verdict receipts", () => {
     expect(h.runtime.projectDecision("s1", { gate: report.gate, version: gateVersion(report)!, verdict: "approveOverReview", edits: { note: "Accepted risk" } }).ok).toBe(true);
     expect(writeProjectReceipt).toHaveBeenCalledWith(expect.any(String), "gate-verdict", expect.objectContaining({ gate: "milestone", milestoneId: "m1", verdict: "approveOverReview", note: "Accepted risk" }));
   });
+});
+
+it("continues a bound completed project only after a lesson-worthy milestone", () => {
+  const running = approved(up(approved(up(undefined, brief)), plan));
+  for (const hadFailure of [false, true]) {
+    const firstRun = up(running, { kind: "milestone_run", id: "m1", runId: "r1" });
+    const ready = hadFailure
+      ? up(approved(up(firstRun, { kind: "milestone", id: "m1", state: "failed", summary: "failed" })), { kind: "milestone_run", id: "m1", runId: "r2" })
+      : firstRun;
+    const report = up(ready, { kind: "milestone", id: "m1", state: "done", summary: "ok" });
+    const project = { ...report, milestones: report.milestones.slice(0, 1) };
+    const session = { ...createEmptySessionState({ id: "s1", workingDir: process.cwd() }),
+      project, projectRef: { folder: process.cwd(), id: "p", revision: 1, decisionSeq: 1 } };
+    const result = harness({ session, project }).runtime.projectDecision("s1", { gate: project.gate, version: gateVersion(project)!, verdict: "approve" });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.view.lessonProposalHint !== undefined).toBe(hadFailure);
+  }
 });

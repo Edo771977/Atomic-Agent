@@ -33,7 +33,7 @@ This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) befo
 - [config-shape.ts](config-shape.ts)
 - [carry-unknown-config-keys.ts](carry-unknown-config-keys.ts)
 - [keep-set-aside-values.ts](keep-set-aside-values.ts)
-- [config-cache.ts](config-cache.ts)
+- [config-cache.ts](config-cache.ts): `withFreshConfig` reads the current file for one asynchronous operation. It keeps the boot-time dotenv values and leaves the cached config, global registries and files alone.
 - [llm-config.ts](llm-config.ts)
 - [llm-set-aside-providers.ts](llm-set-aside-providers.ts)
 - [llm-provider-commands.ts](llm-provider-commands.ts)

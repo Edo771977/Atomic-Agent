@@ -75,6 +75,31 @@ describe("ApprovalGate review after outside content (ATO-618)", () => {
     await expect(pending).resolves.toMatchObject({ approved: false });
   });
 
+  it("drops a caller's stale verdict fields when the review gives no answer or no reason", async () => {
+    const stale = { riskNote: "risk check: low (stale)", riskLevel: "low" as const, riskReason: "stale" };
+    const none = setup({ answer: null });
+    none.gate.noteUntrustedContent("s1", "a web page");
+    const first = none.gate.request({ ...curl, ...stale });
+    await settle();
+    expect(none.emitted).toHaveLength(1);
+    expect(none.emitted[0]!.riskNote).toBe(
+      "read outside content this turn (a web page); risk check: no answer, asking you",
+    );
+    expect(none.emitted[0]!.riskLevel).toBeUndefined();
+    expect(none.emitted[0]!.riskReason).toBeUndefined();
+    none.gate.reject(none.emitted[0]!.approvalId, "no");
+    await first;
+
+    const bare = setup({ answer: { risk: "medium", reason: "" } });
+    bare.gate.noteUntrustedContent("s1", "a web page");
+    const second = bare.gate.request({ ...curl, ...stale });
+    await settle();
+    expect(bare.emitted[0]!.riskLevel).toBe("medium");
+    expect(bare.emitted[0]!.riskReason).toBeUndefined();
+    bare.gate.reject(bare.emitted[0]!.approvalId, "no");
+    await second;
+  });
+
   it("holds an auto-approved POST (http_write) after outside content", async () => {
     const { gate, emitted } = setup({ answer: { risk: "high", reason: "posts data out" } });
     gate.noteUntrustedContent("s1", "a web page");

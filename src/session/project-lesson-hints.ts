@@ -1,0 +1,10 @@
+export const PROJECT_LESSON_PROPOSE_TOOL = "project.lesson.propose";
+
+export function lessonProposalHint(source: "correction" | "milestone-failure", milestone: { id: string; runIds: readonly string[] }): string {
+  const run = milestone.runIds.at(-1);
+  const from = `milestone ${milestone.id}${run === undefined ? "" : `, run ${run}`}`;
+  return `If this evidence supports a reusable lesson, use ${PROJECT_LESSON_PROPOSE_TOOL} with source: ${source} and from: ${from}.`;
+}
+
+export const PROJECT_LESSONS_COMPLETE_HINT =
+  "Summarize any reusable candidate lessons from this project. Use project.lesson.propose to save each new proposal with its evidence reference (from: milestone <id>, run <id>) for the person to review.";

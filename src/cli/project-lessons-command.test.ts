@@ -53,7 +53,7 @@ describe("project lessons", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, `${id}.md`), [
         "---", `id: ${id}`, "title: Project decision", "source: person", "touches: [src/file.ts]",
-        "status: active", "always: false", "---", "## Decided", "## Tried and ruled out", "## Watch out",
+        "status: proposed", "from: milestone m1, run r1", "always: false", "---", "## Decided", "## Tried and ruled out", "## Watch out",
       ].join(EOL));
     }
     expect(resolveProjectConstraint(getConfig(), folder)?.allowedProviders).toEqual([]);
@@ -63,8 +63,8 @@ describe("project lessons", () => {
     expect(await projectCommand(["lessons", folder, "--json"], { stdout, stderr })).toBe(0);
     expect(JSON.parse(stdout.mock.calls[0]![0])).toEqual({
       lessons: [{
-        id: "private-lesson", fingerprint: expect.stringMatching(/^[a-f0-9]{12}$/), title: "Project decision", declaredStatus: "active",
-        approvedByPerson: false, effectiveStatus: "unapproved", personState: null, stale: false, always: false, touches: ["src/file.ts"],
+        id: "private-lesson", fingerprint: expect.stringMatching(/^[a-f0-9]{12}$/), title: "Project decision", declaredStatus: "proposed", source: "person", from: "milestone m1, run r1",
+        approvedByPerson: false, effectiveStatus: "proposed", personState: null, stale: false, always: false, touches: ["src/file.ts"],
       }],
       problems: [{ file: "broken.md", reason: expect.stringMatching(/front matter/i) }],
     });

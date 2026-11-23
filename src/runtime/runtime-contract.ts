@@ -997,12 +997,24 @@ export interface AgentRuntime {
 }
 
 /**
- * Optional observation of `shutdown()` (issue #106): `onPhase` hears each
- * teardown step enter and exit, in order, with whether it went through
- * (`ok`, on the exit). Observation only: a hook that throws is ignored.
- * Absent, nothing is reported. A second call reports nothing.
+ * Why the runtime is being shut down, where it matters to what it leaves
+ * behind, and an optional observation of the teardown (issue #106).
  */
 export interface RuntimeShutdownOptions {
+  /**
+   * The process is ending itself because it is unhealthy (the serve
+   * memory guard, exit code 86), not because it was asked to stop. Task
+   * runs it interrupts are left as crashed, so a task that brings the
+   * agent down every time is resumed at most `agent.task.maxResumes`
+   * times (ATO-1419).
+   */
+  crashed?: boolean;
+  /**
+   * `onPhase` hears each teardown step enter and exit, in order, with
+   * whether it went through (`ok`, on the exit). Observation only: a hook
+   * that throws is ignored. Absent, nothing is reported. A second call
+   * reports nothing.
+   */
   onPhase?: (phase: string, edge: "enter" | "exit", ok?: boolean) => void;
 }
 
