@@ -90,7 +90,7 @@ export interface SlashDispatchResult {
   readonly triggerNewWindow: boolean;
   /** When true the caller should ask the orchestrator to dump the user profile. */
   readonly triggerMemoryDump: boolean;
-  readonly memoryBackup?: { operation: "backup" | "restore"; directory?: string };
+  readonly memoryBackup?: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean };
   /** When true the caller should ask the orchestrator to list the skill catalog in chat. */
   readonly triggerSkillCatalogDump: boolean;
   /** When true the caller should write the TUI debug zip (`/dump`). */
@@ -1054,7 +1054,10 @@ function dispatchMemorySub(rawArgs: string): SlashDispatchResult {
     return pureActions([], { memoryBackup: { operation: "backup", ...(directory ? { directory } : {}) } });
   }
   if (argPart.startsWith("restore ") && argPart.slice(8).trim()) {
-    return pureActions([], { memoryBackup: { operation: "restore", directory: argPart.slice(8).trim() } });
+    const input = argPart.slice(8).trim();
+    const confirmed = input.startsWith("--yes ");
+    const directory = confirmed ? input.slice(6).trim() : input;
+    return pureActions([], { memoryBackup: { operation: "restore", directory, ...(confirmed ? { confirmed } : {}) } });
   }
   return pureActions([], {
     systemMessage: "usage: /memory | /memory dump | /memory backup [directory] | /memory restore <directory>",

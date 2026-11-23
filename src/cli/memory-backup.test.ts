@@ -149,6 +149,46 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     }
   });
 
+  it("validates edited archives, reports reasons and resets untrusted provenance", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 20 });
+    for (const content of ["valid note", "oversize", "invisible", "malformed scope", "scoped overlap", "invalid unicode"]) notes.store({ content });
+    notes.close();
+    const facts = new ProfileStore({ dbFile });
+    facts.set("name", "Ada", { nameGrounding: "grounded" });
+    facts.set("city", "Rome");
+    facts.set("language", "Italian");
+    facts.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const edited = new Database(join(out, "memory.sqlite"));
+    edited.prepare("UPDATE memories SET source = 'untrusted', tags = ? WHERE content = 'valid note'").run(JSON.stringify(["superseded", "topic"]));
+    edited.prepare("UPDATE memories SET content = ? WHERE content = 'oversize'").run("x".repeat(30_000));
+    edited.prepare("UPDATE memories SET content = ? WHERE content = 'invisible'").run("hidden\u202e marker");
+    edited.exec("UPDATE memories SET constraint_scope = 'invalid' WHERE content = 'malformed scope'");
+    edited.exec("UPDATE memories SET content = CAST(x'ff' AS TEXT) WHERE content = 'invalid unicode'");
+    edited.exec("UPDATE profile_facts SET key = 'invalid key' WHERE key = 'city'");
+    edited.prepare("UPDATE profile_facts SET value = ? WHERE key = 'language'").run("x".repeat(30_000));
+    edited.close();
+
+    const target = { memoryDbFile: join(dir, "target.sqlite") };
+    const live = new MemoryStore({ dbFile: target.memoryDbFile, maxEntries: 20 });
+    live.store({ content: "scoped overlap" });
+    live.close();
+    const db = new Database(target.memoryDbFile);
+    db.prepare("UPDATE memories SET constraint_scope = ?").run(JSON.stringify({ key: "private", allowedProviders: [] }));
+    const preview = restoreMemoryBackup({ ...target, preview: true }, out);
+    expect(preview).toMatchObject({ notes: 1, facts: 1, rejected: 7, reasons: {
+      "note content": 1, "invalid text": 2, "invalid scope": 1, "scope mismatch": 1,
+      "profile key": 1, "profile value": 1,
+    } });
+    expect(db.prepare("SELECT count(*) FROM memories").pluck().get()).toBe(1);
+    const restored = restoreMemoryBackup(target, out);
+    expect(restored).toMatchObject({ notes: 1, facts: 1, rejected: 7 });
+    expect(db.prepare("SELECT source, tags FROM memories WHERE content = 'valid note'").get()).toEqual({ source: "agent", tags: '["topic"]' });
+    expect(db.prepare("SELECT name_grounding FROM profile_facts WHERE key = 'name'").pluck().get()).toBeNull();
+    db.close();
+  });
+
   it("rejects a mismatched schema before creating the target", async () => {
     new MemoryStore({ dbFile, maxEntries: 10 }).close();
     const out = join(dir, "bk");

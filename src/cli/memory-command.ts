@@ -103,7 +103,7 @@ export async function memoryCommand(args: string[]): Promise<number> {
     case "backup":
       return handleBackup(args.slice(1), readOption);
     case "restore":
-      return handleRestore(readOption(args.slice(1), "--from"));
+      return handleRestore(readOption(args.slice(1), "--from"), args.includes("--yes"));
     case "list":
     case "disable":
     case "enable":

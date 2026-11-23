@@ -278,7 +278,7 @@ function supersededSql(tagsColumn: string): string {
                    AND substr(json_each.value, 15) NOT GLOB '*[^0-9]*'))`;
 }
 
-function withoutReservedTags(tags: string[]): string[] {
+export function withoutReservedTags(tags: string[]): string[] {
   return tags.some(isReservedSupersedeTag) ? tags.filter((tag) => !isReservedSupersedeTag(tag)) : tags;
 }
 
@@ -1650,7 +1650,7 @@ export class MemoryValidationError extends Error {
   }
 }
 
-function validateContent(raw: unknown): string {
+export function validateContent(raw: unknown): string {
   if (typeof raw !== "string") {
     throw new MemoryValidationError(
       "content",
@@ -1676,7 +1676,7 @@ function validateContent(raw: unknown): string {
   return trimmed;
 }
 
-function validateTags(raw: unknown): string[] {
+export function validateTags(raw: unknown): string[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     throw new MemoryValidationError("tags", "tags must be a string array");

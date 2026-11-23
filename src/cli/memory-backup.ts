@@ -6,6 +6,7 @@ import {
   assertMemoryBackupAllowed,
   createMemoryBackup,
   defaultBackupDir,
+  formatMemoryRestoreResult,
   MEMORY_RESTORE_INSTRUCTIONS,
   restoreMemoryBackup,
 } from "../memory/memory-backup.js";
@@ -53,16 +54,20 @@ export async function handleBackup(args: string[], readOption: (args: string[], 
   }
 }
 
-export function handleRestore(directory: string | undefined): number {
+export function handleRestore(directory: string | undefined, confirmed = false): number {
   if (!directory) {
-    process.stderr.write("usage: atomic-agent memory restore --from <dir>\n");
+    process.stderr.write("usage: atomic-agent memory restore --from <dir> [--yes]\n");
     return 2;
   }
   try {
     assertMemoryBackupAllowed();
     const config = getConfig();
-    const { notes, facts } = restoreMemoryBackup({ ...config.paths, maxEntries: config.memory.notes.maxEntries, profileMaxEntries: config.memory.profile.maxEntries }, directory);
-    process.stdout.write(`restored ${notes} notes and ${facts} profile facts\n`);
+    const result = restoreMemoryBackup({
+      ...config.paths, maxEntries: config.memory.notes.maxEntries,
+      profileMaxEntries: config.memory.profile.maxEntries, preview: !confirmed,
+    }, directory);
+    process.stdout.write(`${confirmed ? "Restored" : "Restore preview"}: ${formatMemoryRestoreResult(result)}\n`);
+    if (!confirmed) process.stdout.write("Repeat with --yes to confirm.\n");
     return 0;
   } catch (error) {
     process.stderr.write(`memory restore failed: ${error instanceof Error ? error.message : String(error)}\n`);

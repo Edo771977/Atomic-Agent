@@ -1,5 +1,5 @@
 import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
-import { createMemoryBackup, defaultBackupDir, restoreMemoryBackup } from "../../memory/memory-backup.js";
+import { createMemoryBackup, defaultBackupDir, formatMemoryRestoreResult, restoreMemoryBackup } from "../../memory/memory-backup.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { LINK_LIST_ALL_DEFAULT_LIMIT } from "../../memory/links/link-store.js";
 import type { TuiEventBus } from "../tui-app.js";
@@ -122,7 +122,7 @@ export class MemoryOrchestrator {
     }
   }
 
-  async runBackup(request: { operation: "backup" | "restore"; directory?: string }): Promise<void> {
+  async runBackup(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean }): Promise<void> {
     const { paths } = this.runtime.config;
     const context = { memoryDbFile: paths.memoryDbFile, incognito: this.options.isIncognito?.() ?? false };
     try {
@@ -132,9 +132,13 @@ export class MemoryOrchestrator {
         line = `memory backed up to ${path}`;
       } else {
         if (request.directory === undefined) throw new Error("restore requires a backup directory");
-        const { notes, facts } = restoreMemoryBackup({ ...context, maxEntries: this.runtime.config.memory.notes.maxEntries, profileMaxEntries: this.runtime.config.memory.profile.maxEntries }, request.directory);
-        line = `restored ${notes} notes and ${facts} profile facts`;
-        this.refresh();
+        const result = restoreMemoryBackup({
+          ...context, maxEntries: this.runtime.config.memory.notes.maxEntries,
+          profileMaxEntries: this.runtime.config.memory.profile.maxEntries, preview: !request.confirmed,
+        }, request.directory);
+        line = request.confirmed ? `Restored: ${formatMemoryRestoreResult(result)}`
+          : `Restore preview: ${formatMemoryRestoreResult(result)}. Repeat with /memory restore --yes <directory> to confirm.`;
+        if (request.confirmed) this.refresh();
       }
       this.bus.emit({ type: "runtime_info", line });
     } catch (error) {

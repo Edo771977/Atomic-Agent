@@ -763,7 +763,7 @@ function parseKeywords(raw: string | null): string[] {
   return [];
 }
 
-function validateKey(raw: unknown): string {
+export function validateKey(raw: unknown): string {
   if (typeof raw !== "string") {
     throw new ProfileValidationError("key", "profile key must be a string");
   }
@@ -786,7 +786,7 @@ function validateKey(raw: unknown): string {
   return trimmed;
 }
 
-function validateValue(raw: unknown): string {
+export function validateValue(raw: unknown): string {
   if (typeof raw !== "string") {
     throw new ProfileValidationError("value", "profile value must be a string");
   }
@@ -808,7 +808,7 @@ function validateValue(raw: unknown): string {
   return raw;
 }
 
-function validateKeywords(raw: unknown): string[] {
+export function validateKeywords(raw: unknown): string[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     throw new ProfileValidationError(
