@@ -4356,9 +4356,10 @@ describe("AgentLoop end-to-end with mock LLM", () => {
     expect(elapsedMs).toBeLessThan(EMPTY_COMPLETION_RETRY_BASE_DELAY_MS - 50);
   });
 
-  it("ends the turn on the second empty native-tools completion, saying so", async () => {
+  it.each([undefined, "cloud-fallback"])("ends the turn on a second empty completion from %s", async (providerId) => {
     const registry = buildDefaultToolRegistry();
     let llmCalls = 0;
+    const isCloudLink = vi.fn((id) => id === "cloud-fallback");
     const failures: Array<{ category: string; message: string }> = [];
     const loop = new AgentLoop({
       registry,
@@ -4366,9 +4367,15 @@ describe("AgentLoop end-to-end with mock LLM", () => {
       grammar: 'root ::= "ok"',
       toolTransport: "native_tools",
       toolCallAdapter: null,
+      isCloudLink,
       llmComplete: async () => {
         llmCalls += 1;
-        return makeNativeCompletion();
+        return {
+          ...makeNativeCompletion(),
+          ...(providerId ? { servedModelMode: {
+            mode: "cloud" as const, source: "provider" as const, providerId, modelId: null,
+          } } : {}),
+        };
       },
       toolDescriptors: TOOLS,
       capabilities: CAPS,
@@ -4391,6 +4398,7 @@ describe("AgentLoop end-to-end with mock LLM", () => {
     expect(result.session.status).toBe("failed");
     // One recovery, then terminal — the budget is not a retry loop.
     expect(llmCalls).toBe(EMPTY_COMPLETION_RECOVERY_BUDGET + 1);
+    expect(isCloudLink).toHaveBeenCalledWith(providerId);
     expect(failures[0]?.category).toBe("model");
     expect(failures[0]?.message).toContain("twice in a row");
   });

@@ -28,6 +28,7 @@ import { prepareStepInference } from "./step/step-inference.js";
 import { executeBatch, toBatchInputs } from "./dispatch/batch-scheduler.js";
 import { toolLogFields } from "./tool-log-fields.js";
 
+import { attachFailingLink } from "../llm/fallback/failed-attempts.js";
 import { ModelError, detectModelFailure } from "../llm/index.js";
 // The detector moved to the llm layer so the stream consumer can share its
 // rules; re-exported for existing importers.
@@ -185,7 +186,7 @@ async function executeStepInner(
         stepIndex: ctx.stepIndex,
         reason: initialModelFailure.reason,
       });
-      throw new ModelError(
+      const error = new ModelError(
         initialModelFailure.reason,
         initialModelFailure.message,
         // Effective transport, not `deps.toolTransport`: on a
@@ -203,6 +204,9 @@ async function executeStepInner(
             : {}),
         },
       );
+      const providerId = completion.servedModelMode?.providerId ?? deps.providerId;
+      if (providerId) attachFailingLink(error, providerId);
+      throw error;
     }
     if (repairable) {
       // Fall through to the parser: an empty body fails to parse, which
