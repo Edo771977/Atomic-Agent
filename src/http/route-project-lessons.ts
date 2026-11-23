@@ -63,9 +63,11 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
     ...row,
     promptEnds: projectLessonPromptEnds(row.lesson, 1 + approvedBinding.length - Number(approvedBinding.includes(row))),
   } : row);
-  const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT };
-  if (result.code && (choice || result.code !== "turn-running")) {
-    const message = result.code === "turn-running" ? "Wait for the turn to finish."
+  const running = result.code === "turn-running";
+  const turnMessage = "Wait for the turn to finish.";
+  const panel = { ...result.panel, rows, sectionLimit: PROJECT_LESSON_SECTION_LIMIT, ...(running ? { blocked: turnMessage } : {}) };
+  if (result.code && (choice || !running)) {
+    const message = running ? turnMessage
       : result.code === "busy" ? "Another process is saving the project record. Try again."
       : result.code === "io" ? "The project lesson choice could not be saved."
       : result.notice ?? result.panel.blocked ?? "Lesson choice refused.";
@@ -73,7 +75,7 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
   }
   sendJson(res, 200, {
     session_id: sessionId,
-    panel: { ...panel, ...(result.code === "turn-running" ? { blocked: "Wait for the turn to finish." } : {}) },
+    panel,
     notice: result.notice,
     ...(choice && view ? { view } : {}),
   });

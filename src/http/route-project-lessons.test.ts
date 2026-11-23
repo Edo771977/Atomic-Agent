@@ -147,3 +147,14 @@ it.each([["locked", 503, "busy"], ["io", 500, "io"]] as const)("reports record w
   expect(response.status).toBe(status);
   expect((await read(response)).error.code).toBe(code);
 });
+
+it("uses the same browser-friendly running-turn message in the panel and error", async () => {
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  vi.spyOn(h.runtime.sessionStore, "liveProjectTurn").mockReturnValue("s2");
+  const response = await decide("retire", row.hash);
+  expect(response.status).toBe(409);
+  const body = await read(response);
+  expect(body.error).toMatchObject({ code: "turn-running", message: "Wait for the turn to finish." });
+  expect(body.panel.blocked).toBe("Wait for the turn to finish.");
+});
