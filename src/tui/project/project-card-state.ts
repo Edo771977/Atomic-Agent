@@ -54,7 +54,7 @@ export function lessonActions(card: ProjectCardState, turnRunning: boolean) {
   if (!row.lesson) return actions.filter(({ state }) => state === null);
   const { lesson, status } = row;
   return actions.filter(({ state }) => state === null ? row.hasChoice
-    : state === "approved" ? lesson.declaredStatus === "active" && status.personState !== "approved"
+    : state === "approved" ? card.lessonEndVisible === true && lesson.declaredStatus === "active" && status.personState !== "approved"
     : status.personState !== "retired");
 }
 
@@ -78,6 +78,7 @@ export interface ProjectCardState {
   lessons?: ProjectLessonPanel;
   lessonId?: string;
   lessonDetail?: boolean;
+  lessonEndVisible?: boolean;
   lessonNotice?: string;
   /** Index into {@link projectCardActions} in `actions` mode. */
   cursor: number;
@@ -228,6 +229,7 @@ export type ProjectCardAction =
   | { type: "project_card_lessons_loaded"; sessionId: string; panel: ProjectLessonPanel; notice?: string }
   | { type: "project_card_lesson_moved"; delta: number }
   | { type: "project_card_lesson_detail"; open: boolean }
+  | { type: "project_card_lesson_end_visible"; sessionId: string; id: string; hash: string }
   | { type: "project_card_cursor_moved"; delta: number }
   | { type: "project_card_mode_set"; mode: ProjectCardMode; noteFor?: "edit" | "approveOverReview" }
   | { type: "project_card_row_moved"; delta: number }
@@ -291,7 +293,7 @@ export function reduceProjectCard(
       return {
         ...card, mode: "lessons", lessons: action.panel, lessonNotice: action.notice,
         lessonId: (selected ?? action.panel.rows[0])?.id, lessonDetail,
-        scroll: lessonDetail ? card.scroll : 0, error: null,
+        lessonEndVisible: lessonDetail && card.lessonEndVisible, scroll: lessonDetail ? card.scroll : 0, error: null,
       };
     }
     case "project_card_lesson_moved": {
@@ -301,7 +303,13 @@ export function reduceProjectCard(
       return { ...card, lessonId, scroll: 0, lessonNotice: undefined };
     }
     case "project_card_lesson_detail":
-      return { ...card, lessonDetail: action.open, scroll: 0, lessonNotice: undefined };
+      return { ...card, lessonDetail: action.open, lessonEndVisible: false, scroll: 0, lessonNotice: undefined };
+    case "project_card_lesson_end_visible": {
+      const row = selectedLesson(card);
+      return card.mode === "lessons" && card.lessonDetail && !card.lessonEndVisible &&
+        card.sessionId === action.sessionId && row?.id === action.id && row.hash === action.hash
+        ? { ...card, lessonEndVisible: true } : card;
+    }
     case "project_card_backlog_answer":
       if (card.sessionId !== action.sessionId) return card;
       return { ...card, view: action.view, pending: false, error: null, backlogNotice: action.notice };

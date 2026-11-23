@@ -23,7 +23,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function fixture({ incognito = false, busy = false, otherChatBusy = false } = {}) {
+function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true } = {}) {
   const folder = mkdtempSync(join(tmpdir(), "aa-lessons-tui-"));
   roots.push(folder);
   const stateDir = join(folder, "state");
@@ -55,17 +55,24 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false } = {}
     bus: { emit: dispatch },
     sendMessage,
   }) as ChatOrchestrator;
-  const press = (input: string, key: Partial<Key> = {}) => handleProjectCardKey(input, key as Key, card!, {
-    dispatch,
-    callbacks: {
-      onApprovalDecision: vi.fn(), onAbort: vi.fn(), onQuit: vi.fn(),
-      onProjectLessons: (sessionId, decision) => app.projectLessons(sessionId, decision),
-    },
-  });
+  const seen = () => {
+    const row = card?.lessons?.rows.find(item => item.id === card?.lessonId);
+    if (row) dispatch({ type: "project_card_lesson_end_visible", sessionId: "s1", id: row.id, hash: row.hash });
+  };
+  const press = (input: string, key: Partial<Key> = {}) => {
+    handleProjectCardKey(input, key as Key, card!, {
+      dispatch,
+      callbacks: {
+        onApprovalDecision: vi.fn(), onAbort: vi.fn(), onQuit: vi.fn(),
+        onProjectLessons: (sessionId, decision) => app.projectLessons(sessionId, decision),
+      },
+    });
+    if (key.return && autoRead) seen();
+  };
   const lines = (width = 90) => projectCardLines(card!, width).map(line => line.segments.map(s => s.text).join(""));
   const text = (width?: number) => lines(width).join("\n");
   const detail = () => { press("v"); press("", { return: true }); };
-  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn };
+  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn, seen };
 }
 
 describe("project lessons in the TUI", () => {
@@ -100,6 +107,19 @@ describe("project lessons in the TUI", () => {
     expect(f.text(40).replace(/\s/g, "")).toContain(body);
     expect(f.text()).toContain("Remote database");
     expect(f.text()).toContain("Test migrations");
+  });
+
+  it("blocks approval until the current detail end has been visible", () => {
+    const f = fixture({ autoRead: false });
+    f.write("storage", "active", "Review this. ".repeat(80));
+    f.detail();
+    expect(f.text()).not.toContain("a Approve");
+    f.press("a");
+    expect(f.record().lessonCalls?.storage).toBeUndefined();
+    f.seen();
+    expect(f.text()).toContain("a Approve");
+    f.press("a");
+    expect(f.record().lessonCalls?.storage?.state).toBe("approved");
   });
 
   it("approves the reviewed fingerprint, retires it and reopens it without starting a turn", () => {

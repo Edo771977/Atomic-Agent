@@ -2761,6 +2761,9 @@ export function TuiApp({
                   state.projectCard.sessionId === state.session.sessionId ? (
                     <ProjectCardPopup
                       card={state.projectCard}
+                      onLessonEndVisible={(sessionId, id, hash) =>
+                        dispatch({ type: "project_card_lesson_end_visible", sessionId, id, hash })
+                      }
                       turnRunning={state.status !== "idle"}
                       availableRows={switchPaneRows}
                       availableColumns={

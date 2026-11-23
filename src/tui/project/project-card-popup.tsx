@@ -1,5 +1,5 @@
 import { Box, Text } from "ink";
-import type { ReactElement } from "react";
+import { useEffect, type ReactElement } from "react";
 
 import { useMouseTarget } from "../mouse/mouse-context.js";
 import { isPrimaryPress } from "../mouse/mouse-event.js";
@@ -7,13 +7,14 @@ import { MOUSE_LAYER_MODAL } from "../mouse/mouse-registry.js";
 import { chromeTheme } from "../theme/theme.js";
 import { displayWidth } from "../render/display-width.js";
 import { fitToWidth } from "../components/fit-to-width.js";
-import type { ProjectCardState } from "./project-card-state.js";
+import { selectedLesson, type ProjectCardState } from "./project-card-state.js";
 import { wrapOsc8 } from "../render/osc8-link.js";
 import { projectCardLines, type ProjectLineTone } from "./project-card-lines.js";
 
 export interface ProjectCardPopupProps {
   card: ProjectCardState;
   turnRunning?: boolean;
+  onLessonEndVisible?(sessionId: string, id: string, hash: string): void;
   availableRows: number;
   availableColumns: number;
 }
@@ -51,7 +52,7 @@ function linked(text: string, url: string): string {
  * through). The body scrolls (PgUp/PgDn) when taller than the pane; the
  * buttons stay on the last lines.
  */
-export function ProjectCardPopup({ card, turnRunning, availableRows, availableColumns }: ProjectCardPopupProps): ReactElement {
+export function ProjectCardPopup({ card, turnRunning, onLessonEndVisible, availableRows, availableColumns }: ProjectCardPopupProps): ReactElement {
   const width = Math.max(40, Math.min(MAX_WIDTH, availableColumns - 2));
   const inner = width - 2;
   const lines = projectCardLines(card, inner, turnRunning);
@@ -64,6 +65,15 @@ export function ProjectCardPopup({ card, turnRunning, availableRows, availableCo
   const offset = focused < 0 ? card.scroll : focused + card.scroll;
   const top = Math.min(offset, Math.max(0, body.length - bodyRoom));
   const visible = [...body.slice(top, top + bodyRoom), ...lines.slice(lines.length - footer)];
+  const detail = card.mode === "lessons" && card.lessonDetail ? selectedLesson(card)?.lesson : undefined;
+  const endVisible = top + bodyRoom >= body.length;
+  const { id, hash } = detail ?? {};
+  useEffect(() => {
+    if (id && hash && endVisible && !card.lessonEndVisible) onLessonEndVisible?.(card.sessionId, id, hash);
+  }, [id, hash, endVisible, card.lessonEndVisible, card.sessionId, onLessonEndVisible]);
+  if (detail && !endVisible) {
+    visible[visible.length - 1] = { segments: [{ text: " More below · PgDn · esc back", tone: "muted" }] };
+  }
   const height = visible.length + 2;
   const ref = useMouseTarget((hit) => isPrimaryPress(hit.event), { layer: MOUSE_LAYER_MODAL });
   return (
