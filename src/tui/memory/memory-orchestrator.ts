@@ -141,7 +141,8 @@ export class MemoryOrchestrator {
         }
         const result = restoreMemoryBackup({
           ...context, maxEntries: this.runtime.config.memory.notes.maxEntries,
-          profileMaxEntries: this.runtime.config.memory.profile.maxEntries, preview: !request.confirmed,
+          profileMaxEntries: this.runtime.config.memory.profile.maxEntries,
+      dedupThreshold: this.runtime.config.memory.dedup.fts5Threshold, preview: !request.confirmed,
         }, request.directory);
         line = request.confirmed ? `Restored: ${formatMemoryRestoreResult(result)}`
           : `Restore preview: ${formatMemoryRestoreResult(result)}. Repeat with /memory restore --yes <directory> to confirm.`;

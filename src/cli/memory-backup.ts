@@ -71,7 +71,8 @@ export function handleRestore(directory: string | undefined, confirmed = false, 
     const config = getConfig();
     const result = restoreMemoryBackup({
       ...config.paths, maxEntries: config.memory.notes.maxEntries,
-      profileMaxEntries: config.memory.profile.maxEntries, preview: !confirmed, ...selection,
+      profileMaxEntries: config.memory.profile.maxEntries,
+      dedupThreshold: config.memory.dedup.fts5Threshold, preview: !confirmed, ...selection,
     }, directory);
     process.stdout.write(`${confirmed ? "Restored" : "Restore preview"}: ${formatMemoryRestoreResult(result)}\n`);
     if (!confirmed) process.stdout.write("Repeat with --yes to confirm.\n");

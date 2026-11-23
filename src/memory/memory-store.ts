@@ -681,7 +681,7 @@ export class MemoryStore {
         tokeniseForSimilarity(row.content),
       );
       if (row.disabled_at !== null) {
-        if (score >= this.dedupThreshold && isTagSuperset(parseTags(row.tags), args.tags)) return this.get(row.id);
+        if (matchesDisabledNote(row, args.content, args.tags, this.dedupThreshold)) return this.get(row.id);
         continue;
       }
       if (best === null || score > best.score) {
@@ -1897,6 +1897,18 @@ const SIMILARITY_STOPWORDS: ReadonlySet<string> = new Set(
    + "how every").split(" "),
 );
 
+/** Disabled notes suppress compatible writes without merging or touching the stored row. */
+export function matchesDisabledNote(
+  candidate: { content: string; tags: string | null },
+  content: string,
+  tags: string[],
+  threshold: number,
+): boolean {
+  return isTagSuperset(parseTags(candidate.tags), tags)
+    && (candidate.content === content
+      || jaccardSimilarity(tokeniseForSimilarity(content), tokeniseForSimilarity(candidate.content)) >= threshold);
+}
+
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
   let intersection = 0;
@@ -1992,7 +2004,7 @@ function parseTags(raw: string | null): string[] {
  * gets lenient keyword semantics. An empty output signals "no usable
  * terms — skip the query".
  */
-function buildFtsQuery(query: string): string {
+export function buildFtsQuery(query: string): string {
   const tokens = query
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)

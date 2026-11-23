@@ -9,7 +9,7 @@ import { syncDirectoryBestEffort } from "../config/durable-write.js";
 import { Database as DatabaseCtor } from "../native/load-better-sqlite3.js";
 import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../session/project-lesson-text.js";
 import { parseConstraintScope } from "./memory-constraint-scope.js";
-import { MemoryValidationError, supersededSql, validateContent, validateTags, withoutReservedTags } from "./memory-store.js";
+import { buildFtsQuery, matchesDisabledNote, MemoryValidationError, supersededSql, validateContent, validateTags, withoutReservedTags } from "./memory-store.js";
 import { ProfileValidationError, validateKey, validateKeywords, validateValue } from "./profile-store.js";
 import { applyMigrations, MEMORY_SCHEMA_VERSION } from "./memory-schema.js";
 import { containsSecret, containsSecretPair, isSecretKey } from "./memory-secret-guard.js";
@@ -194,6 +194,7 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
 export interface MemoryRestoreContext extends MemoryBackupContext {
   maxEntries?: number;
   profileMaxEntries?: number;
+  dedupThreshold?: number;
   preview?: boolean;
   takeNotes?: number;
   takeFacts?: number;
@@ -326,6 +327,11 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
           const result: MemoryRestoreResult = { notes: 0, facts: 0 };
           const noteScope = target.prepare("SELECT 1 FROM memories WHERE constraint_scope IS NOT NULL AND (content = ? OR (id = ? AND created_at = ?)) LIMIT 1");
           const factScope = target.prepare("SELECT 1 FROM profile_facts WHERE key = ? AND constraint_scope IS NOT NULL LIMIT 1");
+          const disabledMatches = target.prepare(`
+            SELECT m.content, m.tags FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid
+            WHERE memories_fts MATCH ? AND m.disabled_at IS NOT NULL AND m.constraint_scope IS ?
+            ORDER BY bm25(memories_fts) LIMIT 5
+          `);
           function rejected(error: unknown, kind: string): boolean {
             const reason = error instanceof MemoryBackupError ? error.message
               : error instanceof MemoryValidationError || error instanceof ProfileValidationError ? `${kind} ${error.field}` : undefined;
@@ -345,6 +351,9 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
               const tags = withoutReservedTags(validateTags(archiveArray(row.tags)));
               if (row.constraint_scope === null && noteScope.get(content, row.id, row.created_at)) throw new MemoryBackupError("scope mismatch");
               selectedNotes += 1;
+              const query = buildFtsQuery(content);
+              if (query && (disabledMatches.all(query, row.constraint_scope) as Array<{ content: string; tags: string | null }>)
+                .some((candidate) => matchesDisabledNote(candidate, content, tags, context.dedupThreshold ?? 0.85))) continue;
               result.notes += insertNote.run({ ...row, content, source: "agent", tags: JSON.stringify(tags) }).changes;
             } catch (error) {
               if (!rejected(error, "note")) throw error;

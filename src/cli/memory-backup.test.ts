@@ -272,6 +272,20 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(() => restoreMemoryBackup({ memoryDbFile: dbFile }, archive)).toThrow(/backup and live database must be different/);
   });
 
+  it("suppresses a restored near duplicate of a disabled live note", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "the user prefers paper notebooks." });
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const live = new MemoryStore({ dbFile: join(dir, "live.sqlite"), maxEntries: 10 });
+    const entry = live.store({ content: "the user prefers paper notebooks" });
+    live.setDisabled(entry.id, true);
+    expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite") }, out)).toEqual({ notes: 0, facts: 0 });
+    expect(live.recall("paper notebooks")).toEqual([]);
+    live.close();
+  });
+
   it("migrates an older archive privately while keeping the original bytes", () => {
     const archive = new Database(dbFile);
     archive.exec(`
