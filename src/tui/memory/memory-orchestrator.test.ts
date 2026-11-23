@@ -69,6 +69,7 @@ describe("MemoryOrchestrator notes search", () => {
     const pending = orchestrator.runBackup({ operation: "restore", directory: join(dir, "missing"), confirmed: true });
     expect(emitted).toContainEqual({ type: "system_message", text: "Memory restore in progress…" });
     await pending;
+    expect(emitted).toContainEqual({ type: "system_message", text: expect.stringContaining("memory restore failed") });
   });
 
   it("a search leaves superseded notes out while memory.notes.reconcile is on", () => {

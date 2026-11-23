@@ -150,7 +150,9 @@ export class MemoryOrchestrator {
       this.bus.emit({ type: "runtime_info", line });
       if (request.operation === "restore") this.bus.emit({ type: "system_message", text: line });
     } catch (error) {
-      this.bus.emit({ type: "runtime_info", line: `memory ${request.operation} failed: ${String(error)}` });
+      const line = `memory ${request.operation} failed: ${String(error)}`;
+      this.bus.emit({ type: "runtime_info", line });
+      if (request.operation === "restore") this.bus.emit({ type: "system_message", text: line });
     }
   }
 
