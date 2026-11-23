@@ -61,6 +61,16 @@ describe("MemoryOrchestrator notes search", () => {
     expect(store.get(note.id)?.disabledAt).toBeUndefined();
   });
 
+  it("announces a confirmed restore before entering synchronous work", async () => {
+    const emitted: unknown[] = [];
+    const runtime = { config: { paths: { memoryDbFile: join(dir, "memory.sqlite") }, memory: { notes: {}, profile: {} } } };
+    const bus = { subscribe: () => () => {}, emit: (action: unknown) => emitted.push(action) };
+    const orchestrator = new MemoryOrchestrator(runtime as never, bus as never);
+    const pending = orchestrator.runBackup({ operation: "restore", directory: join(dir, "missing"), confirmed: true });
+    expect(emitted).toContainEqual({ type: "system_message", text: "Memory restore in progress…" });
+    await pending;
+  });
+
   it("a search leaves superseded notes out while memory.notes.reconcile is on", () => {
     const stale = store.store({ content: "the kiwi orchard is in the south field" });
     const live = store.store({ content: "the kiwi orchard moved to the north field" });

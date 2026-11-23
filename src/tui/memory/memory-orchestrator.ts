@@ -1,5 +1,6 @@
 import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
-import { createMemoryBackup, defaultBackupDir, formatMemoryRestoreResult, restoreMemoryBackup } from "../../memory/memory-backup.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { assertMemoryBackupAllowed, createMemoryBackup, defaultBackupDir, formatMemoryRestoreResult, restoreMemoryBackup } from "../../memory/memory-backup.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { LINK_LIST_ALL_DEFAULT_LIMIT } from "../../memory/links/link-store.js";
 import type { TuiEventBus } from "../tui-app.js";
@@ -132,6 +133,12 @@ export class MemoryOrchestrator {
         line = `memory backed up to ${path}`;
       } else {
         if (request.directory === undefined) throw new Error("restore requires a backup directory");
+        assertMemoryBackupAllowed(context.incognito);
+        if (request.confirmed) {
+          this.bus.emit({ type: "system_message", text: "Memory restore in progress…" });
+          await delay(50);
+          assertMemoryBackupAllowed(this.options.isIncognito?.());
+        }
         const result = restoreMemoryBackup({
           ...context, maxEntries: this.runtime.config.memory.notes.maxEntries,
           profileMaxEntries: this.runtime.config.memory.profile.maxEntries, preview: !request.confirmed,
@@ -141,6 +148,7 @@ export class MemoryOrchestrator {
         if (request.confirmed) this.refresh();
       }
       this.bus.emit({ type: "runtime_info", line });
+      if (request.operation === "restore") this.bus.emit({ type: "system_message", text: line });
     } catch (error) {
       this.bus.emit({ type: "runtime_info", line: `memory ${request.operation} failed: ${String(error)}` });
     }
