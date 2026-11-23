@@ -1,6 +1,6 @@
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { execFileSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type Database from "better-sqlite3";
@@ -267,8 +267,15 @@ function archiveMetadata(row: ArchiveRow, kind: "note" | "profile"): void {
 export function restoreMemoryBackup(context: MemoryRestoreContext, directory: string): MemoryRestoreResult {
   assertMemoryBackupAllowed(context.incognito);
   const path = join(resolve(directory), MEMORY_BACKUP_FILE);
-  if (path === resolve(context.memoryDbFile)) throw new MemoryBackupError("backup and live database must be different");
-  if (statSync(path).size > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
+  const sourceStat = statSync(path);
+  if (existsSync(context.memoryDbFile)) {
+    const liveStat = statSync(context.memoryDbFile);
+    if (realpathSync(path) === realpathSync(context.memoryDbFile)
+      || (sourceStat.ino !== 0 && sourceStat.ino === liveStat.ino && sourceStat.dev === liveStat.dev)) {
+      throw new MemoryBackupError("backup and live database must be different");
+    }
+  }
+  if (sourceStat.size > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
   const original = new DatabaseCtor(path, { readonly: true, fileMustExist: true });
   let migrated: Database.Database | undefined;
   try {

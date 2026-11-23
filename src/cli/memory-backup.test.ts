@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, truncateSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -262,6 +262,14 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     await createMemoryBackup({ memoryDbFile: dbFile }, out);
     expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite"), profileMaxEntries: 1, preview: true }, out))
       .toMatchObject({ facts: 2, pinnedOverflow: 1 });
+  });
+
+  it.skipIf(process.platform === "win32")("rejects a backup symlink to the live database", () => {
+    new MemoryStore({ dbFile, maxEntries: 10 }).close();
+    const archive = join(dir, "archive");
+    mkdirSync(archive);
+    symlinkSync(dbFile, join(archive, "memory.sqlite"));
+    expect(() => restoreMemoryBackup({ memoryDbFile: dbFile }, archive)).toThrow(/backup and live database must be different/);
   });
 
   it("migrates an older archive privately while keeping the original bytes", () => {
