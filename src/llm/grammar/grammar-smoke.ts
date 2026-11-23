@@ -220,10 +220,17 @@ export function buildGrammarSmokeRequest(input: RequestInput): CompletionRequest
 
 /** What a completion that came back says about the format. */
 export function judgeGrammarSmokeCompletion(
-  completion: Pick<CompletionResult, "content" | "truncated" | "finishReason" | "stopType">,
+  completion: Pick<CompletionResult, "content" | "truncated" | "finishReason" | "stopType" | "grammarSkipped">,
   profile: ModelProfile,
   options: { thinkingOff?: boolean } = {},
 ): GrammarSmokeVerdict {
+  if (completion.grammarSkipped === true) {
+    return {
+      kind: "fail",
+      cause: "grammar-rejected",
+      error: `${GRAMMAR_SMOKE_MISMATCH}: the local server answered without the workers' grammar`,
+    };
+  }
   const content = typeof completion.content === "string" ? completion.content : "";
   const reasons = profile.reasoningStyle !== "none";
   const tags = reasons ? { openTag: profile.reasoningOpenTag, closeTag: profile.reasoningCloseTag } : {};

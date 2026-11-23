@@ -229,9 +229,14 @@ describe("LlamaServerClient on a grammar refusal (ATO-1675)", () => {
         return sse(['data: {"content":"partial","stop":false}\n\n', `data: ${GRAMMAR_REFUSAL}\n\n`]);
       }) as typeof fetch,
     });
-    await expect(
-      drain(client.completeStream({ prompt: "p", grammar: "root ::= x" })),
-    ).rejects.toBeInstanceOf(LlamaServerError);
+    const observed: string[] = [];
+    const read = async () => {
+      for await (const chunk of client.completeStream({ prompt: "p", grammar: "root ::= x" })) {
+        observed.push(chunk.delta);
+      }
+    };
+    await expect(read()).rejects.toMatchObject({ status: 400, midStream: true });
+    expect(observed).toEqual(["partial"]);
     expect(sent).toHaveLength(1);
   });
 
