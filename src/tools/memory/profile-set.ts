@@ -70,6 +70,11 @@ export function buildProfileSetTool(
           typeof key === "string" && typeof value === "string"
             ? options.store.get(key)
             : null;
+        if (existing?.disabledAt !== undefined && existing.value === value) {
+          return compressToolResult({
+            tool: "memory.profile.set", status: "ok", output: "no new profile fact stored", details: { updated: false },
+          });
+        }
         const repeat =
           existing !== null && existing.disabledAt === undefined && sameFact(existing, value as string, setOptions);
         const isName =

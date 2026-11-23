@@ -53,6 +53,17 @@ describe("memory.profile.set", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("does not accumulate versions for identical disabled facts", async () => {
+    store.set("city", "Rome");
+    store.setDisabled("city", true);
+    const tool = buildProfileSetTool({ store });
+    for (let i = 0; i < 5; i++) {
+      const result = await tool.run({ key: "city", value: "Rome" }, makeCtx());
+      expect(result.summary).not.toContain("already saved");
+    }
+    expect(store.history("city")).toHaveLength(1);
+  });
+
   it("treats disabled entries as absent for the agent", async () => {
     store.set("city", "Rome");
     store.setDisabled("city", true);
