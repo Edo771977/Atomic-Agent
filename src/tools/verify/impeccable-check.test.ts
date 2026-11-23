@@ -29,11 +29,11 @@ function finding(antipattern: string, extra = {}) {
     severity: "warning", file: "./index.html", line: 2, snippet: "Fixture", ...extra };
 }
 
-async function fake(exit: number, payload: unknown, name = "impeccable", url?: string, diagnostic?: string) {
+async function fake(exit: number, payload: unknown, name = "impeccable", url?: string, diagnostic?: string, version = "impeccable 1.2.3") {
   const script = join(bin, `${name}.cjs`);
   await writeFile(script, `
     const args = process.argv.slice(2);
-    if (args[0] === "--version") console.log("impeccable 1.2.3");
+    if (args[0] === "--version") console.log(${JSON.stringify(version)});
     else if (args.slice(0, 3).join(" ") === "detect --json --no-config" && args.length === 4) {
       const fs = require("node:fs");
       const path = require("node:path");
@@ -80,6 +80,11 @@ it.each([[1, undefined, "exit 1"], [0, { filesScanned: 1, findings: [] }, "inval
     expect(await check()).toMatchObject({ ok: false, artifactStatus: "uncheckable", error: expect.stringContaining(message) });
   },
 );
+
+it("sanitizes the detector version before returning evidence", async () => {
+  await fake(0, [], "impeccable", undefined, undefined, "impeccable \u001b1.2.3");
+  expect(await check()).toMatchObject({ ok: true, impeccableVersion: "impeccable 1.2.3" });
+});
 
 it("passes a clean JSON array on a markup file with linked CSS in the private copy", async () => {
   await fake(0, []);

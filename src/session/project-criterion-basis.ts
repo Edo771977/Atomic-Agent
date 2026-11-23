@@ -27,6 +27,12 @@ export function weakestCriterionBasis(
   return STRENGTH.indexOf(first.kind) < STRENGTH.indexOf(second.kind) ? second : first;
 }
 
+export function normalizeImpeccableVersion(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const version = raw.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "").slice(0, 128).replace(/[\uD800-\uDBFF]$/u, "").trim();
+  return version.length === 0 ? undefined : version;
+}
+
 /** Old or malformed provenance stays absent. Keep saved metadata bounded. */
 export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -47,10 +53,8 @@ export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefi
       if (checkKind === "ui") {
         ref.kind = checkKind;
         if (mode === "file" || mode === "rendered") ref.mode = mode;
-        if (typeof impeccableVersion === "string") {
-          const version = impeccableVersion.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "").slice(0, 128).replace(/[\uD800-\uDBFF]$/u, "").trim();
-          if (version.length > 0) ref.impeccableVersion = version;
-        }
+        const version = normalizeImpeccableVersion(impeccableVersion);
+        if (version !== undefined) ref.impeccableVersion = version;
       }
       return [ref];
     });

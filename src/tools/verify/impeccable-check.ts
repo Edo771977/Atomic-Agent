@@ -8,6 +8,7 @@ import { readArtifactSnapshot } from "./artifact-snapshot.js";
 import { spawnVerifyProcess } from "./spawn-verify-process.js";
 import { guardVerifyCommand } from "./verify-run-guard.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
+import { normalizeImpeccableVersion } from "../../session/project-criterion-basis.js";
 import type { ProjectUiException } from "../../session/project-ui-exceptions.js";
 import type { VerifyRunArgs } from "./verify-run-args.js";
 
@@ -207,7 +208,7 @@ export async function runImpeccableCheck(
     if (versionRun.exitCode !== 0 || !reportedVersion || reportedVersion.length > 128 || /[\r\n]/.test(reportedVersion) || versionRun.outputTruncated) {
       return complete("uncheckable", "could not determine the installed impeccable version");
     }
-    version = reportedVersion;
+    version = normalizeImpeccableVersion(reportedVersion);
 
     const scan = await run(impeccableArgs(scanTarget));
     if (scan === undefined || scan.timedOut) return timeout();

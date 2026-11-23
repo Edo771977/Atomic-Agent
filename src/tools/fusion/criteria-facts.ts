@@ -1,4 +1,4 @@
-import { weakestCriterionBasis, type ProjectCriterionBasis, type ProjectCriterionCheckReference } from "../../session/project-criterion-basis.js";
+import { normalizeImpeccableVersion, weakestCriterionBasis, type ProjectCriterionBasis, type ProjectCriterionCheckReference } from "../../session/project-criterion-basis.js";
 import { PROJECT_LIMITS } from "../../session/project-limits.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
@@ -167,7 +167,8 @@ export function criteriaFactsFor(
       if (spec !== undefined && (spec.kind ?? spec.type) === "ui") {
         reference.kind = "ui";
         reference.mode = spec.path === undefined ? "rendered" : "file";
-        if (outcome.impeccableVersion !== undefined) reference.impeccableVersion = outcome.impeccableVersion;
+        const version = normalizeImpeccableVersion(outcome.impeccableVersion);
+        if (version !== undefined) reference.impeccableVersion = version;
       }
       const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
         ? { kind: "check", checks: [reference] }
