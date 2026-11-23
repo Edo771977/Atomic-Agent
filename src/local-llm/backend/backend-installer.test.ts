@@ -23,6 +23,7 @@ vi.mock("node:child_process", () => ({
 }));
 
 import {
+  fetchLatestRelease,
   checkForBackendUpdate,
   downloadBackend,
   isBackendDownloaded,
@@ -1179,4 +1180,21 @@ describe("downloadBackend on Windows arm64", () => {
     expect(check.updateAvailable).toBe(false);
     expect(check.latestTag).toBeNull();
   });
+});
+
+it("uses the backend release cache offline even on a forced check", async () => {
+  const assetName = "llama-b1-bin-linux-x64.tar.gz";
+  const request = vi.fn(async () => Response.json([{ tag_name: "b1", assets: [{ name: assetName, browser_download_url: "https://example.test/backend" }] }]));
+  vi.stubGlobal("fetch", request);
+  try {
+    await fetchLatestRelease({ assetName, force: true });
+    expect(request).toHaveBeenCalledTimes(1);
+    vi.stubEnv("ATOMIC_AGENT_OFFLINE", "1");
+    await expect(fetchLatestRelease({ assetName, force: true })).resolves.toMatchObject({ tag: "b1" });
+    await expect(fetchLatestRelease({ assetName: assetName + ".other", force: true })).resolves.toBeNull();
+    expect(request).toHaveBeenCalledTimes(1);
+  } finally {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  }
 });

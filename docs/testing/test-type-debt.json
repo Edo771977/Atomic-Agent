@@ -5125,7 +5125,7 @@
       "message": "Object is possibly 'undefined'.",
       "anchor": "client.capture.mock.calls[0]",
       "line": 237,
-      "count": 4
+      "count": 3
     },
     {
       "path": "src/analytics/report-analytics-opt-out.test.ts",

@@ -62,6 +62,18 @@ describe("fetchFeatureFlag", () => {
     spy.mockRestore();
   });
 
+  it("ignores the online feature flag cache while offline without caching the offline answer", async () => {
+    const fetchImpl = reply({ flags: { k: { enabled: true } } });
+    const options = { key: "k", distinctId: ID, fetchImpl };
+    const offline = { ...options, env: { ATOMIC_AGENT_OFFLINE: "1" } };
+    await expect(cachedFeatureFlag(offline)).resolves.toBe(false);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    await expect(cachedFeatureFlag(options)).resolves.toBe(true);
+    await expect(cachedFeatureFlag(offline)).resolves.toBe(false);
+    await expect(cachedFeatureFlag(options)).resolves.toBe(true);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("asks once per process for the same key and id", async () => {
     const fetchImpl = reply({ flags: { k: { enabled: true } } });
     await cachedFeatureFlag({ key: "k", distinctId: ID, fetchImpl });

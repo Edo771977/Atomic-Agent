@@ -35,6 +35,20 @@ describe("Core host contract", () => {
     await checkCoreUpdate(dir, request);
     expect(request).toHaveBeenCalledTimes(1);
   });
+  it("uses the Core release cache offline even on a forced check", async () => {
+    const dir = fixture();
+    const request = vi.fn(async () => Response.json({ tag_name: "v999.0.0" }));
+    await checkCoreUpdate(dir, request);
+    vi.stubEnv("ATOMIC_AGENT_OFFLINE", "1");
+    try {
+      await expect(checkCoreUpdate(dir, request, true)).resolves.toMatchObject({ latestVersion: "999.0.0" });
+      await expect(checkCoreUpdate(fixture(), request)).resolves.toMatchObject({ latestVersion: CORE_VERSION });
+      expect(request).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("requires one exact checksum entry and supports all shipped CPU targets", () => {
     const hash = "a".repeat(64), asset = coreAssetName(CORE_VERSION, "darwin", "arm64");
     expect(coreChecksum(`${hash}  ${asset}\n`, asset)).toBe(hash);
