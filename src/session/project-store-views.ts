@@ -1,5 +1,5 @@
 import { basename } from "node:path";
-import { criterionFactLine, directorReportWarningLine, directorReportWarnings } from "./project-gate-text.js";
+import { criterionBasisSummaryLine, criterionFactLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "./project-gate-text.js";
 import { backlogSourceLabel, backlogStateOf } from "./project-backlog.js";
 import { projectExpectation, type ProjectExpectation, type ProjectState } from "./session-project.js";
 
@@ -115,6 +115,7 @@ export function renderProjectViews(source: ProjectViewSource, project: ProjectSt
       }
     }
     for (const note of m.reportNotes ?? []) statusLines.push(`- ${note}`);
+    if (m.criteriaFacts?.length) statusLines.push(`- ${criterionBasisSummaryLine(summarizeCriterionBases(m.criteriaFacts))}`);
     for (const fact of m.criteriaFacts ?? []) statusLines.push(`- ${criterionFactLine(fact, criteria)}`);
     for (const a of m.attachments ?? []) statusLines.push(`- picture: ${a.caption} (${basename(a.path)})`);
     if ((m.criteriaFacts ?? []).length > 0 || (m.attachments ?? []).length > 0) statusLines.push("");

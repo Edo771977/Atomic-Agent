@@ -34,7 +34,10 @@ function gateMessage(view: ProjectGateView): string {
     view.decisions?.some(({ status }) => status === "active" || status === "deferred")
     ? "\nUse /defer <id> or /reactivate <id> to review a decision status change."
     : "";
-  return `${text}\n${verdicts}${review}${decisions}`;
+  const lessons = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit") && view.lessonCoverage?.length
+    ? "\nUse /lesson_defer <id> or /lesson_activate <id> to preview a binding lesson's status change."
+    : "";
+  return `${text}\n${verdicts}${review}${decisions}${lessons}`;
 }
 
 export interface ProjectCommandResult {

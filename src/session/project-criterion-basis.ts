@@ -1,6 +1,15 @@
 /** A check index is one-based within the run's contract. An output hash covers the retained output. */
+export interface ProjectCriterionCheckReference {
+  index: number;
+  runId?: string;
+  outputHash?: string;
+  kind?: "ui";
+  impeccableVersion?: string;
+  mode?: "file" | "rendered";
+}
+
 export type ProjectCriterionBasis =
-  | { kind: "check"; checks: Array<{ index: number; runId?: string; outputHash?: string }> }
+  | { kind: "check"; checks: ProjectCriterionCheckReference[] }
   | { kind: "person" }
   | { kind: "vision"; model: string };
 
@@ -18,6 +27,12 @@ export function weakestCriterionBasis(
   return STRENGTH.indexOf(first.kind) < STRENGTH.indexOf(second.kind) ? second : first;
 }
 
+export function normalizeImpeccableVersion(raw: unknown): string | undefined {
+  if (typeof raw !== "string") return undefined;
+  const version = raw.replace(/[\p{C}\p{Zl}\p{Zp}]/gu, "").slice(0, 128).replace(/[\uD800-\uDBFF]$/u, "").trim();
+  return version.length === 0 ? undefined : version;
+}
+
 /** Old or malformed provenance stays absent. Keep saved metadata bounded. */
 export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefined {
   if (typeof raw !== "object" || raw === null) return undefined;
@@ -30,9 +45,18 @@ export function readCriterionBasis(raw: unknown): ProjectCriterionBasis | undefi
   if (kind === "check" && Array.isArray(checks)) {
     const valid = checks.slice(0, 64).flatMap((check: unknown) => {
       if (typeof check !== "object" || check === null) return [];
-      const { index, runId, outputHash } = check as Record<string, unknown>;
+      const { index, runId, outputHash, kind: checkKind, impeccableVersion, mode } = check as Record<string, unknown>;
       if (typeof index !== "number" || !Number.isSafeInteger(index) || index < 1) return [];
-      return [{ index, ...(typeof runId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(runId) ? { runId } : {}), ...(typeof outputHash === "string" && /^[a-f0-9]{64}$/.test(outputHash) ? { outputHash } : {}) }];
+      const ref: ProjectCriterionCheckReference = { index };
+      if (typeof runId === "string" && /^[a-zA-Z0-9_-]{1,64}$/.test(runId)) ref.runId = runId;
+      if (typeof outputHash === "string" && /^[a-f0-9]{64}$/.test(outputHash)) ref.outputHash = outputHash;
+      if (checkKind === "ui") {
+        ref.kind = checkKind;
+        if (mode === "file" || mode === "rendered") ref.mode = mode;
+        const version = normalizeImpeccableVersion(impeccableVersion);
+        if (version !== undefined) ref.impeccableVersion = version;
+      }
+      return [ref];
     });
     if (valid.length > 0) return { kind, checks: valid };
   }

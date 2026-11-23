@@ -117,6 +117,7 @@ export async function evaluateResearch(bytes: Buffer, extension: string, require
   return {
     status: failures.length ? "fail" : linkLimit || citations.size === 0 || sources.size === 0 ? "uncheckable" : "pass",
     detail: detail + (linkLimit ? `\nlink limit exceeded (${MAX_RESEARCH_LINKS} URLs of up to 1024 characters)` : sources.size === 0 ? "\nno supported sources" : citations.size === 0 ? "\nno supported inline citations" : ""),
+    ...(warnings.length > 0 ? { warningCount: warnings.length } : {}),
     links: [...links].map(([url, { ids, ambiguous }]) => ({ url, citations: ids.join(", "), ...(ambiguous ? { ambiguous } : {}) })),
     ...(linkLimit ? { linkLimit: true } : {}),
   };

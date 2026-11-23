@@ -17,6 +17,16 @@ describe("projectContinueMessage", () => {
     expect(msg).toBe('Redo milestone "Base". My correction: bigger tiles');
   });
 
+  it("asks the director to summarize proposals after the final review", () => {
+    const view = fixtureProjectGateView({ kind: "none" }, {
+      expectation: { kind: "complete" }, lessonProposalHint: "Summarize candidate lessons with project.lesson.propose.",
+    });
+    expect(projectContinueMessage(view, approve)).toMatch(/project\.lesson\.propose/);
+    const override = { gate: { kind: "milestone" as const, id: "m1" }, version: 3,
+      verdict: "approveOverReview" as const, edits: { note: "The exported copy is the source of truth." } };
+    expect(projectContinueMessage(view, override)).toContain(override.edits.note);
+  });
+
   it("asks for the plan after the brief", () => {
     const view = fixtureProjectGateView({ kind: "none" }, { expectation: { kind: "draft_plan" } });
     expect(projectContinueMessage(view, approve)).toMatch(/Draft the plan/);

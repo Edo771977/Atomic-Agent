@@ -190,3 +190,24 @@ export function parseProjectDecisionIpc(raw: unknown): { ok: true; body: Project
   }
   return { ok: true, body };
 }
+
+export interface ProjectLessonBody {
+  session: string;
+  lesson: string;
+  action: "approve" | "retire" | "reopen";
+  fingerprint: string;
+  orphaned?: true;
+}
+
+export function parseProjectLessonIpc(raw: unknown): { ok: true; body: ProjectLessonBody } | { ok: false; error: string } {
+  if (!isObject(raw)) return { ok: false, error: "Lesson choice required" };
+  const session = parseProjectSessionIpc(raw.session);
+  const { lesson, action, fingerprint, orphaned } = raw;
+  if (!session || typeof lesson !== "string" || !LESSON_ID.test(lesson) ||
+      (action !== "approve" && action !== "retire" && action !== "reopen") ||
+      typeof fingerprint !== "string" || !/^[a-f0-9]{64}$/.test(fingerprint) ||
+      (orphaned !== undefined && (orphaned !== true || action !== "reopen"))) {
+    return { ok: false, error: "A session, lesson, action and full fingerprint are required" };
+  }
+  return { ok: true, body: { session, lesson, action, fingerprint, ...(orphaned === true ? { orphaned } : {}) } };
+}

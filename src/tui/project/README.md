@@ -19,6 +19,10 @@ At the plan gate the card says the approved write scope is the chat's folder (pl
 
 Press `b` to browse the backlog and `↑`/`↓` to select an item. `p` promotes, `d` drops and `r` reopens it. A changed item shows the old decision as stale. A removed item offers `r` to clear the old decision. The selection follows the item ID across refreshes. The runtime returns the updated project or a refusal through the card; backlog decisions do not start a director turn.
 
+Press `v` in the card to browse project lessons. Use ↑/↓ and Enter to open a lesson, PgUp/PgDn to read its full title and sections, including markers for the standard and shared planning prompt limits, `f` to refresh, and Esc to go back. The list shows the declared and effective status, origin, binding flag, paths and any skipped files. In the detail, `a` approves an active file, `t` retires it and `r` clears your previous choice. A proposed lesson tells you how to edit its status before approval.
+
+The card passes the displayed lesson's full fingerprint to the orchestrator, which rereads the bound project's files and uses the CLI's shared decision functions. If the file changed, the card refreshes and asks you to read it again before choosing. Decisions are available between turns in regular chats from the operator's terminal. They update the protected project record without starting a turn.
+
 ## Operations
 
 `ChatOrchestrator.decideProject` sends the verdict through `AgentRuntime.projectDecision` between turns only, then shows the view the runtime answers with (an edit's re-estimate is the runtime's) and takes the returned `project` into the chat's own session copy, which runs and saves the next turn, so that save never puts the old gate back (the CLI's `run` loop does the same). When the decision closed the gate and the director has work, [projectContinueMessage](../../session/project-continue.ts) is sent as the person's next turn. `project_gate` events of the chat on screen replace the view; another chat's wait until it is opened. Opening a chat prints `Project — last done: X · next: Y`, offers `/fusion resume` for a milestone cut off mid-run, and raises the open gate's card.

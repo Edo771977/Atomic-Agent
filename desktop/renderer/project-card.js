@@ -356,7 +356,11 @@ function pcPictureLine(a) {
 /** Issue #126: what a fact rests on, as the core's criterionBasisLabel (project-gate-text.ts). */
 function pcBasisLabel(basis) {
   switch (basis && basis.kind) {
-    case 'check': return 'measured';
+    case 'check': {
+      const ui = pcList(basis.checks).filter((check) => check?.kind === 'ui').map((check) =>
+        ['UI', check.impeccableVersion, check.mode === 'rendered' ? 'rendered page' : check.mode].filter(Boolean).join(' · '));
+      return ui.length ? 'measured (' + [...new Set(ui)].join(', ') + ')' : 'measured';
+    }
     case 'person': return 'declared by you';
     case 'vision': return 'judged by ' + pcStr(basis.model);
     default: return 'basis not recorded';
@@ -390,21 +394,26 @@ function pcFactLine(fact, criteria) {
  * counted from the facts (summarizeCriterionBases), as the TUI card does.
  */
 function pcBasisSummary(summary, facts) {
-  let counts = summary && typeof summary === 'object' ? summary : null;
-  if (!counts || ['check', 'vision', 'person', 'unrecorded'].some((k) => pcNum(counts[k]) === null)) {
-    counts = {check: 0, vision: 0, person: 0, unrecorded: 0};
-    for (const f of facts) {
-      const kind = f && f.basis && f.basis.kind;
-      counts[kind === 'check' || kind === 'vision' || kind === 'person' ? kind : 'unrecorded'] += 1;
-    }
+  const labelsByBasis = {check: 'measured', vision: 'judged by a model', person: 'declared by you', unrecorded: 'basis not recorded'};
+  const bases = Object.keys(labelsByBasis);
+  const counted = {check: 0, vision: 0, person: 0, unrecorded: 0};
+  const reservations = {...counted};
+  for (const fact of facts) {
+    const kind = fact?.basis?.kind;
+    const basis = bases.includes(kind) ? kind : 'unrecorded';
+    counted[basis]++;
+    if (pcReserved(fact)) reservations[basis]++;
   }
-  const total = counts.check + counts.vision + counts.person + counts.unrecorded;
-  const labels = [
-    counts.check > 0 ? counts.check + ' measured' : '',
-    counts.vision > 0 ? counts.vision + ' judged by a model' : '',
-    counts.person > 0 ? counts.person + ' declared by you' : '',
-    counts.unrecorded > 0 ? counts.unrecorded + ' basis not recorded' : '',
-  ];
+  const counts = summary && bases.every((basis) => pcNum(summary[basis]) !== null) ? summary : counted;
+  const reservedByBasis = counts.withReservations ?? reservations;
+  const total = bases.reduce((sum, basis) => sum + counts[basis], 0);
+  const labels = [];
+  for (const basis of bases) {
+    const reserved = Math.max(0, Math.min(counts[basis], pcNum(reservedByBasis[basis]) ?? 0));
+    const plain = counts[basis] - reserved;
+    if (plain > 0) labels.push(plain + ' ' + labelsByBasis[basis]);
+    if (reserved > 0) labels.push(reserved + ' ' + labelsByBasis[basis] + ' with reservations');
+  }
   return total + ' ' + (total === 1 ? 'criterion' : 'criteria') + ': ' + labels.filter(Boolean).join(', ');
 }
 
@@ -930,7 +939,7 @@ function pcDrawLessons(doc, body, model, on) {
   const list = pcEl(doc, 'ul', 'pc-rows');
   for (const lesson of model.lessons) {
     const li = pcEl(doc, 'li', 'pc-row');
-    li.appendChild(pcEl(doc, 'div', 'pc-row-title', lesson.id + ' · ' + lesson.title));
+    li.appendChild(pcEl(doc, 'div', 'pc-row-title', pcLessonPlain(lesson.id + ' · ' + lesson.title)));
     const cited = lesson.citedBy.length ? 'Cited by: ' + lesson.citedBy.join(', ') : 'No citing tasks';
     li.appendChild(pcEl(doc, 'div', 'pc-meta', (lesson.deferred ? 'deferred' : 'active') + ' · ' + cited));
     if (!lesson.deferred && lesson.missingFrom.length) {
@@ -985,6 +994,141 @@ function pcDrawBacklog(doc, body, model, on) {
   body.appendChild(section);
 }
 
+const PC_LESSON_SECTIONS = {decided: 'Decided', triedAndRuledOut: 'Tried and ruled out', watchOut: 'Watch out'};
+
+// Keep author strings reviewable even when an older or remote agent supplies invisible characters.
+function pcLessonPlain(text) {
+  return pcStr(text).replace(/[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2028\u2029\uFFF9-\uFFFB\x00-\x09\x0B-\x1F\x7F-\x9F]/gu,
+    (char) => '\\u{' + char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}');
+}
+
+function pcLessonSection(row, key, limit) {
+  const text = pcStr(row.lesson.sections?.[key]);
+  const ends = row.promptEnds?.[key];
+  const standard = Number.isInteger(ends?.standard) ? Math.max(0, Math.min(text.length, ends.standard)) : text.length;
+  const planning = Number.isInteger(ends?.planning) ? Math.max(0, Math.min(standard, ends.planning)) : standard;
+  const parts = [];
+  if (planning < standard) {
+    parts.push({text: text.slice(0, planning)}, {mark: 'Model sees only up to here (shared planning budget).'});
+  }
+  parts.push({text: text.slice(planning < standard ? planning : 0, standard)});
+  if (standard < text.length) {
+    const cap = Number.isInteger(limit) ? limit + '-character limit' : 'standard limit';
+    parts.push({mark: planning < standard ? 'Standard ' + cap + ' ends here.' : 'Model sees only up to here (' + cap + ').'});
+    parts.push({text: text.slice(standard)});
+  }
+  return parts;
+}
+
+function pcLessonActions(row) {
+  if (!row || !/^[a-f0-9]{64}$/.test(row.hash)) return [];
+  if (!row.lesson) return ['reopen'];
+  return [
+    ...(row.lesson.declaredStatus === 'active' && row.status?.personState !== 'approved' ? ['approve'] : []),
+    ...(row.status?.personState !== 'retired' ? ['retire'] : []),
+    ...(row.hasChoice ? ['reopen'] : []),
+  ];
+}
+
+function pcLessonMeta(row) {
+  const {lesson, status} = row;
+  const effective = status?.stale ? 'expired (file changed)' : status?.effectiveStatus === 'active' ? 'approved' : pcStr(status?.effectiveStatus);
+  const source = lesson.source === 'person' ? 'person' : pcStr(lesson.source) + ' (declared by the director)';
+  return pcLessonPlain(source + ' · declared: ' + pcStr(lesson.declaredStatus) + ' · effective: ' + effective);
+}
+
+function pcDrawLessonPanel(doc, host, model, on, focusKey, previousBody) {
+  const {panel, row, busy, seen, blocked, notice, error} = model;
+  const card = pcEl(doc, 'section', 'pc-card pc-lesson-panel');
+  card.setAttribute('aria-label', 'Fusion project lessons');
+  card.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape') return;
+    event.stopPropagation();
+    on({type: row ? 'lesson-list' : 'lesson-close'});
+  });
+  const head = card.appendChild(pcEl(doc, 'div', 'pc-head'));
+  head.appendChild(pcEl(doc, 'div', 'pc-title', 'Fusion project lessons'));
+  const button = (label, type, disabled = false, key = type, extra = {}) =>
+    pcFocusKey(pcButton(doc, label, 'btn btn-g xs', () => on({type, ...extra}), disabled), key);
+  if (row) head.appendChild(button('Back', 'lesson-list'));
+  head.appendChild(button('Refresh', 'lesson-refresh', busy));
+  head.appendChild(button('Close', 'lesson-close'));
+  const body = card.appendChild(pcEl(doc, 'div', 'pc-body'));
+  body.setAttribute('tabindex', '0');
+  pcFocusKey(body, 'lesson-body');
+  if (row) body.setAttribute('data-pc-lesson-body', row.id + '@' + row.hash);
+  if (blocked) body.appendChild(pcEl(doc, 'p', 'pc-warn', blocked));
+  if (notice) body.appendChild(pcEl(doc, 'p', 'pc-notice', notice)).setAttribute('role', 'status');
+  if (error && error !== blocked) body.appendChild(pcEl(doc, 'p', 'pc-error', error)).setAttribute('role', 'alert');
+  if (busy) body.appendChild(pcEl(doc, 'p', 'pc-busy', 'Loading…')).setAttribute('role', 'status');
+  if (row) {
+    body.appendChild(pcEl(doc, 'code', 'pc-lesson-text', pcLessonPlain(row.id + '@' + row.hash)));
+    if (row.lesson) {
+      const {lesson} = row;
+      body.appendChild(pcEl(doc, 'h3', 'pc-lesson-heading', pcLessonPlain(lesson.title)));
+      body.appendChild(pcEl(doc, 'div', 'pc-meta', pcLessonMeta(row)));
+      body.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + lesson.always + ' · touches: ' + (pcLessonPlain(pcList(lesson.touches).join(', ')) || '[]')));
+      if (lesson.from) body.appendChild(pcEl(doc, 'div', 'pc-meta', 'From: ' + pcLessonPlain(lesson.from)));
+      if (lesson.declaredStatus === 'proposed') {
+        body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Set status: active in ' + '.atomic/project/lessons/' + pcLessonPlain(row.id) + '.md and refresh.'));
+      }
+      for (const [key, label] of Object.entries(PC_LESSON_SECTIONS)) {
+        const section = body.appendChild(pcEl(doc, 'section', 'pc-lesson-section'));
+        section.appendChild(pcEl(doc, 'h4', 'pc-lesson-heading', label));
+        for (const part of pcLessonSection(row, key, panel.sectionLimit)) {
+          section.appendChild(part.mark ? pcEl(doc, 'p', 'pc-warn', part.mark) : pcEl(doc, 'div', 'pc-lesson-text', pcLessonPlain(part.text)));
+        }
+      }
+    } else {
+      body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Missing or invalid lesson · previous choice: ' + pcLessonPlain(row.orphanedChoice)));
+    }
+  } else {
+    const list = body.appendChild(pcEl(doc, 'ul', 'pc-rows'));
+    for (const item of pcList(panel?.rows)) {
+      const entry = list.appendChild(pcEl(doc, 'li', 'pc-row'));
+      const title = item.lesson ? item.id + ' · ' + item.lesson.title : item.id;
+      entry.appendChild(button(pcLessonPlain(title), 'lesson-read', false, 'read:' + item.id, {id: item.id}));
+      const meta = item.lesson ? pcLessonMeta(item) : 'Missing or invalid · previous choice: ' + pcLessonPlain(item.orphanedChoice);
+      entry.appendChild(pcEl(doc, 'div', 'pc-meta', meta));
+      if (item.lesson) {
+        entry.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + item.lesson.always + ' · touches: ' + (pcLessonPlain(pcList(item.lesson.touches).join(', ')) || '[]')));
+      }
+    }
+    for (const problem of pcList(panel?.problems)) {
+      body.appendChild(pcEl(doc, 'p', 'pc-warn', pcLessonPlain('Skipped ' + problem.file + ': ' + problem.reason)));
+    }
+    if (panel && !panel.rows?.length && !panel.problems?.length && !blocked && !error) {
+      body.appendChild(pcEl(doc, 'p', 'pc-meta', 'No lessons found.'));
+    }
+  }
+  const actions = pcLessonActions(row);
+  if (actions.length) {
+    const foot = card.appendChild(pcEl(doc, 'div', 'pc-actions'));
+    for (const action of actions) {
+      const label = action[0].toUpperCase() + action.slice(1);
+      foot.appendChild(button(label, 'lesson-choice', busy || !!blocked || (action === 'approve' && !seen), action, {action}));
+    }
+    if (actions.includes('approve') && !seen && !blocked && !busy) {
+      foot.appendChild(pcEl(doc, 'span', 'pc-meta', 'Read to the end to enable approval.'));
+    }
+  }
+  host.appendChild(card);
+  const sameDetail = previousBody?.detail === body.getAttribute('data-pc-lesson-body');
+  if (previousBody && sameDetail) body.scrollTop = previousBody.scrollTop;
+  const restore = focusKey && pcFind(card, (el) => el.getAttribute?.('data-pc-focus') === focusKey);
+  if (restore && !restore.disabled) restore.focus();
+  else if (!sameDetail || focusKey) body.focus?.();
+  if (row && !seen && actions.includes('approve') && !busy && !blocked) {
+    const checkEnd = () => {
+      if (body.isConnected && body.clientHeight > 0 && body.scrollTop + body.clientHeight >= body.scrollHeight - 1) {
+        on({type: 'lesson-end', hash: row.hash});
+      }
+    };
+    body.addEventListener('scroll', checkEnd);
+    doc.defaultView?.requestAnimationFrame(checkEnd);
+  }
+}
+
 function pcDraw(doc, host, model, on) {
   /* Accessibility: what had the focus is found again after the paint, by
      what it does; a correction box being typed in is kept as it is (the
@@ -992,10 +1136,16 @@ function pcDraw(doc, host, model, on) {
   const active = doc.activeElement && host.contains && host.contains(doc.activeElement) ? doc.activeElement : null;
   const focusKey = active && active.getAttribute ? active.getAttribute('data-pc-focus') : null;
   const keepNote = focusKey === 'note' ? active : null;
+  const oldLessonBody = model?.kind === 'lesson-panel'
+    ? pcFind(host, (el) => !!el.getAttribute?.('data-pc-lesson-body')) : null;
+  const previousLessonBody = oldLessonBody && {
+    detail: oldLessonBody.getAttribute('data-pc-lesson-body'), scrollTop: oldLessonBody.scrollTop,
+  };
   const caret = keepNote ? [keepNote.selectionStart, keepNote.selectionEnd] : null;
   while (host.firstChild) host.removeChild(host.firstChild);
   if (!model) { host.hidden = true; return; }
   host.hidden = false;
+  if (model.kind === 'lesson-panel') { pcDrawLessonPanel(doc, host, model.lessonPanel, on, focusKey, previousLessonBody); return; }
   if (model.kind === 'problem') { pcDrawProblem(doc, host, model, on, focusKey); return; }
   if (model.kind === 'backlog') { pcDrawBacklogOnly(doc, host, model, on, focusKey); return; }
   const card = pcEl(doc, 'section', 'pc-card');
@@ -1231,6 +1381,13 @@ function pcCanContinue(env) {
  * answers whether it went (false: kept until that chat is on screen).
  * `onRevise()` puts the caret in the composer. `draw(model)` paints.
  */
+const PC_LESSON_AUTH_REQUIRED = 'To save a lesson choice, start atag serve with an API key and reconnect.';
+const PC_LESSON_CHOICE_ERRORS = {
+  'person-auth-required': PC_LESSON_AUTH_REQUIRED,
+  busy: 'Another process is saving the record. Try again shortly.',
+  io: 'Could not save the lesson choice. Refresh the panel before trying again.',
+};
+
 function createProjectCard(opts) {
   const store = pcStore();
   const pending = new Map();   // sid → continue message not sent yet
@@ -1242,6 +1399,14 @@ function createProjectCard(opts) {
   const problems = new Map();  // issue #109: sid → why its project could not be opened (the last read's)
   let sid = null, state = pcInitial(null), serial = 0, cancelTimer = null;
   let evidenceFor = null, evidenceReceipts;
+  let lessons = null;
+  const lessonWriting = new Set();
+  const projectChats = new Set();
+  const canBrowseLessons = () => !!(sid && projectChats.has(sid) && opts.api.lessons);
+  const selectedLesson = () => pcList(lessons?.panel?.rows).find((row) => row.id === lessons.id);
+  const lessonBlocked = () => turnRunning() ? 'Wait for the turn to finish.'
+    : lessons?.authBlocked ? PC_LESSON_AUTH_REQUIRED : lessons?.panel?.blocked;
+
   const key = () => {
     const v = state.view;
     return v ? JSON.stringify([sid, v.gate.kind, v.gate.id || '', v.version]) : '';
@@ -1261,6 +1426,9 @@ function createProjectCard(opts) {
     }
     let model = sid && !hidden.has(key()) ? pcModel(cardState, {turnRunning: paintedRunning}) : null;
     if (!model && sid && !pcShown(state.view) && problems.has(sid) && !hidden.has('problem:' + sid)) model = pcProblemModel(problems.get(sid));
+    if (lessons) model = {kind: 'lesson-panel', lessonPanel: {
+      ...lessons, row: selectedLesson(), blocked: lessonBlocked(),
+    }};
     opts.draw(model, act);
   }
   async function readEvidence() {
@@ -1285,8 +1453,71 @@ function createProjectCard(opts) {
   function setView(view, notice) {
     state = pcReduce(state, {type: 'view', view, notice});
   }
+  async function loadLessons(choice, fromFrame = false) {
+    const shown = lessons, here = sid, frame = frames.get(sid);
+    if (!shown || shown.busy || lessonWriting.has(here)) return;
+    shown.busy = true;
+    shown.seen = false;
+    if (!fromFrame) shown.notice = shown.error = null;
+    if (choice) lessonWriting.add(here);
+    paint();
+    let response;
+    try {
+      response = choice ? await opts.api.lessonChoice(choice) : await opts.api.lessons(here);
+    } catch (error) {
+      response = {error: String(error)};
+    } finally {
+      if (choice) lessonWriting.delete(here);
+    }
+    if (here === sid && choice && response?.ok && response.view && frames.get(here) === frame && store.put(here, response.view)) {
+      state = pcReduce(state, {type: 'view', view: store.get(here), inFlight: state.busy});
+      if (!lessons) paint();
+    }
+    if (shown !== lessons || here !== sid) {
+      if (here === sid && lessons) void loadLessons();
+      return;
+    }
+    shown.busy = false;
+    const newerFrame = frames.get(here) !== frame;
+    if (!choice && newerFrame) return loadLessons(undefined, fromFrame);
+    if (response?.code === 'person-auth-required') shown.authBlocked = true;
+    const choiceError = choice && Object.hasOwn(PC_LESSON_CHOICE_ERRORS, response?.code)
+      ? PC_LESSON_CHOICE_ERRORS[response.code] : null;
+    shown.panel = response?.panel ?? (choiceError ? shown.panel : null);
+    if (!fromFrame) shown.notice = response?.notice;
+    shown.error = response?.ok ? null : response?.supported === false
+      ? 'This agent does not support Fusion project lessons.' : choiceError || response?.error || 'Could not load Fusion project lessons.';
+    paint();
+    if (choice && response?.ok && newerFrame) void loadLessons(undefined, true);
+  }
+  function openLessons() {
+    if (!canBrowseLessons() || lessons || lessonWriting.has(sid)) return;
+    lessons = {panel: null, id: null, seen: false, busy: false};
+    return loadLessons();
+  }
+  function chooseLesson(action) {
+    const row = selectedLesson();
+    if (!lessons || lessons.busy || lessonBlocked() || !opts.api.lessonChoice ||
+        !pcLessonActions(row).includes(action) || (action === 'approve' && !lessons.seen)) return;
+    return loadLessons({
+      session: sid, lesson: row.id, action, fingerprint: row.hash, ...(row.lesson ? {} : {orphaned: true}),
+    });
+  }
   function act(a) {
     switch (a.type) {
+      case 'lesson-close': lessons = null; return paint();
+      case 'lesson-refresh': return loadLessons();
+      case 'lesson-list':
+      case 'lesson-read':
+        if (!lessons) return;
+        lessons.id = a.type === 'lesson-read' ? a.id : null;
+        lessons.seen = false;
+        return paint();
+      case 'lesson-end':
+        if (!lessons || lessons.seen || selectedLesson()?.hash !== a.hash || lessonBlocked()) return;
+        lessons.seen = true;
+        return paint();
+      case 'lesson-choice': return chooseLesson(a.action);
       case 'verdict':
         // Cancel ends the project: the first press only arms it, for a few seconds.
         if (a.verdict === 'cancel' && !state.confirmCancel) {
@@ -1374,22 +1605,34 @@ function createProjectCard(opts) {
     onFrame(frame) {
       if (!frame || typeof frame !== 'object') return;
       frames.set(frame.sessionId, (frames.get(frame.sessionId) || 0) + 1);
+      const newProject = frame.view?.schema === 1 && !projectChats.has(frame.sessionId);
+      if (newProject) projectChats.add(frame.sessionId);
       const changed = store.put(frame.sessionId, frame.view);
       if (frame.sessionId !== sid) return;
       if (changed) {
         state = pcReduce(state, {type: 'view', view: store.get(sid), inFlight: state.busy});
         paint(); notify();
       }
+      if (lessons && frame.view?.schema === 1) void loadLessons(undefined, true);
+      if (newProject && !changed) notify();
       void readEvidence();
     },
     /** The chat on screen is `next` (null: none, or not saved yet). Reads its view once per change. */
     follow(next) {
       next = next || null;
       // The page paints on every change of its own; a turn that started or finished redraws the card.
-      if (next === sid) { if (turnRunning() !== paintedRunning) { paint(); notify(); } flush(); return; }
+      if (next === sid) {
+        if (turnRunning() !== paintedRunning) {
+          paint(); notify();
+          if (lessons && !paintedRunning) void loadLessons();
+        }
+        flush();
+        return;
+      }
       // Hide lasts while the chat stays on screen: opening it again shows its card.
       hidden.clear();
       sid = next; serial++;
+      lessons = null;
       evidenceFor = null;
       evidenceReceipts = undefined;
       state = pcInitial(sid ? store.get(sid) : null);
@@ -1402,10 +1645,13 @@ function createProjectCard(opts) {
       Promise.resolve().then(() => opts.api.read(asked)).then((res) => {
         if (mine !== serial || !res || res.supported === false || !res.ok) return;
         if ((frames.get(asked) || 0) !== seen) return;   // a frame came after the read went out: it is newer
+        const hadProject = projectChats.has(asked);
+        if (res.view?.schema === 1) projectChats.add(asked); else projectChats.delete(asked);
         const was = problems.get(asked);
         if (!res.view && typeof res.problem === 'string' && res.problem) problems.set(asked, res.problem); else problems.delete(asked);
         const changed = (res.view ? store.put(asked, res.view) : store.drop(asked)) || problems.get(asked) !== was;
         if (changed) { state = pcReduce(state, {type: 'view', view: store.get(asked), inFlight: state.busy}); paint(); notify(); }
+        if (!changed && hadProject !== projectChats.has(asked)) notify();
         void readEvidence();
       }).catch(() => undefined);
     },
@@ -1413,11 +1659,12 @@ function createProjectCard(opts) {
        one said is not this one's, except a continue message still owed to a
        chat, which the person's decision already recorded. `next` is the chat
        the page shows now (null: none); left out, the one followed so far. */
-    reset(next) { const keep = next === undefined ? sid : next; store.clear(); problems.clear(); hidden.clear(); sid = null; state = pcInitial(null); this.follow(keep); },
+    reset(next) { const keep = next === undefined ? sid : next; store.clear(); problems.clear(); hidden.clear(); projectChats.clear(); lessons = null; sid = null; state = pcInitial(null); this.follow(keep); },
     /** Whether the chat on screen has an open gate the person hid (the header offers Show Fusion project). */
     hiddenOpen() { return !!sid && pcShown(state.view) && !(pcBacklogOnly(state.view) && turnRunning()) && hidden.has(key()); },
     /** Show Fusion project: the hidden card again. */
     show() { if (hidden.delete(key())) { paint(); changed(); void readEvidence(); } },
+    canBrowseLessons, openLessons,
     state: () => state,
     store,
   };
@@ -1428,7 +1675,7 @@ if (typeof module !== 'undefined') {
     PC_NOTE_MAX, PC_WRITE_SCOPE_NOTE, PC_FACT_MARK, PC_MILESTONE_KIND_LABEL, PC_PLAN_UNTRUSTED, PC_BRIEF_UNTRUSTED,
     PC_CHANGED_OUTSIDE_HINT, PC_PROBLEM_HEADLINE, pcChangedOutsideWarning, pcProblemModel,
     pcStore, pcInitial, pcReduce, pcDecision, pcOutcome, pcModel, pcDraw, pcEditRows,
-    pcBacklogModel, pcBacklogCall, pcBacklogOutcome, pcBacklogOnly, pcCompletion,
+    pcLessonSection, pcBacklogModel, pcBacklogCall, pcBacklogOutcome, pcBacklogOnly, pcCompletion,
     pcWorkerOptions, pcReviewerOptions, pcUsd, pcDuration, createProjectCard, pcRef, pcPlace, PC_NARROW_PX, pcCanContinue, pcWatch,
   };
 }

@@ -26,9 +26,9 @@ describe("Telegram /plan (issue #39)", () => {
   });
 
   it("a milestone gate lists its criteria facts and pictures (issue #40)", async () => {
-    const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }));
+    const view = withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }), true);
     const out = await runProjectCommand([], { runtime: runtime(view), sessionId: "s", busy: false });
-    expect(out.text).toContain("2 criteria: 1 measured, 1 basis not recorded");
+    expect(out.text).toContain("3 criteria: 1 measured, 1 measured with reservations, 1 basis not recorded");
     expect(out.text).toContain("Warning: no matching passed criterion fact for director claim: The timer works.");
     expect(out.text).toContain("✓ c1 passed: Runs in a browser · measured");
     expect(out.text).toContain("? c2 unverified: Ten levels (no vision-capable reviewer) · basis not recorded");

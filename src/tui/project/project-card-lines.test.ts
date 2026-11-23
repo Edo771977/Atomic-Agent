@@ -113,9 +113,9 @@ describe("project card lines", () => {
   });
 
   it("milestone gate: criteria facts by tone and each picture's caption with its path as a file link (issue #40)", () => {
-    const c = card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] })));
+    const c = card(withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }, { allowedVerdicts: ["approve", "edit", "cancel"] }), true));
     const out = text(c);
-    expect(out).toContain("2 criteria: 1 measured, 1 basis not recorded");
+    expect(out).toContain("3 criteria: 1 measured, 1 measured with reservations, 1 basis not recorded");
     expect(out).toContain("Warning: no matching passed criterion fact for director claim: The timer works.");
     expect(out).toContain("✓ c1 passed: Runs in a browser · measured");
     expect(out).toContain("? c2 unverified: Ten levels (no vision-capable reviewer)");

@@ -1,3 +1,4 @@
+import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import type { ProviderRestriction } from "../llm/provider-policy.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -111,6 +112,7 @@ import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
 import { projectResumeLine } from "./project/project-card-lines.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { withProject, type ProjectDecision } from "../session/session-project.js";
+import { projectLessonPanel, type ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";
@@ -742,6 +744,22 @@ export class ChatOrchestrator {
       this.bus.emit({ type: "project_card_backlog_answer", sessionId, view: result.view, notice: `${verb} ${decision.id}.` });
     } catch (error) {
       fail(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  projectLessons(sessionId: string, choice?: ProjectLessonChoice): void {
+    const session = this.session;
+    if (session?.id !== sessionId) return;
+    try {
+      const result = projectLessonPanel(session, this.runtime.config.paths.stateDir,
+        (folder, id) => this.currentController !== null ||
+          this.runtime.turnController?.busySessionIds?.().includes(sessionId) === true ||
+          this.runtime.sessionStore.liveProjectTurn(folder, id) !== null,
+        choice, projectDecisionOriginRefusal);
+      this.bus.emit({ type: "project_card_lessons_loaded", sessionId, ...result });
+    } catch (error) {
+      const blocked = error instanceof Error ? error.message : String(error);
+      this.bus.emit({ type: "project_card_lessons_loaded", sessionId, panel: { rows: [], problems: [], blocked } });
     }
   }
 

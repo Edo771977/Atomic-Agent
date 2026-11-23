@@ -105,7 +105,7 @@ const FACTS = [
   {id: 'c2', state: 'unverified', why: 'no vision-capable reviewer'},
   {id: 'c3', state: 'passed', basis: {kind: 'vision', model: 'openrouter:<b>eye</b>'}},
   {id: 'c4', state: 'failed', why: 'check exited 1', basis: {kind: 'person'}},
-  {id: 'c1', state: 'passed', reservation: 'the check greps its own output', basis: {kind: 'check', checks: [{index: 2}]}},
+  {id: 'c1', state: 'passed', reservation: 'the check greps its own output', basis: {kind: 'check', checks: [{index: 2, kind: 'ui', impeccableVersion: '1.2', mode: 'rendered'}]}},
 ];
 
 test('each criterion fact carries its basis mark, worded as the TUI card (measured, judged by, declared by you, basis not recorded)', () => {
@@ -120,7 +120,7 @@ test('each criterion fact carries its basis mark, worded as the TUI card (measur
     '? c2 unverified: Ten levels (no vision-capable reviewer) · basis not recorded',
     '✓ c3 passed · judged by openrouter:<b>eye</b>',
     '✕ c4 failed (check exited 1) · declared by you',
-    '~ c1 passed with reservations: Runs in a browser (reservations: the check greps its own output) · measured',
+    '~ c1 passed with reservations: Runs in a browser (reservations: the check greps its own output) · measured (UI · 1.2 · rendered page)',
   ]);
   assert.deepEqual(facts.map((e) => e.className), ['pc-fact is-passed', 'pc-fact is-unverified', 'pc-fact is-passed', 'pc-fact is-failed', 'pc-fact is-reserved']);
   assert.equal(host.findAll((e) => e.tagName === 'B').length, 0, 'a model name is text');
@@ -129,11 +129,18 @@ test('each criterion fact carries its basis mark, worded as the TUI card (measur
 test('the per-basis summary line heads the facts: the view\'s own counts, else counted from the facts, as the TUI', () => {
   const counted = view({criteriaFacts: FACTS});
   const line = (v) => texts(draw(v), 'pc-basis');
-  assert.deepEqual(line(counted), ['5 criteria: 2 measured, 1 judged by a model, 1 declared by you, 1 basis not recorded']);
+  assert.deepEqual(line(counted), ['5 criteria: 1 measured, 1 measured with reservations, 1 judged by a model, 1 declared by you, 1 basis not recorded']);
   assert.ok(tuiLines(counted).includes(line(counted)[0]));
   const given = view({criteriaFacts: FACTS.slice(0, 1), criteriaBasisSummary: {check: 1, vision: 0, person: 0, unrecorded: 0}});
   assert.deepEqual(line(given), ['1 criterion: 1 measured']);
   assert.ok(tuiLines(given).includes(line(given)[0]));
+  const supplied = view({criteriaFacts: FACTS, criteriaBasisSummary: {
+    check: 2, vision: 1, person: 1, unrecorded: 1, withReservations: {check: 1},
+  }});
+  const legacy = view({criteriaFacts: FACTS, criteriaBasisSummary: {check: 2, vision: 1, person: 1, unrecorded: 1}});
+  assert.deepEqual(line(supplied), line(counted));
+  assert.ok(tuiLines(supplied).includes(line(supplied)[0]));
+  assert.deepEqual(line(legacy), line(counted));
   assert.deepEqual(line(view()), [], 'no facts, no summary');
 });
 

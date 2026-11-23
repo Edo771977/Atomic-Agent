@@ -73,7 +73,7 @@ export function writeMilestoneReportReceipt(
         ...(basis === undefined ? {} : { basis }),
         ...(criterion === undefined ? {} : { criterionHash: receiptHash(criterion.text) }),
         ...(why === undefined ? {} : { whyHash: receiptHash(why) }),
-        ...(reservation === undefined ? {} : { reservationHash: receiptHash(reservation) }),
+        ...(reservation === undefined ? {} : { reserved: true, reservationHash: receiptHash(reservation) }),
       };
     });
     return { milestoneId, version: gateVersion(project), state: milestone.state, criteriaFacts, attachments };

@@ -36,6 +36,7 @@ import { CodingModePopup } from "./coding-mode/coding-mode-popup.js";
 import { IssueReportPopup } from "./issue-report/issue-report-popup.js";
 import { ProjectCardPopup } from "./project/project-card-popup.js";
 import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import type { IssueReportLevel } from "./issue-report/report-levels.js";
 import type { IssueReportToggle } from "./issue-report/issue-report-state.js";
@@ -830,6 +831,7 @@ export interface TuiAppCallbacks {
   onIssueReportCloseRequested?(): void;
   /** Project card (issue #39): the person's verdict at the open chat's gate. */
   onProjectDecision?(sessionId: string, decision: ProjectDecision): void;
+  onProjectLessons?(sessionId: string, choice?: ProjectLessonChoice): void;
   onProjectBacklogDecision?(sessionId: string, decision: ProjectBacklogDecision): void;
   /** Project card: "revise" at the brief gate. */
   onProjectReviseBrief?(): void;
@@ -2759,6 +2761,10 @@ export function TuiApp({
                   state.projectCard.sessionId === state.session.sessionId ? (
                     <ProjectCardPopup
                       card={state.projectCard}
+                      onLessonEndVisible={(sessionId, id, hash) =>
+                        dispatch({ type: "project_card_lesson_end_visible", sessionId, id, hash })
+                      }
+                      turnRunning={state.status !== "idle"}
                       availableRows={switchPaneRows}
                       availableColumns={
                         terminalSize.columns -

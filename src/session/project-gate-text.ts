@@ -12,21 +12,36 @@ import type { CriterionFactState, ProjectCriterion, ProjectCriterionFact, Projec
 
 const FACT_MARK: Record<CriterionFactState, string> = { passed: "✓", failed: "✕", unverified: "?" };
 
+const BASIS_LABELS = {
+  check: "measured",
+  vision: "judged by a model",
+  person: "declared by you",
+  unrecorded: "basis not recorded",
+} as const;
+
 export function summarizeCriterionBases(facts: readonly ProjectCriterionFact[]): ProjectCriterionBasisSummary {
   const counts = { check: 0, vision: 0, person: 0, unrecorded: 0 };
-  for (const fact of facts) counts[fact.basis?.kind ?? "unrecorded"] += 1;
-  return counts;
+  const withReservations: NonNullable<ProjectCriterionBasisSummary["withReservations"]> = {};
+  for (const fact of facts) {
+    const basis = fact.basis?.kind ?? "unrecorded";
+    counts[basis] += 1;
+    if (fact.state === "passed" && fact.reservation !== undefined) {
+      withReservations[basis] = (withReservations[basis] ?? 0) + 1;
+    }
+  }
+  return Object.keys(withReservations).length === 0 ? counts : { ...counts, withReservations };
 }
 
 export function criterionBasisSummaryLine(counts: ProjectCriterionBasisSummary): string {
   const total = counts.check + counts.vision + counts.person + counts.unrecorded;
-  const labels = [
-    counts.check > 0 ? `${counts.check} measured` : "",
-    counts.vision > 0 ? `${counts.vision} judged by a model` : "",
-    counts.person > 0 ? `${counts.person} declared by you` : "",
-    counts.unrecorded > 0 ? `${counts.unrecorded} basis not recorded` : "",
-  ];
-  return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.filter(Boolean).join(", ")}`;
+  const labels: string[] = [];
+  for (const basis of Object.keys(BASIS_LABELS) as Array<keyof typeof BASIS_LABELS>) {
+    const reserved = counts.withReservations?.[basis] ?? 0;
+    const plain = counts[basis] - reserved;
+    if (plain > 0) labels.push(`${plain} ${BASIS_LABELS[basis]}`);
+    if (reserved > 0) labels.push(`${reserved} ${BASIS_LABELS[basis]} with reservations`);
+  }
+  return `${total} ${total === 1 ? "criterion" : "criteria"}: ${labels.join(", ")}`;
 }
 
 const CLAIM = /\b(?:verificat[oaie]|verified|funziona(?:no|nte)?|works|tested|working|passes)\b/gu;
@@ -59,7 +74,12 @@ export const directorReportWarningLine = (sentence: string): string =>
 
 export function criterionBasisLabel(basis: ProjectCriterionFact["basis"]): string {
   switch (basis?.kind) {
-    case "check": return "measured";
+    case "check": {
+      const ui = basis.checks.filter(check => check.kind === "ui").map(check =>
+        ["UI", check.impeccableVersion, check.mode === "rendered" ? "rendered page" : check.mode].filter(Boolean).join(" · "),
+      );
+      return ui.length === 0 ? "measured" : `measured (${[...new Set(ui)].join(", ")})`;
+    }
     case "person": return "declared by you";
     case "vision": return `judged by ${basis.model}`;
     default: return "basis not recorded";

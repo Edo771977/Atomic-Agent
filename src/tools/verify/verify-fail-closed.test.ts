@@ -214,6 +214,7 @@ describe("verify refuses to execute without a private workspace", () => {
     expect(result.exitCode).toBe(code);
     expect(result.stdoutTail).toContain("ran");
     expect(result.checks).toEqual([expect.objectContaining({ check: "exit 0", ok })]);
+    expect(result.warningCount).toBe(1);
     expect(result.cleanupWarning).toContain("EBUSY");
     expect(result.summary.split("\n")[0]).toBe(`verify.run command: ${ok ? "ok" : "FAILED"}`);
     expect(result.summary).toMatch(/warning: .*EBUSY/);

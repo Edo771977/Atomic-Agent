@@ -63,6 +63,7 @@ export const WORKER_EXCLUDED_TOOLS: ReadonlySet<string> = new Set([
   "project.milestone",
   // Issue #111: a worker or reviewer names later work in its reply; the director proposes it.
   "project.backlog.add",
+  "project.lesson.propose",
 ]);
 
 /** `RunTurnOptions.toolFilter` for a worker turn. */

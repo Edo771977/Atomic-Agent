@@ -89,6 +89,24 @@ describe("project lesson files", () => {
     });
   });
 
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("rejects invisible lesson text (%s)", (character, code) => {
+    write("storage.md", lesson("storage").replace("## Deciso", "## Deciso\nInert " + character + " text"));
+    expect(readProjectLessons(folder)).toEqual({
+      lessons: [], problems: [{ file: "storage.md", reason: expect.stringContaining("U+" + code) }],
+    });
+  });
+
+  it("reports all escaped invisible characters in title, origin and touched paths", () => {
+    const text = lesson("storage", undefined, '["src/\\u2060file"]')
+      .replace(/^title:.*$/m, () => 'title: "Local\\u202Estorage"')
+      .replace(/^from:.*$/m, () => 'from: "run\\udb40\\udc61"');
+    write("storage.md", text);
+    expect(readProjectLessons(folder)).toMatchObject({
+      lessons: [],
+      problems: [{ file: "storage.md", reason: expect.stringMatching(/U\+202E.*U\+E0061.*U\+2060/) }],
+    });
+  });
+
   it("reports symlinks among lesson entries", () => {
     write("storage.md", lesson("storage"));
     const outside = join(folder, "outside");

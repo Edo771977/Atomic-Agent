@@ -6,7 +6,7 @@ import { PROJECT_LIMITS } from "./project-limits.js";
 export type ProjectLessonData = Pick<ProjectLesson, "id" | "title" | "always" | "sections"> & { binding?: true; touches?: string[]; omittedTouches?: number };
 
 const MAX_LESSONS = 12;
-const MAX_SECTION_CHARS = 300;
+export const PROJECT_LESSON_SECTION_LIMIT = 300;
 // Includes JSON escaping and leaves room for the frame and the omission notice.
 const MAX_LESSON_JSON_CHARS = 7000;
 // Every cited binding lesson gets a share, even when the advisory preview fills up.
@@ -34,7 +34,7 @@ export function projectLessonSelection(lessons: readonly ProjectLesson[]) {
   let chars = 0;
   for (const lesson of [...lessons].sort((a, b) => Number(b.always) - Number(a.always))) {
     if (data.length === MAX_LESSONS) break;
-    const entry = projectLessonData(lesson, PROJECT_LIMITS.title, MAX_SECTION_CHARS);
+    const entry = projectLessonData(lesson, PROJECT_LIMITS.title, PROJECT_LESSON_SECTION_LIMIT);
     // The reviewer nests these entries inside pretty-printed JSON.
     const size = JSON.stringify(entry, null, 3).length + 16;
     if (chars + size > MAX_LESSON_JSON_CHARS) break;
@@ -45,28 +45,30 @@ export function projectLessonSelection(lessons: readonly ProjectLesson[]) {
   return { data, included, omitted: lessons.length - data.length };
 }
 
-export function bindingProjectLessonData(lessons: readonly ProjectLesson[], includeTouches = false): ProjectLessonData[] {
+export function bindingProjectLessonEntry(lesson: ProjectLesson, count: number, includeTouches = false): ProjectLessonData {
   const budget = includeTouches ? 2 * MAX_BINDING_JSON_CHARS : MAX_BINDING_JSON_CHARS;
-  const share = Math.floor(budget / lessons.length) - 1;
-  return lessons.map((lesson) => {
-    const touches = includeTouches ? [...lesson.touches] : undefined;
-    let limit = MAX_SECTION_CHARS;
-    while (true) {
-      const entry: ProjectLessonData = {
-        ...projectLessonData(lesson, Math.min(limit, PROJECT_LIMITS.title), limit),
-        binding: true,
-        ...(touches === undefined ? {} : { touches }),
-        ...(touches === undefined || touches.length === lesson.touches.length ? {} : {
-          omittedTouches: lesson.touches.length - touches.length,
-        }),
-      };
-      if (JSON.stringify(entry).length <= share) return entry;
-      if (limit > 16) limit = Math.floor(limit / 2);
-      else if (touches?.length) touches.pop();
-      else if (limit > 1) limit = Math.floor(limit / 2);
-      else return entry;
-    }
-  });
+  const share = Math.floor(budget / count) - 1;
+  const touches = includeTouches ? [...lesson.touches] : undefined;
+  let limit = PROJECT_LESSON_SECTION_LIMIT;
+  while (true) {
+    const entry: ProjectLessonData = {
+      ...projectLessonData(lesson, Math.min(limit, PROJECT_LIMITS.title), limit),
+      binding: true,
+      ...(touches === undefined ? {} : { touches }),
+      ...(touches === undefined || touches.length === lesson.touches.length ? {} : {
+        omittedTouches: lesson.touches.length - touches.length,
+      }),
+    };
+    if (JSON.stringify(entry).length <= share) return entry;
+    if (limit > 16) limit = Math.floor(limit / 2);
+    else if (touches?.length) touches.pop();
+    else if (limit > 1) limit = Math.floor(limit / 2);
+    else return entry;
+  }
+}
+
+export function bindingProjectLessonData(lessons: readonly ProjectLesson[], includeTouches = false): ProjectLessonData[] {
+  return lessons.map(lesson => bindingProjectLessonEntry(lesson, lessons.length, includeTouches));
 }
 
 export function projectLessonPlanningSelection(lessons: readonly ProjectLesson[]) {
@@ -95,4 +97,17 @@ export function projectLessonReviewSelection(active: readonly ProjectLesson[], a
   const sorted = [...selection.included].sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
   const basis = createHash("sha256").update(JSON.stringify([sorted, notice ?? null, ...(selection.data.some((lesson) => lesson.binding) ? ["binding-touches"] : [])])).digest("hex").slice(0, 16);
   return { ...selection, notice, basis };
+}
+
+/** Offsets into the full source text where the panel must show prompt cuts. */
+export function projectLessonPromptEnds(lesson: ProjectLesson, bindingCount: number) {
+  const binding = lesson.always ? bindingProjectLessonEntry(lesson, bindingCount, true).sections : undefined;
+  const ends = (key: keyof ProjectLesson["sections"]) => {
+    const section = lesson.sections[key];
+    const standard = section.length > PROJECT_LESSON_SECTION_LIMIT ? PROJECT_LESSON_SECTION_LIMIT - 1 : section.length;
+    const projected = binding?.[key];
+    const planning = projected !== undefined && projected !== section ? projected.length - 1 : standard;
+    return { standard, planning };
+  };
+  return { decided: ends("decided"), triedAndRuledOut: ends("triedAndRuledOut"), watchOut: ends("watchOut") };
 }

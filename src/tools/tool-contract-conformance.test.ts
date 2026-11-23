@@ -52,6 +52,7 @@ import { registerImageTools } from "./image/index.js";
 import { registerVideoTools } from "./video/index.js";
 import { registerAudioTools } from "./audio/index.js";
 import { buildFusionDelegateTool } from "./fusion/fusion-delegate.js";
+import { buildProjectLessonTool } from "./fusion/project-lesson-propose.js";
 import { buildProjectTools } from "./fusion/project-tools.js";
 import { buildProjectBacklogTool } from "./fusion/project-backlog-tool.js";
 import { TOOL_ROLES, descriptorsForRole, partitionByRole, roleAdmits } from "./tool-roles.js";
@@ -320,6 +321,7 @@ beforeAll(() => {
   registry.register(buildFusionDelegateTool({ ...dangerous, slotManager: { poolSize: () => 1 }, resolveRunMode: unexpected, workerSupportsSlotAffinity: () => false, warmWorkerBackend: async () => unexpected(), outputCharCap: 1000, logger: new StructuredLogger({ level: "error", sinks: [] }), runTurn: async () => unexpected(), createEphemeralSession: unexpected, emitEvent: unexpected, workingDir: directory }));
   for (const tool of buildProjectTools({ planContext: unexpected, outsideContent: unexpected })) registry.register(tool);
   registry.register(buildProjectBacklogTool());
+  registry.register(buildProjectLessonTool(dangerous));
   manager = new McpManager([], { toolRegistry: registry });
   for (const definition of [buildMcpResourceListTool(manager), buildMcpResourceReadTool(manager), buildMcpPromptListTool(manager), buildMcpPromptGetTool(manager)]) registry.register(definition);
 });
@@ -353,8 +355,8 @@ describe("whole built-in tool catalog conformance", () => {
       expect(names(DEFAULT_TOOL_DESCRIPTORS)).toContain(name);
       expect(resourceClassFor(name)).toBe("terminal");
     }
-    // 118 upstream + project.brief / project.plan / project.milestone / project.backlog.add (fork).
-    expect(DEFAULT_TOOL_DESCRIPTORS).toHaveLength(122);
+    // 118 upstream + five project tools.
+    expect(DEFAULT_TOOL_DESCRIPTORS).toHaveLength(123);
     expect(new Set(names(DEFAULT_TOOL_DESCRIPTORS)).size).toBe(DEFAULT_TOOL_DESCRIPTORS.length);
     expect(registry.list()).toHaveLength(registry.registrations.length);
     for (const definition of registry.registrations) {

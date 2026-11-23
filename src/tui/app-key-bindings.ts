@@ -41,6 +41,7 @@ import type { UninstallChoice } from "./uninstall/uninstall-state.js";
 import { handleIssueReportKey } from "./issue-report/issue-report-key-bindings.js";
 import { handleProjectCardKey } from "./project/project-card-keys.js";
 import type { ProjectDecision } from "../session/session-project.js";
+import type { ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 
 /**
@@ -91,6 +92,7 @@ export interface AppKeyCallbacks {
   onIssueReportCloseRequested?(): void;
   /** Project card (issue #39): the person's verdict at the chat's open gate. */
   onProjectDecision?(sessionId: string, decision: ProjectDecision): void;
+  onProjectLessons?(sessionId: string, choice?: ProjectLessonChoice): void;
   onProjectBacklogDecision?(sessionId: string, decision: ProjectBacklogDecision): void;
   /** Project card: "revise" at the brief gate; the person types the change in the composer. */
   onProjectReviseBrief?(): void;
@@ -434,7 +436,7 @@ export function handleAppKey(
     !state.pendingApproval &&
     !(key.ctrl && input === "c")
   ) {
-    handleProjectCardKey(input, key, state.projectCard, ctx);
+    handleProjectCardKey(input, key, state.projectCard, ctx, state.status !== "idle");
     return true;
   }
   // Only the visible thread's question is answerable from the

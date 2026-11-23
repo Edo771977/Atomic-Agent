@@ -468,7 +468,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(protectedReads.stateSecrets).toEqual({ stateDir: config.paths.stateDir, files: getStateSecretPaths(config.paths) });
     config.agent.readScope = "unrestricted"; expect(protectedReads.readScope?.()).toBe("unrestricted");
     config.agent.readScope = "working-dir"; expect(protectedReads.readScope?.()).toBe("working-dir");
-    expect(toolRegistry.list().map(tool => tool.name)).toEqual(["os.fs.read", "fusion.delegate", "project.brief", "project.plan", "project.milestone", "project.backlog.add"]);
+    expect(toolRegistry.list().map(tool => tool.name)).toEqual(["os.fs.read", "fusion.delegate", "project.brief", "project.plan", "project.milestone", "project.backlog.add", "project.lesson.propose"]);
     // The project tools' taint flag is the gate's outside-content record (issue #39).
     approvals.noteUntrustedContent("tainted", "web");
     const brief = await toolRegistry.get("project.brief")!.run({ what: "x", users: "y", how: "z", successCriteria: ["ok"] }, { sessionId: "tainted", workingDir: directory, stepIndex: 0, signal: new AbortController().signal });

@@ -30,7 +30,7 @@ describe("project gate surfaces (issue #39)", () => {
     const own = (name: string) => name !== "fs.write";
     expect(withProjectToolVisibility(own, true)).toBe(own);
     const hidden = withProjectToolVisibility(own, false)!;
-    for (const name of ["project.brief", "project.plan", "project.milestone", "fs.write"]) expect(hidden(name), name).toBe(false);
+    for (const name of ["project.brief", "project.plan", "project.milestone", "project.lesson.propose", "fs.write"]) expect(hidden(name), name).toBe(false);
     expect(hidden("fusion.delegate")).toBe(true);
     expect(withProjectToolVisibility(undefined, false)!("fs.read")).toBe(true);
   });

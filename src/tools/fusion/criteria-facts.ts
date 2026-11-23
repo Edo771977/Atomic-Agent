@@ -1,4 +1,5 @@
-import { weakestCriterionBasis, type ProjectCriterionBasis } from "../../session/project-criterion-basis.js";
+import { normalizeImpeccableVersion, weakestCriterionBasis, type ProjectCriterionBasis, type ProjectCriterionCheckReference } from "../../session/project-criterion-basis.js";
+import { PROJECT_LIMITS } from "../../session/project-limits.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import { checkDidNotRun } from "./check-ran.js";
@@ -24,9 +25,8 @@ import type { WorkerTaskResult } from "./worker-result.js";
  * `failed` outranks `unverified`, which outranks `passed`: vision can
  * only add red or unverified, never turn a red check green.
  *
- * A `passed` criterion that only checks with a lint warning support
- * (`contract-check-lint.ts`: they may also pass on the wrong thing)
- * carries a `reservation` — "verified with reservations". No verdict
+ * A `passed` criterion supported only by checks with verification or
+ * lint warnings, or unavailable negative controls, carries a `reservation` — "verified with reservations". No verdict
  * reads it: it stays `passed`, and one clean passing check clears it.
  */
 
@@ -74,6 +74,28 @@ export function criterionLabel(criterion: Pick<TaskCriterion, "id" | "text">): s
 
 const RANK: Record<CriterionFactState, number> = { passed: 0, unverified: 1, failed: 2 };
 
+function clipReservation(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).replace(/[\uD800-\uDBFF]$/u, "").trimEnd()}…`;
+}
+
+function describeUiExceptions(outcome: ContractCheckOutcome): string[] {
+  const lines = outcome.impeccableExceptions ?? [];
+  const exceptions = lines.flatMap(line => {
+    const match = /^(.*?) — approved by the operator: (.+)$/u.exec(line.replace(/\s+/gu, " ").trim());
+    return match === null ? [] : [{ target: match[1]!, reason: match[2]! }];
+  });
+  const count = outcome.impeccableExceptionCount ?? exceptions.length +
+    lines.reduce((total, line) => total + Number(/^\+(\d+) more$/u.exec(line)?.[1] ?? 0), 0);
+  if (count === 0) return [];
+  const hidden = Math.max(0, count - exceptions.length);
+  const targets = exceptions.map(({ target }) => clipReservation(target, 72));
+  if (hidden > 0) targets.push(`${hidden} more`);
+  return [
+    `${count} exception${count === 1 ? "" : "s"}: ${targets.join(", ")}`,
+    ...exceptions.map(({ reason }) => clipReservation(reason, 72)),
+  ];
+}
+
 /** One fact per criterion, in the order given. */
 export function criteriaFactsFor(
   criteria: readonly TaskCriterion[],
@@ -83,13 +105,22 @@ export function criteriaFactsFor(
   runId?: string,
 ): ProjectCriterionFact[] {
   const reservations = checkReservations(contract);
-  /** What holds a passing check back from plain green: a negative control that did not run, or a lint warning. */
   const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
-    if (outcome.negative !== undefined) return `its negative control did not run (${outcome.negative})`;
-    // Its negative control ran and failed as it should (an unreliable one
-    // never gets here): the check has shown it can fail, whatever the lint read.
-    if (contract?.checks?.[index]?.negative !== undefined) return undefined;
-    return reservations.get(index);
+    const reasons: string[] = [];
+    const { warningCount = 0, consoleWarningCount = 0, cleanupWarning, negative } = outcome;
+    if (warningCount > 0) {
+      reasons.push(`${warningCount} warning${warningCount === 1 ? "" : "s"}`);
+      if (consoleWarningCount > 0) reasons.push(`${consoleWarningCount} console warning${consoleWarningCount === 1 ? "" : "s"}`);
+      if (cleanupWarning) reasons.push("verification copy cleanup warning");
+      reasons.push(...describeUiExceptions(outcome));
+    }
+    if (negative !== undefined) reasons.push(`its negative control did not run (${negative})`);
+    else if (contract?.checks?.[index]?.negative === undefined) {
+      // A successful negative control resolves lint warnings about check strength.
+      const lint = reservations.get(index);
+      if (lint !== undefined) reasons.push(lint);
+    }
+    return reasons.length === 0 ? undefined : reasons.join("; ");
   };
   return criteria.map((criterion) => {
     let state: CriterionFactState = "passed";
@@ -126,9 +157,21 @@ export function criteriaFactsFor(
         note("unverified", `${label} uncheckable: ${outcome.detail}`);
         continue;
       }
-      const output = outcome.run?.output;
+      const spec = contract?.checks?.[index];
+      const outputHash = outcome.run === undefined ? outcome.outputHash : receiptHash(outcome.run.output);
+      const reference: ProjectCriterionCheckReference = {
+        index: index + 1,
+        ...(runId === undefined ? {} : { runId }),
+        ...(outputHash === undefined ? {} : { outputHash }),
+      };
+      if (spec !== undefined && (spec.kind ?? spec.type) === "ui") {
+        reference.kind = "ui";
+        reference.mode = spec.path === undefined ? "rendered" : "file";
+        const version = normalizeImpeccableVersion(outcome.impeccableVersion);
+        if (version !== undefined) reference.impeccableVersion = version;
+      }
       const measured: ProjectCriterionBasis | undefined = outcome.ok || !checkDidNotRun(outcome.detail)
-        ? { kind: "check", checks: [{ index: index + 1, ...(runId === undefined ? {} : { runId }), ...(output === undefined ? {} : { outputHash: receiptHash(output) }) }] }
+        ? { kind: "check", checks: [reference] }
         : undefined;
       if (!outcome.ok) {
         note("failed", `${label} failed: ${outcome.detail}`, measured);
@@ -167,8 +210,10 @@ export function criteriaFactsFor(
     const source = (state as CriterionFactState) === "passed" ? basis : decisiveBasis;
     const fact = { id: criterion.id, state, why, ...(source === undefined ? {} : { basis: source }) };
     if (state !== "passed" || clean) return fact;
-    const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
-    return reservation.length === 0 ? fact : { ...fact, reservation };
+    if (held.size === 0) return fact;
+    const quota = Math.floor((PROJECT_LIMITS.shortText + 2) / held.size) - 2;
+    const reservation = [...held].map(([i, reason]) => clipReservation(`check ${i + 1}: ${reason}`, quota)).join("; ");
+    return { ...fact, reservation };
   });
 }
 

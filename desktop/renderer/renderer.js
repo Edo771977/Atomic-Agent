@@ -2424,7 +2424,8 @@ function projectCardContinue(sid, text) {
 function projectCardStart() {
   if (!BR || !BR.onProject || typeof createProjectCard !== 'function') return;
   PCARD = createProjectCard({
-    api: {read: (sid, evidence) => BR.project(sid, evidence), decide: (body) => BR.projectDecision(body), backlog: (body) => BR.projectBacklog(body)},
+    api: {read: (sid, evidence) => BR.project(sid, evidence), decide: (body) => BR.projectDecision(body), backlog: (body) => BR.projectBacklog(body),
+      lessons: BR.projectLessons, lessonChoice: BR.projectLessonChoice},
     draw: (model, on) => { const host = document.getElementById('projectcard'); if (host) { pcDraw(document, host, model, on); pcPlace(window, host); } },
     onContinue: projectCardContinue,
     onRevise: () => { const e = $('#entry'); if (e) e.focus(); },
@@ -2476,6 +2477,7 @@ function renderToolbar() {
       /* Issue #39: the project card the person hid, while its gate is still open, or (issue #146) while
          its backlog still asks something between gates and no turn runs (project-card.js hiddenOpen). */
       + (S.room === 'chat' && PCARD && PCARD.hiddenOpen() ? '<button class="btn btn-g xs" data-act="project:show" title="Show the Fusion project card again">Show Fusion project</button>' : '')
+      + (S.room === 'chat' && PCARD?.canBrowseLessons() ? '<button class="btn btn-g xs" data-act="project:lessons">Fusion project lessons</button>' : '')
       /* ATO-1256: this chat's files in the panel beside it (chat-files.js, file-preview.js). */
       + (S.room === 'chat' ? '<button class="iconbtn' + (filesPanelOpen() ? ' on' : '') + '" data-act="toggle:files"'
         + ' aria-pressed="' + filesPanelOpen() + '"'
@@ -7808,6 +7810,7 @@ function act(a) {
   // ATO-538: below 1000px the button and ⌘ \ open or close the drawer instead
   // (sidebar-nav.js toggleSidebar); S.sidebar keeps the wide window's collapse.
   // ATO-1256: the Files button and ⌥⌘F open the panel on the chat's files, or close it.
+  if (a === 'project:lessons') { PCARD?.openLessons(); return; }
   if (a === 'project:show') { if (PCARD) PCARD.show(); return; }   // Issue #39 (project-card.js)
   if (a === 'toggle:files') { close(); if (S.room !== 'chat') { S.settings = null; S.room = 'chat'; render(); }
                            if (typeof filePreviewToggle === 'function') filePreviewToggle(); render(); return; }

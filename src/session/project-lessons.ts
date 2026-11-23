@@ -1,11 +1,15 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
-  closeSync, constants, fstatSync, lstatSync, opendirSync, openSync, readSync, realpathSync,
+  closeSync, constants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
-import { join, posix, resolve, win32 } from "node:path";
+import { dirname, join, posix, resolve, win32 } from "node:path";
 
-import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
+import { validProjectLessonId, stateDirProjectRecords, type ProjectLessonCall, type ProjectLessonDecision, type ProjectRecord, type ProjectRecordStore } from "./project-decisions.js";
+import { withFileLock } from "./project-lock.js";
 import { PROJECT_LIMITS, PROJECT_STORE_DIR_PARTS } from "./project-limits.js";
+
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "./project-lesson-text.js";
+export { PROJECT_LESSON_INVISIBLE_CHARACTERS, projectLessonFingerprint } from "./project-lesson-text.js";
 
 const SOURCES = ["correction", "milestone-failure", "person", "director"] as const;
 const STATUSES = ["proposed", "active", "retired"] as const;
@@ -40,6 +44,34 @@ export interface ProjectLessonProblem {
 export interface ProjectLessons {
   lessons: ProjectLesson[];
   problems: ProjectLessonProblem[];
+}
+
+function rejectInvisibleLessonText(text: string): void {
+  const characters = text.match(PROJECT_LESSON_INVISIBLE_CHARACTERS);
+  if (!characters) return;
+  const codePoints = [...new Set(characters)].map(character =>
+    "U+" + character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0"));
+  throw new Error("Contains invisible or text-control characters: " + codePoints.join(", ") + ".");
+}
+
+function parseLessonText(text: string) {
+  rejectInvisibleLessonText(text);
+  const parsed = frontMatter(text.split(/\r?\n/));
+  // Double-quoted scalars can encode invisible characters using JSON escapes.
+  // Consume single-quoted scalars whole so literal quotes inside them stay literal.
+  const decoded: string[] = [];
+  for (const raw of parsed.fields.values()) {
+    for (const [token] of raw.matchAll(/"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'/g)) {
+      if (!token.startsWith('"')) continue;
+      try {
+        decoded.push(JSON.parse(token) as string);
+      } catch {
+        // The field reader reports invalid quoting with the field name.
+      }
+    }
+  }
+  rejectInvisibleLessonText(decoded.join("\n"));
+  return parsed;
 }
 
 // Flat YAML subset. Quotes protect hashes and list separators. See the session README.
@@ -83,6 +115,7 @@ function textValue(raw: string, field: string): string {
   } else if (/^[-?:](?:$|\s)|^[!&*{}[\]|>@%]|["']|:\s|:$/.test(raw)) {
     throw new Error("Unsupported scalar for " + field + ".");
   }
+  rejectInvisibleLessonText(value);
   if (value.trim() === "" || [...value].some((character) => character.charCodeAt(0) < 32)) {
     throw new Error("Expected non-empty single-line text for " + field + ".");
   }
@@ -175,6 +208,71 @@ function readLesson(id: string, fields: Map<string, string>, body: string[], has
   };
 }
 
+export function validateProjectLessonProposal(id: string, text: string): void {
+  if (!validProjectLessonId(id)) throw new Error("Invalid lesson id.");
+  if (Buffer.byteLength(text) > PROJECT_LIMITS.lessonFileBytes) throw new Error("Lesson file exceeds its size limit.");
+  const { fields, body } = parseLessonText(text);
+  if (fields.get("id") !== id || readLesson(id, fields, body, "").declaredStatus !== "proposed") {
+    throw new Error("Expected a proposed lesson whose id matches its file.");
+  }
+}
+
+export function projectLessonProposalPath(folder: string, id: string): string {
+  if (!validProjectLessonId(id)) throw new Error("Invalid lesson id.");
+  const requested = resolve(folder);
+  if (!lstatSync(requested).isDirectory()) throw new Error("Expected a project directory.");
+  const root = realpathSync.native(requested);
+  let dir = root;
+  for (const part of [...PROJECT_STORE_DIR_PARTS, "lessons"]) {
+    dir = join(dir, part);
+    const info = lstatSync(dir, { throwIfNoEntry: false });
+    if (info === undefined) break;
+    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("Unsafe project lessons directory.");
+  }
+  const path = join(root, ...PROJECT_STORE_DIR_PARTS, "lessons", id + ".md");
+  if (lstatSync(path, { throwIfNoEntry: false }) !== undefined) throw new Error("That lesson id already exists.");
+  if (lstatSync(dirname(path), { throwIfNoEntry: false }) !== undefined) {
+    if (lessonFiles(dirname(path)).length >= PROJECT_LIMITS.lessonFiles - 1) {
+      throw new Error("The project lesson proposal limit reserves room for a person's lesson.");
+    }
+    if (readProjectLessons(root).lessons.filter(lesson => lesson.declaredStatus === "proposed").length >= PROJECT_LIMITS.lessonProposals) {
+      throw new Error("The project lesson proposal limit has been reached.");
+    }
+  }
+  return path;
+}
+
+export function writeProjectLessonProposal(folder: string, id: string, text: string): void {
+  validateProjectLessonProposal(id, text);
+  const path = projectLessonProposalPath(folder, id);
+  let dir = realpathSync.native(resolve(folder));
+  for (const part of [...PROJECT_STORE_DIR_PARTS, "lessons"]) {
+    dir = join(dir, part);
+    if (lstatSync(dir, { throwIfNoEntry: false }) === undefined) mkdirSync(dir, { recursive: true });
+    if (realpathSync.native(dir) !== dir || !lstatSync(dir).isDirectory()) throw new Error("Unsafe project lessons directory.");
+  }
+  const result = withFileLock(join(dir, ".proposals.lock"), () => {
+    projectLessonProposalPath(folder, id);
+    const temp = join(dir, `.${randomUUID()}.tmp`);
+    try {
+      writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
+      // Publish complete bytes without replacing a competing file.
+      try {
+        linkSync(temp, path);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS" && code !== "EPERM") throw error;
+        // Some shares and removable filesystems cannot create hard links.
+        // COPYFILE_EXCL still refuses an existing destination.
+        copyFileSync(temp, path, constants.COPYFILE_EXCL);
+      }
+    } finally {
+      rmSync(temp, { force: true });
+    }
+  }, { waitMs: 0 });
+  if (!result.ok) throw new Error("Another proposal is being saved. Retry once it finishes.");
+}
+
 function lessonDirectory(root: string): string {
   let dir = root;
   for (const part of [...PROJECT_STORE_DIR_PARTS, "lessons"]) {
@@ -232,7 +330,7 @@ function readLessonFile(root: string, dir: string, file: string): { text: string
     if (length > limit) throw new Error(tooLarge);
     const bytes = buffer.subarray(0, length);
     return {
-      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
       hash: createHash("sha256").update(bytes).digest("hex"),
     };
   } finally {
@@ -272,7 +370,7 @@ export function readProjectLessons(folder: string): ProjectLessons {
     let id: string | undefined;
     try {
       const { text, hash } = readLessonFile(root, dir, file);
-      const { fields, body } = frontMatter(text.split(/\r?\n/));
+      const { fields, body } = parseLessonText(text);
       const declaredId = textValue(fields.get("id") ?? "", "id");
       if (!validProjectLessonId(declaredId)) {
         throw new Error("Invalid id. Expected up to " + PROJECT_LIMITS.id + " lowercase letters, digits or hyphens.");
@@ -307,6 +405,27 @@ export function projectLessonStatus(lesson: ProjectLesson, call?: ProjectLessonC
     : lesson.declaredStatus !== "active" ? lesson.declaredStatus
     : approvedByPerson ? "active" : "unapproved";
   return { personState, approvedByPerson, effectiveStatus, stale } as const;
+}
+
+export function prepareProjectLessonDecision(
+  id: string,
+  state: ProjectLessonCall["state"] | null,
+  lesson: ProjectLesson | undefined,
+  previous: ProjectLessonCall | undefined,
+): { ok: true; decision: ProjectLessonDecision } | { ok: false; message: string } {
+  const source = lesson ?? previous;
+  if (source === undefined || (state === "approved" && lesson === undefined)) {
+    return { ok: false, message: `No valid lesson named ${id}.` };
+  }
+  if (state === "approved" && lesson?.declaredStatus !== "active") {
+    return { ok: false, message: `Cannot approve ${id} with status: ${lesson?.declaredStatus}. Set status: active first.` };
+  }
+  const { hash, always } = source;
+  return { ok: true, decision: { id, call: state === null ? null : { state, hash, ...(always === undefined ? {} : { always }) } } };
+}
+
+export function writeProjectLessonDecision(records: ProjectRecordStore, record: ProjectRecord, decision: ProjectLessonDecision) {
+  return records.write(record.folder, record.id, record.seq, record.state, undefined, decision);
 }
 
 export interface ProjectLessonSource {
