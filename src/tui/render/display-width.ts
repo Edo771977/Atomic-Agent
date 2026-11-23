@@ -20,9 +20,9 @@ const ELLIPSIS = "…";
 
 function codePointWidth(cp: number): number {
   if (cp < 0x20 || (cp >= 0x7f && cp < 0xa0)) return 0;
+  if (/[\p{Cf}\u2028\u2029]/u.test(String.fromCodePoint(cp))) return 0;
   if (
     (cp >= 0x0300 && cp <= 0x036f) ||
-    (cp >= 0x200b && cp <= 0x200f) ||
     (cp >= 0x20d0 && cp <= 0x20ff) ||
     (cp >= 0xfe00 && cp <= 0xfe0f)
   ) {

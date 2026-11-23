@@ -89,6 +89,13 @@ describe("project lesson files", () => {
     });
   });
 
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("rejects invisible lesson text (%s)", (character, code) => {
+    write("storage.md", lesson("storage").replace("## Deciso", "## Deciso\nInert " + character + " text"));
+    expect(readProjectLessons(folder)).toEqual({
+      lessons: [], problems: [{ file: "storage.md", reason: expect.stringContaining("U+" + code) }],
+    });
+  });
+
   it("reports symlinks among lesson entries", () => {
     write("storage.md", lesson("storage"));
     const outside = join(folder, "outside");

@@ -43,6 +43,22 @@ export interface ProjectLessons {
   problems: ProjectLessonProblem[];
 }
 
+/** Unicode formatting, private-use and unassigned characters are not reviewable as lesson text. */
+export const PROJECT_LESSON_INVISIBLE_CHARACTERS = /[\p{Cf}\p{Co}\p{Cn}\u2028\u2029\uFFF9-\uFFFB]/gu;
+
+function rejectInvisibleLessonText(text: string): void {
+  const characters = text.match(PROJECT_LESSON_INVISIBLE_CHARACTERS);
+  if (!characters) return;
+  const codePoints = [...new Set(characters)].map(character =>
+    "U+" + character.codePointAt(0)!.toString(16).toUpperCase().padStart(4, "0"));
+  throw new Error("Contains invisible or text-control characters: " + codePoints.join(", ") + ".");
+}
+
+function parseLessonText(text: string) {
+  rejectInvisibleLessonText(text);
+  return frontMatter(text.split(/\r?\n/));
+}
+
 // Flat YAML subset. Quotes protect hashes and list separators. See the session README.
 function frontMatter(lines: string[]): { fields: Map<string, string>; body: string[] } {
   const end = lines.indexOf("---", 1);
@@ -84,6 +100,7 @@ function textValue(raw: string, field: string): string {
   } else if (/^[-?:](?:$|\s)|^[!&*{}[\]|>@%]|["']|:\s|:$/.test(raw)) {
     throw new Error("Unsupported scalar for " + field + ".");
   }
+  rejectInvisibleLessonText(value);
   if (value.trim() === "" || [...value].some((character) => character.charCodeAt(0) < 32)) {
     throw new Error("Expected non-empty single-line text for " + field + ".");
   }
@@ -179,7 +196,7 @@ function readLesson(id: string, fields: Map<string, string>, body: string[], has
 export function validateProjectLessonProposal(id: string, text: string): void {
   if (!validProjectLessonId(id)) throw new Error("Invalid lesson id.");
   if (Buffer.byteLength(text) > PROJECT_LIMITS.lessonFileBytes) throw new Error("Lesson file exceeds its size limit.");
-  const { fields, body } = frontMatter(text.split(/\r?\n/));
+  const { fields, body } = parseLessonText(text);
   if (fields.get("id") !== id || readLesson(id, fields, body, "").declaredStatus !== "proposed") {
     throw new Error("Expected a proposed lesson whose id matches its file.");
   }
@@ -298,7 +315,7 @@ function readLessonFile(root: string, dir: string, file: string): { text: string
     if (length > limit) throw new Error(tooLarge);
     const bytes = buffer.subarray(0, length);
     return {
-      text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+      text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
       hash: createHash("sha256").update(bytes).digest("hex"),
     };
   } finally {
@@ -338,7 +355,7 @@ export function readProjectLessons(folder: string): ProjectLessons {
     let id: string | undefined;
     try {
       const { text, hash } = readLessonFile(root, dir, file);
-      const { fields, body } = frontMatter(text.split(/\r?\n/));
+      const { fields, body } = parseLessonText(text);
       const declaredId = textValue(fields.get("id") ?? "", "id");
       if (!validProjectLessonId(declaredId)) {
         throw new Error("Invalid id. Expected up to " + PROJECT_LIMITS.id + " lowercase letters, digits or hyphens.");

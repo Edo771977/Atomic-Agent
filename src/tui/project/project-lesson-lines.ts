@@ -1,4 +1,4 @@
-import { projectLessonFingerprint } from "../../session/project-lessons.js";
+import { PROJECT_LESSON_INVISIBLE_CHARACTERS, projectLessonFingerprint } from "../../session/project-lessons.js";
 import { displayWidth, truncateToWidth } from "../render/display-width.js";
 import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-operations.js";
 import type { ProjectCardLine, ProjectLineTone } from "./project-card-lines.js";
@@ -6,7 +6,8 @@ import { lessonActions, selectedLesson, type ProjectCardState } from "./project-
 
 /** Keep author text literal and expose controls as printable escape sequences. */
 function plainText(text: string): string {
-  return text.replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, char =>
+  return text.replace(PROJECT_LESSON_INVISIBLE_CHARACTERS, character =>
+    "\\u{" + character.codePointAt(0)!.toString(16).toUpperCase() + "}").replace(/[\x00-\x09\x0b-\x1f\x7f-\x9f]/g, char =>
     "\\u" + char.charCodeAt(0).toString(16).padStart(4, "0"));
 }
 

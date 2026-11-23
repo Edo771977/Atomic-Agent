@@ -73,6 +73,19 @@ describe("project lessons", () => {
     expect(readFileSync(configFile, "utf8")).toBe(configBefore);
   });
 
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("skips invisible text in CLI listings (%s)", async (character, code) => {
+    const dir = join(root, ".atomic", "project", "lessons");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "lesson.md"), [
+      "---", "id: lesson", "title: A lesson", "source: person", "touches: []", "status: active", "always: true",
+      "---", "## Decided", "Inert " + character + " text", "## Tried and ruled out", "## Watch out",
+    ].join(EOL));
+    expect(await projectCommand(["lessons", root, "--json"], { stdout, stderr, stateDir: () => join(root, "state") })).toBe(0);
+    expect(JSON.parse(stdout.mock.lastCall![0])).toMatchObject({
+      lessons: [], problems: [{ file: "lesson.md", reason: expect.stringContaining("U+" + code) }],
+    });
+  });
+
   it("binds approval to the lesson contents and reopens stale choices", async () => {
     const folder = join(root, "project");
     const stateDir = join(root, "state");

@@ -1,3 +1,4 @@
+import { displayWidth } from "../render/display-width.js";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,6 +12,10 @@ import type { TuiAction } from "../tui-action.js";
 import { handleProjectCardKey } from "./project-card-keys.js";
 import { projectCardLines } from "./project-card-lines.js";
 import { isProjectCardAction, reduceProjectCard } from "./project-card-state.js";
+
+it("counts invisible Unicode formatting characters as zero columns", () => {
+  expect(displayWidth("a\u{E0061}\u202E\u2029b")).toBe(2);
+});
 
 const roots: string[] = [];
 afterEach(() => {
@@ -181,6 +186,15 @@ describe("project lessons in the TUI", () => {
     expect(f.text(120)).toMatch(/outside an agent tool process/i);
     f.press("a");
     expect(f.record().lessonCalls?.storage).toBeUndefined();
+  });
+
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("skips invisible text in the lesson panel (%s)", (character, code) => {
+    const f = fixture();
+    f.write("storage", "active", "Inert " + character + " text");
+    f.press("v");
+    expect(f.text()).toContain("Skipped storage.md");
+    expect(f.text()).toContain("U+" + code);
+    expect(f.text()).not.toContain(character);
   });
 
   it("neutralizes terminal control characters in every author field shown", () => {

@@ -288,6 +288,16 @@ describe("Telegram project gate", () => {
     expect(record()).toEqual(before);
   });
 
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("skips invisible text in Telegram listings (%s)", async (character, code) => {
+    const record = await openLessons();
+    writeLesson("active", "Inert " + character + " text");
+    await say("/lessons");
+    expect(sent.at(-1)).toMatch(new RegExp("Skipped.*storage\\.md.*U\\+" + code, "i"));
+    await say("/lesson_approve storage");
+    expect(sent.at(-1)).toMatch(/no valid lesson/i);
+    expect(record().lessonCalls).toBeUndefined();
+  });
+
   it("previews the current fingerprint and lets only the paired owner approve it", async () => {
     const record = await openLessons();
     const hash = readProjectLessons(dir).lessons[0]!.hash;
