@@ -95,6 +95,14 @@ describe("criteria facts (issue #40)", () => {
     expect(criteriaFactsFor(criteria, ui, [{ ...warnings, ok: false, artifactStatus: "uncheckable" }], undefined)[0]).toMatchObject({ state: "unverified" });
   });
 
+  it("names the source of console and cleanup warnings", () => {
+    const page: DelegateContract = { checks: [{ kind: "page", task: "ui", criteria: ["c1"], path: "index.html" }] };
+    const [fact] = criteriaFactsFor(taskCriteria("ui", page, CRITERIA), page, [
+      green({ warningCount: 3, consoleWarningCount: 2, cleanupWarning: true }),
+    ], undefined);
+    expect(fact?.reservation).toMatch(/3 warnings.*2 console warnings.*verification copy cleanup/);
+  });
+
   it("keeps a passing command with a reported warning green in the judge", async () => {
     const command: DelegateContract = { checks: [{ kind: "command", task: "ui", criteria: ["c1"], cmd: "node", args: ["--version"] }] };
     const { verdict } = await judge([green({ warningCount: 1 })], undefined, command);

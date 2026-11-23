@@ -62,6 +62,8 @@ interface ImpeccableCheckEvidence {
 export interface ContractCheckResult extends ImpeccableCheckEvidence {
   ok: boolean;
   warningCount?: number;
+  consoleWarnings?: readonly string[];
+  cleanupWarning?: string;
   summary?: string;
   error?: string;
   /**
@@ -132,6 +134,8 @@ export class ContractChecksHeldError extends Error {
 
 export interface ContractCheckOutcome extends ImpeccableCheckEvidence {
   warningCount?: number;
+  consoleWarningCount?: number;
+  cleanupWarning?: true;
   /** Canonical fingerprint of the retained, masked UI output. */
   outputHash?: string;
   /** The task the check was attributed to; absent for a call-level check. */
@@ -700,6 +704,8 @@ export async function runContractChecks(
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined || ui ? {} : { run }),
       ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
+      ...(raw.consoleWarnings?.length ? { consoleWarningCount: raw.consoleWarnings.length } : {}),
+      ...(raw.cleanupWarning === undefined ? {} : { cleanupWarning: true }),
       ...(ui && run !== undefined ? { outputHash: receiptHash(run.output) } : {}),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),

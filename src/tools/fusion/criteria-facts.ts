@@ -84,9 +84,11 @@ export function criteriaFactsFor(
   const reservations = checkReservations(contract);
   const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
     const reasons: string[] = [];
-    const { warningCount = 0, impeccableExceptions = [], negative } = outcome;
+    const { warningCount = 0, consoleWarningCount = 0, cleanupWarning, impeccableExceptions = [], negative } = outcome;
     if (warningCount > 0) {
       reasons.push(`${warningCount} warning${warningCount === 1 ? "" : "s"}`);
+      if (consoleWarningCount > 0) reasons.push(`${consoleWarningCount} console warning${consoleWarningCount === 1 ? "" : "s"}`);
+      if (cleanupWarning) reasons.push("verification copy cleanup warning");
       for (const exception of impeccableExceptions) {
         const line = exception.replace(/\s+/g, " ").trim();
         const approved = /^([a-z0-9-]+)(?::.*?)? — approved by the operator: (.+)$/u.exec(line);
