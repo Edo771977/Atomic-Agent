@@ -29,4 +29,6 @@ Preview the merge with `atomic-agent memory restore --from <directory>` or `/mem
 
 For implementation work read [memory](../../src/memory/README.md), [retrieval](../../src/memory/docs/retrieval.md), [formation](../../src/memory/docs/formation.md), and [configuration](../../src/config/docs/compatibility.md).
 
-Restore skips consolidated notes and notes marked superseded. The backup still contains those rows.
+Restore skips consolidated notes and notes marked superseded. The backup still contains those rows. The preview warns when pinned facts on the destination would exceed the profile limit.
+
+Restore accepts archives up to 128 MiB and 50,000 note and profile rows. Older schemas are migrated in memory with SQLite trusted schema disabled. The installed SQLite binding exposes no query-progress or interruption hook for its synchronous migration calls. The size and row limits bound accepted archives, while a migration can still block the CLI or TUI until its SQLite call returns.
