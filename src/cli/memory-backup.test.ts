@@ -189,6 +189,21 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     db.close();
   });
 
+  it("migrates an older archive privately while keeping the original bytes", () => {
+    const archive = new Database(dbFile);
+    archive.exec(`
+      CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+      INSERT INTO schema_meta VALUES ('version', '1');
+      CREATE TABLE profile_facts (key TEXT PRIMARY KEY, value TEXT NOT NULL, updated_at INTEGER NOT NULL);
+      INSERT INTO profile_facts VALUES ('city', 'Rome', 123);
+    `);
+    archive.close();
+    const before = readFileSync(dbFile);
+    const target = { memoryDbFile: join(dir, "target.sqlite") };
+    expect(restoreMemoryBackup(target, dir)).toEqual({ notes: 0, facts: 1 });
+    expect(readFileSync(dbFile)).toEqual(before);
+  });
+
   it("rejects a mismatched schema before creating the target", async () => {
     new MemoryStore({ dbFile, maxEntries: 10 }).close();
     const out = join(dir, "bk");

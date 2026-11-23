@@ -62,16 +62,19 @@ function restrictBackupPath(path: string, directory: boolean): void {
   }
 }
 
-function requireCurrentSchema(db: Database.Database): void {
+function readSchemaVersion(db: Database.Database): number {
   let value: unknown;
   try {
     value = db.prepare("SELECT value FROM schema_meta WHERE key = 'version'").pluck().get();
   } catch {
     throw new MemoryBackupError("unrecognized memory database schema");
   }
-  if (Number(value) !== MEMORY_SCHEMA_VERSION) {
-    throw new MemoryBackupError(`unsupported memory schema; expected version ${MEMORY_SCHEMA_VERSION}`);
+  if (typeof value !== "string" || !/^\d+$/.test(value)) throw new MemoryBackupError("unrecognized memory database schema");
+  const version = Number(value);
+  if (version > MEMORY_SCHEMA_VERSION) {
+    throw new MemoryBackupError(`unsupported memory schema version ${version}; this build supports up to ${MEMORY_SCHEMA_VERSION}`);
   }
+  return version;
 }
 
 function includesSecret(value: unknown): boolean {
@@ -136,7 +139,7 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     const snapshot = new DatabaseCtor(scratch, { fileMustExist: true });
     const output = join(staging, MEMORY_BACKUP_FILE);
     try {
-      requireCurrentSchema(snapshot);
+      readSchemaVersion(snapshot);
       applyMigrations(snapshot);
       if (snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'memory_change_log'").get()) {
         snapshot.exec("DELETE FROM memory_change_log");
@@ -232,13 +235,23 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
   const path = join(resolve(directory), MEMORY_BACKUP_FILE);
   if (path === resolve(context.memoryDbFile)) throw new MemoryBackupError("backup and live database must be different");
   if (statSync(path).size > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
-  const source = new DatabaseCtor(path, { readonly: true, fileMustExist: true });
+  const original = new DatabaseCtor(path, { readonly: true, fileMustExist: true });
+  let migrated: Database.Database | undefined;
   try {
-    source.pragma("trusted_schema = OFF");
-    return source.transaction(() => {
-      requireCurrentSchema(source);
-      const bytes = Number(source.pragma("page_count", { simple: true })) * Number(source.pragma("page_size", { simple: true }));
+    original.pragma("trusted_schema = OFF");
+    return original.transaction(() => {
+      const version = readSchemaVersion(original);
+      const bytes = Number(original.pragma("page_count", { simple: true })) * Number(original.pragma("page_size", { simple: true }));
       if (bytes > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
+      const missingColumns = ["memories", "profile_facts"].some((table) => !original.prepare(
+        "SELECT 1 FROM pragma_table_info(?) WHERE name = 'disabled_at'",
+      ).get(table));
+      if (version < MEMORY_SCHEMA_VERSION || missingColumns) {
+        migrated = new DatabaseCtor(original.serialize());
+        migrated.pragma("trusted_schema = OFF");
+        applyMigrations(migrated);
+      }
+      const source = migrated ?? original;
       const count = Number(source.prepare("SELECT (SELECT count(*) FROM memories) + (SELECT count(*) FROM profile_facts)").pluck().get());
       if (count > MAX_RESTORE_ROWS) throw new MemoryBackupError("backup exceeds the restore row limit");
       const notes = source.prepare(`
@@ -324,6 +337,7 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
       }
     })();
   } finally {
-    source.close();
+    migrated?.close();
+    original.close();
   }
 }
