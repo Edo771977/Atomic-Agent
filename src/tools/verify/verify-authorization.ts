@@ -1,5 +1,8 @@
 import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
+import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
+import { existsSync } from "node:fs";
+import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { ApprovalDeniedError, requireApproval, type DangerousToolOptions } from "../../approval/dangerous-tool.js";
 import { knownSecretsFromEnv, maskSecrets, type KnownSecret } from "../../error-reporting/secret-detector.js";
@@ -98,6 +101,9 @@ export function resolveVerifyCwd(root: string, cwd: string | undefined): string 
   const rel = relative(resolve(root), target);
   if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
     throw new Error("verify.run: `cwd` must stay inside the working directory");
+  }
+  if (readOsSandboxSettings().mode === "workspace" && existsSync(target)) {
+    return canonicalVerifyCwd(root, target);
   }
   return target;
 }

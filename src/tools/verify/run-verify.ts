@@ -216,7 +216,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
   if (args.kind === "command") {
-    const out = await runCommandKind(args, { cwd, signal: ctx.signal });
+    const out = await runCommandKind(args, { cwd, workspaceRoot: dir, signal: ctx.signal });
     const runOk = out.spawnError === undefined && !out.timedOut && out.exitCode === 0;
     const hint = runOk ? undefined : terminalAppHint(out.stdout, out.stderr);
     return finish(
@@ -227,7 +227,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   }
   if (args.kind === "service") {
     const out = await runServiceKind(args, {
-      cwd, signal: ctx.signal, fetchImpl: ctx.fetchImpl,
+      cwd, workspaceRoot: dir, signal: ctx.signal, fetchImpl: ctx.fetchImpl,
       ...(service?.whileReady === undefined ? {} : { whileReady: () => service.whileReady!(uiServiceUrl(args.ready!)) }),
     });
     const runOk = out.ready && out.requests.every((q) => q.ok);
@@ -249,6 +249,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   const held: { page?: PageRunOutcome } = {};
   const server = await runServiceKind(args, {
     cwd,
+    workspaceRoot: dir,
     signal: ctx.signal,
     fetchImpl: ctx.fetchImpl,
     whileReady: async () => {

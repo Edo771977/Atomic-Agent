@@ -153,6 +153,7 @@ async function sendRequest(
 
 interface ServiceContext {
   cwd: string;
+  workspaceRoot: string;
   signal?: AbortSignal;
   fetchImpl?: FetchLike;
   /** Runs once the server is ready, after the requests; the server stays up until it settles. */
@@ -186,6 +187,7 @@ async function runServiceProcess(
   const ready = args.ready ?? { timeoutMs: 0 };
   const proc = spawnVerifyProcess(start.cmd, start.args ?? [], {
     cwd: ctx.cwd,
+    workspaceRoot: ctx.workspaceRoot,
     env: args.env,
     network: args.network,
     timeoutMs: args.timeoutMs,

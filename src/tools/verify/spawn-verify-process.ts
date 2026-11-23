@@ -19,6 +19,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 
+import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
 import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
 import {
@@ -84,6 +85,7 @@ export function networkBlockEnv(): Record<string, string> {
 export interface SpawnVerifyOptions {
   cwd: string;
   relayDir?: string;
+  workspaceRoot: string;
   env?: Readonly<Record<string, string>>;
   network: boolean;
   timeoutMs: number;
@@ -149,9 +151,10 @@ export function spawnVerifyProcess(
   const invocation = options.invocation ?? resolveInvocation(cmd, args);
   const detached = process.platform !== "win32";
   const sandboxed = readOsSandboxSettings().mode === "workspace";
+  const cwd = sandboxed ? canonicalVerifyCwd(options.workspaceRoot, options.cwd) : options.cwd;
   const wrapped = sandboxed
     ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
-      workspaceRoots: [options.cwd, ...(options.relayDir === undefined ? [] : [options.relayDir])],
+      workspaceRoots: [options.workspaceRoot, ...(options.relayDir === undefined ? [] : [options.relayDir])],
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,
@@ -163,7 +166,7 @@ export function spawnVerifyProcess(
     ...(options.network ? {} : networkBlockEnv()),
   }, options.env ?? {});
   const child = spawn(wrapped.command, wrapped.args, {
-    cwd: options.cwd,
+    cwd,
     env: markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
