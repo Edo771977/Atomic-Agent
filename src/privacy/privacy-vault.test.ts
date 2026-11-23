@@ -120,3 +120,8 @@ it("stops before sending data it cannot retain in the archive", () => {
   const secret = "A9".repeat(1024 * 1024);
   expect(() => vault.mask(secret, [{ label: "oversized", value: secret }])).toThrow(/Privacy Shield archive limit/);
 });
+
+it("does not reapply a value inside a reference it just created", () => {
+  const vault = new PrivacyVault();
+  expect(vault.mask("password=SECRET_1")).toBe("password=[SECRET_1]");
+});

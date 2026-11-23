@@ -141,8 +141,19 @@ export class PrivacyVault {
     for (const value of this.#reapply) {
       if (!out.includes(value)) continue;
       const placeholder = this.#byValue.get(value)!;
-      request?.add(placeholder);
-      out = out.split(value).join(placeholder);
+      let last = 0;
+      const replacePlain = (plain: string): string => {
+        if (!plain.includes(value)) return plain;
+        request?.add(placeholder);
+        return plain.split(value).join(placeholder);
+      };
+      const parts: string[] = [];
+      for (const match of out.matchAll(PLACEHOLDER)) {
+        parts.push(replacePlain(out.slice(last, match.index)), match[0]);
+        last = match.index + match[0].length;
+      }
+      parts.push(replacePlain(out.slice(last)));
+      out = parts.join("");
     }
     return out;
   }
