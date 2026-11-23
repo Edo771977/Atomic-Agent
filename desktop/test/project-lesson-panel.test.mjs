@@ -122,3 +122,30 @@ for (const [code, expected, blocked] of [
     assert.equal(writes, blocked ? 1 : 2);
   });
 }
+
+test('an open lesson panel refreshes on matching project_gate events, including unchanged gate views', async () => {
+  let model, act, calls = 0, resolveRead, next = row;
+  const card = createProjectCard({
+    api: {read: () => ({ok: true, view}), lessons: () => {
+      calls++;
+      if (calls === 2) return new Promise(resolve => { resolveRead = resolve; });
+      return {ok: true, panel: {rows: [next]}};
+    }},
+    draw: (m, a) => { model = m; act = a; }, onContinue() {},
+  });
+  card.follow('s1');
+  await tick();
+  await card.openLessons();
+  act({type: 'lesson-read', id: row.id});
+  card.onFrame({sessionId: 'other', view});
+  assert.equal(calls, 1);
+  card.onFrame({sessionId: 's1', view});
+  assert.equal(calls, 2);
+  next = {...row, hash: changed};
+  card.onFrame({sessionId: 's1', view});
+  resolveRead({ok: true, panel: {rows: [row]}});
+  await tick();
+  assert.equal(calls, 3);
+  assert.equal(model.lessonPanel.row.hash, changed);
+  assert.equal(model.lessonPanel.seen, false);
+});

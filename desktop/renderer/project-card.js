@@ -1453,12 +1453,12 @@ function createProjectCard(opts) {
   function setView(view, notice) {
     state = pcReduce(state, {type: 'view', view, notice});
   }
-  async function loadLessons(choice) {
+  async function loadLessons(choice, fromFrame = false) {
     const shown = lessons, here = sid, frame = frames.get(sid);
     if (!shown || shown.busy || lessonWriting.has(here)) return;
     shown.busy = true;
     shown.seen = false;
-    shown.notice = shown.error = null;
+    if (!fromFrame) shown.notice = shown.error = null;
     if (choice) lessonWriting.add(here);
     paint();
     let response;
@@ -1478,14 +1478,17 @@ function createProjectCard(opts) {
       return;
     }
     shown.busy = false;
+    const newerFrame = frames.get(here) !== frame;
+    if (!choice && newerFrame) return loadLessons(undefined, fromFrame);
     if (response?.code === 'person-auth-required') shown.authBlocked = true;
     const choiceError = choice && Object.hasOwn(PC_LESSON_CHOICE_ERRORS, response?.code)
       ? PC_LESSON_CHOICE_ERRORS[response.code] : null;
     shown.panel = response?.panel ?? (choiceError ? shown.panel : null);
-    shown.notice = response?.notice;
+    if (!fromFrame) shown.notice = response?.notice;
     shown.error = response?.ok ? null : response?.supported === false
       ? 'This agent does not support Fusion project lessons.' : choiceError || response?.error || 'Could not load Fusion project lessons.';
     paint();
+    if (choice && response?.ok && newerFrame) void loadLessons(undefined, true);
   }
   function openLessons() {
     if (!canBrowseLessons() || lessons || lessonWriting.has(sid)) return;
@@ -1610,6 +1613,7 @@ function createProjectCard(opts) {
         state = pcReduce(state, {type: 'view', view: store.get(sid), inFlight: state.busy});
         paint(); notify();
       }
+      if (lessons && frame.view?.schema === 1) void loadLessons(undefined, true);
       if (newProject && !changed) notify();
       void readEvidence();
     },
