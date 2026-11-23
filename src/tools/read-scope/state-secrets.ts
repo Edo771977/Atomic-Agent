@@ -188,7 +188,7 @@ function psShowsEnvironment(line: string): boolean {
         index++;
         continue;
       }
-      if (word === "--environment" || word === "-E" || /^[a-zA-Z]*e[a-zA-Z]*$/.test(word)) return true;
+      if (word === "--environment" || /^-[A-Za-z]*E[A-Za-z]*$/.test(word) || /^[a-zA-Z]*e[a-zA-Z]*$/.test(word)) return true;
     }
     return false;
   });
