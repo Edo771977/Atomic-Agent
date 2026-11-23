@@ -402,6 +402,7 @@ export class ProfileStore {
       (): {
         id: number;
         supersedes: number | null;
+        disabledAt: number | null;
         eviction: ProfileEviction | null;
       } => {
         // Same-key auto-chain: if there is an active row for the

@@ -174,7 +174,7 @@ describe("createDefaultMemoryContextProvider", () => {
     expect(ids).toContain(c.id);
 
     store.setDisabled(b.id, true);
-    const filtered = await provider.buildMemoryContext(input("lisbon")) as { recalled: Array<{ id: number }> };
+    const filtered = await provider.buildMemoryContext(input("lisbon"));
     expect(filtered.recalled.map((entry) => entry.id)).not.toContain(b.id);
   });
 
