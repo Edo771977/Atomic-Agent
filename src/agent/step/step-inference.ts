@@ -93,6 +93,9 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     ctx.toolSet !== undefined
       ? narrowDescriptorsToToolSet(roleToolDescriptors, ctx.toolSet)
       : roleToolDescriptors;
+  const reasoningBound = deps.toolTransport === "native_tools"
+    ? undefined
+    : appliedReasoningBound(ctx, deps.grammar, thinkingOff);
   const basePromptInput: BuildPromptInput = {
     ...(ctx.workspace ? { workspace: ctx.workspace } : {}),
     session: ctx.session,
@@ -114,12 +117,8 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     ...(deps.toolTransport === "native_tools" ? {
       toolSchemaTokens: nativeToolSchemaTokens(stepDescriptors, deps),
     } : {}),
-    // Match the bound already resolved by the turn for this grammar,
-    // including a Fusion worker's explicit budget or an unbounded zero.
-    ...(deps.toolTransport !== "native_tools" && ctx.reasoningBudgetTokens !== undefined &&
-      !ctx.terminalOnly && !thinkingOff && hasReasoningPrelude(deps.grammar)
-      ? { reasoningBudgetTokens: ctx.reasoningBudgetTokens }
-      : {}),
+    // An unbounded turn still falls back to the configured packing reserve.
+    ...(reasoningBound !== undefined ? { reasoningBudgetTokens: reasoningBound } : {}),
     ...(ctx.toolRole !== undefined ? { toolRole: ctx.toolRole } : {}),
     fusionTokensPerSecond: deps.fusionTokensPerSecond?.() ?? null,
     ...(deps.fusionPastRuns !== undefined

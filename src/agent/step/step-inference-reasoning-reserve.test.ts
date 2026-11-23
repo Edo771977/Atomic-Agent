@@ -73,6 +73,14 @@ describe("reply reserve under a chat's reasoning level (ATO-1678)", () => {
     expect(prompt.conversationCapEffective).toBeLessThan(prepare(undefined).conversationCapEffective);
   });
 
+  it("uses the configured reply reserve for an unbounded high setting", () => {
+    getConfig().localModels.reasoningBudgetTokens = 6_500;
+    const high = prepare("high").replyReserve;
+    expect(high).toBe(effectiveReplyReserve(cap(), WINDOW, 6_500));
+    expect(high).toBeGreaterThanOrEqual(prepare("low").replyReserve!);
+    expect(high).toBeGreaterThanOrEqual(prepare("medium").replyReserve!);
+  });
+
   it("keeps the configured budget when no level is picked", () => {
     expect(prepare(undefined).replyReserve).toBe(
       effectiveReplyReserve(cap(), WINDOW, getConfig().localModels.reasoningBudgetTokens),
