@@ -6,6 +6,8 @@
  * `Retry-After`, robots.txt, a short cache. Pages come from the start page's
  * same-origin links (breadth first, up to `maxDepth`) and the sitemap.
  */
+import type { DangerousToolOptions } from "../../../approval/dangerous-tool.js";
+import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlSendSites } from "./url-data-guard.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import { offlineRefusal } from "../../../llm/offline-network.js";
 import { runCommand as defaultRunCommand } from "../../../sandbox/command-runner.js";
@@ -31,7 +33,9 @@ import { runCrawl } from "./web-crawl-run.js";
 export interface OsWebCrawlOptions {
   runCommand?: typeof defaultRunCommand;
   lookup?: HostLookup;
-  config?: Pick<AtomicAgentConfig, "web">;
+  config?: Pick<AtomicAgentConfig, "web"> & Partial<Pick<AtomicAgentConfig, "http">>;
+  dangerous?: DangerousToolOptions;
+  urlSendSites?: UrlSendSites;
   sleep?: Sleep;
   now?: () => number;
 }
@@ -86,6 +90,17 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
         await assertHostAllowed(start, { lookup: options.lookup });
       } catch (err) {
         return errorResult(args, (err as Error).message, err instanceof SsrfBlockedError);
+      }
+
+      if (options.dangerous) {
+        await requireUrlSendApproval(options.dangerous, {
+          mode: options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+          tool: CRAWL_TOOL_NAME,
+          url: start.href,
+          sessionId: ctx.sessionId,
+          signal: ctx.signal,
+          ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+        });
       }
 
       // Each crawl counts its own throttle strikes: a 429 streak from an

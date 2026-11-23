@@ -1,3 +1,4 @@
+import { buildOsWebCrawlTool } from "./web-crawl.js";
 import { describe, expect, it } from "vitest";
 import { ApprovalGate, type ApprovalRequest } from "../../../approval/approval-gate.js";
 import type { ApprovalLevel } from "../../../approval/approval-level.js";
@@ -171,4 +172,20 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
     expect(asked).toHaveLength(0);
     expect(calls.length).toBeGreaterThan(0);
   });
+});
+
+it.each([["data", DATA_URL], ["strict", PLAIN_URL]] as const)("crawl asks about its initial URL in %s mode before curl", async (urlDataGuard, url) => {
+  const { gate, asked } = recordingGate(3, false);
+  const calls: string[][] = [];
+  const tool = buildOsWebCrawlTool({
+    dangerous: { approvals: gate, approvalRequired: true },
+    config: { web: {} as AtomicAgentConfig["web"], ...httpConfig({ urlDataGuard }) },
+    urlSendSites: new UrlSendSites(),
+    lookup: publicLookup,
+    runCommand: recordingRun(calls),
+    sleep: async () => {},
+  });
+  await expect(tool.run({ url }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+  expect(asked).toHaveLength(1);
+  expect(calls).toHaveLength(0);
 });
