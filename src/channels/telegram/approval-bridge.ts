@@ -39,7 +39,7 @@ export interface InboundCallbackUpdate {
   /** Sender. Used for the owner check. */
   from?: { id: number };
   /** Original message that hosted the inline keyboard. */
-  message?: { chat: { id: number }; message_id: number };
+  message?: { chat: { id: number }; message_id: number; text?: string };
   /** Verbatim `callback_data` payload from the inline button. */
   data?: string;
 }
@@ -297,10 +297,12 @@ export class ApprovalBridge {
         // An untracked prompt can no longer resolve an approval.
         await this.acknowledge(update.id, EXPIRED_APPROVAL_NOTICE);
         if (update.message) {
+          const notice = "⏹ expired. Send your request again if you still need it.";
+          const original = update.message.text?.slice(0, 4096 - notice.length - 2);
           void this.editFinal(
             update.message.chat.id,
             update.message.message_id,
-            "⏹ expired. Send your request again if you still need it.",
+            original ? `${original}\n\n${notice}` : notice,
           );
         }
         return;

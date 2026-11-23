@@ -497,7 +497,9 @@ describe("ApprovalBridge.handleCallback", () => {
     await previous.bridge.dispatch(req("old"), 7);
     previous.bridge.cancelAll();
     const h = makeHarness();
-    await h.bridge.handleCallback(callback("old", "y"));
+    await h.bridge.handleCallback({ ...callback("old", "y"), message: {
+      chat: { id: 7 }, message_id: 99, text: String(previous.api.sendMessage.mock.calls[0]![1]),
+    } });
 
     expect(h.approvals.decisions).toEqual([]);
     expect(h.api.answerCallbackQuery).toHaveBeenCalledWith("cb-1", {
@@ -506,7 +508,7 @@ describe("ApprovalBridge.handleCallback", () => {
     await vi.waitFor(() => expect(h.api.editMessageText).toHaveBeenCalledTimes(1));
     expect(h.api.editMessageText.mock.calls[0]![0]).toBe(7);
     expect(h.api.editMessageText.mock.calls[0]![1]).toBe(99);
-    expect(String(h.api.editMessageText.mock.calls[0]![2])).toContain("expired");
+    expect(String(h.api.editMessageText.mock.calls[0]![2])).toMatch(/git push origin main[\s\S]*expired/);
 
     await h.bridge.dispatch(req("new"), 7);
     await h.bridge.handleCallback(callback("new", "y"));
