@@ -6,7 +6,7 @@
  */
 import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
 import { linuxServiceInvocation, probeLinuxService } from "./linux-service-probe.js";
@@ -191,6 +191,7 @@ async function runServiceProcess(
     timeoutMs: args.timeoutMs,
     signal: ctx.signal,
     ...(socketPath === undefined ? {} : {
+      relayDir: dirname(socketPath),
       invocation: linuxServiceInvocation(resolveInvocation(start.cmd, start.args ?? []), socketPath),
     }),
   });

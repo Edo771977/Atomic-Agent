@@ -67,8 +67,9 @@ it("prepares the wrapper without caller-controlled native loader settings", () =
   });
   expect(env).toEqual({
     PATH: "/usr/bin",
-    XDG_CACHE_HOME: join(tmpdir(), "atomic-agent-tool-cache"),
-    npm_config_cache: join(tmpdir(), "atomic-agent-tool-cache", "npm"),
+    TMPDIR: process.platform === "linux" ? "/tmp" : tmpdir(),
+    XDG_CACHE_HOME: join(process.platform === "linux" ? "/tmp" : tmpdir(), "atomic-agent-tool-cache"),
+    npm_config_cache: join(process.platform === "linux" ? "/tmp" : tmpdir(), "atomic-agent-tool-cache", "npm"),
   });
 });
 
@@ -89,7 +90,7 @@ describe("buildOsSandboxPolicy", () => {
   it("writes go to the project and temp only", () => {
     const p = policy();
     expect(p.writableRoots[0]).toBe("/home/op/project");
-    expect(p.writableRoots).toContain(TMP);
+    if (process.platform !== "linux") expect(p.writableRoots).toContain(TMP);
     expect(p.writableRoots).not.toContain("/home/op/.npm/_cacache");
     expect(p.writableRoots).not.toContain(HOME);
   });
@@ -166,10 +167,10 @@ describe("buildSeatbeltProfile", () => {
     expect(profile).toContain('(global-name "com.apple.coreservices.launchservicesd")');
   });
 
-  it("leaves the network alone when it is allowed", () => {
+  it("permits IP with approval and continues to block desktop IPC", () => {
     const profile = buildSeatbeltProfile(policy(true));
-    expect(profile).not.toContain("network-outbound");
-    expect(profile).not.toContain("mach-lookup");
+    expect(profile).not.toContain('(remote ip "*:*")');
+    expect(profile).toContain("mach-lookup");
   });
 });
 
@@ -243,4 +244,10 @@ it("review 7: restrict macOS IPC even with network approval", () => {
 it("review 12: isolate Linux IPC", () => {
   const w = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
   expect(w.ok && w.args).toContain("--unshare-ipc");
+});
+
+it("review 1: Linux uses a private temporary mount and strips desktop IPC variables", () => {
+  const wrapper = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(wrapper.ok && wrapper.args.join(" ")).toContain("--tmpfs /tmp");
+  expect(buildOsSandboxEnv({ DISPLAY: ":9", DBUS_SESSION_BUS_ADDRESS: "fixture", TMUX: "fixture" })).not.toHaveProperty("DISPLAY");
 });

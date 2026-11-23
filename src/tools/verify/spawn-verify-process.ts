@@ -83,6 +83,7 @@ export function networkBlockEnv(): Record<string, string> {
 
 export interface SpawnVerifyOptions {
   cwd: string;
+  relayDir?: string;
   env?: Readonly<Record<string, string>>;
   network: boolean;
   timeoutMs: number;
@@ -150,7 +151,7 @@ export function spawnVerifyProcess(
   const sandboxed = readOsSandboxSettings().mode === "workspace";
   const wrapped = sandboxed
     ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
-      workspaceRoots: [options.cwd],
+      workspaceRoots: [options.cwd, ...(options.relayDir === undefined ? [] : [options.relayDir])],
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,

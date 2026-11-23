@@ -14,7 +14,7 @@ import type { ToolContext } from "../../tool-registry.js";
 import { runVerify } from "../../verify/run-verify.js";
 import { buildOsShellTool } from "./shell.js";
 
-const fixturePolicy = buildOsSandboxPolicy({ workspaceRoots: [tmpdir()], network: false });
+const fixturePolicy = buildOsSandboxPolicy({ workspaceRoots: [], network: false });
 const smoke = wrapWithOsSandbox(process.execPath, ["-e", ""], fixturePolicy);
 const availability = smoke.ok ? spawnSync(smoke.command, smoke.args, { encoding: "utf8", timeout: 5000 }) : undefined;
 const unavailable = !smoke.ok ? smoke.reason : availability?.status === 0 ? undefined
@@ -84,6 +84,31 @@ describe.skipIf(unavailable !== undefined)(
     }
 
     const on: OsSandboxSettings = { mode: "workspace", network: false };
+
+    it.skipIf(process.platform !== "linux")("review 1: host temporary and runtime Unix sockets are absent", async () => {
+      const tmp = await mkdtemp(join(tmpdir(), "atomic-host-socket-"));
+      const runtime = join(work, "runtime");
+      await mkdir(runtime);
+      const paths = [join(tmp, "fixture.sock"), join(runtime, "fixture.sock")];
+      const servers = paths.map(() => createServer(socket => socket.end("fixture")));
+      try {
+        await Promise.all(servers.map((server, index) => new Promise<void>((resolve, reject) => {
+          server.once("error", reject);
+          server.listen(paths[index]!, resolve);
+        })));
+        vi.stubEnv("XDG_RUNTIME_DIR", runtime);
+        for (const socket of paths) {
+          const result = await tool(on).run({ cmd: process.execPath, args: ["-e",
+            "const s=require('node:net').connect(process.argv[1]); s.on('error',()=>process.exit(17)); s.resume()", socket,
+          ] }, ctx());
+          expect(result.summary).toContain("exit: 17");
+        }
+      } finally {
+        vi.unstubAllEnvs();
+        await Promise.all(servers.map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+        await rm(tmp, { recursive: true, force: true });
+      }
+    });
 
     it.skipIf(process.platform !== "linux" || process.getuid?.() !== 0)("review 4: a root invocation has zero effective capabilities and read-only host mounts", async () => {
       const marker = join(outside, "host-write.txt");

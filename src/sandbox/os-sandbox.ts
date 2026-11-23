@@ -38,9 +38,10 @@ export function readOsSandboxSettings(
 /** Prepare the wrapper environment before the kernel has installed confinement. */
 export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const safe = Object.fromEntries(Object.entries(env).filter(([key]) =>
-    !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST)$/.test(key)));
-  const cache = join(tmpdir(), "atomic-agent-tool-cache");
-  return { ...safe, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
+    !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST|DBUS_SESSION_BUS_ADDRESS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|TMUX|XDG_RUNTIME_DIR)$/.test(key)));
+  const temp = process.platform === "linux" ? "/tmp" : tmpdir();
+  const cache = join(temp, "atomic-agent-tool-cache");
+  return { ...safe, TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
 
 export interface OsSandboxPolicy {
@@ -77,6 +78,7 @@ export interface OsSandboxPolicyInput {
  */
 export const SECRET_HOME_PATHS: readonly string[] = [
   ".ssh",
+  ".Xauthority",
   ".aws",
   ".gnupg",
   ".azure",
@@ -124,14 +126,18 @@ export function buildOsSandboxPolicy(
   const work = unique(input.workspaceRoots.map((p) => real(resolve(p))));
   const writableRoots = unique([
     ...work,
-    real(tmp),
+    ...(process.platform === "linux" ? [] : [real(tmp)]),
     // `/tmp` is a link to `/private/tmp` on macOS; both spellings.
-    ...(process.platform === "win32" ? [] : ["/tmp", real("/tmp")]),
+    ...(process.platform === "darwin" ? ["/tmp", real("/tmp")] : []),
   ]);
   const secret = SECRET_HOME_PATHS.flatMap((p) => bothSpellings(join(home, p)));
   if (process.platform === "linux") {
     const runtime = process.env.XDG_RUNTIME_DIR;
     const sockets = [
+      runtime,
+      process.getuid === undefined ? undefined : `/run/user/${process.getuid()}`,
+      "/run/screen",
+      ...(tmp === "/tmp" || tmp === "/" ? [] : [tmp]),
       "/var/run/docker.sock",
       join(home, ".docker/run/docker.sock"),
       process.env.SSH_AUTH_SOCK,
@@ -272,7 +278,9 @@ function bwrapArgs(
   args: readonly string[],
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
+  out.push("--tmpfs", "/tmp");
   for (const dir of unique(policy.writableRoots.map(real))) {
+    if (dir === "/tmp") continue;
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
