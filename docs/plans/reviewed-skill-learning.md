@@ -16,5 +16,5 @@ Confronto di `feat/ato-67-self-learning` a `b17ecacb8043d4f10e8a0854f9ece610c746
 | Caratteri invisibili | Sanitizzazione della vista terminale per i controlli. | Il lettore rifiuta caratteri invisibili e di controllo (#184). | Stessa regola delle lezioni sia alla validazione sia alla lettura. |
 | Incognito | Revisione saltata. | Nessuna decisione sulle lezioni viene persistita. | Revisione e attivazione rifiutate. |
 | Worker Fusion | Revisione saltata. | Ricevono lezioni pertinenti al lavoro dichiarato e alle citazioni del piano. | Nessuna revisione nei worker e nessuna esposizione trasversale delle skill imparate. |
- 
+
 Upstream abilita la funzione per impostazione predefinita. Il fork mantiene l'apprendimento disattivato per impostazione predefinita.
