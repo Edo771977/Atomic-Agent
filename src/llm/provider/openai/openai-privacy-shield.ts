@@ -40,11 +40,11 @@ export function shieldVaultFor(
  * count what this request masked (`vault.stats().lastRequest`).
  */
 export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVault): void {
-  vault.beginRequest();
+  const request = vault.beginRequest();
   try {
-    if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages, { jsonField: "arguments" });
+    if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages, { jsonField: "arguments", request });
   } finally {
-    vault.endRequest();
+    vault.endRequest(request);
   }
 }
 

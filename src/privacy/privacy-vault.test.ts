@@ -55,14 +55,13 @@ describe("PrivacyVault (ATO-599)", () => {
 
   it("counts distinct values per request and requests with something masked", () => {
     const vault = new PrivacyVault();
-    vault.beginRequest();
-    vault.mask("a@b.io a@b.io");
-    vault.mask("c@d.io");
-    vault.endRequest();
+    const request = vault.beginRequest();
+    vault.maskDeep(["a@b.io a@b.io", "c@d.io"], { request });
+    vault.endRequest(request);
     expect(vault.stats()).toMatchObject({ distinct: 2, lastRequest: 2, maskedRequests: 1 });
-    vault.beginRequest();
-    vault.mask("nothing here");
-    vault.endRequest();
+    const empty = vault.beginRequest();
+    vault.maskDeep(["nothing here"], { request: empty });
+    vault.endRequest(empty);
     expect(vault.stats()).toMatchObject({ distinct: 2, lastRequest: 0, maskedRequests: 1 });
   });
 });
@@ -85,4 +84,16 @@ it("round-trips a literal placeholder without substituting an email into replaye
   expect(vault.unmask(maskedLiteral)).toBe(literal);
   expect(vault.unmask(realReference)).toBe(email);
   expect(vault.mask(literal)).toBe(maskedLiteral);
+});
+
+it("counts interleaved requests independently", () => {
+  const vault = new PrivacyVault();
+  const first = vault.beginRequest();
+  const second = vault.beginRequest();
+  vault.maskDeep(["first@example.test", "other@example.test"], { request: first });
+  vault.maskDeep(["second@example.test"], { request: second });
+  vault.endRequest(first);
+  expect(vault.stats()).toMatchObject({ lastRequest: 2, maskedRequests: 1 });
+  vault.endRequest(second);
+  expect(vault.stats()).toMatchObject({ lastRequest: 1, maskedRequests: 2 });
 });

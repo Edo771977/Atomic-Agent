@@ -65,7 +65,6 @@ export class PrivacyVault {
   };
   /** Values reapplied by exact match, longest first; rebuilt lazily. */
   #reapply: string[] | null = null;
-  private requestSeen: Set<string> | null = null;
   private lastRequest = 0;
   private maskedRequests = 0;
 
@@ -84,24 +83,13 @@ export class PrivacyVault {
     return placeholder;
   }
 
-  private note(placeholder: string): void {
-    this.requestSeen?.add(placeholder);
+  beginRequest(): Set<string> {
+    return new Set();
   }
 
-  /**
-   * Start counting one outgoing request: `stats().lastRequest` becomes
-   * the number of distinct values masked between this call and the
-   * next `endRequest`.
-   */
-  beginRequest(): void {
-    this.requestSeen = new Set();
-  }
-
-  endRequest(): void {
-    if (this.requestSeen === null) return;
-    this.lastRequest = this.requestSeen.size;
+  endRequest(request: ReadonlySet<string>): void {
+    this.lastRequest = request.size;
     if (this.lastRequest > 0) this.maskedRequests += 1;
-    this.requestSeen = null;
   }
 
   /**
@@ -109,12 +97,12 @@ export class PrivacyVault {
    * defaults to the vault's own source; {@link maskDeep} reads it once
    * for a whole request.
    */
-  mask(text: string, known: readonly KnownSecret[] = this.known()): string {
+  mask(text: string, known: readonly KnownSecret[] = this.known(), request?: Set<string>): string {
     if (text.length === 0) return text;
     const spans = findPrivateSpans(text, known);
     const escapeLiterals = (plain: string): string => plain.replace(PLACEHOLDER, (literal) => {
       const reference = this.placeholderFor(literal, "SECRET");
-      this.note(reference);
+      request?.add(reference);
       return reference;
     });
     let out: string;
@@ -124,7 +112,7 @@ export class PrivacyVault {
       for (const span of spans) {
         parts.push(escapeLiterals(text.slice(last, span.start)));
         const placeholder = this.placeholderFor(span.value, span.kind);
-        this.note(placeholder);
+        request?.add(placeholder);
         parts.push(placeholder);
         last = span.end;
       }
@@ -140,7 +128,7 @@ export class PrivacyVault {
     for (const value of this.#reapply) {
       if (!out.includes(value)) continue;
       const placeholder = this.#byValue.get(value)!;
-      this.note(placeholder);
+      request?.add(placeholder);
       out = out.split(value).join(placeholder);
     }
     return out;
@@ -161,9 +149,9 @@ export class PrivacyVault {
    * Mask every string inside plain objects and arrays. A named JSON field
    * is decoded before masking so escaping cannot hide a private value.
    */
-  maskDeep<T>(value: T, options: { jsonField?: string } = {}): T {
+  maskDeep<T>(value: T, options: { jsonField?: string; request?: Set<string> } = {}): T {
     const known = this.known();
-    const mask = (text: string): string => this.mask(text, known);
+    const mask = (text: string): string => this.mask(text, known, options.request);
     return mapStrings(value, (text, key) => {
       if (key === undefined || key !== options.jsonField) return mask(text);
       let parsed: unknown;
@@ -175,7 +163,7 @@ export class PrivacyVault {
       const masked = mapStrings(parsed, (value, field) => {
         if (field !== undefined && secretAssignment(field, value)) {
           const placeholder = this.placeholderFor(value, "SECRET");
-          this.note(placeholder);
+          options.request?.add(placeholder);
           return placeholder;
         }
         return mask(value);
