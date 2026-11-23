@@ -42,12 +42,13 @@ export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST|DBUS_SESSION_BUS_ADDRESS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|TMUX|XDG_RUNTIME_DIR)$/.test(key)));
   const temp = process.platform === "linux" ? "/tmp" : tmpdir();
   const cache = join(temp, `atomic-agent-tool-cache-${randomUUID()}`);
-  return { ...safe, TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
+  return { ...safe, GIT_OPTIONAL_LOCKS: "0", TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
 
 export interface OsSandboxPolicy {
   /** Folders the command may write under (working folders first). */
   writableRoots: readonly string[];
+  readOnlyGitRoots: readonly string[];
   /**
    * Folders and files the command may not read (credential stores,
    * agent state). Each one is listed both as named and, when it is a
@@ -169,7 +170,8 @@ export function buildOsSandboxPolicy(
   const offset = relative(home, node);
   const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
     ? [dirname(node)] : [];
-  return { writableRoots, denyRead, network: input.network, stateDir: canonicalState, home, toolchainRoots };
+  const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
+  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, home, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -214,6 +216,9 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
     ...policy.toolchainRoots.map((_, i) => `(subpath (param "T${i}"))`),
   ];
   if (readable.length > 0) lines.push(`(allow file-read* ${readable.join(" ")})`);
+  if (policy.readOnlyGitRoots.length > 0) {
+    lines.push(`(deny file-write* ${policy.readOnlyGitRoots.map((_, i) => `(subpath (param "G${i}"))`).join(" ")})`);
+  }
   if (policy.denyRead.length > 0) {
     const denied = policy.denyRead.map((_, i) => `(subpath (param "R${i}"))`);
     lines.push(`(deny file-read* file-write* ${denied.join(" ")})`);
@@ -238,6 +243,7 @@ function seatbeltArgs(
   const params: string[] = ["-D", `HOME_ROOT=${policy.home}`];
   policy.toolchainRoots.forEach((dir, i) => params.push("-D", `T${i}=${dir}`));
   policy.writableRoots.forEach((dir, i) => params.push("-D", `W${i}=${dir}`));
+  policy.readOnlyGitRoots.forEach((dir, i) => params.push("-D", `G${i}=${dir}`));
   policy.denyRead.forEach((dir, i) => params.push("-D", `R${i}=${dir}`));
   return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
 }
@@ -301,6 +307,7 @@ function bwrapArgs(
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
+  for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
   out.push("--proc", "/proc");
   for (const path of unique(policy.denyRead.map(real))) {
     if (!existsSync(path)) continue;

@@ -127,6 +127,16 @@ describe.skipIf(unavailable !== undefined)(
       expect(await readFile(join(work, "inside.txt"), "utf8")).toBe("inside\n");
     });
 
+    it("review 2: existing Git metadata stays read-only", async () => {
+      const runner = tool(on);
+      expect((await runner.run({ cmd: "git init" }, ctx())).status).toBe("ok");
+      const config = join(work, ".git", "config");
+      const before = await readFile(config, "utf8");
+      expect((await runner.run({ cmd: "git config user.name fixture" }, ctx())).status).toBe("error");
+      expect(await readFile(config, "utf8")).toBe(before);
+      expect((await runner.run({ cmd: "git status --short" }, ctx())).status).toBe("ok");
+    });
+
     it("cannot write outside it", async () => {
       const target = join(outside, "escaped.txt");
       const result = await tool(on).run(

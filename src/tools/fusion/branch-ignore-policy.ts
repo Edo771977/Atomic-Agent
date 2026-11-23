@@ -1,3 +1,4 @@
+import { sandboxGitArgs, sandboxGitEnv } from "../../sandbox/sandbox-git.js";
 import { lstat, mkdir, readdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -15,12 +16,12 @@ export type DirectoryIgnorePolicy = (paths: readonly string[], signal?: AbortSig
 const defaultIgnoreGit: IgnoreGit = async (args, options) => {
   options.signal?.throwIfAborted();
   try {
-    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...args], {
+    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
       ...options,
-      env: {
+      env: sandboxGitEnv({
         ...Object.fromEntries(Object.entries(buildCommandEnv(process.env)).filter(([name]) => options.env === undefined || !/^GIT_/i.test(name))),
         GIT_TERMINAL_PROMPT: "0", LC_ALL: "C", ...options.env,
-      },
+      }),
       timeoutMs: 120_000,
       maxOutputBytes: 32 * 1024 * 1024,
     });

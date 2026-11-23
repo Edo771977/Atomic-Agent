@@ -1,3 +1,4 @@
+import { sandboxGitArgs, sandboxGitEnv } from "../../sandbox/sandbox-git.js";
 /**
  * What an isolated task changed, as a unified diff against the snapshot
  * its workspace started from (branch isolation, ATO-946).
@@ -202,9 +203,9 @@ const PATCH_MAX_BYTES = 64 * 1024 * 1024;
 export const defaultPatchGit: PatchGit = async (args, options) => {
   options.signal?.throwIfAborted();
   try {
-    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...args], {
+    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
       cwd: options.cwd,
-      env: {
+      env: sandboxGitEnv({
         ...buildCommandEnv(process.env),
         GIT_CONFIG_GLOBAL: "/dev/null",
         GIT_CONFIG_NOSYSTEM: "1",
@@ -212,7 +213,7 @@ export const defaultPatchGit: PatchGit = async (args, options) => {
         GIT_TERMINAL_PROMPT: "0",
         LC_ALL: "C",
         ...options.env,
-      },
+      }),
       ...(options.input === undefined ? {} : { input: options.input }),
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       timeoutMs: PATCH_GIT_TIMEOUT_MS,

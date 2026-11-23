@@ -67,6 +67,7 @@ it("prepares the wrapper without caller-controlled native loader settings", () =
   });
   expect(env).toEqual({
     PATH: "/usr/bin",
+    GIT_OPTIONAL_LOCKS: "0",
     TMPDIR: process.platform === "linux" ? "/tmp" : tmpdir(),
     XDG_CACHE_HOME: expect.stringContaining("atomic-agent-tool-cache-"),
     npm_config_cache: join(env.XDG_CACHE_HOME!, "npm"),

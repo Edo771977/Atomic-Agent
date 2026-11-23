@@ -28,3 +28,5 @@ A one-time shell network grant exposes host loopback services as well as externa
 The host home directory is hidden. The trusted project and the running Node executable directory are exceptions. Node's directory is read-only. Git uses the remaining system and repository configuration subject to the Git execution safeguards. Host user Git configuration and credential files stay hidden. Linux temporary storage is private to the command.
 
 Each sandboxed command gets a distinct tool cache location. Linux removes its contents when the command’s private temporary filesystem is destroyed.
+
+Commands see existing workspace .git metadata as read-only, including config, hooks and info. For linked Git worktrees, the external metadata stays on the read-only host filesystem. The host Git helpers disable fsmonitor, hooks, credential helpers and configurable SSH/GPG programs in Safe Mode. This does not prevent project scripts or IDE configuration from being changed. Host IDEs and LSP servers can still execute code from projects under their own policies.
