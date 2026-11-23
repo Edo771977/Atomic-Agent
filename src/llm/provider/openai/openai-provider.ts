@@ -534,7 +534,7 @@ export class OpenAiProvider implements LlmProvider {
       this.reasoningFormat,
     );
     return this.withRateLimits(withSentMaxTokens(
-      vault ? unmaskCompletion(normalised, vault) : normalised,
+      vault ? unmaskCompletion(normalised, vault, request.responseFormat !== undefined) : normalised,
       sentBody,
     ));
   }
@@ -977,8 +977,6 @@ export class OpenAiProvider implements LlmProvider {
               // out now, under the same rules as any other chunk.
               const tail = unmasker?.flush() ?? null;
               if (tail) {
-                accumulated += tail.delta;
-                accumulatedReasoning += tail.reasoningDelta;
                 const shown = holdContent ? { ...tail, delta: "" } : tail;
                 if (shown.delta.length > 0 || shown.reasoningDelta.length > 0) {
                   committed = true;
@@ -988,16 +986,18 @@ export class OpenAiProvider implements LlmProvider {
               break attempts;
             }
             const received = unmasker ? unmasker.push(next.value) : next.value;
-            if (received.delta) accumulated += received.delta;
-            if (received.reasoningDelta)
-              accumulatedReasoning += received.reasoningDelta;
+            if (next.value.delta) accumulated += next.value.delta;
+            if (next.value.reasoningDelta)
+              accumulatedReasoning += next.value.reasoningDelta;
             const chunk =
               holdContent && received.delta
                 ? { ...received, delta: "" }
                 : received;
             if (
               !chunk.done &&
-              (!holdContent || chunk.reasoningDelta.length > 0)
+              (!holdContent || chunk.reasoningDelta.length > 0) &&
+              (unmasker === null || chunk.delta.length > 0 || chunk.reasoningDelta.length > 0 ||
+                (next.value.delta.length === 0 && next.value.reasoningDelta.length === 0))
             ) {
               // Set before the yield, deliberately: a caller that throws
               // into this generator (`generator.throw()`, which is how a
@@ -1154,9 +1154,7 @@ export class OpenAiProvider implements LlmProvider {
       accumulated,
       accumulatedReasoning,
     );
-    // The consumer's own transcript and tool calls still carry the
-    // placeholders; `accumulated` was unmasked chunk by chunk.
-    const final = vault ? { ...unmaskCompletion(built, vault) } : built;
+    const final = built;
     if (accumulated.length > 0 && final.content.length === 0) {
       final.content = accumulated;
     }
@@ -1178,7 +1176,7 @@ export class OpenAiProvider implements LlmProvider {
     );
     const safe = withSentMaxTokens(
       applyToolCallTerminationSafety(
-        adaptedFinal,
+        vault ? unmaskCompletion(adaptedFinal, vault, request.responseFormat !== undefined) : adaptedFinal,
         // A stream the consumer ended itself has no provider terminal
         // event by definition, and it kept only calls whose arguments had
         // fully arrived — so the missing terminal is not a sign of a cut

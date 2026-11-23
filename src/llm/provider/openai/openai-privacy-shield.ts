@@ -7,10 +7,8 @@ import {
 } from "../../../privacy/index.js";
 
 /**
- * Privacy Shield on the OpenAI-compatible wire (ATO-1081). Every cloud
- * provider of the agent (OpenAI, OpenRouter, Gemini, AIMLAPI, Groq,
- * DeepSeek, Moonshot, any custom endpoint) is an `OpenAiProvider`, so
- * this is the one place a cloud request leaves and its reply comes back.
+ * Privacy Shield on the OpenAI-compatible wire (ATO-1081). OpenAI-compatible cloud providers and the native Anthropic adapter use
+ * this boundary before converting to their transport-specific format.
  *
  *  - Out: `maskOpenAiBody` swaps personal data and keys in the body's
  *    `messages` for the session's placeholders. Only `messages`: the
@@ -42,7 +40,7 @@ export function shieldVaultFor(
 export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVault): void {
   vault.beginRequest();
   try {
-    if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages);
+    if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages, { jsonField: "arguments" });
   } finally {
     vault.endRequest();
   }
@@ -67,9 +65,9 @@ function unmaskToolCalls(
 }
 
 /** `result` with the session's placeholders put back everywhere the model writes. */
-export function unmaskCompletion<T extends CompletionResult>(result: T, vault: PrivacyVault): T {
+export function unmaskCompletion<T extends CompletionResult>(result: T, vault: PrivacyVault, jsonContent = false): T {
   if (vault.isEmpty) return result;
-  const content = vault.unmask(result.content);
+  const content = vault.unmask(result.content, { json: jsonContent });
   const reasoningContent = vault.unmask(result.reasoningContent);
   const toolCalls = unmaskToolCalls(result.toolCalls, vault);
   if (

@@ -21,7 +21,7 @@
  */
 
 import type { KnownSecret } from "../error-reporting/secret-detector.js";
-import { findPrivateSpans, PRIVATE_KINDS, type PrivateKind } from "./detect-private-data.js";
+import { findPrivateSpans, findSecretSpans, PRIVATE_KINDS, type PrivateKind } from "./detect-private-data.js";
 
 /** `[EMAIL_1]` and friends; anything else in square brackets is left alone. */
 export const PLACEHOLDER = /\[(SECRET|IBAN|CARD|EMAIL|PHONE)_(\d{1,6})\]/g;
@@ -53,8 +53,8 @@ export interface UnmaskOptions {
 }
 
 export class PrivacyVault {
-  private readonly byValue = new Map<string, string>();
-  private readonly byPlaceholder = new Map<string, string>();
+  readonly #byValue = new Map<string, string>();
+  readonly #byPlaceholder = new Map<string, string>();
   private readonly counters: Record<PrivateKind, number> = {
     SECRET: 0,
     IBAN: 0,
@@ -63,7 +63,7 @@ export class PrivacyVault {
     PHONE: 0,
   };
   /** Values reapplied by exact match, longest first; rebuilt lazily. */
-  private reapply: string[] | null = null;
+  #reapply: string[] | null = null;
   private requestSeen: Set<string> | null = null;
   private lastRequest = 0;
   private maskedRequests = 0;
@@ -73,13 +73,13 @@ export class PrivacyVault {
 
   /** The placeholder for `value`, minted on first sight. */
   private placeholderFor(value: string, kind: PrivateKind): string {
-    const existing = this.byValue.get(value);
+    const existing = this.#byValue.get(value);
     if (existing !== undefined) return existing;
     this.counters[kind] += 1;
     const placeholder = `[${kind}_${this.counters[kind]}]`;
-    this.byValue.set(value, placeholder);
-    this.byPlaceholder.set(placeholder, value);
-    this.reapply = null;
+    this.#byValue.set(value, placeholder);
+    this.#byPlaceholder.set(placeholder, value);
+    this.#reapply = null;
     return placeholder;
   }
 
@@ -125,13 +125,13 @@ export class PrivacyVault {
       parts.push(text.slice(last));
       out = parts.join("");
     }
-    if (this.byValue.size === 0) return out;
-    this.reapply ??= [...this.byValue.keys()]
+    if (this.#byValue.size === 0) return out;
+    this.#reapply ??= [...this.#byValue.keys()]
       .filter((v) => v.length >= MIN_REAPPLY_LENGTH)
       .sort((a, b) => b.length - a.length);
-    for (const value of this.reapply) {
+    for (const value of this.#reapply) {
       if (!out.includes(value)) continue;
-      const placeholder = this.byValue.get(value)!;
+      const placeholder = this.#byValue.get(value)!;
       this.note(placeholder);
       out = out.split(value).join(placeholder);
     }
@@ -140,30 +140,51 @@ export class PrivacyVault {
 
   /** `text` with every placeholder this vault minted put back. Unknown ones stay. */
   unmask(text: string, options: UnmaskOptions = {}): string {
-    if (this.byPlaceholder.size === 0 || !text.includes("[")) return text;
+    if (this.#byPlaceholder.size === 0 || !text.includes("[")) return text;
     PLACEHOLDER.lastIndex = 0;
     return text.replace(PLACEHOLDER, (match) => {
-      const value = this.byPlaceholder.get(match);
+      const value = this.#byPlaceholder.get(match);
       if (value === undefined) return match;
       return options.json ? JSON.stringify(value).slice(1, -1) : value;
     });
   }
 
-  /** {@link mask} on every string inside plain objects and arrays. Keys are not masked. */
-  maskDeep<T>(value: T): T {
+  /**
+   * Mask every string inside plain objects and arrays. A named JSON field
+   * is decoded before masking so escaping cannot hide a private value.
+   */
+  maskDeep<T>(value: T, options: { jsonField?: string } = {}): T {
     const known = this.known();
-    return mapStrings(value, (s) => this.mask(s, known)) as T;
+    const mask = (text: string): string => this.mask(text, known);
+    return mapStrings(value, (text, key) => {
+      if (key === undefined || key !== options.jsonField) return mask(text);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(text) as unknown;
+      } catch {
+        return mask(text);
+      }
+      const masked = mapStrings(parsed, (value, field) => {
+        if (field !== undefined && secretAssignment(field, value)) {
+          const placeholder = this.placeholderFor(value, "SECRET");
+          this.note(placeholder);
+          return placeholder;
+        }
+        return mask(value);
+      });
+      return masked === parsed ? text : JSON.stringify(masked);
+    }) as T;
   }
 
   /** {@link unmask} on every string inside plain objects and arrays. */
   unmaskDeep<T>(value: T): T {
-    if (this.byPlaceholder.size === 0) return value;
+    if (this.#byPlaceholder.size === 0) return value;
     return mapStrings(value, (s) => this.unmask(s)) as T;
   }
 
   /** Whether this vault has masked anything yet. */
   get isEmpty(): boolean {
-    return this.byValue.size === 0;
+    return this.#byValue.size === 0;
   }
 
   stats(): PrivacyVaultStats {
@@ -172,7 +193,7 @@ export class PrivacyVault {
       number
     >;
     return {
-      distinct: this.byValue.size,
+      distinct: this.#byValue.size,
       byKind,
       lastRequest: this.lastRequest,
       maskedRequests: this.maskedRequests,
@@ -180,13 +201,28 @@ export class PrivacyVault {
   }
 }
 
+/** Reuse assignment detection for a decoded JSON property, with its original field name. */
+function secretAssignment(field: string, value: string): boolean {
+  if (!/^[A-Za-z_][A-Za-z0-9_.-]{0,63}$/.test(field)) return false;
+  const quote = value.includes('"') ? "'" : '"';
+  const prefix = `${field}=${quote}`;
+  return findSecretSpans(`${prefix}${value}${quote}`).some(
+    span => span.start === prefix.length && span.value === value,
+  );
+}
+
 /**
  * `value` with `fn` applied to every string inside it. Plain objects and
  * arrays are copied only on the path to a changed string, so the input
  * is never mutated and an unchanged value comes back as itself.
  */
-function mapStrings(value: unknown, fn: (s: string) => string, depth = 0): unknown {
-  if (typeof value === "string") return fn(value);
+function mapStrings(
+  value: unknown,
+  fn: (s: string, key?: string) => string,
+  depth = 0,
+  key?: string,
+): unknown {
+  if (typeof value === "string") return fn(value, key);
   if (value === null || typeof value !== "object" || depth >= MAX_DEPTH) return value;
   if (Array.isArray(value)) {
     let out: unknown[] | null = null;
@@ -203,7 +239,7 @@ function mapStrings(value: unknown, fn: (s: string) => string, depth = 0): unkno
   if (proto !== Object.prototype && proto !== null) return value;
   let out: Record<string, unknown> | null = null;
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    const next = mapStrings(child, fn, depth + 1);
+    const next = mapStrings(child, fn, depth + 1, key);
     if (next !== child) {
       out ??= { ...(value as Record<string, unknown>) };
       out[key] = next;

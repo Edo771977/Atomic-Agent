@@ -66,3 +66,12 @@ describe("PrivacyVault (ATO-599)", () => {
     expect(vault.stats()).toMatchObject({ distinct: 2, lastRequest: 0, maskedRequests: 1 });
   });
 });
+
+it("keeps the reversible archive private to the vault during serialization", () => {
+  const vault = new PrivacyVault();
+  const value = "archive@example.test";
+  vault.mask(value);
+  expect(JSON.stringify(vault)).not.toContain(value);
+  expect(JSON.stringify(vault.stats())).not.toContain(value);
+  expect(Object.keys(vault)).not.toEqual(expect.arrayContaining(["byValue", "byPlaceholder", "reapply"]));
+});
