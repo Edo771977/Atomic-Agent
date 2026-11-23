@@ -300,7 +300,13 @@ function bwrapArgs(
   args: readonly string[],
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
-  out.push("--tmpfs", policy.home, "--tmpfs", "/tmp");
+  out.push("--tmpfs", policy.home, "--tmpfs", "/tmp", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/var/tmp");
+  if (real("/var/run") !== "/run" && isDirectory("/var/run")) out.push("--tmpfs", "/var/run");
+  // A systemd resolv.conf symlink can point into the hidden runtime tree.
+  const resolver = real("/etc/resolv.conf");
+  if (policy.network && resolver.startsWith("/run/systemd/resolve/") && existsSync(resolver)) {
+    out.push("--ro-bind", resolver, resolver);
+  }
   for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const dir of unique(policy.writableRoots.map(real))) {
     if (dir === "/tmp") continue;

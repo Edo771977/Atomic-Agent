@@ -267,3 +267,9 @@ it("review 6: masks a synthetic home", () => {
 it("review 11: commands receive distinct tool cache paths", () => {
   expect(buildOsSandboxEnv({}).XDG_CACHE_HOME).not.toBe(buildOsSandboxEnv({}).XDG_CACHE_HOME);
 });
+
+it("round 3 point 1: privatizes Linux runtime directories", () => {
+  const wrapped = wrapWithOsSandbox("true", [], policy(true), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(wrapped.ok && wrapped.args.join(" ")).toContain("--tmpfs /run --tmpfs /run/lock");
+  expect(wrapped.ok && wrapped.args.join(" ")).toContain("--tmpfs /var/tmp");
+});
