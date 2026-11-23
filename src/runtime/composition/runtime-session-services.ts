@@ -18,7 +18,7 @@ export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectSt
   return projectStoreForStateDir(config.paths.stateDir);
 }
 
-export function prepareRuntimeSessionStore(
+export async function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
   logger: StructuredLogger,
   fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
@@ -65,16 +65,16 @@ export function prepareRuntimeSessionStore(
     });
   }
   // At boot, remove abandoned incognito chats and the state they own.
-  const orphans = sweepOrphanIncognitoSessions(
+  const fusionRuns = new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) });
+  await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },
-    new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
+    async (id) => {
+      fusionRuns.removeForSession(id);
+      outputSpill.removeSession(id);
+      await fileCheckpoints.removeSession(id);
+    },
   );
-  // The runtime delete hook is installed after startup recovery.
-  for (const id of orphans) {
-    outputSpill.removeSession(id);
-    void fileCheckpoints.removeSession(id).catch(() => undefined);
-  }
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a

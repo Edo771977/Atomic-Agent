@@ -48,7 +48,7 @@ export function removeIncognitoTrace(
  * sweep. No file means no tasks. Throws when the file cannot be opened or
  * written, so the sweep keeps that chat for the next start.
  */
-export function createIncognitoTaskSweeper(
+function createIncognitoTaskSweeper(
   tasksDbFile: string | null | undefined,
   options: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
 ): { removeTasks: (sessionId: string) => void; close: () => void } {
@@ -83,35 +83,32 @@ export function createIncognitoTaskSweeper(
  * them (ATO-1547). Never throws — a sweep that fails leaves the rows for
  * the next start and costs the user nothing else.
  */
-export function sweepOrphanIncognitoSessions(
+export async function sweepOrphanIncognitoSessions(
   sessionStore: Pick<SessionStore, "sweepOrphanIncognito">,
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
   tasksDbFile?: string | null,
   taskOptions: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
-  fusionRuns?: Pick<FusionRunStore, "removeForSession">,
-): string[] {
+  removeArtifacts?: (sessionId: string) => void | Promise<void>,
+): Promise<string[]> {
   const tasks = createIncognitoTaskSweeper(tasksDbFile, taskOptions);
-  let taskError: unknown = null;
   try {
-    const ids = sessionStore.sweepOrphanIncognito((id) => {
+    const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {
         tasks.removeTasks(id);
-        fusionRuns?.removeForSession(id);
+        await removeArtifacts?.(id);
+        removeIncognitoTrace(tracesDir, id);
       } catch (err) {
-        taskError ??= err;
+        logger.warn("could not clean up an incognito chat left by a stopped agent; the next start will retry", {
+          sessionId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
         throw err;
       }
     });
-    for (const id of ids) removeIncognitoTrace(tracesDir, id);
     if (ids.length > 0) {
       logger.info("deleted incognito chats left by a stopped agent", {
         count: ids.length,
-      });
-    }
-    if (taskError !== null) {
-      logger.warn("could not drop the tasks of an incognito chat left by a stopped agent; the next start will", {
-        error: taskError instanceof Error ? taskError.message : String(taskError),
       });
     }
     return ids;

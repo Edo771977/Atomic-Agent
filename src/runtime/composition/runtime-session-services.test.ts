@@ -39,15 +39,15 @@ describe("runtime session phases", () => {
     for (const store of stores.splice(0)) store.close();
     await rm(dir, { recursive: true, force: true });
   });
-  function open() { const store = prepareRuntimeSessionStore(config, logger); stores.push(store); return store; }
+  async function open() { const store = await prepareRuntimeSessionStore(config, logger); stores.push(store); return store; }
 
-  it("the boot sweep drops the tasks of the incognito chats it deletes (ATO-586)", () => {
+  it("the boot sweep drops the tasks of the incognito chats it deletes (ATO-586)", async () => {
     const tasks = new TaskStore({ dbFile: config.paths.tasksDbFile });
     tasks.create({ sessionId: "s-dead", userMessage: "secret follow-up", origin: "http", maxAttempts: 1 });
     tasks.create({ sessionId: "s-plain", userMessage: "ordinary", origin: "http", maxAttempts: 1 });
     tasks.close();
-    vi.spyOn(SessionStore.prototype, "sweepOrphanIncognito").mockImplementation((beforeDelete) => { beforeDelete?.("s-dead"); return ["s-dead"]; });
-    open();
+    vi.spyOn(SessionStore.prototype, "sweepOrphanIncognito").mockImplementation(async (beforeDelete) => { await beforeDelete?.("s-dead"); return ["s-dead"]; });
+    await open();
     const after = new TaskStore({ dbFile: config.paths.tasksDbFile });
     try {
       expect(after.list().map((t) => t.sessionId)).toEqual(["s-plain"]);
@@ -79,7 +79,7 @@ describe("runtime session phases", () => {
       expect(existsSync(spill.dirFor(id))).toBe(true);
     }
 
-    const store = prepareRuntimeSessionStore(config, logger, checkpoints, spill);
+    const store = await prepareRuntimeSessionStore(config, logger, checkpoints, spill);
     stores.push(store);
 
     expect(store.load("s-dead")).toBeNull();
@@ -90,7 +90,31 @@ describe("runtime session phases", () => {
     expect(existsSync(spill.dirFor("s-kept"))).toBe(true);
   });
 
-  it("recovers before retention reads pins and passes the existing pin sources", () => {
+  it("keeps the orphan row when file checkpoint cleanup fails and completes on the next boot", async () => {
+    const checkpoints = new FileCheckpointStore(join(dir, "file-checkpoints"));
+    const file = join(dir, "private.txt");
+    await writeFile(file, "private");
+    await checkpoints.capture("s-dead", file, "os.fs.write");
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(recordTurn(sessions.createEmptySessionState({
+      id: "s-dead", workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }), userTurn("private")));
+    seeded.close();
+
+    vi.spyOn(checkpoints, "removeSession").mockRejectedValueOnce(new Error("checkpoint busy"));
+    const first = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(first);
+    expect(first.load("s-dead")?.id).toBe("s-dead");
+    expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(true);
+    expect(records.some(record => record.context?.error === "checkpoint busy")).toBe(true);
+
+    const second = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(second);
+    expect(second.load("s-dead")).toBeNull();
+    expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false);
+  });
+
+  it("recovers before retention reads pins and passes the existing pin sources", async () => {
     config.sessions.retention.enabled = true;
     const events: string[] = [];
     vi.spyOn(SessionStore.prototype, "recoverInterruptedTurns").mockImplementation(() => { events.push("recover"); return ["old"]; });
@@ -99,31 +123,31 @@ describe("runtime session phases", () => {
       events.push("prune"); expect(options.keepSessionIds).toEqual(["keep"]);
       return { deleted: 0, orphans: 0, unreadable: 0, tracesRemoved: 0, vacuumed: false };
     });
-    open();
+    await open();
     expect(events).toEqual(["recover", "pins", "prune"]);
     expect(pins).toHaveBeenCalledWith({ tasksDbFile: config.paths.tasksDbFile, webhookSessionsFile: join(dir, "webhook-sessions.json") });
     expect(records.map(record => record.message)).toContain("sessions left mid-turn by a stopped agent marked cancelled");
     expect(records.some(record => record.message === "pruned sessions past retention")).toBe(false);
   });
 
-  it("recovery and retention failures are separately logged and preserve the opened store", () => {
+  it("recovery and retention failures are separately logged and preserve the opened store", async () => {
     config.sessions.retention.enabled = true;
     vi.spyOn(SessionStore.prototype, "recoverInterruptedTurns").mockImplementation(() => { throw new Error("recovery failed"); });
     vi.spyOn(sessions, "readSessionPins").mockImplementation(() => { throw new Error("pins failed"); });
-    const store = open();
+    const store = await open();
     expect(records.filter(record => record.level === "warn").map(record => record.context?.error)).toEqual(["recovery failed", "pins failed"]);
     const state = sessions.createEmptySessionState({ id: "survived", workingDir: dir });
     store.save(state);
     expect(store.load(state.id)?.id).toBe(state.id);
   });
 
-  it("skips the prune and says so when a pin file cannot be read", () => {
+  it("skips the prune and says so when a pin file cannot be read", async () => {
     config.sessions.retention.enabled = true;
     vi.spyOn(sessions, "readSessionPins").mockImplementation(() => {
       throw new sessions.SessionPinsReadError("webhooks", "/state/webhook-sessions.json", "parse");
     });
     const prune = vi.spyOn(sessions, "pruneSessions");
-    open();
+    await open();
     expect(prune).not.toHaveBeenCalled();
     const warn = records.find(record => record.message === "session retention skipped: could not read session pins");
     expect(warn?.level).toBe("warn");
@@ -137,14 +161,14 @@ describe("runtime session phases", () => {
     const { writeFile } = await import("node:fs/promises");
     await writeFile(join(dir, "webhook-sessions.json"), '{"deploy": "s1', "utf8");
     const prune = vi.spyOn(sessions, "pruneSessions");
-    open();
+    await open();
     expect(prune).not.toHaveBeenCalled();
   });
 
-  it("disabled retention does not read external pins or perform a prune", () => {
+  it("disabled retention does not read external pins or perform a prune", async () => {
     const pins = vi.spyOn(sessions, "readSessionPins");
     const prune = vi.spyOn(sessions, "pruneSessions");
-    open();
+    await open();
     expect(pins).not.toHaveBeenCalled();
     expect(prune).not.toHaveBeenCalled();
   });

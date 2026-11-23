@@ -1264,7 +1264,7 @@ export class SessionStore {
    * kept for the next start, so a crash or a locked file between the two
    * never leaves the tasks behind with no chat left to find them by.
    */
-  sweepOrphanIncognito(beforeDelete?: (id: string) => void): string[] {
+  async sweepOrphanIncognito(beforeDelete?: (id: string) => void | Promise<void>): Promise<string[]> {
     const ids = orphanIncognitoSessionIds(
       this.db,
       this.turnOwnerProbe,
@@ -1274,7 +1274,7 @@ export class SessionStore {
     for (const id of ids) {
       if (beforeDelete) {
         try {
-          beforeDelete(id);
+          await beforeDelete(id);
         } catch {
           continue;
         }

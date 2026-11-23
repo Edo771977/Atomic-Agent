@@ -30,6 +30,8 @@ An operator can pause a waiting task (`pending` -> `paused`) and resume it (ATO-
 
 A run cut off from outside (the boot sweep took it back from a dead process, or a shutdown left a one-shot task due) is continued from its session's checkpoint rather than started over ([task-resume.ts](task-resume.ts), ATO-1109): the turn's message starts with a note saying how far the cut-off run got, and the session's progress marker records the task id and the resumes spent. Resumes after a crash or kill count towards `agent.task.maxResumes` and back off on the retry curve; past the limit the task fails with a sentence saying why. A run a person stopped is never resumed. `agent.task.resumeInterrupted: false` restores the fresh re-run.
 
+Startup cleanup drops abandoned incognito sessions’ tasks before task recovery, including running tasks whose recorded process is gone. A live runner’s task is cancelled. Tasks belonging to other sessions follow normal recovery.
+
 ## Pausing a recurring task
 
 A recurring task can be paused and resumed ([task-pause.ts](task-pause.ts), ATO-21; Telegram's `/cron pause|resume` uses it). It is a thin layer over the queue's own `paused` state (`TaskStore.pause` / `resume`, ATO-590) that returns a refusal reason instead of throwing and only takes recurring tasks; a run in progress is refused. Resume arms the next firing after now, so firings that fell inside the pause are skipped. Delete is the plain cancel.

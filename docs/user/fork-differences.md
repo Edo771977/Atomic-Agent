@@ -17,6 +17,8 @@ Selective imports for offline use and chat data cleanup:
 - `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
 - `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
 
+- `fix/ato-1547-incognito-tasks-after-crash` ([#1595](https://github.com/AtomicBot-ai/atomic-agent/pull/1595)): the boot sweep removes the abandoned chat’s tasks before task recovery and keeps failed cleanups eligible for retry, including when file checkpoints cannot be removed. Fusion checkpoints and spilled outputs use the fork’s existing cleanup.
+
 Earlier upstream PRs came in as batches:
 
 - [#24](https://github.com/Edo771977/atomic-agent/pull/24): 14 upstream PRs (Fusion, local models, approvals, costs, router).
