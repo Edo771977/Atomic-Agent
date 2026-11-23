@@ -1,5 +1,8 @@
 # Valutazione dell'isolamento OS
 
+Status: current
+Owner: docs/user/
+
 Base di revisione: `75c7f629fdc221f242fc448389b4a010dc58a1da`, con #191 integrata. #190 è ancora aperta. Dopo il merge, integrare nuovamente `origin/main` e verificare che la sanitizzazione dell’ambiente dei figli e il blocco delle invocazioni operative di `serve` siano ancora attivi.
 
 | Ramo upstream | SHA verificato | Decisione tecnica |
@@ -27,12 +30,11 @@ A sandbox esplicitamente attiva, strumento assente, inizializzazione fallita o p
 | Worker Fusion | Restano validi limiti di lettura, scrittura, egress e approvazione del worker. | Usare la policy del worker anche per i suoi comandi e verifiche. Usare i punti di avvio condivisi e passare l’opzione al worker solo se necessario. |
 | MCP stdio | Policy del dispatch sulle chiamate MCP e politica per URL espliciti. Un server persistente può lavorare già all’avvio. | Per un futuro import servono regole di rete valide anche prima della prima chiamata, radici fidate, accesso minimo al singolo plugin, esclusione esplicita per server, trattamento dei socket e fixture Linux/macOS. |
 
-## Default da decidere
+## Default deciso
 
-- **Opzionale, come upstream**. Mantiene i flussi esistenti. L’utente che seleziona l’isolamento riceve un rifiuto su backend indisponibile.
-- **Attivo se disponibile**. Richiede un probe effettivo all’avvio e un avviso visibile se la modalità automatica ricade sul comportamento non isolato. Con isolamento richiesto esplicitamente resta il rifiuto. Occorre verificare la compatibilità dei flussi quotidiani su Linux e macOS.
+La sandbox è facoltativa e spenta di default. Quando l’operatore la attiva, la mancanza del backend, un errore di inizializzazione o il rifiuto del profilo bloccano il comando. Il lancio senza isolamento richiede di disattivare esplicitamente la modalità.
 
-La scelta del default resta aperta al maintainer. Le due modalità esplicite possono essere verificate indipendentemente.
+L’attivazione automatica quando il backend è disponibile è rinviata fino a prove reali su Linux e macOS, comprese le verifiche di compatibilità dei flussi quotidiani.
 
 ## Verifiche di accettazione
 

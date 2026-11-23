@@ -53,21 +53,12 @@ describe("readOsSandboxSettings (ATO-469)", () => {
 });
 
 describe("buildOsSandboxPolicy", () => {
-  it("writes go to the project, temp and tool caches only", () => {
+  it("writes go to the project and temp only", () => {
     const p = policy();
     expect(p.writableRoots[0]).toBe("/home/op/project");
     expect(p.writableRoots).toContain(TMP);
-    expect(p.writableRoots).toContain("/home/op/.npm/_cacache");
+    expect(p.writableRoots).not.toContain("/home/op/.npm/_cacache");
     expect(p.writableRoots).not.toContain(HOME);
-  });
-
-  it("never makes a tool's bin, init or settings folder writable", () => {
-    const p = policy();
-    for (const dir of [".bun", ".bun/bin", ".gradle", ".gradle/init.d", ".m2", ".npm", ".cache"]) {
-      expect(p.writableRoots).not.toContain(`/home/op/${dir}`);
-    }
-    expect(p.writableRoots).toContain("/home/op/.gradle/caches");
-    expect(p.writableRoots).toContain("/home/op/.m2/repository");
   });
 
   it("hides credential folders and the agent's state", () => {
@@ -77,7 +68,7 @@ describe("buildOsSandboxPolicy", () => {
     expect(p.denyRead).toContain("/home/op/.atomic-agent");
   });
 
-  it("reopens only a working folder inside the state dir, not the state dir", () => {
+  it("keeps the state directory hidden when it contains the working folder", () => {
     const p = buildOsSandboxPolicy({
       workspaceRoots: ["/home/op/.atomic-agent/workspace"],
       stateDir: "/home/op/.atomic-agent",
@@ -86,22 +77,7 @@ describe("buildOsSandboxPolicy", () => {
       tmp: TMP,
     });
     expect(p.denyRead).toContain("/home/op/.atomic-agent");
-    expect(p.reopen).toEqual([{ path: "/home/op/.atomic-agent/workspace", write: true }]);
-  });
-
-  it("reopens a keep-readable folder read-only and keeps its parent denied", () => {
-    const p = buildOsSandboxPolicy({
-      workspaceRoots: ["/home/op/project"],
-      stateDir: "/home/op/.atomic-agent",
-      keepReadable: ["/home/op/.atomic-agent/plugins/installed/p"],
-      network: true,
-      home: HOME,
-      tmp: TMP,
-    });
-    expect(p.denyRead).toContain("/home/op/.atomic-agent");
-    expect(p.reopen).toEqual([
-      { path: "/home/op/.atomic-agent/plugins/installed/p", write: false },
-    ]);
+    expect(buildSeatbeltProfile(p)).not.toContain("(param \"O0\")");
   });
 
   it.skipIf(process.platform === "win32")("lists a linked credential folder under its real path too", () => {
@@ -174,6 +150,8 @@ describe("wrapWithOsSandbox", () => {
     expect(w.command).toBe("/usr/bin/bwrap");
     expect(w.args.slice(0, 3)).toEqual(["--ro-bind", "/", "/"]);
     expect(w.args).toContain("--unshare-net");
+    expect(w.args).toContain("--unshare-pid");
+    expect(w.args).toContain("--proc");
     expect(w.args.slice(-4)).toEqual(["--", "/bin/sh", "-c", "ls"]);
   });
 

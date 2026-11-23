@@ -7,16 +7,17 @@
  * `summary` with failures first. `ok` means the run itself went well
  * AND every check passed; a check that fails to parse fails the run.
  */
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
 import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
-import { getConfig, type AtomicAgentConfig } from "../../config/index.js";
+import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
+import { getConfig, resolveStateDir, type AtomicAgentConfig } from "../../config/index.js";
 import type { ProbeSample } from "./page-probe-script.js";
 import type { VerifyGameSummary } from "./page-game-harness.js";
 import type { VerifyScreenshot, VerifyShotTarget } from "./page-screenshots.js";
@@ -95,6 +96,7 @@ export interface VerifyRunResult {
  * built-in 2 GiB when absent). A full `AtomicAgentConfig` fits.
  */
 export type VerifyRunConfig = Pick<AtomicAgentConfig, "browser"> & {
+  readonly paths?: Pick<AtomicAgentConfig["paths"], "stateDir">;
   readonly tools?: { readonly verify?: { readonly maxCopyBytes?: number } };
 };
 
@@ -175,6 +177,10 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
+  if (process.platform === "linux" && readOsSandboxSettings().mode === "workspace" &&
+      (args.kind === "service" || (args.kind === "page" && args.start !== undefined))) {
+    throw new Error("Safe Mode: verify.run cannot probe a service inside the private Linux network namespace.");
+  }
   const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
   if (ui !== undefined || isArtifactKind(args.kind)) {
     let out = isArtifactKind(args.kind) ? await runArtifactCheck(args.kind, args, dir, cwd, ctx.signal, args.kind === "files" ? ctx.changedPaths : undefined) : ui!;
@@ -352,6 +358,15 @@ export async function runVerify(
   let result: VerifyRunResult;
   let executionResult: VerifyRunResult | undefined;
   try {
+    if (readOsSandboxSettings().mode === "workspace") {
+      const source = await realpath(ctx.workingDir).catch(() => resolve(ctx.workingDir));
+      const state = ctx.config?.paths?.stateDir ?? resolveStateDir();
+      const canonicalState = await realpath(state).catch(() => resolve(state));
+      const offset = relative(source, canonicalState);
+      if (offset === "" || (!isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`))) {
+        throw new Error("Safe Mode: verify.run cannot copy a working directory that contains the agent state.");
+      }
+    }
     const maxBytes = ctx.config?.tools?.verify?.maxCopyBytes;
     workspace = await (ctx.workspace ?? ((dir: string) => createVerifyWorkspace(dir, {
       ...(maxBytes === undefined ? {} : { maxBytes }),

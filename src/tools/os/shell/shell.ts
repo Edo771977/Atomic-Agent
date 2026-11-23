@@ -1,3 +1,5 @@
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   compressToolResult,
   type CompressedToolResult,
@@ -24,7 +26,7 @@ import {
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
 import type { PinnedExec } from "../../../approval/approval-gate.js";
-import { offlineRefusal } from "../../../llm/offline-network.js";
+import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.js";
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
@@ -453,7 +455,23 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let spawnCommand = spawnSpec.command;
     let spawnArgs = spawnSpec.args;
     let sandboxNotice: string | null = null;
+    const sandboxEnv = sandbox.mode === "workspace" ? { npm_config_cache: join(tmpdir(), "atomic-agent-npm-cache") } : {};
     if (sandbox.mode === "workspace") {
+      const network = rawArgs.network === true;
+      if (network && (!sandbox.network || isOfflineNetwork())) {
+        throw new Error("Safe Mode networking is disabled by the operator or offline mode.");
+      }
+      if (network) {
+        if (!options.approvalRequired) throw new Error("Safe Mode requires one-time approval to enable command networking.");
+        await requireApproval(options, {
+          sessionId: ctx.sessionId,
+          tool: "os.shell.run",
+          category: "http_write",
+          reason: "Allow this process and its descendants to use the network for this run.",
+          preview: formatShellPreview(cmd, execArgs, useShell),
+          affectedResources: [cwd],
+        }, ctx.signal, true);
+      }
       const wrapped = wrapWithOsSandbox(
         spawnSpec.command,
         spawnSpec.args,
@@ -463,7 +481,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         buildOsSandboxPolicy({
           workspaceRoots: [ctx.workingDir],
           ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
-          network: sandbox.network,
+          network,
         }),
       );
       if (!wrapped.ok) {
@@ -475,9 +493,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       }
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;
-      sandboxNotice = sandbox.network
-        ? "Safe Mode sandbox: writes outside the working folder, temp and download caches, and reads of credential folders, are blocked. An `Operation not permitted` error comes from that, not from the command."
-        : "Safe Mode sandbox: writes outside the working folder, temp and download caches, reads of credential folders, internet and local-socket connections, DNS and opening URLs are blocked; loopback (127.0.0.1) stays open. An `Operation not permitted` or name-resolution error comes from that, not from the command.";
+      sandboxNotice = network
+        ? "Safe Mode sandbox is active with network access approved for this command."
+        : "Safe Mode sandbox is active. Direct external IP access is blocked.";
     }
     // Its own process group, so a stop reaches what the command
     // started too (`sleep 30 &` behind a subshell used to outlive the
@@ -492,7 +510,10 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     const job = startCommandJob(spawnCommand, spawnArgs, {
       cwd: pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: markAgentToolChild(pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path)),
+      env: markAgentToolChild({
+        ...(pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path)),
+        ...sandboxEnv,
+      }),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
@@ -614,7 +635,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     name: "os.shell.run",
     description:
       "Run an OS command in the session working directory. Prefer the structured form `{cmd, args:[...]}` (argv globs `*`/`?` are expanded). Shell metacharacters (`|`, `&&`, `;`, `>`, `<`, `$`, backticks) are interpreted via the OS subshell (`sh -c` on macOS/Linux, `cmd.exe /c` on Windows) — a full command line passed as `cmd` (e.g. `\"ffprobe -v quiet … f.mp3\"` or `\"pip3 list | grep foo\"`) runs as written. Do not use for deleting user files — use `os.fs.trash` unless the user explicitly requests permanent shell deletion. Not for controlling web browsers (`osascript` scripts that read or set tabs and URLs, `open -a <browser> <url>`): those are refused; use the browser tools. Runs through a pre-exec guard: safe commands run directly, risky commands require approval, catastrophic commands are blocked without execution. Run the steps of a task yourself (installs such as `brew install`, `npm i -g`, `pip install`, `git clone`, builds, `make`, `docker run`) instead of printing them for the user to type: the approval prompt is how the user keeps control. The command has no terminal and no stdin; a command that stops at a sign-in, a password, sudo or a terminal question comes back with \"this step needs the user: …\" — hand over only that step. Pass `background: true` for a command that keeps running (a dev server, a watcher): it is started, watched for 3 s, and returned as a kept job. " +
-      describeShellTimeoutDefault(defaultTimeoutMs),
+      "With Safe Mode enabled, network: true explicitly requests one-time network access. " + describeShellTimeoutDefault(defaultTimeoutMs),
     readonly: false,
     async run(rawArgs, ctx) {
       // The job forms act on what this session already started; they

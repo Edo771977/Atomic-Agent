@@ -77,6 +77,7 @@ describe("default tool argsJsonSchema map", () => {
     expect(properties.kill).toEqual({ type: "integer" });
     expect(properties.jobs).toEqual({ type: "boolean" });
     expect(properties.keep).toEqual({ type: "boolean" });
+    expect(properties.network).toEqual({ type: "boolean" });
   });
 
   it("pins memory.profile.set schema (key + value required, keywords is string[])", () => {

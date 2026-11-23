@@ -218,6 +218,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
       timeoutMs: numberSchema,
       keep: booleanSchema,
       background: booleanSchema,
+      network: booleanSchema,
       wait: integerSchema,
       kill: integerSchema,
       jobs: booleanSchema,

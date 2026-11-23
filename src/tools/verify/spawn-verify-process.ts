@@ -20,6 +20,12 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
 import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
+import {
+  buildOsSandboxPolicy,
+  formatSandboxUnavailable,
+  readOsSandboxSettings,
+  wrapWithOsSandbox,
+} from "../../sandbox/os-sandbox.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
 import {
   buildDirectInvocation,
@@ -139,7 +145,14 @@ export function spawnVerifyProcess(
 ): VerifyProcess {
   const invocation = options.invocation ?? resolveInvocation(cmd, args);
   const detached = process.platform !== "win32";
-  const child = spawn(invocation.command, invocation.args, {
+  const wrapped = readOsSandboxSettings().mode === "workspace"
+    ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
+      workspaceRoots: [options.cwd],
+      network: false,
+    }))
+    : { ok: true as const, command: invocation.command, args: invocation.args };
+  if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
+  const child = spawn(wrapped.command, wrapped.args, {
     cwd: options.cwd,
     env: markAgentToolChild(withEnvOverrides({
       ...buildCommandEnv(process.env),

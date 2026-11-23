@@ -1,3 +1,4 @@
+import { readOsSandboxSettings } from "../sandbox/os-sandbox.js";
 import type { EgressClass } from "../config/project-constraints-config.js";
 import type { ProviderPolicy } from "../config/project-constraint-match.js";
 import { hostOfUrl, isLoopbackHost } from "../llm/offline-network.js";
@@ -212,6 +213,12 @@ export function createEgressGuard(deps: EgressGuardDeps) {
     args: Record<string, unknown>,
     ctx: { sessionId: string },
   ): EgressNotAllowedError | ShellNetworkNotAllowedError | null => {
+    if (tool === SHELL_TOOL && args.network === true && readOsSandboxSettings().mode === "workspace") {
+      const policy = deps.policyForSession(ctx.sessionId);
+      if (policy !== undefined) {
+        return new ShellNetworkNotAllowedError(tool, { program: "Safe Mode network override", cls: null }, policy);
+      }
+    }
     const shell = shellNetworkUseOf(tool, args);
     if (shell !== null) {
       const policy = deps.policyForSession(ctx.sessionId);

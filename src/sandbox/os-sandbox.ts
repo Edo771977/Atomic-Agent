@@ -1,49 +1,18 @@
 /**
- * OS sandbox for agent-run commands (ATO-469, network switch ATO-472).
- *
- * The shell guard and the approval gate are logical rules: they read the
- * command line and decide. A command that slips past them (a script the
- * model wrote, an alias, a tool the guard does not know) still runs with
- * every right the user has. This wraps the spawn itself, so the kernel
- * enforces the limits whatever the command line says:
- *
- * - writes only under the session's working directory, the temp
- *   folders and a short list of pure download caches; a model-supplied
- *   `cwd` never widens this;
- * - no reads of credential folders and files (`~/.ssh`, `~/.aws`,
- *   `~/.netrc`, ...) or of the agent's own state directory (its `.env`,
- *   config, tokens); a working folder inside one is opened by itself;
- * - with `network: false`, no outbound IP or local-socket connection
- *   except to loopback IP, no DNS lookups and no URL opening.
- *
- * Same split as Codex (`workspace-write`, network off by default inside
- * it) and Jan (shell always sandboxed, Seatbelt on macOS, bubblewrap on
- * Linux). The profile is ours, written from the policy each call.
- *
- * - macOS: `/usr/bin/sandbox-exec` with a Seatbelt profile. Paths go in
- *   as `-D` parameters, never spliced into the profile text, so a folder
- *   name cannot change the policy.
- * - Linux: `bwrap` (bubblewrap) when it is installed: the root is
- *   mounted read-only, writable roots are bound back read-write, secret
- *   folders are covered with an empty tmpfs (files with `/dev/null`),
- *   `--unshare-net` drops the network.
- * - Windows, or Linux without `bwrap`: no sandbox is available. The
- *   caller refuses the command (Jan's rule: no sandbox, no shell) and
- *   says how to turn the mode off.
- *
- * Off by default. Turned on with `ATOMIC_AGENT_SANDBOX=workspace`; the
- * network inside it is off unless `ATOMIC_AGENT_SANDBOX_NETWORK=on`.
- * A config key and a desktop/TUI switch come next (ATO-1078).
+ * Wrap a child process with the platform's filesystem and network policy.
+ * Bubblewrap isolates Linux process IDs and mounts a private procfs.
+ * Seatbelt on macOS keeps host loopback and uses parameterized paths.
+ * Callers must refuse to spawn when a requested wrapper is unavailable.
  */
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, isAbsolute, join, relative, resolve } from "node:path";
+import { delimiter, join, resolve } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
 export interface OsSandboxSettings {
   mode: OsSandboxMode;
-  /** Outbound network inside the sandbox; loopback always works. */
+  /** Whether the operator permits one-time command network requests. */
   network: boolean;
 }
 
@@ -66,12 +35,6 @@ export function readOsSandboxSettings(
   return { mode, network: net === "on" || net === "1" || net === "true" };
 }
 
-export interface OsSandboxReopen {
-  path: string;
-  /** Writable too (a working folder), or read-only (a server's own code). */
-  write: boolean;
-}
-
 export interface OsSandboxPolicy {
   /** Folders the command may write under (working folders first). */
   writableRoots: readonly string[];
@@ -81,12 +44,6 @@ export interface OsSandboxPolicy {
    * link, as the resolved target: Seatbelt matches resolved paths.
    */
   denyRead: readonly string[];
-  /**
-   * Folders inside a denied one that are opened again, and only those:
-   * the rest of the denied folder stays hidden. A workspace under the
-   * state directory, or an MCP server's own install folder there.
-   */
-  reopen: readonly OsSandboxReopen[];
   network: boolean;
 }
 
@@ -100,11 +57,6 @@ export interface OsSandboxPolicyInput {
   /** The agent's state directory (`config.paths.stateDir`). */
   stateDir?: string;
   network: boolean;
-  /**
-   * Folders that must stay readable though they sit under a denied one
-   * (an MCP server installed under the state directory). Not writable.
-   */
-  keepReadable?: readonly string[];
   home?: string;
   tmp?: string;
 }
@@ -125,44 +77,13 @@ export const SECRET_HOME_PATHS: readonly string[] = [
   ".config/hub",
   ".config/op",
   ".netrc",
+  ".npmrc",
   ".git-credentials",
   ".pypirc",
   ".password-store",
   ".zsh_history",
   ".bash_history",
   "Library/Keychains",
-];
-
-/**
- * Pure download caches a build writes to outside the project. Without
- * them `npm install`, `pip install` or `cargo build` fails inside the
- * sandbox. Only cache folders: never a tool's `bin`, `init.d` or
- * settings file, because a file planted there would run later outside
- * the sandbox with every right the user has. Relative to the home folder.
- */
-export const CACHE_HOME_PATHS: readonly string[] = [
-  ".npm/_cacache",
-  ".npm/_logs",
-  ".npm/_npx",
-  ".cache/pip",
-  ".cache/yarn",
-  ".cache/go-build",
-  ".cache/node-gyp",
-  ".yarn/berry/cache",
-  ".pnpm-store",
-  ".bun/install/cache",
-  ".cargo/registry",
-  ".cargo/git",
-  ".rustup/tmp",
-  "go/pkg/mod",
-  ".gradle/caches",
-  ".m2/repository",
-  "Library/Caches/pip",
-  "Library/Caches/Yarn",
-  "Library/Caches/pnpm",
-  "Library/Caches/go-build",
-  "Library/Caches/node-gyp",
-  "Library/Developer/Xcode/DerivedData",
 ];
 
 /** The real path when it exists (Seatbelt matches resolved paths). */
@@ -178,11 +99,6 @@ function real(path: string): string {
 function bothSpellings(path: string): string[] {
   const resolved = real(path);
   return resolved === path ? [path] : [path, resolved];
-}
-
-function isInside(child: string, parent: string): boolean {
-  const rel = relative(parent, child);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 function unique(paths: readonly string[]): string[] {
@@ -201,24 +117,12 @@ export function buildOsSandboxPolicy(
     real(tmp),
     // `/tmp` is a link to `/private/tmp` on macOS; both spellings.
     ...(process.platform === "win32" ? [] : ["/tmp", real("/tmp")]),
-    ...CACHE_HOME_PATHS.flatMap((p) => bothSpellings(join(home, p))),
   ]);
   const secret = SECRET_HOME_PATHS.flatMap((p) => bothSpellings(join(home, p)));
-  if (input.stateDir !== undefined) {
-    secret.push(...bothSpellings(resolve(input.stateDir)));
-  }
+  const stateDir = input.stateDir ?? process.env.ATOMIC_AGENT_STATE_DIR?.trim();
+  secret.push(...bothSpellings(stateDir ? resolve(stateDir.replace(/^~(?=\/|$)/, home)) : join(home, ".atomic-agent")));
   const denyRead = unique(secret);
-  // A working folder (or a server's own folder) inside a denied one is
-  // opened again by itself; the denied folder stays denied around it.
-  const keep = unique((input.keepReadable ?? []).map((p) => real(resolve(p))));
-  const insideDenied = (p: string) => denyRead.some((dir) => isInside(p, dir));
-  const reopen: OsSandboxReopen[] = [
-    ...work.filter(insideDenied).map((path) => ({ path, write: true })),
-    ...keep
-      .filter((p) => insideDenied(p) && !work.includes(p))
-      .map((path) => ({ path, write: false })),
-  ];
-  return { writableRoots, denyRead, reopen, network: input.network };
+  return { writableRoots, denyRead, network: input.network };
 }
 
 export type OsSandboxWrap =
@@ -245,8 +149,7 @@ const NETWORK_MACH_SERVICES = [
 /**
  * The Seatbelt profile. Later rules win, so: allow everything, then
  * deny all writes, re-allow the writable roots, deny the secret reads,
- * reopen the folders inside them that must work, and (without network)
- * deny outbound IP and local-socket traffic, DNS and URL opening, with
+ * and if networking is disabled, deny outbound IP and local-socket traffic, DNS and URL opening, with
  * loopback IP kept. Paths arrive as `(param "...")` values from `-D`,
  * never as text here.
  */
@@ -262,10 +165,6 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
     const denied = policy.denyRead.map((_, i) => `(subpath (param "R${i}"))`);
     lines.push(`(deny file-read* file-write* ${denied.join(" ")})`);
   }
-  policy.reopen.forEach((entry, i) => {
-    const ops = entry.write ? "file-read* file-write*" : "file-read*";
-    lines.push(`(allow ${ops} (subpath (param "O${i}")))`);
-  });
   if (!policy.network) {
     lines.push('(deny network-outbound (remote ip "*:*") (remote unix-socket))');
     lines.push('(allow network-outbound (remote ip "localhost:*"))');
@@ -283,7 +182,6 @@ function seatbeltArgs(
   const params: string[] = [];
   policy.writableRoots.forEach((dir, i) => params.push("-D", `W${i}=${dir}`));
   policy.denyRead.forEach((dir, i) => params.push("-D", `R${i}=${dir}`));
-  policy.reopen.forEach((entry, i) => params.push("-D", `O${i}=${entry.path}`));
   return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
 }
 
@@ -309,26 +207,23 @@ function isFile(path: string): boolean {
  * Mount order matters (a later mount covers an earlier one): read-only
  * root, writable roots, then the denied paths covered (an empty tmpfs
  * on a folder, `/dev/null` on a file, since bwrap cannot mount a tmpfs
- * on a file), then the reopened folders bound back on top.
+ * on a file).
  */
 function bwrapArgs(
   policy: OsSandboxPolicy,
   command: string,
   args: readonly string[],
 ): string[] {
-  const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"];
+  const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid"];
   for (const dir of policy.writableRoots) {
     // A cache folder that does not exist yet cannot be bound; skipped.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
+  out.push("--proc", "/proc");
   for (const path of policy.denyRead) {
     if (!existsSync(path)) continue;
     if (isFile(path)) out.push("--ro-bind", "/dev/null", path);
     else out.push("--tmpfs", path);
-  }
-  for (const entry of policy.reopen) {
-    if (!existsSync(entry.path)) continue;
-    out.push(entry.write ? "--bind" : "--ro-bind", entry.path, entry.path);
   }
   if (!policy.network) out.push("--unshare-net");
   out.push("--die-with-parent", "--new-session", "--", command, ...args);
