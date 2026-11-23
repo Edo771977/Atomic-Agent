@@ -114,6 +114,8 @@ Files are created exclusively with mode 0600, in 0700 folders. A shot that fails
 
 `VerifyRunResult` adds `games` (a `VerifyGameSummary` with per-game `runs`, counts, medians and `winners`), `screenshots` (`{ path, bytes, width, height, clipped?, game? }[]`) and `screenshotErrors`. The summary carries a `games:` line and lists the shot paths.
 
+On macOS with default browser settings, page checks try Playwright Chromium first and fall back to system Chrome. An explicitly configured executable or non-default channel goes first. Linux and Windows keep the host browser first. Both launch paths keep the fork’s tool-child environment and respect `PLAYWRIGHT_BROWSERS_PATH` (for example `/opt/pw-browsers`).
+
 ## Validation
 
 `npx vitest run src/tools/verify`. [run-page-real-browser.test.ts](run-page-real-browser.test.ts) drives a real headless Chromium: the host's browser, or a Playwright-managed one under `PLAYWRIGHT_BROWSERS_PATH`. It skips where none launches.
