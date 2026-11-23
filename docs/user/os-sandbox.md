@@ -20,3 +20,5 @@ The sandbox covers command processes on these entry points. Project rules, appro
 Linux requires a user namespace and removal of all capabilities, including when the agent runs as root. If Bubblewrap cannot apply either restriction, the command fails.
 
 On a real Mac, validate profile compilation and exercise synthetic Apple Events, pasteboard reads, Mach lookups and Unix sockets with networking both off and approved. Confirm local service verification and npm and Git still work.
+
+With Safe Mode active, linked node_modules and .git from a verification copy remain read-only on Linux. Command and service goal checks that need external network access can fail because their executors keep networking disabled.

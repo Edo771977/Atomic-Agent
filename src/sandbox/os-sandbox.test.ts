@@ -239,3 +239,8 @@ it("review 7: restrict macOS IPC even with network approval", () => {
   expect(profile).toContain("com.apple.securityd");
   expect(profile).toContain("(deny network-outbound (remote unix-socket))");
 });
+
+it("review 12: isolate Linux IPC", () => {
+  const w = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(w.ok && w.args).toContain("--unshare-ipc");
+});
