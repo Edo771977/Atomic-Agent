@@ -6,8 +6,8 @@ import { describeSessionPinsFix, SessionPinsReadError, SessionStore, createEmpty
 import { WEBHOOK_SESSIONS_FILENAME } from "../../http/webhook-session-store.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { ShellJobRegistry } from "../../tools/os/shell/shell-jobs.js";
-import type { ToolOutputSpill } from "../../tools/tool-output-spill.js";
-import type { FileCheckpointStore } from "../../tools/os/fs/fs-checkpoint-store.js";
+import { ToolOutputSpill } from "../../tools/tool-output-spill.js";
+import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-checkpoint-store.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
@@ -22,6 +22,8 @@ export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectSt
 export function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
   logger: StructuredLogger,
+  fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
+  outputSpill = new ToolOutputSpill(),
 ) {
   // Constructed before the tool registry: `os.fs.locate_project`
   // (issue #77) reads recent-session working dirs through the
@@ -69,9 +71,14 @@ export function prepareRuntimeSessionStore(
   // is an orphan's task to drop, and closed again.
   let tasks: TaskStore | null = null;
   try {
-    sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
+    const orphans = sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
       new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
       { removeForSession: (id) => (tasks ??= new TaskStore({ dbFile: config.paths.tasksDbFile })).removeForSession(id) });
+    // The runtime delete hook is installed after startup recovery.
+    for (const id of orphans) {
+      outputSpill.removeSession(id);
+      void fileCheckpoints.removeSession(id).catch(() => undefined);
+    }
   } finally {
     (tasks as TaskStore | null)?.close();
   }

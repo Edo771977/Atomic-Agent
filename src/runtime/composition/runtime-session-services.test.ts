@@ -6,6 +6,10 @@ import { join } from "node:path";
 import * as configuration from "../../config/index.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import * as sessions from "../../session/index.js";
+import { ToolOutputSpill } from "../../tools/tool-output-spill.js";
+import { compressToolResult } from "../../compressor/result-compressor.js";
+import { userTurn } from "../../session/conversation-turn.js";
+import { recordTurn } from "../../session/session-state.js";
 import { SessionStore } from "../../session/session-store.js";
 import { StructuredLogger, type LogRecord } from "../../tracing/structured-logger.js";
 import { TaskStore } from "../../tasks/task-store.js";
@@ -48,6 +52,42 @@ describe("runtime session phases", () => {
     try {
       expect(after.list().map((t) => t.sessionId)).toEqual(["s-plain"]);
     } finally { after.close(); }
+  });
+
+  it("removes an orphan incognito chat's file checkpoints and tool output during startup", async () => {
+    const checkpoints = new FileCheckpointStore(join(dir, "file-checkpoints"));
+    const spill = new ToolOutputSpill({ baseDir: join(dir, "spill") });
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    try {
+      // A stored mark with our PID is treated as belonging to an earlier
+      // process at boot, before this runtime has opened any chats.
+      seeded.save(recordTurn(sessions.createEmptySessionState({
+        id: "s-dead", workingDir: dir, incognito: seeded.newIncognitoMark(),
+      }), userTurn("private")));
+      seeded.save(recordTurn(sessions.createEmptySessionState({
+        id: "s-kept", workingDir: dir,
+      }), userTurn("ordinary")));
+    } finally {
+      seeded.close();
+    }
+    const file = join(dir, "private.txt");
+    await writeFile(file, "private");
+    const output = compressToolResult({ tool: "os.shell.run", status: "ok", output: "log line\n".repeat(5000) });
+    for (const id of ["s-dead", "s-kept"]) {
+      await checkpoints.capture(id, file, "os.fs.write");
+      await spill.spill("os.shell.run", id, output);
+      expect(existsSync(spill.dirFor(id))).toBe(true);
+    }
+
+    const store = prepareRuntimeSessionStore(config, logger, checkpoints, spill);
+    stores.push(store);
+
+    expect(store.load("s-dead")).toBeNull();
+    expect(store.load("s-kept")?.id).toBe("s-kept");
+    await vi.waitFor(() => expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false));
+    expect(existsSync(spill.dirFor("s-dead"))).toBe(false);
+    expect(existsSync(checkpoints.sessionDir("s-kept"))).toBe(true);
+    expect(existsSync(spill.dirFor("s-kept"))).toBe(true);
   });
 
   it("recovers before retention reads pins and passes the existing pin sources", () => {
