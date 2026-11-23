@@ -320,6 +320,9 @@ async function main(): Promise<number> {
   if (command === "--internal-verify-artifact" && process.send) {
     return (await import("../tools/verify/artifact-reader.js")).serveArtifactCheck();
   }
+  if (command === "--internal-verify-service" && isSea()) {
+    return (await import("../tools/verify/linux-service-supervisor.js")).serveLinuxServiceProbe(rest);
+  }
   // Windows only: UTF-8 console code page for this run, restored on exit.
   ensureUtf8Console();
   // Install shipped transport deadlines without creating a user config.

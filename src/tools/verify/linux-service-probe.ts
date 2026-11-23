@@ -1,4 +1,5 @@
 import net from "node:net";
+import { isSea } from "node:sea";
 import type { resolveInvocation } from "./spawn-verify-process.js";
 
 interface ProbeRequest {
@@ -16,72 +17,19 @@ interface ProbeResult {
 
 const MAX_PROBE_BYTES = 2 * 1024 * 1024;
 
-/** The service and its probe share one sandbox. Only the probe's Unix socket crosses the mount boundary. */
-const SUPERVISOR = `
-const { spawn } = require("node:child_process");
-const net = require("node:net");
-const [socketPath, command, ...args] = process.argv.slice(1);
-const service = spawn(command, args, { stdio: "inherit" });
-
-async function probe(request) {
-  if (request.port !== undefined) {
-    return new Promise((resolve, reject) => {
-      const socket = net.connect({ host: "127.0.0.1", port: request.port });
-      socket.once("connect", () => {
-        socket.destroy();
-        resolve({ status: 200, body: "" });
-      });
-      socket.once("error", reject);
-      socket.setTimeout(1000, () => socket.destroy(new Error("probe timed out")));
-    });
-  }
-  const response = await fetch(request.url, {
-    method: request.method,
-    body: request.body,
-    headers: request.headers,
-    signal: AbortSignal.timeout(10000),
-  });
-  return { status: response.status, body: await response.text() };
-}
-
-const server = net.createServer({ allowHalfOpen: true }, socket => {
-  const chunks = [];
-  let size = 0;
-  socket.on("error", () => {});
-  socket.on("data", chunk => {
-    size += chunk.length;
-    if (size > 2 * 1024 * 1024) socket.destroy();
-    else chunks.push(chunk);
-  });
-  socket.once("end", async () => {
-    try {
-      const result = await probe(JSON.parse(Buffer.concat(chunks).toString("utf8")));
-      socket.end(JSON.stringify(result));
-    } catch (error) {
-      socket.end(JSON.stringify({ error: error.message }));
-    }
-  });
-});
-server.on("error", error => {
-  console.error(error.message);
-  process.exit(1);
-});
-service.on("error", error => {
-  console.error(error.message);
-  process.exit(1);
-});
-service.on("exit", (code, signal) => process.exit(code ?? (signal ? 1 : 0)));
-server.listen(socketPath);
-`;
-
 export function linuxServiceInvocation(
   invocation: ReturnType<typeof resolveInvocation>,
   socketPath: string,
 ): ReturnType<typeof resolveInvocation> {
+  const args = [socketPath, invocation.command, ...invocation.args];
+  if (isSea()) return { ...invocation, command: process.execPath, args: ["--internal-verify-service", ...args] };
+  const entry = new URL(import.meta.url.endsWith(".ts") ? "./linux-service-supervisor.ts" : "./linux-service-supervisor.js", import.meta.url).href;
   return {
     ...invocation,
     command: process.execPath,
-    args: ["-e", SUPERVISOR, "--", socketPath, invocation.command, ...invocation.args],
+    args: ["--input-type=module", "-e",
+      "const {serveLinuxServiceProbe} = await import(process.argv[1]); process.exit(await serveLinuxServiceProbe(process.argv.slice(2)));",
+      "--", entry, ...args],
   };
 }
 
