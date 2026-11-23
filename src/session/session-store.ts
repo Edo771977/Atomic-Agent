@@ -76,6 +76,7 @@ import {
   newIncognitoMark,
   orphanIncognitoSessionIds,
   storedSessionIsIncognito,
+  storedIncognitoOwnerGone,
   type IncognitoMark,
 } from "./incognito.js";
 
@@ -1251,6 +1252,12 @@ export class SessionStore {
   /** Whether the stored row `id` is an incognito chat. */
   isIncognito(id: string): boolean {
     return storedSessionIsIncognito(this.db, id);
+  }
+
+  /** Runtime task guard, including chats whose owner died since boot. */
+  isOrphanIncognito(id: string): boolean {
+    return !this.openIncognito.has(id) &&
+      storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity);
   }
 
   /**

@@ -90,13 +90,15 @@ export async function sweepOrphanIncognitoSessions(
   tasksDbFile?: string | null,
   taskOptions: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
   removeArtifacts?: (sessionId: string) => void | Promise<void>,
-): Promise<string[]> {
+): Promise<{ deleted: string[]; retained: string[] }> {
+  const retained: string[] = [];
   const tasks = createIncognitoTaskSweeper(tasksDbFile, taskOptions);
   try {
     const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {
         tasks.removeTasks(id);
       } catch (err) {
+        retained.push(id);
         logger.warn("could not clean up an incognito chat left by a stopped agent; the next start will retry", {
           sessionId: id,
           error: err instanceof Error ? err.message : String(err),
@@ -118,12 +120,12 @@ export async function sweepOrphanIncognitoSessions(
         count: ids.length,
       });
     }
-    return ids;
+    return { deleted: ids, retained };
   } catch (err) {
     logger.warn("could not delete incognito chats left by a stopped agent; continuing", {
       error: err instanceof Error ? err.message : String(err),
     });
-    return [];
+    return { deleted: [], retained };
   } finally {
     tasks.close();
   }

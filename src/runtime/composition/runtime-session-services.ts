@@ -23,6 +23,7 @@ export async function prepareRuntimeSessionStore(
   logger: StructuredLogger,
   fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
   outputSpill = new ToolOutputSpill(),
+  onRetainedIncognito?: (ids: readonly string[]) => void,
 ) {
   // Constructed before the tool registry: `os.fs.locate_project`
   // (issue #77) reads recent-session working dirs through the
@@ -71,7 +72,7 @@ export async function prepareRuntimeSessionStore(
       error: error instanceof Error ? error.message : String(error),
     });
   });
-  await sweepOrphanIncognitoSessions(
+  const { retained } = await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },
     async (id) => {
@@ -80,6 +81,7 @@ export async function prepareRuntimeSessionStore(
       await fileCheckpoints.removeIncognitoSession(id);
     },
   );
+  onRetainedIncognito?.(retained);
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a

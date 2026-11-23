@@ -45,6 +45,8 @@ import {
 
 export interface TaskStoreOptions {
   dbFile: string;
+  /** Refuse due selection, claims and recovery for these sessions. */
+  skipSession?: (sessionId: string) => boolean;
   /**
    * The process and host a claim records as the run's owner, and that
    * `recoverInterrupted` judges an owner against. Defaults to this
@@ -292,10 +294,15 @@ export class TaskStore {
            WHERE status = 'pending' AND session_id = ?
            ORDER BY created_at ASC LIMIT ?`,
       );
+      if (options.skipSession !== undefined) {
+        const skipSession = options.skipSession;
+        this.db.function("skip_task_session", (id: string | null) => id !== null && skipSession(id) ? 1 : 0);
+      }
+      const eligibleSession = options.skipSession === undefined ? "" : " AND NOT skip_task_session(session_id)";
       this.listDueStmt = this.db.prepare(
         `SELECT * FROM tasks
            WHERE status = 'pending'
-             AND (scheduled_for IS NULL OR scheduled_for <= ?)
+             AND (scheduled_for IS NULL OR scheduled_for <= ?)${eligibleSession}
            ORDER BY scheduled_for ASC, created_at ASC
            LIMIT ?`,
       );
@@ -313,7 +320,7 @@ export class TaskStore {
                 updated_at = @now,
                 last_error = NULL,
                 last_error_cat = NULL${claimOwner}
-          WHERE id = @id AND status = '${from}'`;
+          WHERE id = @id AND status = '${from}'${eligibleSession}`;
       this.markRunningStmt = this.db.prepare(claimSql("pending"));
       this.markRunningPausedStmt = this.db.prepare(claimSql("paused"));
       this.markCompletedStmt = this.db.prepare(
@@ -362,7 +369,7 @@ export class TaskStore {
       );
       this.listRunningStmt = this.db.prepare(
         `SELECT id, started_at, ${withOwners ? "run_owner" : "NULL AS run_owner"}
-           FROM tasks WHERE status = 'running'`,
+           FROM tasks WHERE status = 'running'${eligibleSession}`,
       );
       // Keyed on the claim the sweep judged (`started_at`), so a row
       // claimed again in between is never taken back on the old verdict.

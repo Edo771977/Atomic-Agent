@@ -1,3 +1,4 @@
+import { createRuntimeTaskStores } from "./runtime-task-services.js";
 import { traceFilePath } from "../../tracing/trace/trace-sink.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
@@ -118,6 +119,33 @@ describe("runtime session phases", () => {
     stores.push(second);
     expect(second.load("s-dead")).toBeNull();
     expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false);
+  });
+
+  it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(sessions.createEmptySessionState({
+      id: "s-dead", workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }));
+    seeded.close();
+    const tasks = new TaskStore({ dbFile: config.paths.tasksDbFile });
+    const pending = tasks.create({ sessionId: "s-dead", userMessage: "private", origin: "cli", maxAttempts: 1 });
+    const running = tasks.create({ sessionId: "s-dead", userMessage: "private", origin: "cli", maxAttempts: 1 });
+    tasks.markRunning(running.id);
+    tasks.close();
+    vi.spyOn(TaskStore.prototype, "removeForSessionAtBoot").mockImplementationOnce(() => { throw new Error("busy"); });
+
+    let retained: readonly string[] = [];
+    const sessionStore = await prepareRuntimeSessionStore(config, logger, undefined, undefined, ids => { retained = ids; });
+    stores.push(sessionStore);
+    const { taskStore } = createRuntimeTaskStores({ config, logger, sessionStore, retainedIncognitoIds: retained });
+    try {
+      expect(taskStore.listDue(Date.now())).toEqual([]);
+      expect(taskStore.get(running.id)?.status).toBe("running");
+      expect(taskStore.markRunning(pending.id)).toBeNull();
+      expect(taskStore.get(pending.id)?.status).toBe("pending");
+    } finally {
+      taskStore.close();
+    }
   });
 
   it("recovers before retention reads pins and passes the existing pin sources", async () => {

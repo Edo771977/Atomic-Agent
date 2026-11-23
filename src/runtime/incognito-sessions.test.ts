@@ -106,7 +106,7 @@ describe("incognito sessions in the runtime", () => {
     save(open(20), "s-live", true);
     alive.delete(10);
     const boot = open(30);
-    expect(await sweepOrphanIncognitoSessions(boot, tracesDir, logger)).toEqual(["s-dead"]);
+    expect((await sweepOrphanIncognitoSessions(boot, tracesDir, logger)).deleted).toEqual(["s-dead"]);
     expect(existsSync(trace("s-dead"))).toBe(false);
     expect(existsSync(trace("s-live"))).toBe(true);
     expect(records.filter((r) => r.message === "deleted incognito chats left by a stopped agent")).toHaveLength(1);
@@ -124,7 +124,7 @@ describe("incognito sessions in the runtime", () => {
     const live = task("s-live");
     alive.delete(10);
 
-    expect(await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, tasksDbFile)).toEqual(["s-dead"]);
+    expect((await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, tasksDbFile)).deleted).toEqual(["s-dead"]);
     expect(tasks.get(dead)).toBeNull();
     expect(tasks.get(live)).not.toBeNull();
     tasks.close();
@@ -147,7 +147,7 @@ describe("incognito sessions in the runtime", () => {
 
     expect(
       await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, tasksDbFile, { ownerProbe: probe(30, alive) }),
-    ).toEqual(["s-dead"]);
+    ).toEqual({ deleted: ["s-dead"], retained: [] });
     expect(liveRunner.get(killed)).toBeNull();
     expect(liveRunner.get(held)?.status).toBe("cancelled");
     liveRunner.close();
@@ -162,7 +162,7 @@ describe("incognito sessions in the runtime", () => {
     mkdirSync(tasksDbFile);
     const boot = open(30);
 
-    expect(await sweepOrphanIncognitoSessions(boot, tracesDir, logger, tasksDbFile)).toEqual([]);
+    expect(await sweepOrphanIncognitoSessions(boot, tracesDir, logger, tasksDbFile)).toEqual({ deleted: [], retained: ["s-dead"] });
     expect(boot.isIncognito("s-dead")).toBe(true);
     expect(existsSync(trace("s-dead"))).toBe(true);
     expect(records.some((r) => r.level === "warn" && r.context?.sessionId === "s-dead")).toBe(true);
@@ -172,13 +172,13 @@ describe("incognito sessions in the runtime", () => {
     alive.add(10);
     save(open(10), "s-dead", true);
     alive.delete(10);
-    expect(await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, join(dir, "missing.sqlite"))).toEqual(["s-dead"]);
+    expect((await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, join(dir, "missing.sqlite"))).deleted).toEqual(["s-dead"]);
     expect(existsSync(join(dir, "missing.sqlite"))).toBe(false);
   });
 
   it("a failing sweep is logged and never throws", async () => {
     const failing = { sweepOrphanIncognito: async (): Promise<string[]> => { throw new Error("locked"); } };
-    expect(await sweepOrphanIncognitoSessions(failing, tracesDir, logger)).toEqual([]);
+    expect((await sweepOrphanIncognitoSessions(failing, tracesDir, logger)).deleted).toEqual([]);
     expect(records.some((r) => r.level === "warn" && r.context?.error === "locked")).toBe(true);
   });
 
@@ -263,7 +263,7 @@ describe("incognito sessions in the runtime", () => {
     save(open(10), "s-dead", true);
     alive.delete(10);
     const removed: string[] = [];
-    expect(await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, undefined, {}, (id) => { removed.push(id); })).toEqual(["s-dead"]);
+    expect((await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, undefined, {}, (id) => { removed.push(id); })).deleted).toEqual(["s-dead"]);
     expect(removed).toEqual(["s-dead"]);
   });
   it("a fusion worker of an incognito chat is incognito too, even before the chat's first save", () => {
