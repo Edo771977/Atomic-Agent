@@ -176,6 +176,12 @@ describe("createExperienceReviewer", () => {
     expect(reviewModeForOrigin("fusion")).toBe("skip");
   });
 
+  it("skips the extra model request for a restricted folder", () => {
+    const { reviewer, llmComplete } = rig(undefined, { restricted: () => true });
+    expect(reviewer.maybeReview(session(12), { result: reply(12), origin: "cli" })).toBe(false);
+    expect(llmComplete).not.toHaveBeenCalled();
+  });
+
   it("skips a turn that wrote into the skills folder itself", async () => {
     const { reviewer, llmComplete } = rig();
     expect(reviewer.maybeReview(session(12, "os.fs.write"), { result: reply(12), origin: "tui" })).toBe(false);

@@ -369,6 +369,7 @@ describe("the fusion projects' records in the state dir (issue #109 review)", ()
         expect(await categorizeFsMutation("trash", [key], o)).toBe("trust_config");
       }
       expect(await categorizeFsMutation("write", [join(stateDir, "project-decisions", "abc.json")], o)).toBe("trust_config");
+      expect(await categorizeFsMutation("write", [join(stateDir, "learned-projects", "abc", "skills", "notes", "SKILL.md")], o)).toBe("trust_config");
       expect(await categorizeFsMutation("write", [join(stateDir, "projects", "registry.json")], o)).toBe("trust_config");
     } finally {
       await rm(home, { recursive: true, force: true });
