@@ -196,7 +196,8 @@ function formatProfileSystemMessage(facts: readonly ProfileFact[]): string {
 /** `key: value`, with the ATO-199 marker on a name the user never wrote. */
 function formatProfileFactLine(fact: ProfileFact): string {
   const grounding = nameGroundingMarker(fact);
-  return `${fact.key}: ${fact.value}${grounding !== null ? ` (${grounding})` : ""}`;
+  const state = fact.disabledAt === undefined ? "" : " (disabled)";
+  return `${fact.key}: ${fact.value}${state}${grounding !== null ? ` (${grounding})` : ""}`;
 }
 
 /**
