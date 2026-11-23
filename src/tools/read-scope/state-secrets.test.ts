@@ -539,3 +539,22 @@ it("round2-4 does not classify a bare wildcard outside the state directory", () 
   const stateDir = "/home/operator/.atomic-agent";
   expect(findShellStateSecrets({ cmd: "ls *" }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).toEqual([]);
 });
+
+const reviewStateDir = "/home/operator/.atomic-agent";
+function classifyReviewCommand(cmd: string): string[] {
+  return findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" },
+    { stateDir: reviewStateDir, files: [reviewStateDir + "/serve-api.key"] },
+    { home: "/home/operator", platform: "linux" });
+}
+
+it.each([
+  "ps -axo args", "ps -eLo cmd", "ps x", "ps axww", "pgrep -a synthetic",
+  "pgrep -l synthetic", "pgrep -af synthetic", "pgrep -fl synthetic",
+  "pstree -a", "top -b -c -n 1", "cat /proc/$(resolve pid)/environ",
+  "pushd /proc/self && cat environ", "grep -r synthetic /proc/self",
+  "find /proc/123 -type f", "find . -name serve-api.{,key}",
+  "find . -name {serve-{other,api},else}.key",
+])("third round flags %s without reading a real credential", (cmd) => {
+  expect(classifyReviewCommand(cmd)).not.toEqual([]);
+});
+
