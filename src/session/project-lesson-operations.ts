@@ -1,4 +1,3 @@
-import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { isIncognitoSession } from "./incognito.js";
 import { stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
 import {
@@ -31,13 +30,14 @@ export interface ProjectLessonPanel {
   blocked?: string;
 }
 
-type LessonError = "incognito" | "no-project" | "turn-running" | "wrong-origin" | "stale-view" | "invalid";
+type LessonError = "incognito" | "no-project" | "turn-running" | "stale-view" | "invalid";
 
 export function projectLessonPanel(
   session: SessionState,
   stateDir: string,
   isBusy: (folder: string, id: string) => boolean,
   choice?: ProjectLessonChoice,
+  originRefusal?: () => string | undefined,
 ): { panel: ProjectLessonPanel; notice?: string; code?: LessonError } {
   const unavailable = (blocked: string, code: LessonError = "no-project") => ({ panel: { rows: [], problems: [], blocked }, code });
   if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.", "incognito");
@@ -51,7 +51,7 @@ export function projectLessonPanel(
 
   const { lessons, problems } = readProjectLessons(ref.folder);
   const calls = { ...record.lessonCalls };
-  const origin = projectDecisionOriginRefusal();
+  const origin = originRefusal?.();
   const busy = isBusy(ref.folder, ref.id);
   const blocked = origin ?? (busy ? PROJECT_LESSON_TURN_RUNNING : undefined);
   const current = new Map(lessons.map(lesson => [lesson.id, lesson]));
@@ -66,7 +66,7 @@ export function projectLessonPanel(
     }
     return { panel: { rows, problems, blocked }, notice, code };
   };
-  if (!choice || blocked) return result(undefined, origin ? "wrong-origin" : busy ? "turn-running" : undefined);
+  if (!choice || blocked) return result(undefined, busy ? "turn-running" : undefined);
 
   const { id, hash, state, orphaned } = choice;
   const lesson = current.get(id);

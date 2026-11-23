@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { mkdirSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 import type { ProjectLessonPanel } from "../session/project-lesson-operations.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
+const key = "lesson-test-api-key";
 let h: Harness;
 let file: string;
 let session: ReturnType<typeof createEmptySessionState>;
@@ -15,8 +17,8 @@ const write = (status = "active", text = "Keep storage local.") => writeFileSync
   "---", "## Decided", text, "## Tried and ruled out", "Remote database", "## Watch out", "Test migrations",
 ].join("\n"));
 
-beforeEach(async () => {
-  h = await startTestHarness();
+async function setup(apiKey: string | null = key) {
+  h = await startTestHarness({ apiKey });
   const folder = join(h.stateDir, "project");
   const directory = join(folder, ".atomic", "project", "lessons");
   mkdirSync(directory, { recursive: true });
@@ -26,9 +28,10 @@ beforeEach(async () => {
   session = createEmptySessionState({ id: "s1", workingDir: folder });
   session.projectRef = { folder, id: "project", revision: 1, decisionSeq: 0 };
   vi.spyOn(h.runtime.sessionStore, "load").mockImplementation(id => id === session.id ? session : null);
-});
+}
 
-afterEach(async () => { await h.cleanup(); });
+beforeEach(() => setup());
+afterEach(async () => { vi.restoreAllMocks(); vi.unstubAllEnvs(); await h.cleanup(); });
 
 type LessonResponse = {
   panel: Omit<ProjectLessonPanel, "rows"> & { rows: Array<ProjectLessonPanel["rows"][number] & { promptEnds: { decided: { standard: number } } }> };
@@ -36,9 +39,9 @@ type LessonResponse = {
 };
 const read = async (res: Response): Promise<LessonResponse> => await res.json() as LessonResponse;
 
-const list = () => fetch(h.baseUrl + "/api/project/lessons?session=s1");
-const decide = (action: string, fingerprint: string, orphaned = false) => fetch(h.baseUrl + "/api/project/lessons", {
-  method: "POST", headers: { "content-type": "application/json" },
+const list = (token: string | null = key) => fetch(h.baseUrl + "/api/project/lessons?session=s1", { headers: token ? { authorization: "Bearer " + token } : {} });
+const decide = (action: string, fingerprint: string, orphaned = false, token: string | null = key) => fetch(h.baseUrl + "/api/project/lessons", {
+  method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
   body: JSON.stringify({ session: "s1", lesson: "storage", action, fingerprint, ...(orphaned ? { orphaned } : {}) }),
 });
 
@@ -79,4 +82,27 @@ it("rejects malformed, proposed, running, and incognito decisions", async () => 
   session.incognito = { since: 1, owner: "test" };
   expect((await list()).status).toBe(409);
   expect((await decide("retire", row.hash)).status).toBe(409);
+});
+
+it("requires configured authentication for POST while allowing GET without a key", async () => {
+  await h.cleanup();
+  await setup(null);
+  const listing = await list(null);
+  expect(listing.status).toBe(200);
+  const row = (await read(listing)).panel.rows[0];
+  assert.ok(row);
+  const denied = await decide("approve", row.hash, false, null);
+  expect(denied.status).toBe(403);
+  expect((await read(denied)).error.code).toBe("person-auth-required");
+  expect((await read(await list(null))).panel.rows[0]).toMatchObject({ status: { approvedByPerson: false } });
+});
+
+it("accepts a valid bearer key and ignores the server process marker for HTTP", async () => {
+  vi.stubEnv(AGENT_TOOL_CHILD_ENV, "1");
+  const listing = await list();
+  expect(listing.status).toBe(200);
+  const row = (await read(listing)).panel.rows[0];
+  assert.ok(row);
+  expect((await decide("approve", row.hash, false, null)).status).toBe(401);
+  expect((await decide("approve", row.hash)).status).toBe(200);
 });
