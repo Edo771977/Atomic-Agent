@@ -742,7 +742,7 @@ export class AgentClient extends EventEmitter {
   private pendingServeKey: (() => void) | null = null;
 
   /** Issue #74: the remote agent's /api/events refused the token (401/403); cleared by an accepted stream. */
-  private eventsRefused = false;
+  private authRefused = false;
 
   status: AgentStatus = {
     state: "stopped",
@@ -798,7 +798,7 @@ export class AgentClient extends EventEmitter {
    */
   async localModelsText(view: "list" | "status" | "list-embeddings"): Promise<string | null> {
     try {
-      const res = await fetch(`${this.base()}/api/local-models/${view}`, { headers: this.headers(), signal: AbortSignal.timeout(20_000) });
+      const res = await this.fetchAgent(`${this.base()}/api/local-models/${view}`, { headers: this.headers(), signal: AbortSignal.timeout(20_000) });
       if (!res.ok) return null;
       const body = (await res.json()) as { text?: unknown };
       return typeof body.text === "string" ? body.text : null;
@@ -830,7 +830,7 @@ export class AgentClient extends EventEmitter {
     const r = this.remote!;
     const epoch = this.stopEpoch;
     this.stopping = false;
-    this.eventsRefused = false;
+    this.authRefused = false;
     let port: number;
     try {
       const u = new URL(r.url);
@@ -877,13 +877,39 @@ export class AgentClient extends EventEmitter {
       misses = up ? 0 : misses + 1;
       if (misses >= 3 && this.status.state === "connected") {
         this.setStatus({ state: "error", error: `The agent at ${r.url} stopped answering.` });
-      } else if (up && this.status.state === "error" && !this.eventsRefused) {
+      } else if (up && this.status.state === "error" && !this.authRefused) {
         // A refused token (openApprovalStream) is not cured by /health answering.
         this.setStatus({ state: "connected", error: null });
       }
       setTimeout(() => void tick(), 15_000).unref?.();
     };
     setTimeout(() => void tick(), 15_000).unref?.();
+  }
+
+  private authError(status = 401): string {
+    return this.remote
+      ? `The agent at ${this.remote.url} refused the access token (HTTP ${status}). Check the token in Settings.`
+      : `The local agent refused the Desktop access token (HTTP ${status}). Restart the agent to generate a new token.`;
+  }
+
+  private refuseAuthentication(status: number): void {
+    this.authRefused = true;
+    this.events?.abort();
+    const error = this.authError(status);
+    if (this.status.state !== "error" || this.status.error !== error) {
+      this.setStatus({ state: "error", error });
+    }
+  }
+
+  private async fetchAgent(url: string, init: RequestInit): Promise<Response> {
+    const epoch = this.stopEpoch;
+    const remote = this.remote;
+    const child = this.child;
+    const res = await fetch(url, init);
+    if (res.status === 401 && epoch === this.stopEpoch && remote === this.remote && child === this.child) {
+      this.refuseAuthentication(res.status);
+    }
+    return res;
   }
 
   private headers(): Record<string, string> {
@@ -948,6 +974,7 @@ export class AgentClient extends EventEmitter {
       return this.status;
     };
     this.stopping = false;
+    this.authRefused = false;
     /* An agent the last stop let go of, still there after its SIGKILL, holds
        the port it had and the databases: wait for it to go, without blocking
        the window. One that outlasts the wait is said, and the next agent
@@ -1251,16 +1278,17 @@ export class AgentClient extends EventEmitter {
   /**
    * SSE stream of approval requests, reconnected while this child lives.
    *
-   * Issue #74: every reconnect waits. A refused answer (401/404/429/5xx), a
+   * Issue #74: every reconnect waits. A transient refusal (404/429/5xx), a
    * failed fetch or a stream that ends without a frame waits longer each time
    * (eventsRetryDelay: 1 s doubling to 30 s); a stream that delivered frames,
    * or was accepted and lived EVENTS_HEALTHY_MS (an idle one with only
    * keepalive comments, cut by a proxy), waits 1 s and resets the growth. Before this a refused answer was refetched at
    * once, thousands of requests a second. A remote agent that refuses the
-   * token (401/403) also says so in the status, and the /health watch does not
+   * token (401, or 403 from a remote) ends the stream and sets an error; the /health watch does not
    * read it as connected again while the refusal lasts (health needs no token).
    */
   private openApprovalStream(alive: () => boolean): void {
+    if (this.authRefused) return;
     this.events?.abort();
     const controller = new AbortController();
     this.events = controller;
@@ -1279,21 +1307,14 @@ export class AgentClient extends EventEmitter {
           });
           if (!res.ok) {
             void res.body?.cancel().catch(() => undefined);
-            if (remote && (res.status === 401 || res.status === 403) && alive()) {
-              this.eventsRefused = true;
-              this.setStatus({
-                state: "error",
-                error: `The agent at ${remote.url} refused the access token (HTTP ${res.status}). Check the token in Settings.`,
-              });
+            if (res.status === 401 || (remote && res.status === 403)) {
+              if (alive() && !controller.signal.aborted) this.refuseAuthentication(res.status);
+              return;
             }
             throw new Error(`/api/events → HTTP ${res.status}`);
           }
           if (!res.body) throw new Error("no body");
           acceptedAt = Date.now();
-          if (this.eventsRefused && alive()) {
-            this.eventsRefused = false;
-            if (this.status.state === "error") this.setStatus({ state: "connected", error: null });
-          }
           for await (const frame of sseFrames(res.body, controller.signal)) {
             frames++;
             // Issue #39: project_gate is the project card's, not an approval.
@@ -1318,11 +1339,14 @@ export class AgentClient extends EventEmitter {
   }
 
   private async json<T>(path: string): Promise<T> {
-    const res = await fetch(`${this.base()}${path}`, {
+    const res = await this.fetchAgent(`${this.base()}${path}`, {
       headers: this.headers(),
       signal: AbortSignal.timeout(15_000),
     });
-    if (!res.ok) throw new Error(`${path} → HTTP ${res.status}`);
+    if (!res.ok) {
+      void res.body?.cancel().catch(() => undefined);
+      throw new Error(res.status === 401 ? this.authError() : `${path} → HTTP ${res.status}`);
+    }
     return (await res.json()) as T;
   }
 
@@ -1365,13 +1389,14 @@ export class AgentClient extends EventEmitter {
   // /health for the diagnostics line. `request` is the writing sibling
   // of `json`; a non-2xx answer carries the agent's own error text.
   private async request<T>(method: string, path: string, body?: unknown, timeoutMs = 15_000): Promise<T> {
-    const res = await fetch(`${this.base()}${path}`, {
+    const res = await this.fetchAgent(`${this.base()}${path}`, {
       method,
       headers: this.headers(),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await res.text();
+    if (res.status === 401) throw new Error(this.authError());
     if (!res.ok) {
       let detail = "";
       try {
@@ -1523,7 +1548,7 @@ export class AgentClient extends EventEmitter {
     ok: boolean; supported: boolean; busy?: boolean; ms?: number; error?: string;
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/llm/active`, {
+      const res = await this.fetchAgent(`${this.base()}/api/llm/active`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(model === null ? { providerId } : { providerId, model }),
@@ -1551,7 +1576,7 @@ export class AgentClient extends EventEmitter {
    */
   async configWithSha(): Promise<{ sha256: string; config: unknown } | null> {
     try {
-      const res = await fetch(`${this.base()}/api/config`, {
+      const res = await this.fetchAgent(`${this.base()}/api/config`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1575,7 +1600,7 @@ export class AgentClient extends EventEmitter {
     { ok: true } | { ok: false; conflicted: boolean; error: string } | null
   > {
     try {
-      const res = await fetch(`${this.base()}/api/config`, {
+      const res = await this.fetchAgent(`${this.base()}/api/config`, {
         method: "PUT",
         headers: this.headers(),
         body: `{"config":${json}${expectSha256 ? `,"expectSha256":${JSON.stringify(expectSha256)}` : ""}}`,
@@ -1607,7 +1632,7 @@ export class AgentClient extends EventEmitter {
    */
   async reconnectEmbeddings(): Promise<{ health: string; modelId: string | null; changed?: boolean } | null> {
     try {
-      const res = await fetch(`${this.base()}/api/memory/embeddings/reconnect`, {
+      const res = await this.fetchAgent(`${this.base()}/api/memory/embeddings/reconnect`, {
         method: "POST",
         headers: this.headers(),
         signal: AbortSignal.timeout(30_000),
@@ -1640,7 +1665,7 @@ export class AgentClient extends EventEmitter {
     look?: { label: string; detail: string; tone: string; summary: string };
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/coding-mode`, {
+      const res = await this.fetchAgent(`${this.base()}/api/coding-mode`, {
         method: mode === undefined ? "GET" : "POST",
         headers: this.headers(),
         ...(mode === undefined ? {} : { body: JSON.stringify({ mode }) }),
@@ -1667,7 +1692,7 @@ export class AgentClient extends EventEmitter {
   async telegramPairing(op: TelegramPairingOp, replaceOwner = false): Promise<TelegramPairingResult> {
     const { method, body } = pairingRequest(op, replaceOwner);
     try {
-      const res = await fetch(`${this.base()}${TELEGRAM_PAIRING_PATH}`, {
+      const res = await this.fetchAgent(`${this.base()}${TELEGRAM_PAIRING_PATH}`, {
         method,
         headers: this.headers(),
         ...(body ? { body: JSON.stringify(body) } : {}),
@@ -1689,7 +1714,7 @@ export class AgentClient extends EventEmitter {
     otherPoller: { where: "this_computer"; pid: number | null } | { where: "elsewhere" } | null;
   } | null> {
     try {
-      const res = await fetch(`${this.base()}/api/telegram/channel`, {
+      const res = await this.fetchAgent(`${this.base()}/api/telegram/channel`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1710,7 +1735,7 @@ export class AgentClient extends EventEmitter {
    */
   async nextStep(id: string): Promise<{ supported: true; text: string | null } | { supported: false }> {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(id)}/next-step`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(id)}/next-step`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1741,7 +1766,7 @@ export class AgentClient extends EventEmitter {
     | { supported: true; ok: false; notFound: boolean; error: string }
   > {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(id)}/archived`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(id)}/archived`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify({ archived }),
@@ -1769,7 +1794,7 @@ export class AgentClient extends EventEmitter {
    */
   async runningTaskCount(): Promise<number | null> {
     try {
-      const res = await fetch(`${this.base()}/api/tasks?status=running`, {
+      const res = await this.fetchAgent(`${this.base()}/api/tasks?status=running`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(5_000),
       });
@@ -1788,7 +1813,7 @@ export class AgentClient extends EventEmitter {
    */
   async wakeTasks(): Promise<void> {
     try {
-      await fetch(`${this.base()}/api/tasks/wake`, {
+      await this.fetchAgent(`${this.base()}/api/tasks/wake`, {
         method: "POST",
         headers: this.headers(),
         signal: AbortSignal.timeout(5_000),
@@ -1806,7 +1831,7 @@ export class AgentClient extends EventEmitter {
    */
   async setSessionWorkingDir(id: string | null, workingDir: string): Promise<{ supported: true; busy?: boolean; error?: string } | { supported: false }> {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(id ?? "-")}/working-dir`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(id ?? "-")}/working-dir`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify({ workingDir }),
@@ -1840,7 +1865,7 @@ export class AgentClient extends EventEmitter {
     timeoutMs = 70_000,
   ): Promise<{ supported: false } | { supported: true; ok: true; text: string } | { supported: true; ok: false; status: number; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/complete`, {
+      const res = await this.fetchAgent(`${this.base()}/api/complete`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(body),
@@ -1872,7 +1897,7 @@ export class AgentClient extends EventEmitter {
    */
   async projectTrust(sessionId?: string | null): Promise<{ supported: false } | { supported: true; ok: true; status: ProjectTrustStatus } | { supported: true; ok: false; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/project-trust${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`, {
+      const res = await this.fetchAgent(`${this.base()}/api/project-trust${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(10_000),
       });
@@ -1892,7 +1917,7 @@ export class AgentClient extends EventEmitter {
    */
   async answerProjectTrust(body: ProjectTrustAnswerBody): Promise<{ supported: false } | { ok: true; status: ProjectTrustStatus } | { ok: false; conflict: true; status: ProjectTrustStatus } | { ok: false; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/project-trust`, {
+      const res = await this.fetchAgent(`${this.base()}/api/project-trust`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(body),
@@ -1923,7 +1948,7 @@ export class AgentClient extends EventEmitter {
    */
   async approvalRules(sessionId?: string | null): Promise<{ supported: false } | { supported: true; ok: true; data: ApprovalRulesList } | { supported: true; ok: false; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/approval-rules${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`, {
+      const res = await this.fetchAgent(`${this.base()}/api/approval-rules${sessionId ? `?sessionId=${encodeURIComponent(sessionId)}` : ""}`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(10_000),
       });
@@ -1942,7 +1967,7 @@ export class AgentClient extends EventEmitter {
    */
   async deleteApprovalRule(id: string): Promise<{ supported: false } | { ok: true } | { ok: false; notFound?: boolean; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/approval-rules/${encodeURIComponent(id)}`, {
+      const res = await this.fetchAgent(`${this.base()}/api/approval-rules/${encodeURIComponent(id)}`, {
         method: "DELETE",
         headers: this.headers(),
         signal: AbortSignal.timeout(10_000),
@@ -1965,7 +1990,7 @@ export class AgentClient extends EventEmitter {
    */
   async offlineMode(enabled?: boolean): Promise<{ supported: false } | { supported: true; ok: true; data: OfflineModeStatus } | { supported: true; ok: false; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/offline-mode`, {
+      const res = await this.fetchAgent(`${this.base()}/api/offline-mode`, {
         method: enabled === undefined ? "GET" : "POST",
         headers: this.headers(),
         ...(enabled === undefined ? {} : { body: JSON.stringify({ enabled }) }),
@@ -1990,7 +2015,7 @@ export class AgentClient extends EventEmitter {
    */
   async webhooks(): Promise<{ supported: false } | { supported: true; ok: true; data: unknown; baseUrl: string; remote: boolean } | { supported: true; ok: false; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/webhooks`, { headers: this.headers(), signal: AbortSignal.timeout(10_000) });
+      const res = await this.fetchAgent(`${this.base()}/api/webhooks`, { headers: this.headers(), signal: AbortSignal.timeout(10_000) });
       const text = await res.text();
       if (res.status === 404 && /No route for/.test(text)) return { supported: false };
       if (!res.ok) return { supported: true, ok: false, error: errorMessage(text, res.status) };
@@ -2003,7 +2028,7 @@ export class AgentClient extends EventEmitter {
   /** ATO-445: `POST /api/webhooks`. The reply's `secret` is the only time it is shown. */
   async createWebhook(body: Record<string, unknown>): Promise<{ supported: false } | { ok: true; data: unknown } | { ok: false; conflict?: boolean; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/webhooks`, {
+      const res = await this.fetchAgent(`${this.base()}/api/webhooks`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(body),
@@ -2022,7 +2047,7 @@ export class AgentClient extends EventEmitter {
   /** ATO-445: `DELETE /api/webhooks/:name`. `notFound`: already gone. */
   async deleteWebhook(name: string): Promise<{ supported: false } | { ok: true } | { ok: false; notFound?: boolean; error: string }> {
     try {
-      const res = await fetch(`${this.base()}/api/webhooks/${encodeURIComponent(name)}`, {
+      const res = await this.fetchAgent(`${this.base()}/api/webhooks/${encodeURIComponent(name)}`, {
         method: "DELETE",
         headers: this.headers(),
         signal: AbortSignal.timeout(10_000),
@@ -2093,7 +2118,7 @@ export class AgentClient extends EventEmitter {
     contextWindow?: number | null; reservedForReply?: number; replyCap?: number; pairsCap?: number; error?: string;
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/context-preview`, {
+      const res = await this.fetchAgent(`${this.base()}/api/context-preview`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify({ ...(sessionId ? { session_id: sessionId } : {}), ...(message ? { message } : {}) }),
@@ -2192,7 +2217,7 @@ export class AgentClient extends EventEmitter {
     ok: boolean; supported: boolean; text?: string; code?: string; error?: string;
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/rollback-last-turn`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/rollback-last-turn`, {
         method: "POST",
         headers: this.headers(),
         // The question on screen: the agent refuses (turn_mismatch) rather
@@ -2246,7 +2271,7 @@ export class AgentClient extends EventEmitter {
     ok: boolean; supported: boolean; code?: string; error?: string; action?: string;
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/fs/restore`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/fs/restore`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify({ path, priorQuestions, expectText }),
@@ -2290,7 +2315,7 @@ export class AgentClient extends EventEmitter {
   /** Issue #71: `GET /api/fusion/team[?session=]`, the team and what can serve the chat; read by fusion-team.ts. */
   async fusionTeam(sessionId?: string | null): Promise<{ status: number; body: unknown }> {
     const query = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
-    const res = await fetch(`${this.base()}/api/fusion/team${query}`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
+    const res = await this.fetchAgent(`${this.base()}/api/fusion/team${query}`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
     let body: unknown = null;
     try {
       const raw = await res.text();
@@ -2302,7 +2327,7 @@ export class AgentClient extends EventEmitter {
   }
 
   async sessionRoute(sessionId: string, path: string, method: "GET" | "POST", body?: unknown, timeoutMs = 60_000): Promise<{ status: number; body: unknown }> {
-    const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/${path}`, {
+    const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/${path}`, {
       method,
       headers: this.headers(),
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -2332,7 +2357,7 @@ export class AgentClient extends EventEmitter {
     ok: boolean; supported: boolean; text?: string; code?: string; error?: string;
   }> {
     try {
-      const res = await fetch(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
+      const res = await this.fetchAgent(`${this.base()}/api/sessions/${encodeURIComponent(sessionId)}/resume`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(release ? { release: true } : {}),
@@ -2385,7 +2410,7 @@ export class AgentClient extends EventEmitter {
     const controller = new AbortController();
     this.turns.set(turnId, controller);
     try {
-      const res = await fetch(`${this.base()}/v1/chat/completions`, {
+      const res = await this.fetchAgent(`${this.base()}/v1/chat/completions`, {
         method: "POST",
         // Opt into atomic's named SSE frames (session_id, reasoning_progress,
         // tool_progress). Without this header the stream is plain OpenAI
@@ -2431,7 +2456,7 @@ export class AgentClient extends EventEmitter {
         // folder_restricted 403) carries readable words: show them, not only the status.
         // Only a 4xx: the agent's own refusal of this request. A 5xx keeps the plain status.
         const worded = !res.ok && res.status >= 400 && res.status < 500 ? await httpErrorDetail(res) : null;
-        const detail = res.ok ? "no response body" : (worded ?? `HTTP ${res.status}`);
+        const detail = res.status === 401 ? this.authError() : res.ok ? "no response body" : (worded ?? `HTTP ${res.status}`);
         // ATO-275: `transport` / `httpStatus` are for the turn's analytics (chat-turns.ts); the window reads `error`.
         this.emit("chat", { turnId, kind: "error", error: detail, transport: true, ...(res.ok ? {} : { httpStatus: res.status }) });
         return;
@@ -2573,7 +2598,7 @@ export class AgentClient extends EventEmitter {
 
   private async cancelCompletion(completionId: string): Promise<void> {
     try {
-      const res = await fetch(
+      const res = await this.fetchAgent(
         `${this.base()}/v1/chat/completions/${encodeURIComponent(completionId)}/cancel`,
         { method: "POST", headers: this.headers(), signal: AbortSignal.timeout(5_000) },
       );
@@ -2604,7 +2629,7 @@ export class AgentClient extends EventEmitter {
     const entry: { key: string; value: Promise<boolean>; failedAt: number | null } = { key, value: Promise.resolve(false), failedAt: null };
     entry.value = (async () => {
         try {
-          const res = await fetch(`${this.base()}/api/capabilities`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
+          const res = await this.fetchAgent(`${this.base()}/api/capabilities`, { headers: this.headers(), signal: AbortSignal.timeout(5_000) });
           if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const body = (await res.json()) as { agent?: { project?: unknown } };
           return body?.agent?.project === true;
@@ -2634,7 +2659,7 @@ export class AgentClient extends EventEmitter {
       if (evidence) {
         // The session detail exposes the privacy mark. Skip this optional read
         // if the session is incognito or its privacy status could not be checked.
-        const session = await fetch(`${base}/api/sessions/${id}`, {
+        const session = await this.fetchAgent(`${base}/api/sessions/${id}`, {
           headers,
           signal: AbortSignal.timeout(10_000),
         });
@@ -2647,7 +2672,7 @@ export class AgentClient extends EventEmitter {
           return { supported: true, ok: true, view: null };
         }
       }
-      const res = await fetch(`${base}/api/project?session=${id}${evidence ? "&evidence=1" : ""}`, {
+      const res = await this.fetchAgent(`${base}/api/project?session=${id}${evidence ? "&evidence=1" : ""}`, {
         headers,
         signal: AbortSignal.timeout(10_000),
       });
@@ -2729,7 +2754,7 @@ export class AgentClient extends EventEmitter {
     { supported: false } | { supported: true; ok: true; body: unknown } | { supported: true; ok: false; status: number; error: string; body: unknown }
   > {
     try {
-      const res = await fetch(`${this.base()}${path}`, {
+      const res = await this.fetchAgent(`${this.base()}${path}`, {
         method,
         headers: this.headers(),
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -2759,7 +2784,7 @@ export class AgentClient extends EventEmitter {
     | { supported: true; ok: false; status: number; code: string | null; error: string; view: unknown }
   > {
     try {
-      const res = await fetch(`${this.base()}/api/project/decision`, {
+      const res = await this.fetchAgent(`${this.base()}/api/project/decision`, {
         method: "POST",
         headers: this.headers(),
         body: JSON.stringify(body),
@@ -2827,7 +2852,7 @@ export class AgentClient extends EventEmitter {
     decision: ApprovalDecision,
     reason?: string,
   ): Promise<unknown> {
-    const res = await fetch(`${this.base()}/api/approval/resolve`, {
+    const res = await this.fetchAgent(`${this.base()}/api/approval/resolve`, {
       method: "POST",
       headers: this.headers(),
       body: JSON.stringify({ approvalId, decision, ...(reason ? { reason } : {}) }),

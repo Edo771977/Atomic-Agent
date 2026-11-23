@@ -1,5 +1,5 @@
 // Issue #74 item 1: the approval events stream (/api/events) backs off.
-// A refused answer (401/404/429/5xx) or a stream that simply ends is not
+// A transient refusal (404/429/5xx) or a stream that simply ends is not
 // reopened at once: the reconnect waits, longer each time it fails, and a
 // remote agent that refuses the token says so in the status.
 // Built output. Run: npm run build && node --test test/events-stream-backoff.test.mjs
@@ -11,12 +11,13 @@ import { createRequire } from 'node:module';
 const require = createRequire(import.meta.url);
 const { AgentClient, eventsRetryDelay } = require('../out/main/agent-client.js');
 
-async function stub(eventsAnswer) {
+async function stub(eventsAnswer, apiAnswer = null) {
   let events = 0;
   const server = createServer((req, res) => {
     if (req.url.startsWith('/health')) { res.setHeader('content-type', 'application/json'); return res.end('{"ok":true}'); }
     if (req.url.startsWith('/api/capabilities')) { res.setHeader('content-type', 'application/json'); return res.end('{}'); }
     if (req.url.startsWith('/api/events')) { events++; return eventsAnswer(res); }
+    if (apiAnswer) return apiAnswer(req, res);
     res.writeHead(404); res.end();
   });
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
@@ -29,7 +30,7 @@ async function stub(eventsAnswer) {
 
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
-for (const code of [401, 404, 429, 503]) {
+for (const code of [404, 429, 503]) {
   test(`an HTTP ${code} on /api/events is retried after a pause, not at once`, async () => {
     const s = await stub((res) => { res.writeHead(code, {'content-type': 'application/json'}); res.end('{"error":"no"}'); });
     const c = new AgentClient(process.cwd());
@@ -62,16 +63,17 @@ test('a stream that ends normally is reopened after a pause', async () => {
   }
 });
 
-test('a remote agent refusing the token on /api/events sets an error status the window shows', async () => {
+test('a remote agent refusing the token on /api/events sets an error and stops reconnecting', async () => {
   const s = await stub((res) => { res.writeHead(401); res.end('{"error":"bad token"}'); });
   const c = new AgentClient(process.cwd());
   c.setRemote({url: s.url, token: 't'});
   try {
     await c.start();
-    await wait(200);
+    await wait(1500);
     const st = c.getStatus ? c.getStatus() : c.status;
     assert.equal(st.state, 'error');
-    assert.match(st.error ?? '', /401|token/i);
+    assert.match(st.error ?? '', /refused.*token.*401.*Settings/i);
+    assert.equal(s.count(), 1);
   } finally {
     await c.stop?.();
     await s.close();
@@ -104,6 +106,24 @@ test('a healthy stream with only keepalive comments, cut by a proxy, does not gr
     assert.ok(s.count() - t0 >= 4, `connections in 5 s: ${s.count() - t0}`);
   } finally {
     await c.stop?.();
+    await s.close();
+  }
+});
+
+
+test('an authenticated API read reports a rejected bearer', async () => {
+  const s = await stub((res) => res.writeHead(200).end(), (req, res) => {
+    assert.equal(req.url, '/v1/models');
+    assert.equal(req.headers.authorization, 'Bearer test-token');
+    res.writeHead(401).end();
+  });
+  const c = new AgentClient(process.cwd());
+  c.setRemote({ url: s.url, token: 'test-token' });
+  try {
+    await c.start();
+    await assert.rejects(c.models(), /refused.*token.*401.*Settings/i);
+  } finally {
+    await c.stop();
     await s.close();
   }
 });
