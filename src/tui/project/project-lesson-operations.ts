@@ -30,7 +30,7 @@ export interface ProjectLessonPanel {
   blocked?: string;
 }
 
-export const PROJECT_LESSON_TURN_RUNNING = "A turn is running. Wait for it to finish, then decide.";
+export const PROJECT_LESSON_TURN_RUNNING = "A turn is running. Press f afterward.";
 
 export function projectLessonPanel(
   session: SessionState,

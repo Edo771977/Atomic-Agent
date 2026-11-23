@@ -78,6 +78,14 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
 }
 
 describe("project lessons in the TUI", () => {
+  it("tells the operator to press f after the busy turn ends", () => {
+    const f = fixture({ otherChatBusy: true });
+    f.write("storage");
+    f.detail();
+    f.liveProjectTurn.mockReturnValue(null);
+    expect(f.text(38)).toMatch(/press f afterward/i);
+  });
+
   it("keeps escape in the narrow list footer while showing an alert", () => {
     const f = fixture({ otherChatBusy: true });
     f.write("storage");
