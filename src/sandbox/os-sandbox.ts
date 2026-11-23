@@ -6,7 +6,7 @@
  */
 import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
@@ -64,6 +64,8 @@ export interface OsSandboxPolicyInput {
   workspaceRoots: readonly string[];
   /** The agent's state directory (`config.paths.stateDir`). */
   stateDir?: string;
+  /** Configured state files stored outside the main state directory. */
+  protectedPaths?: readonly string[];
   network: boolean;
   home?: string;
   tmp?: string;
@@ -141,8 +143,16 @@ export function buildOsSandboxPolicy(
       if (path !== undefined && path !== "/" && isAbsolute(path)) secret.push(...bothSpellings(path));
     }
   }
-  const stateDir = input.stateDir ?? process.env.ATOMIC_AGENT_STATE_DIR?.trim();
-  secret.push(...bothSpellings(stateDir ? resolve(stateDir.replace(/^~(?=\/|$)/, home)) : join(home, ".atomic-agent")));
+  const configuredState = input.stateDir ?? process.env.ATOMIC_AGENT_STATE_DIR?.trim();
+  const state = configuredState ? resolve(configuredState.replace(/^~(?=\/|$)/, home)) : join(home, ".atomic-agent");
+  secret.push(...bothSpellings(state));
+  const canonicalState = real(state);
+  for (const path of input.protectedPaths ?? []) {
+    const outside = relative(canonicalState, real(resolve(path)));
+    if (isAbsolute(outside) || outside === ".." || outside.startsWith(`..${sep}`)) {
+      secret.push(...bothSpellings(resolve(path)));
+    }
+  }
   const denyRead = unique(secret);
   return { writableRoots, denyRead, network: input.network };
 }

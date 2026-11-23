@@ -273,6 +273,7 @@ export function registerOsTools(
       defaultTimeoutMs: options.config.tools.shell.defaultTimeoutMs,
       ...(options.config.http.urlDataGuard !== undefined ? { urlDataGuard: options.config.http.urlDataGuard } : {}),
       envPassthrough: options.config.tools.shell.envPassthrough,
+      protectedPaths: options.trustConfigPaths,
       ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
       ...(options.shellPolicy === undefined
         ? {}

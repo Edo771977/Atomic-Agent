@@ -17,7 +17,7 @@ import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/sec
 import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
 
 import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
-import { getConfig, resolveStateDir, type AtomicAgentConfig } from "../../config/index.js";
+import { getConfig, getStateSecretPaths, resolveStateDir, type AtomicAgentConfig } from "../../config/index.js";
 import type { ProbeSample } from "./page-probe-script.js";
 import type { VerifyGameSummary } from "./page-game-harness.js";
 import type { VerifyScreenshot, VerifyShotTarget } from "./page-screenshots.js";
@@ -361,10 +361,17 @@ export async function runVerify(
     if (readOsSandboxSettings().mode === "workspace") {
       const source = await realpath(ctx.workingDir).catch(() => resolve(ctx.workingDir));
       const state = ctx.config?.paths?.stateDir ?? resolveStateDir();
-      const canonicalState = await realpath(state).catch(() => resolve(state));
-      const offset = relative(source, canonicalState);
-      if (offset === "" || (!isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`))) {
-        throw new Error("Safe Mode: verify.run cannot copy a working directory that contains the agent state.");
+      const protectedPaths = await Promise.all([
+        realpath(state).catch(() => resolve(state)),
+        ...getStateSecretPaths(getConfig().paths).map(path => realpath(path).catch(() => null)),
+      ]);
+      const copiesProtectedPath = protectedPaths.some(path => {
+        if (path === null) return false;
+        const offset = relative(source, path);
+        return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+      });
+      if (copiesProtectedPath) {
+        throw new Error("Safe Mode: verify.run cannot copy a working directory that contains protected agent state.");
       }
     }
     const maxBytes = ctx.config?.tools?.verify?.maxCopyBytes;

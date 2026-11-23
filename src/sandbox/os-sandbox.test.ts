@@ -101,6 +101,19 @@ describe("buildOsSandboxPolicy", () => {
     expect(p.denyRead).toContain("/home/op/.atomic-agent");
   });
 
+  it("protects a configured model key outside the state root", () => {
+    const p = buildOsSandboxPolicy({
+      workspaceRoots: ["/home/op/project"],
+      stateDir: "/home/op/state",
+      protectedPaths: ["/srv/models/llama-server.key", "/home/op/state/serve-api.key"],
+      network: false,
+      home: HOME,
+      tmp: TMP,
+    });
+    expect(p.denyRead).toContain("/srv/models/llama-server.key");
+    expect(p.denyRead).not.toContain("/home/op/state/serve-api.key");
+  });
+
   it("keeps the state directory hidden when it contains the working folder", () => {
     const p = buildOsSandboxPolicy({
       workspaceRoots: ["/home/op/.atomic-agent/workspace"],

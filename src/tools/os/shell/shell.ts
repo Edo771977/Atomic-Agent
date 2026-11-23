@@ -153,6 +153,7 @@ export interface OsShellToolOptions extends DangerousToolOptions {
    * folders are hidden.
    */
   stateDir?: string;
+  protectedPaths?: readonly string[];
   /** Test seam: the prompt watch's poll and quiet intervals. */
   promptWatch?: { pollMs?: number; quietMs?: number };
   /** Test seam: how long a `background: true` command is watched. */
@@ -479,6 +480,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         buildOsSandboxPolicy({
           workspaceRoots: [ctx.workingDir],
           ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
+          protectedPaths: options.protectedPaths,
           network,
         }),
       );

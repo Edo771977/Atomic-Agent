@@ -19,6 +19,7 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 
+import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
 import {
   buildOsSandboxPolicy,
@@ -150,6 +151,8 @@ export function spawnVerifyProcess(
   const wrapped = sandboxed
     ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
       workspaceRoots: [options.cwd],
+      stateDir: resolveStateDir(),
+      protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,
     }))
     : { ok: true as const, command: invocation.command, args: invocation.args };
