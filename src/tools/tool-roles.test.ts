@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { DEFAULT_TOOL_DESCRIPTORS } from "../prompt/tool-descriptors.js";
 import { resourceClassFor } from "../agent/tool-resource-class.js";
+import { wouldRefuse } from "../agent/policies/fusion-orchestrator-mode.js";
+import { PROJECT_LESSON_PROPOSE_TOOL } from "./fusion/project-tools.js";
 import { WORKER_EXCLUDED_TOOLS } from "./fusion/worker-tool-policy.js";
 import {
   TOOL_ROLES,
@@ -120,7 +122,25 @@ describe("tool roles", () => {
       // level 4 — but it runs against a throwaway copy of the workspace,
       // which is why the fusion gate admits it as a read (`readonly`).
       if (d.name === "verify.run") continue;
+      // The tool creates only a new proposed file in .atomic/project/lessons/,
+      // through trust-config approval. It cannot replace a file or activate it.
+      // Only the person's approval of the active file's fingerprint enables it.
+      if (d.name === PROJECT_LESSON_PROPOSE_TOOL) {
+        expect(resourceClassFor(d.name)).toBe("approval_gated");
+        continue;
+      }
       expect(resourceClassFor(d.name), d.name).toMatch(/^(pure_read|terminal)$/);
+    }
+  });
+
+  it("allows only the named proposal exception among director filesystem writes", () => {
+    const ctx = { registry: {
+      has: () => true,
+      get: (name: string) => ({ name, description: "", readonly: false, run: async () => { throw new Error("Not executed"); } }),
+    } };
+    expect(wouldRefuse(PROJECT_LESSON_PROPOSE_TOOL, ctx)).toBe(false);
+    for (const name of ["os.fs.write", "os.fs.edit", "os.fs.patch", "os.fs.move", "os.fs.trash", "os.shell.run"]) {
+      expect(wouldRefuse(name, ctx), name).toBe(true);
     }
   });
 

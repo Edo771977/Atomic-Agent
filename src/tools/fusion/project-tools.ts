@@ -1,4 +1,7 @@
 import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { lessonsForCurrentPlan } from "../../session/project-lesson-projection.js";
+import { lessonProposalHint, PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
+import { lessonTouchesTask } from "./plan-references.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
 import type { UserFusionProjectConfig } from "../../config/llm-run-mode-config.js";
 import { sameMember } from "./member-identity.js";
@@ -9,6 +12,7 @@ import {
   PROJECT_LIMITS,
   PROJECT_DELIVERABLES,
   activeDecisionsOf,
+  currentProjectLessons,
   applyProjectUpdate,
   finishedCitationsOf,
   normalizeCriterionId,
@@ -70,8 +74,9 @@ export const PROJECT_PLAN_TOOL = "project.plan";
 export const PROJECT_MILESTONE_TOOL = "project.milestone";
 /** Issue #111: the director's backlog proposals (`project-backlog-tool.ts`). */
 export const PROJECT_BACKLOG_ADD_TOOL = "project.backlog.add";
+export { PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 /** In catalog order. */
-export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL] as const;
+export const PROJECT_TOOL_NAMES = [PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, PROJECT_BACKLOG_ADD_TOOL, PROJECT_LESSON_PROPOSE_TOOL] as const;
 
 /** Key of the update in the result's `details`, read by `applyStateEffects`. */
 export const PROJECT_UPDATE_DETAIL = "projectUpdate";
@@ -793,6 +798,31 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           reportNotes.push(warning);
           lines.push(warning);
         }
+        const activeLessons = ctx.incognito ? [] : lessonsForCurrentPlan(
+          ctx.project?.[currentProjectLessons]?.active ?? [], ctx.project?.lessonDeferred);
+        const listed: string[] = [];
+        let length = 0;
+        let count = 0;
+        for (const file of activeLessons.length === 0 ? [] : evidence.changedFiles ?? []) {
+          const ids = activeLessons.filter((lesson) =>
+            (lesson.always && lesson.touches.length === 0) || lessonTouchesTask(lesson.touches, [file], process.platform))
+            .map((lesson) => lesson.id);
+          if (ids.length === 0) continue;
+          count += 1;
+          const entry = `${JSON.stringify(file)} (${ids.join(", ")})`;
+          if (listed.length < 12 && length + entry.length + 2 <= PROJECT_LIMITS.text - 180) {
+            listed.push(entry);
+            length += entry.length + 2;
+          }
+        }
+        if (count > 0) {
+          const more = count - listed.length;
+          const entries = [...listed, ...(more === 0 ? [] : [`${more} more`])].join(", ");
+          reportNotes.push(`Changed files covered by active lessons: ${entries}. Check that the changes follow them.`);
+        }
+        if (activeLessons.length > 0 && evidence.changedFilesIncomplete) {
+          reportNotes.push("Changed-file coverage may be incomplete. In shared workspaces, shell, move, trash and some patch changes are not reliably tracked.");
+        }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);
@@ -812,6 +842,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         [
           `Milestone ${report.id} reported ${report.state}.`,
           ...lines,
+          ...(report.state === "failed" && milestone !== undefined && ctx.projectRef !== undefined && !ctx.incognito ? [lessonProposalHint("milestone-failure", milestone)] : []),
           "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
         ].join(" "),
         { ...report, ...(reportNotes.length === 0 ? {} : { reportNotes }) },

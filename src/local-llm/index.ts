@@ -20,8 +20,17 @@ export {
 } from "./catalog/models-catalog.js";
 export { spotlightModelFor } from "./catalog/spotlight-model.js";
 export {
-  recommendWorkerModel,
+  estimateRamGbFromFileSize,
+  modelDisplayName,
+  modelMemoryFit,
+  modelMemoryNeedGb,
+  modelMemoryNeedWords,
+  type ModelMemoryFit,
+  type ModelRamFigures,
+} from "./catalog/model-memory-words.js";
+export {
   recommendedModelFor,
+  recommendWorkerModel,
   type RecommendRole,
   type RecommendedModelOptions,
   type WorkerModelPick,

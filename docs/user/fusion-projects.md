@@ -47,6 +47,12 @@ Replace the example fingerprint with the one displayed for the lesson. Set `stat
 
 The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to make it binding. Every task whose declared files or checks match its `touches` must cite the lesson. A binding lesson with omitted or empty `touches`, or with `touches: ["."]`, applies to every task in a milestone that has yet to start. Existing approvals of unchanged `always: true` lessons with `touches: []` also apply to every such task. The existing approval remains valid because it covers the same file fingerprint. You can defer the lesson at the plan gate to set it aside for the current plan. Missing citations block approval, and assigned workers receive the cited lessons as binding project data. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
+### Lessons proposed by the director
+
+The director can propose a reusable lesson after a correction, a failed milestone or the final review. Find the proposal and its origin with `atomic-agent project lessons`. After reviewing the Markdown, change `status: proposed` to `status: active`, list the lessons again and approve the new fingerprint.
+
+When a milestone is reported done, its runtime notes list known changed files covered by active lessons. Use these reminders during review to check that the changes follow the lessons.
+
 ## Read the plan checks
 
 A plan can list checks for each task before work starts. Check that the tasks cover the brief's success criteria and that their tests measure the behavior you asked for. If the checks need to change, ask the director to update the plan and approve the revised version.

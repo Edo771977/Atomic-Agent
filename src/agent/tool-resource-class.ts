@@ -262,6 +262,7 @@ const TOOL_RESOURCE_CLASS: Record<string, ResourceClass> = {
   "project.plan": "pure_read",
   "project.milestone": "pure_read",
   "project.backlog.add": "pure_read",
+  "project.lesson.propose": "approval_gated",
 
   // verify.* — read-only checks. `verify.syntax` spawns nothing that
   // writes (node --check, tsc --noEmit, python compile(), bash -n), so
@@ -421,6 +422,7 @@ const APPROVAL_CATEGORIES_BY_TOOL: Record<string, readonly ApprovalCategory[]> =
     "os.fs.write": FS_WRITE_CATEGORIES,
     // ATO-1137: the same funnel (`requireFsApproval`, kind `write`).
     "canvas.render": FS_WRITE_CATEGORIES,
+    "project.lesson.propose": FS_WRITE_CATEGORIES,
     "os.fs.edit": FS_WRITE_CATEGORIES,
     // A patch that deletes a file asks as `fs_trash` (`fs-patch.ts`).
     "os.fs.patch": [...FS_WRITE_CATEGORIES, "fs_trash"],

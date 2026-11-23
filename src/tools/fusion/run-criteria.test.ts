@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { requireSymlinks } from "../../test-symlink-support.js";
 import { milestoneShotsDir, PROJECT_LIMITS } from "../../session/session-project.js";
 import { FUSION_RUNS_DIR_NAME } from "./run-checkpoint.js";
-import { readMilestoneEvidence, writeRunCriteriaFacts } from "./run-criteria.js";
+import { readMilestoneEvidence, writeRunChangedFiles, writeRunCriteriaFacts } from "./run-criteria.js";
 
 function stateDir(): string {
   return mkdtempSync(join(tmpdir(), "run-criteria-"));
@@ -41,6 +41,34 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
       { taskId: "board", facts: [{ ...fact, basis: { ...fact.basis, checks: [...fact.basis.checks] } }] },
     ]);
     expect(readMilestoneEvidence({ runsDir: runsOf(state), stateDir: state, runIds: ["fr-1"], criteriaOrder: ORDER }).facts).toEqual([fact]);
+  });
+
+  it("combines delivered paths across runs without changing criterion evidence", () => {
+    const state = stateDir();
+    const runsDir = runsOf(state);
+    const r1 = { runId: "fr-1", sessionId: "s" };
+    writeRunChangedFiles(runsDir, r1, ["src/a.ts", "package.json"]);
+    writeRunCriteriaFacts(runsDir, r1, [{ taskId: "a", facts: [{ id: "c1", state: "passed" }] }]);
+    writeRunChangedFiles(runsDir, r1, ["src/a.ts", "src/b.ts"]);
+    writeRunChangedFiles(runsDir, { ...r1, runId: "fr-2" }, ["src/b.ts", "README.md"]);
+    const evidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: ["fr-1", "fr-2"], criteriaOrder: ["c1"] });
+    expect(evidence.changedFiles).toEqual(["README.md", "package.json", "src/a.ts", "src/b.ts"]);
+    expect(evidence.facts).toEqual([{ id: "c1", state: "passed" }]);
+  });
+
+  it("keeps bounded change evidence and flags an untracked shared run", () => {
+    const state = stateDir();
+    const runsDir = runsOf(state);
+    const run = { runId: "fr-1", sessionId: "s" };
+    writeRunChangedFiles(runsDir, run, [], true);
+    writeRunChangedFiles(runsDir, { ...run, runId: "fr-2" },
+      Array.from({ length: 2000 }, (_, i) => `src/${i}-${"a".repeat(250)}.ts`));
+    const input = { runsDir, stateDir: state, criteriaOrder: [] };
+    expect(readMilestoneEvidence({ ...input, runIds: ["fr-1"] })).toMatchObject({ changedFilesIncomplete: true });
+    const large = readMilestoneEvidence({ ...input, runIds: ["fr-2"] });
+    expect(large.changedFilesIncomplete).toBe(true);
+    expect(large.changedFiles!.length).toBeLessThan(2000);
+    expect(large.changedFiles!.length).toBeGreaterThan(1);
   });
 
   it("keeps the weakest basis across tasks without changing the criterion verdict", () => {

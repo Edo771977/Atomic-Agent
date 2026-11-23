@@ -2,7 +2,7 @@ import { projectCommand } from "../../cli/projects-command.js";
 import { projectFilePath } from "../../session/project-store.js";
 import type { ProjectState } from "../../session/session-project.js";
 import { projectFolderOf } from "../../session/project-folder.js";
-import { mkdir, mkdtemp, readFile, rm, utimes, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -19,6 +19,7 @@ import { createProjectReceiptWriter, verifyProjectReceiptDetails, verifyProjectR
 import { FUSION_WORKER_ID_PREFIX } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
+import { readMilestoneEvidence } from "./run-criteria.js";
 import { FusionRunStore } from "./run-checkpoint.js";
 import { buildOsFsWriteTool } from "../os/fs/fs-write.js";
 import { DeclaredInputsRegistry } from "../os/fs/fs-declared-inputs.js";
@@ -392,6 +393,10 @@ it.each([true, false])("records executed candidate task telemetry after final pr
   await buildFusionDelegateTool(f.deps).run({ tasks: [{ id: "api", instructions: "work", files: ["api.json"] }], contract }, f.ctx);
   expect(append).toHaveBeenCalledTimes(1);
   expect(append.mock.calls[0]![0]).toEqual([expect.objectContaining({ type: "task", candidate: expect.objectContaining({ receipt: expect.objectContaining({ disposition: passing ? "promoted" : "rejected" }) }) })]);
+  const runsDir = f.deps.runCheckpoints!.runsDir;
+  const runIds = await readdir(runsDir);
+  const evidence = readMilestoneEvidence({ runsDir, stateDir: runsDir, runIds, criteriaOrder: [] });
+  expect(evidence.changedFiles).toEqual(passing ? ["api.json"] : undefined);
 });
 
 it("retains recovery and executed task telemetry when post-worker completion handling throws", async () => {

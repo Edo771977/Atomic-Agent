@@ -49,6 +49,13 @@ describe("Telegram project gate", () => {
       turnController: { isBusy: () => false },
       runTurn: async (session: SessionState, text: string, opts?: { eventHook?: (e: AgentLoopEvent) => void }) => {
         messages.push(text);
+        if (text === "propose a lesson") {
+          opts?.eventHook?.({ type: "llm_event", event: {
+            type: "tool_call_executed", batchIndex: 0, batchSize: 1,
+            result: { tool: "project.lesson.propose", status: "ok", details: {}, truncated: false,
+              summary: "Saved director-authored lesson proposal storage (declared origin: correction, milestone m1, run r1)." },
+          } });
+        }
         opts?.eventHook?.({ type: "llm_event", event: { type: "assistant_reply", text: "drafted" } });
         // The first turn drafts a plan and opens its gate.
         if (messages.length === 1) view = fixtureProjectGateView({ kind: "plan" });
@@ -89,6 +96,11 @@ describe("Telegram project gate", () => {
 
   const say = (text: string, user = OWNER, chat = CHAT) =>
     handleInboundText({ from: { id: user }, chat: { id: chat, type: "private" }, text, message_id: 1 }, ctx);
+
+  it("identifies a saved proposal and its director-declared origin in Telegram", async () => {
+    await say("propose a lesson");
+    expect(sent).toContain("Saved director-authored lesson proposal storage (declared origin: correction, milestone m1, run r1).");
+  });
 
   it("tells the owner a gate waits after the turn, and /plan approve continues the work", async () => {
     await say("build a puzzle game");

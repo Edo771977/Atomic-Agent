@@ -97,7 +97,7 @@ A session whose effective policy is constrained (its folder, or a read taint) ma
 
 ## Status
 
-`describeProviderRestriction(policy)` gives `{label, allowedProviders, folder, readFrom, movedFrom}` (`restricted to: local-llama`). The TUI draws the label as a chip after the composer's route and adds a `Providers:` line to `/status`; the sidecar answers `get_provider_restriction {sessionId}` and `serve` answers `GET /api/sessions/{id}/provider-restriction`, `null` when nothing applies.
+`describeProviderRestriction(policy)` gives `{label, allowedProviders, folder, readFrom, movedFrom}` (`restricted to: local-llama`). The TUI draws the label as a chip after the composer's route and adds a `Providers:` line to `/status`; the sidecar answers `get_provider_restriction {sessionId}` and `serve` answers `GET /api/sessions/{id}/provider-restriction`, `null` when nothing applies. Both add `channelsAllowed` (the effective policy allows `channels`; `false` without the runtime's egress check): the HTTP answer next to `restriction`, the sidecar on the restriction object. The desktop reads it before a phone push.
 
 ## MCP sampling
 

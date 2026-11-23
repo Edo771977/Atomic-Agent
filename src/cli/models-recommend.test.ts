@@ -41,6 +41,10 @@ describe("models recommend --json", () => {
     const tiers = json.tiers as Record<string, { id: string; downloadGb: number } | null>;
     expect(Object.keys(tiers)).toEqual(["fast", "balanced", "quality"]);
     expect(tiers.quality?.downloadGb).toBeGreaterThan(14);
+    // ATO-1410, additive: the name and both memory figures the desktop shows.
+    expect(json.tiers).toMatchObject({
+      quality: { displayName: "Gemma 4 26B-A4B", minRamGb: 16, recommendedRamGb: 20 },
+    });
   });
 
   it("says why there is nothing to do", () => {
@@ -57,7 +61,10 @@ describe("models recommend (text)", () => {
     const text = describeRecommendation(snapshot("qwen-3.5-2b"));
     expect(text).toContain("32 GB RAM");
     expect(text).toMatch(/fast\s+\S+/);
-    expect(text).toMatch(/quality\s+gemma-4-26b-a4b/);
+    // ATO-1410: the name and the need the desktop prints; the id stays for `models use`.
+    expect(text).toMatch(/quality\s+Gemma 4 26B-A4B\s/);
+    expect(text).toContain("needs 20 GB");
+    expect(text).toContain("(gemma-4-26b-a4b)");
     expect(text).toContain("models upgrade");
   });
 });
@@ -96,7 +103,7 @@ describe("models recommend --role worker", () => {
     expect(text).toContain("catalog rank 7");
     expect(text).toContain("models pull qwen-3.5-9b");
     // The default text still names the rank-order quality pick.
-    expect(describeRecommendation(snap)).toMatch(/quality\s+gemma-4-26b-a4b/);
+    expect(describeRecommendation(snap)).toMatch(/quality\s+Gemma 4 26B-A4B\s.*\(gemma-4-26b-a4b\)/);
   });
 
   it("follows the configured slot count, and sizes auto as the daemon does", () => {

@@ -1,5 +1,6 @@
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import { runBacklogCommand } from "./backlog-command.js";
+import { PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 import { projectGateNotice, runDecisionStatusCommand, runProjectCommand } from "./project-command.js";
 import {
   buildStatusSnapshot,
@@ -1018,11 +1019,14 @@ async function dispatchToRuntime(
           cadence.pollMs,
         );
   const budgetNotices = new Set<string>();
+  const lessonNotices = new Set<string>();
   const eventHook = (event: AgentLoopEvent): void => {
     if (event.type === "budget_notice" && event.sessionId === session.id) budgetNotices.add(event.text);
     tracker.onEvent(event);
     if (event.type === "step_finished") postSnapshotIfDue();
     if (event.type === "llm_event") {
+      if (event.event.type === "tool_call_executed" && event.event.result.tool === PROJECT_LESSON_PROPOSE_TOOL &&
+          event.event.result.status === "ok") lessonNotices.add(event.event.result.summary);
       // A progress note is an interim reply; the one that ends the turn
       // follows it and is what the chat gets.
       if (
@@ -1095,6 +1099,7 @@ async function dispatchToRuntime(
     return;
   }
   for (const notice of budgetNotices) await sendText(ctx, ref.target, notice);
+  for (const notice of lessonNotices) await sendText(ctx, ref.target, notice);
 
   // A cancelled turn's half-written answer is deleted; a failed one's
   // stays above the failure line.
