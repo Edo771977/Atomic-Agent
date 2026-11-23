@@ -2125,6 +2125,25 @@ export function buildFusionDelegateTool(
         run?.addSpend(usd);
         turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
       };
+      const isReplacementAuthor = (
+        rerun: WorkerTaskResult["escalationRerun"],
+        providerId: string,
+        model: string | null,
+      ): boolean => {
+        if (rerun === undefined || providerId !== rerun.providerId) return false;
+        if (deps.workerSupportsSlotAffinity(providerId)) return true;
+        // A default we cannot identify on the same provider might be the author.
+        const isUnknownDefault = (value: string | null): boolean => value === null || value === "default";
+        if (deps.resolveDefaultModel?.(providerId) === undefined &&
+            (isUnknownDefault(model) || (isUnknownDefault(rerun.model) && isUnknownDefault(rerun.requestedModel)))) {
+          return true;
+        }
+        const target = `${providerId}:${model ?? "default"}`;
+        return [rerun.model, rerun.requestedModel].some(authorModel =>
+          sameMember(target, `${providerId}:${authorModel ?? "default"}`, deps.resolveDefaultModel));
+      };
+      const teamReviewerModel = (member: TeamMember): string | null =>
+        team?.pinsModel(member.providerId) === true ? member.model : deps.resolveDefaultModel?.(member.providerId) ?? null;
       const visionFor = async (
         input: Parameters<GateJudge>[0],
         target: JudgeTarget,
@@ -2141,7 +2160,10 @@ export function buildFusionDelegateTool(
           : pickVisionJudge({
               taskReviewer: asMember(target),
               reviewers: team?.reviewers ?? [],
-              sees: (m) => currentPolicyAllows(m.providerId) && vj.sees(m),
+              sees: (m) => !isReplacementAuthor(input.escalationRerun, m.providerId,
+                (team?.pinsModel(m.providerId) ?? teamContext?.pinsModel(m.providerId) ?? true)
+                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null) &&
+                currentPolicyAllows(m.providerId) && vj.sees(m),
               route: () => vj.route(),
             });
         const result = await judgeTaskVision({
@@ -2181,8 +2203,25 @@ export function buildFusionDelegateTool(
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
-        if (stop !== undefined || runSignal.aborted) {
-          reviewCutShort.add(input.task.id);
+        let target = judgeTargetFor(input.task.id);
+        const author = input.escalationRerun;
+        const plannedReviewer = taskReviewerOf(input.task.id).member;
+        if (author !== undefined && target !== null && isReplacementAuthor(author, target.providerId,
+          plannedReviewer === null ? target.pinModel ?? target.model : teamReviewerModel(plannedReviewer))) {
+          const model = author.model ?? "default";
+          const reviewer = team?.reviewerFor(
+            { providerId: author.providerId, model, ref: `${author.providerId}:${model}` },
+            member => !isReplacementAuthor(author, member.providerId, teamReviewerModel(member)),
+          ) ?? null;
+          target = reviewer === null ? null : {
+            providerId: reviewer.providerId,
+            model: reviewer.model,
+            ...(team!.pinsModel(reviewer.providerId) ? { pinModel: reviewer.model } : {}),
+          };
+          if (reviewer !== null) teamJudged.add(input.task.id);
+        }
+        if (stop !== undefined || runSignal.aborted || target === null) {
+          if (stop !== undefined || runSignal.aborted) reviewCutShort.add(input.task.id);
           // The checks' own criteria facts still stand (issue #40).
           const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
@@ -2190,12 +2229,12 @@ export function buildFusionDelegateTool(
             green: false,
             items: [],
             unverified:
-              stop === undefined ? "the turn was cancelled" : `not judged: ${stop.message}`,
+              stop !== undefined ? `not judged: ${stop.message}` : runSignal.aborted
+                ? "the turn was cancelled" : "not independently verified after escalation: no independent reviewer is available",
             costUsd: null,
             review: { decision: "unverified", issues: [], reviewer: null },
           };
         }
-        const target = judgeTargetFor(input.task.id)!;
         judgesUsed.add(target.model ?? target.providerId);
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
@@ -3203,6 +3242,7 @@ export function buildFusionDelegateTool(
                     findings: contract?.findings ?? [],
                   },
                   reply: row.reply,
+                  escalationRerun: row.escalationRerun,
                   contract: parsed.contract,
                   workingDir: ctx.workingDir,
                   // No snapshot of the folder before the wave: file heads.

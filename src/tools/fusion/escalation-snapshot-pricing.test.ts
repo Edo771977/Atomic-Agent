@@ -100,3 +100,70 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
     expect(budget.workerSpend("s-parent")).toBeCloseTo(expected ? 0.0018 : 0);
   });
 });
+
+it.each([
+  { withTeam: false, unknownJudge: false },
+  { withTeam: true, unknownJudge: false },
+  { withTeam: false, unknownJudge: true },
+])("keeps the replacement independent from its reviewer (team=$withTeam, unknownJudge=$unknownJudge)", async ({ withTeam, unknownJudge }) => {
+  const reviews: string[] = [];
+  const turns: Array<string | undefined> = [];
+  const completionModel = "strong";
+  const d: FusionDelegateDeps = {
+    runTurn: async (_session, _message, options) => {
+      turns.push(options.model);
+      if (options.model !== completionModel) {
+        for (let i = 0; i < 6; i += 1) {
+          options.eventHook?.({
+            type: "llm_event",
+            event: { type: "tool_call_executed", result: { tool: "os.fs.read", status: "error", summary: "not found", details: {} } },
+          } as never);
+          options.eventHook?.({ type: "step_finished", stepIndex: i, summary: "", durationMs: 1 } as never);
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+      }
+      return { session: createEmptySessionState({ id: "worker", workingDir: "/repo" }), reason: "reply", stepCount: 6 } as RunTurnResult;
+    },
+    createEphemeralSession: meta => createEmptySessionState({
+      id: FUSION_WORKER_ID_PREFIX + "worker", workingDir: "/repo", metadata: { fusionWorker: meta },
+    }),
+    approvals: { setSessionPolicy: () => {}, clearSessionPolicy: () => {}, fanoutScopes: new FanoutScopeRegistry() },
+    approvalRequired: false,
+    emitEvent: () => {},
+    workingDir: "/repo",
+    slotManager: { poolSize: () => 1 },
+    resolveRunMode: () => ({
+      ...mode(),
+      workerProviderId: "shared",
+      workerPinModel: "small",
+      judge: unknownJudge ? { providerId: "shared", model: null }
+        : { providerId: "shared", model: completionModel, pinModel: completionModel },
+      escalation: { providerId: "shared", model: completionModel, pinModel: completionModel, auto: true, replace: true, maxUsd: 1 },
+    }),
+    ...(withTeam ? { resolveFusionTeam: () => ({
+      team: { directors: ["shared:strong"], reviewers: ["shared:strong", "other:reviewer"] },
+      fusion: {}, familyOf: member => member.providerId === "shared" ? "openai" as const : "other" as const, reachable: () => true, pinsModel: () => true,
+    }), currentReviewer: () => ({ providerId: "shared", model: completionModel, ref: "shared:strong" }) } : {}),
+    workerSupportsSlotAffinity: () => false,
+    warmWorkerBackend: async () => {},
+    outputCharCap: 4000,
+    logger,
+    resolveWorkerPricing: () => PRICING,
+    resolveWorkerAdmissionPricing: () => PRICING,
+    escalationComplete: async ({ providerId, model, prompt }) => {
+      if (prompt.startsWith("You are advising")) return { content: "Try a different approach" };
+      reviews.push(`${providerId}:${model}`);
+      return { content: '{"decision":"accept","issues":[]}', ...(model === undefined ? {} : { model }) };
+    },
+    steerWorker: () => true,
+  };
+  const result = await buildFusionDelegateTool(d).run(
+    { tasks: [{ id: "w", instructions: "Review the report" }] },
+    { workingDir: "/repo", sessionId: "s-parent", stepIndex: 0, signal: new AbortController().signal },
+  );
+  expect(turns).toEqual(["small", "strong"]);
+  expect(reviews).toEqual(withTeam ? ["other:reviewer"] : []);
+  if (!withTeam) expect(result.details.tasks).toMatchObject([
+    { judge: { unverified: expect.stringContaining("independent") } },
+  ]);
+});
