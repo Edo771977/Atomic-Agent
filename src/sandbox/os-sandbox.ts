@@ -6,7 +6,7 @@
  */
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -50,6 +50,7 @@ export interface OsSandboxPolicy {
   /** Folders the command may write under (working folders first). */
   writableRoots: readonly string[];
   readOnlyGitRoots: readonly string[];
+  readOnlyWorkspaceRoots: readonly string[];
   /**
    * Folders and files the command may not read (credential stores,
    * agent state). Each one is listed both as named and, when it is a
@@ -71,6 +72,8 @@ export interface OsSandboxPolicyInput {
    * argument is what the sandbox distrusts, so it must not widen it.
    */
   workspaceRoots: readonly string[];
+  readOnlyWorkspaceRoots?: readonly string[];
+  gitMetadataWritable?: boolean;
   /** The agent's state directory (`config.paths.stateDir`). */
   stateDir?: string;
   /** Configured state files stored outside the main state directory. */
@@ -136,6 +139,34 @@ function bothSpellings(path: string): string[] {
 
 function unique(paths: readonly string[]): string[] {
   return [...new Set(paths)];
+}
+
+/** Recompute metadata on every shell launch, including repositories created since startup. */
+function gitMetadata(roots: readonly string[]): string[] {
+  const readonly = new Set<string>();
+  const pending = roots.filter(isDirectory);
+  let visited = 0;
+  while (pending.length > 0) {
+    if (++visited > 50_000) throw new Error("Safe Mode: workspace Git metadata scan exceeded its directory limit");
+    const dir = pending.pop()!;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name);
+      if (entry.name !== ".git") {
+        if (entry.isDirectory()) pending.push(path);
+        continue;
+      }
+      const location = real(path);
+      if (roots.some(root => contains(root, location))) readonly.add(location);
+      if (entry.isFile() && lstatSync(path).size <= 4096) {
+        const pointer = /^gitdir: (.+)/m.exec(readFileSync(path, "utf8"))?.[1]?.trim();
+        if (pointer !== undefined) {
+          const gitdir = canonicalFuturePath(resolve(dir, pointer));
+          if (roots.some(root => contains(root, gitdir)) && isDirectory(gitdir)) readonly.add(gitdir);
+        }
+      }
+    }
+  }
+  return [...readonly];
 }
 
 /** The policy for one command run from the trusted working folders. */
@@ -205,8 +236,9 @@ export function buildOsSandboxPolicy(
     privateRoots.some(path => contains(nodeDirectory, path)) ? node : nodeDirectory,
     ...declared.filter(isAbsolute).map(real).filter(path => !privateRoots.some(root => contains(path, root))),
   ]);
-  const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
-  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
+  const readOnlyWorkspaceRoots = unique((input.readOnlyWorkspaceRoots ?? []).map(path => real(resolve(path))));
+  const readOnlyGitRoots = input.gitMetadataWritable ? [] : gitMetadata(work);
+  return { writableRoots, readOnlyGitRoots, readOnlyWorkspaceRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -248,9 +280,13 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
   lines.push('(deny file-read* (subpath (param "HOME_ROOT")))');
   const readable = [
     ...policy.writableRoots.map((_, i) => `(subpath (param "W${i}"))`),
+    ...policy.readOnlyWorkspaceRoots.map((_, i) => `(subpath (param "I${i}"))`),
     ...policy.toolchainRoots.map((_, i) => `(subpath (param "T${i}"))`),
   ];
   if (readable.length > 0) lines.push(`(allow file-read* ${readable.join(" ")})`);
+  if (policy.readOnlyWorkspaceRoots.length > 0) {
+    lines.push(`(deny file-write* ${policy.readOnlyWorkspaceRoots.map((_, i) => `(subpath (param "I${i}"))`).join(" ")})`);
+  }
   if (policy.readOnlyGitRoots.length > 0) {
     lines.push(`(deny file-write* ${policy.readOnlyGitRoots.map((_, i) => `(subpath (param "G${i}"))`).join(" ")})`);
   }
@@ -276,6 +312,7 @@ function seatbeltArgs(
   args: readonly string[],
 ): string[] {
   const params: string[] = ["-D", `HOME_ROOT=${policy.home}`];
+  policy.readOnlyWorkspaceRoots.forEach((dir, i) => params.push("-D", `I${i}=${dir}`));
   policy.toolchainRoots.forEach((dir, i) => params.push("-D", `T${i}=${dir}`));
   policy.writableRoots.forEach((dir, i) => params.push("-D", `W${i}=${dir}`));
   policy.readOnlyGitRoots.forEach((dir, i) => params.push("-D", `G${i}=${dir}`));
@@ -353,6 +390,7 @@ function bwrapArgs(
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
+  for (const path of policy.readOnlyWorkspaceRoots) out.push("--ro-bind", path, path);
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
   out.push("--proc", "/proc");
   for (const path of unique(policy.denyRead.map(real))) {
@@ -409,6 +447,10 @@ export function wrapWithOsSandbox(
   }
   if (policy.writableRoots.some(root => policy.protectedParents.some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a configured protected path overlaps a writable workspace root" };
+  }
+  if (policy.readOnlyWorkspaceRoots.some(root => [policy.home, ...policy.maskedHomes].some(home => contains(root, home)) || contains(root, policy.stateDir) ||
+    contains(policy.stateDir, root) || policy.protectedParents.some(path => contains(root, path) || contains(path, root)))) {
+    return { ok: false, reason: "a read-only input root overlaps protected host data" };
   }
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);

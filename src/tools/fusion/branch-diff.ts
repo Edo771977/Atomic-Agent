@@ -1,4 +1,4 @@
-import { sandboxGitArgs, sandboxGitEnv } from "../../sandbox/sandbox-git.js";
+import { sandboxGitArgs, sandboxGitEnv, runSandboxGit } from "../../sandbox/sandbox-git.js";
 /**
  * What an isolated task changed, as a unified diff against the snapshot
  * its workspace started from (branch isolation, ATO-946).
@@ -23,7 +23,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { dirname, join, sep } from "node:path";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
-import { runCommand, type CommandResult } from "../../sandbox/command-runner.js";
+import { type CommandResult } from "../../sandbox/command-runner.js";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { ambientTempCopyOwner, writeTempCopyMarker } from "../read-scope/temp-copy-sources.js";
 import {
@@ -190,7 +190,7 @@ export async function removeTaskPatch(realDir: string, taskId: string): Promise<
 /** Runs git for the patch; resolves `null` when git is not there to run. */
 export type PatchGit = (
   args: readonly string[],
-  options: { cwd: string; env: Record<string, string>; input?: string; signal?: AbortSignal },
+  options: { cwd: string; env: Record<string, string>; readOnlyRoots?: readonly string[]; input?: string; signal?: AbortSignal },
 ) => Promise<CommandResult | null>;
 
 const PATCH_GIT_TIMEOUT_MS = 120_000;
@@ -203,7 +203,7 @@ const PATCH_MAX_BYTES = 64 * 1024 * 1024;
 export const defaultPatchGit: PatchGit = async (args, options) => {
   options.signal?.throwIfAborted();
   try {
-    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
+    return await runSandboxGit(["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
       cwd: options.cwd,
       env: sandboxGitEnv({
         ...buildCommandEnv(process.env),
@@ -218,7 +218,7 @@ export const defaultPatchGit: PatchGit = async (args, options) => {
       ...(options.signal === undefined ? {} : { signal: options.signal }),
       timeoutMs: PATCH_GIT_TIMEOUT_MS,
       maxOutputBytes: PATCH_MAX_BYTES,
-    });
+    }, options.readOnlyRoots);
   } catch {
     return null;
   }
@@ -281,7 +281,7 @@ export async function gitBinaryPatch(
         const chunk = entries.slice(i, i + 100);
         const hashed = await git(
           ["hash-object", "-w", "--no-filters", "--", ...chunk.map((e) => e.file)],
-          { cwd: store, env },
+          { cwd: store, env, readOnlyRoots: [root] },
         );
         if (!ran(hashed)) return null;
         const shas = hashed.stdout.trim().split("\n");

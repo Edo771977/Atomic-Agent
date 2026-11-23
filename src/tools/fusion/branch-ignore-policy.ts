@@ -1,9 +1,9 @@
-import { sandboxGitArgs, sandboxGitEnv } from "../../sandbox/sandbox-git.js";
+import { sandboxGitArgs, sandboxGitEnv, runSandboxGit } from "../../sandbox/sandbox-git.js";
 import { lstat, mkdir, readdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
-import { runCommand, type CommandResult } from "../../sandbox/command-runner.js";
+import { type CommandResult } from "../../sandbox/command-runner.js";
 import { VERIFY_COPY_EXCLUDED } from "../verify/verify-workspace-copy.js";
 
 export type IgnoreGit = (
@@ -16,7 +16,7 @@ export type DirectoryIgnorePolicy = (paths: readonly string[], signal?: AbortSig
 const defaultIgnoreGit: IgnoreGit = async (args, options) => {
   options.signal?.throwIfAborted();
   try {
-    return await runCommand("git", ["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
+    return await runSandboxGit(["--no-pager", "-c", "core.hooksPath=/dev/null", ...sandboxGitArgs(), ...args], {
       ...options,
       env: sandboxGitEnv({
         ...Object.fromEntries(Object.entries(buildCommandEnv(process.env)).filter(([name]) => options.env === undefined || !/^GIT_/i.test(name))),
@@ -24,7 +24,7 @@ const defaultIgnoreGit: IgnoreGit = async (args, options) => {
       }),
       timeoutMs: 120_000,
       maxOutputBytes: 32 * 1024 * 1024,
-    });
+    }, [], options.env?.GIT_DIR ? [options.cwd, dirname(options.env.GIT_DIR)] : undefined);
   } catch { return null; }
 };
 

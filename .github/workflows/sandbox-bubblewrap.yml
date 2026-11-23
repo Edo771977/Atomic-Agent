@@ -41,7 +41,7 @@ jobs:
           export PATH="$fixtures/bin:$PATH"
           export ATOMIC_AGENT_REQUIRE_BWRAP=1
           export ATOMIC_AGENT_TEST_RUNTIME_ROOTS="/run/$tag:/var/run/$tag:/run/lock/$tag"
-          args=(run src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
+          args=(run src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
           if [[ "$TEST_MODE" == root ]]; then
             sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           else

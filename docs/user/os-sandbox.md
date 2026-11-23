@@ -35,3 +35,5 @@ On Linux, other conventional home directories, root's home and privileged accoun
 
 The active Node installation is available read-only even under the private temporary mount. Operators can declare additional read-only toolchain directories with ATOMIC_AGENT_SANDBOX_TOOLCHAINS, using the platform PATH separator. Entire private roots and their ancestors cannot be reopened this way.
 Safe Mode does not import identity from the host Git configuration file. Git commits use the explicit GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL environment values or identity set in the repository. Configure those values explicitly for a commit that needs them.
+
+Safe Mode routes host Git tools and Fusion Git subprocesses through the same OS wrapper and refuses launch if the backend cannot apply it. Git metadata writes by these tools stay within authorized roots. Shell commands protect existing scoped Git metadata, including nested repositories and in-scope separate gitdirs, rediscovered before each launch. External gitdirs receive no writable mount and can be unavailable under a masked tree. Remote Git tool commands use the offline sandbox policy.
