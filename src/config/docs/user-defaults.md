@@ -143,6 +143,10 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 
 - `network.offline` (default `false`): offline mode. Every outbound connection to a host other than this machine (`localhost`, `127.0.0.0/8`, `::1`) is refused; local models keep working. `ATOMIC_AGENT_OFFLINE=1` turns it on for one process. Shell commands and stdio MCP servers are not isolated ([offline mode](../../llm/docs/offline-network.md)).
 
+## privacy
+
+- `privacy.shield.enabled` (default `false`): Privacy Shield. Emails, phone numbers, card numbers, IBANs and keys in a request to a cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply and in tool calls on this machine. Auto skips local-looking endpoints. Use provider-level `privacy.shield: "on"` for a gateway forwarding to the cloud ([privacy shield](../../privacy/README.md)).
+
 ## sessions
 
 - `sessions.retention.enabled` (default `false`).

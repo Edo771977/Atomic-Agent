@@ -1,3 +1,4 @@
+import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -396,6 +397,40 @@ export function createRuntimeTurnService(
    * (`SessionStore.beginTurn`). Bookkeeping only: a mark that cannot be
    * written must not stop the turn.
    */
+  const pendingArchiveCalls = new Map<string, Set<Promise<void>>>();
+  const trackArchiveCall = (id: string, call: Promise<void> | undefined): void => {
+    if (!call) return;
+    const calls = pendingArchiveCalls.get(id) ?? new Set<Promise<void>>();
+    pendingArchiveCalls.set(id, calls);
+    calls.add(call);
+    const settled = () => {
+      calls.delete(call);
+      if (calls.size === 0) pendingArchiveCalls.delete(id);
+    };
+    void call.then(settled, settled);
+  };
+
+  const releaseCompletedArchive = (state: SessionState): void => {
+    const pending = pendingArchiveCalls.get(state.id);
+    if (!pending?.size) {
+      forgetPrivacyVault(state.id);
+      return;
+    }
+    const release = pinPrivacyVault(state.id);
+    void Promise.allSettled(pending).then(() => {
+      if (lifecycle.isShutdown()) {
+        forgetPrivacyVault(state.id);
+        return;
+      }
+      const current = sessionStore.load(state.id);
+      if (!current || (current.status === "completed" && current.turnCount === state.turnCount)) {
+        forgetPrivacyVault(state.id);
+      }
+    }).catch(() => {
+      // The store can close while side calls settle.
+    }).finally(release);
+  };
+
   const markTurnRunning = (sessionId: string, progress: TurnProgress): void => {
     try {
       sessionStore.beginTurn(sessionId, progress.startedAt, progress);
@@ -771,6 +806,7 @@ export function createRuntimeTurnService(
           // occupancy under its id; nothing persists it, so drop it.
           traces.clearContextUsage(session.id);
           // A worker's turn is its whole life: nothing waits on its jobs.
+          forgetPrivacyVault(session.id);
           shellJobs.endSession(session.id);
           SHARED_URL_SEND_SITES.clearSession(session.id);
           // A throwaway worker must not keep its server slot pinned.
@@ -1022,14 +1058,15 @@ export function createRuntimeTurnService(
           !isIncognitoSession(finished) &&
           shouldNameSession(finished)
         ) {
-          void nameSession(finished);
+          trackArchiveCall(session.id, nameSession(finished));
         }
         // Same contract as naming: fire-and-forget, never after a budget stop.
         if (!stoppedForMoney(result.stopCause)) {
-          nextStep.maybeSuggest(finished, runOptions.origin);
+          trackArchiveCall(session.id, nextStep.maybeSuggest(finished, runOptions.origin));
         }
         // `finish` ended the whole session: its kept jobs go with it.
         if (finished.status === "completed") {
+          releaseCompletedArchive(finished);
           shellJobs.endSession(session.id);
           SHARED_URL_SEND_SITES.clearSession(session.id);
         }
@@ -1115,8 +1152,14 @@ export function createRuntimeTurnService(
       sessionId: session.id,
     });
   };
-  const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
-    inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+  const executeTurn: typeof executeTurnInPolicy = async (session, userMessage, runOptions) => {
+    const release = pinPrivacyVault(session.id);
+    try {
+      return await inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+    } finally {
+      release();
+    }
+  };
 
   // ATO-646: every turn, whatever its origin, counted and timed for
   // `/metrics`. Timed from the queue's hand-over, so the wait behind

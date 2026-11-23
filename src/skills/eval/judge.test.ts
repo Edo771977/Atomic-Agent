@@ -157,3 +157,17 @@ describe("createSkillEvalJudge", () => {
     expect((fetchImpl.mock.calls[0] as unknown as [string])[0]).toBe("http://127.0.0.1:8080/v1/chat/completions");
   });
 });
+
+it("masks the direct cloud judge prompt and restores the JSON verdict", async () => {
+  const email = "judge-fixture@example.test";
+  const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+    expect(String(init?.body)).not.toContain(email);
+    expect(String(init?.body)).toContain("[EMAIL_1]");
+    return Response.json({ choices: [{ message: { content: '{"score":5,"reason":"[EMAIL_1]"}' } }] });
+  });
+  const judge = createSkillEvalJudge({
+    kind: "http", baseUrl: "https://judge.example/v1", model: "m", apiKey: "k", timeoutMs: 1000,
+  }, { fetchImpl, privacyShieldEnabled: true });
+  expect(await judge.score({ prompt: email, reply: "r", rubric: "q", reference: null }))
+    .toEqual({ score: 5, reason: email, parseFallback: false });
+});
