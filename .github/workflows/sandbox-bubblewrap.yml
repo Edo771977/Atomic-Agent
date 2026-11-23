@@ -15,6 +15,10 @@ jobs:
   bubblewrap:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [normal, root]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,7 +27,23 @@ jobs:
           cache: npm
       - run: sudo apt-get update && sudo apt-get install -y bubblewrap
       - run: npm ci
-      - name: Run real Bubblewrap fixtures as root
+      - name: Run real Bubblewrap fixtures with a temporary Node installation
+        env:
+          TEST_MODE: ${{ matrix.mode }}
         run: |
-          sudo env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "$(command -v node)" \
-            node_modules/vitest/vitest.mjs run src/sandbox/os-sandbox.test.ts src/tools/os/shell/shell-sandbox.test.ts
+          fixtures=$(mktemp -d /tmp/atomic-bwrap-ci.XXXXXX)
+          tag="atomic-bwrap-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          trap 'sudo rm -rf "$fixtures" "/run/$tag" "/run/lock/$tag"' EXIT
+          mkdir "$fixtures/bin"
+          cp "$(command -v node)" "$fixtures/bin/node"
+          chmod 0755 "$fixtures" "$fixtures/bin"
+          sudo install -d -m 0700 -o "$(id -un)" "/run/$tag" "/run/lock/$tag"
+          export PATH="$fixtures/bin:$PATH"
+          export ATOMIC_AGENT_REQUIRE_BWRAP=1
+          export ATOMIC_AGENT_TEST_RUNTIME_ROOTS="/run/$tag:/var/run/$tag:/run/lock/$tag"
+          args=(run src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
+          if [[ "$TEST_MODE" == root ]]; then
+            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
+          else
+            "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
+          fi

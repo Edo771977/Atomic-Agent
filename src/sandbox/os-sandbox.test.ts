@@ -300,3 +300,11 @@ it("round 3 point 6: disables nested user namespaces when Bubblewrap supports it
   });
   expect(wrapped.ok && wrapped.args).toContain("--disable-userns");
 });
+
+it("round 3 point 7: reopens Node installed under the private tmp mount", () => {
+  const scoped = buildOsSandboxPolicy({
+    workspaceRoots: [], home: HOME, nodeExecutable: "/tmp/fixture-node/bin/node",
+    toolchainDirectories: ["/fixture/toolchain"], network: false,
+  });
+  expect(scoped.toolchainRoots).toEqual(expect.arrayContaining(["/tmp/fixture-node/bin", "/fixture/toolchain"]));
+});

@@ -8,7 +8,7 @@ import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
@@ -78,6 +78,8 @@ export interface OsSandboxPolicyInput {
   network: boolean;
   home?: string;
   tmp?: string;
+  nodeExecutable?: string;
+  toolchainDirectories?: readonly string[];
 }
 
 /**
@@ -195,11 +197,14 @@ export function buildOsSandboxPolicy(
     }
   }
   const denyRead = unique(secret);
-  // The running Node installation is the only home-local toolchain reopened.
-  const node = real(process.execPath);
-  const offset = relative(home, node);
-  const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
-    ? [dirname(node)] : [];
+  const node = real(input.nodeExecutable ?? process.execPath);
+  const nodeDirectory = dirname(node);
+  const privateRoots = ["/tmp", "/var/tmp", "/run", home, ...maskedHomes];
+  const declared = input.toolchainDirectories ?? (process.env.ATOMIC_AGENT_SANDBOX_TOOLCHAINS ?? "").split(delimiter);
+  const toolchainRoots = unique([
+    privateRoots.some(path => contains(nodeDirectory, path)) ? node : nodeDirectory,
+    ...declared.filter(isAbsolute).map(real).filter(path => !privateRoots.some(root => contains(path, root))),
+  ]);
   const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
   return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
 }
