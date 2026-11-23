@@ -24,3 +24,10 @@ it("closes stdin after consuming the line without waiting for EOF", async () => 
   expect(await result).toEqual({ key: "synthetic-pipe-key-value" });
   expect(input.destroyed).toBe(true);
 });
+
+it("rejects terminal input before the terminal can echo a key", async () => {
+  const input = Object.assign(new PassThrough(), { isTTY: true });
+  const result = readServeKeyFromStdin(input);
+  input.end("synthetic-terminal-key\n");
+  await expect(result).resolves.toEqual({ error: "--api-key-stdin requires a pipe, not a terminal" });
+});

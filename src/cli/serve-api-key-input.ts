@@ -56,6 +56,9 @@ export function readServeKeyFromStdin(
   timeoutMs = STDIN_TIMEOUT_MS,
 ): Promise<KeyInput> {
   const input = stream ?? process.stdin;
+  if ("isTTY" in input && input.isTTY === true) {
+    return Promise.resolve({ error: "--api-key-stdin requires a pipe, not a terminal" });
+  }
   const original = stream === undefined ? stdinIdentity() : undefined;
   return new Promise(resolve => {
     const parts: Buffer[] = [];
