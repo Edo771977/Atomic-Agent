@@ -72,18 +72,25 @@ describe("native tool schemas in the local step budget (ATO-1678)", () => {
     expect(prompt.tokens.toolSchema).toBe(expected);
   });
 
-  it("keeps the stable prefix byte-identical across a regular and restricted terminal step", () => {
+  it("keeps the conversation cut and stable prefix across a restricted terminal step", () => {
     const { ctx, deps } = fixture("native_tools");
-    const first = prepareStepInference(ctx, deps).prompt;
+    ctx.session = { ...ctx.session, turns: Array.from({ length: 100 }, (_, i) => [
+      { kind: "user" as const, at: i * 2, text: `Message ${i}: ${"history ".repeat(180)}` },
+      { kind: "assistant_reply" as const, at: i * 2 + 1, text: `Answer ${i}` },
+    ]).flat() };
+    const first = prepareStepInference(ctx, deps);
     const terminal = prepareStepInference({
       ...ctx,
       stepIndex: ctx.stepIndex + 1,
       terminalOnly: true,
       toolSet: { names: ["reply"], reason: "Final report" },
-    }, deps).prompt;
-    expect(terminal.tokens.toolSchema).toBeGreaterThan(0);
-    expect(terminal.tokens.toolSchema!).toBeLessThan(first.tokens.toolSchema!);
-    expect(Buffer.from(terminal.stablePrefix)).toEqual(Buffer.from(first.stablePrefix));
+    }, deps);
+    expect(terminal.llmParams.tools!.length).toBeLessThan(first.llmParams.tools!.length);
+    expect(terminal.prompt.tokens.toolSchema).toBe(first.prompt.tokens.toolSchema);
+    expect(terminal.prompt.conversationCapEffective).toBe(first.prompt.conversationCapEffective);
+    expect(first.prompt.conversationPackStart).not.toBeNull();
+    expect(terminal.prompt.conversationPackStart).toEqual(first.prompt.conversationPackStart);
+    expect(Buffer.from(terminal.prompt.stablePrefix)).toEqual(Buffer.from(first.prompt.stablePrefix));
   });
 
   it("preserves prompt bytes when a native link has no tools to send", () => {

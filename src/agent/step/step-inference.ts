@@ -112,10 +112,13 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
       completionMaxTokens: ctx.maxTokens ?? ctx.maxOutputTokens ?? localModels.completionMaxTokens,
     } : {}),
     // The `tools` array a native-tools link sends beside the text takes
-    // window room in every model mode (ATO-1678): a local link (Ollama,
-    // LM Studio, a Fusion worker leg) was budgeted without it.
+    // window room in every model mode. Local packing holds the role's
+    // reserve steady when a terminal or restricted step narrows the wire.
     ...(deps.toolTransport === "native_tools" ? {
-      toolSchemaTokens: nativeToolSchemaTokens(stepDescriptors, deps),
+      toolSchemaTokens: nativeToolSchemaTokens(
+        deps.modelMode?.mode === "cloud" ? stepDescriptors : roleToolDescriptors,
+        deps,
+      ),
     } : {}),
     // An unbounded turn still falls back to the configured packing reserve.
     ...(reasoningBound !== undefined ? { reasoningBudgetTokens: reasoningBound } : {}),
@@ -191,7 +194,7 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
         }
       : {}),
   };
-  return { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, stepToolDescriptors, compactDecision, personaResolution };
+  return { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, roleToolDescriptors, stepToolDescriptors, compactDecision, personaResolution };
 }
 
 /**
@@ -226,7 +229,7 @@ export function nativeToolSchemaTokens(
 
 export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
   if (!ctx.workspace) refreshStepWorkspace(ctx, deps);
-  const { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, stepToolDescriptors, compactDecision, personaResolution } = prepareStepPrompt(ctx, deps);
+  const { promptInput, thinkingOff, promptCarriesPrefill, serverTemplate, stepDescriptors, roleToolDescriptors, stepToolDescriptors, compactDecision, personaResolution } = prepareStepPrompt(ctx, deps);
   const prompt = buildPrompt(promptInput);
   if (prompt.cloudContext) ctx.session = { ...ctx.session, cloudContext: prompt.cloudContext };
   // A grammar (llama-server) fallback link behind a native-tools primary
@@ -441,7 +444,12 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
       delete linkPromptInput.compactPromptWindow;
       const next = buildPrompt({ ...linkPromptInput, session: ctx.session, modelMode: link.modelMode,
         toolTransport: link.transport, contextWindow: link.contextWindow, profileWindowApplies: false,
-        toolSchemaTokens: link.transport === "native_tools" ? nativeToolSchemaTokens(linkDescriptors, linkDeps) : 0,
+        toolSchemaTokens: link.transport === "native_tools"
+          ? linked?.promptInput.toolSchemaTokens ?? nativeToolSchemaTokens(
+            link.modelMode.mode === "cloud" ? linkDescriptors : roleToolDescriptors,
+            linkDeps,
+          )
+          : 0,
         suppressReasoningPrefill: link.transport === "native_tools" || template.useServerTemplate,
         completionMaxTokens: link.maxTokens ?? ctx.maxOutputTokens ?? getConfig().localModels.completionMaxTokens,
       });
