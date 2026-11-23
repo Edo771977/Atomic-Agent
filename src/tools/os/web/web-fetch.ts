@@ -35,6 +35,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 import { describeChallenge, detectChallenge } from "./web-fetch-challenge.js";
 import {
   checkUrlSend,
+  findUrlData,
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
   requireUrlSendApproval,
@@ -284,6 +285,7 @@ export function buildOsWebFetchTool(
       if (challenge.challenged) {
         // ATO-968: the agent's own browser, then the readers the user
         // turned on. Only a page they actually read replaces the wall.
+        const dataBearing = findUrlData(args.url) !== null || findUrlData(outcome.finalUrl) !== null;
         const ladder = await readPastWall({
           url: outcome.finalUrl,
           timeoutMs: args.timeoutMs,
@@ -300,9 +302,9 @@ export function buildOsWebFetchTool(
           ...(options.renderPage ? { renderPage: options.renderPage } : {}),
           ...(options.lookup ? { lookup: options.lookup } : {}),
           ...(options.env ? { env: options.env } : {}),
-          ...(options.egressRefusal
-            ? { stepRefusal: (via: "browser" | "jina" | "firecrawl") => options.egressRefusal!(ctx.sessionId, webFetchStepEgress(via)) }
-            : {}),
+          stepRefusal: (via) => dataBearing
+            ? "fallback disabled for a data-bearing URL"
+            : options.egressRefusal?.(ctx.sessionId, webFetchStepEgress(via)) ?? null,
         });
         if (ladder.page === null) {
           const tried =
