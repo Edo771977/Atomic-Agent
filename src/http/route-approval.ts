@@ -114,10 +114,20 @@ export function createResolveApprovalHandler(): HttpHandler {
       return;
     }
     const { approved, grant } = parsed;
+    const pending = ctx.runtime.approvals.pendingRequest(approvalId);
+    const role = ctx.caller?.role;
+    if (approved && role === "operator" && (grant === "always" || pending?.category === "trust_config")) {
+      sendError(res, 403, openaiError(
+        "This approval requires the admin scope",
+        "permission_error",
+        null,
+        "insufficient_scope",
+      ));
+      return;
+    }
     if (approved) {
       // An `ask_user` question (ATO-489) is answered with a choice, not an
       // Allow: a bare approve would reach the model as no answer at all.
-      const pending = ctx.runtime.approvals.pendingRequest(approvalId);
       if (pending?.category === "user_question") {
         sendError(
           res,

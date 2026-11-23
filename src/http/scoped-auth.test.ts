@@ -269,3 +269,26 @@ it("passes the named actor into both chat turns and accepted steers", async () =
     await h.cleanup();
   }
 });
+
+it("requires admin for persistent and trust-config approvals, without consuming them", async () => {
+  const h = await startTestHarness({ apiKey: KEY, approvalLevel: 1, namedTokens: () => ALL });
+  try {
+    for (const [category, decision] of [["shell", "allow-always"], ["trust_config", "allow-once"]] as const) {
+      const pending = h.runtime.approvals.request({
+        sessionId: "s-admin-approval", tool: "os.shell.run", category, reason: "test",
+        commandShape: "git", commandArgv: ["git", "status"], workdir: h.workingDir,
+        approvalId: category,
+      });
+      const resolve = (role: HttpRole) => fetch(h.baseUrl + "/api/approval/resolve", {
+        method: "POST", headers: { ...bearer(TOKENS[role]), "content-type": "application/json" },
+        body: JSON.stringify({ approvalId: category, decision }),
+      });
+      expect((await resolve("operator")).status).toBe(403);
+      expect(h.runtime.approvals.isPending(category)).toBe(true);
+      expect((await resolve("admin")).status).toBe(200);
+      expect((await pending).approved).toBe(true);
+    }
+  } finally {
+    await h.cleanup();
+  }
+});
