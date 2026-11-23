@@ -41,7 +41,7 @@ export function projectLessonPanel(
   const unavailable = (blocked: string) => ({ panel: { rows: [], problems: [], blocked } });
   if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.");
   const ref = readProjectRef(session);
-  if (!ref) return unavailable("Open the project in a regular chat before deciding a lesson.");
+  if (!ref) return unavailable("Lessons require a chat bound to a saved project.");
   const records = stateDirProjectRecords(stateDir);
   const read = records.read(ref.folder);
   if (!read.ok) return unavailable(read.problem.message);

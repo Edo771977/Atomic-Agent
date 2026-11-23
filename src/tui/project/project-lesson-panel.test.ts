@@ -23,7 +23,7 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true, symlink = false } = {}) {
+function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true, symlink = false, bound = true } = {}) {
   const folder = mkdtempSync(join(tmpdir(), "aa-lessons-tui-"));
   roots.push(folder);
   const refFolder = symlink ? join(folder, "alias") : folder;
@@ -52,7 +52,7 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
   const liveProjectTurn = vi.fn(() => otherChatBusy ? "s2" : null);
   const app = Object.assign(Object.create(ChatOrchestrator.prototype), {
     currentController: busy ? {} : null,
-    session: { id: "s1", projectRef: { folder: refFolder, id: "project" }, ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
+    session: { id: "s1", ...(bound ? { projectRef: { folder: refFolder, id: "project" } } : {}), ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
     runtime: { config: { paths: { stateDir } }, sessionStore: { liveProjectTurn } },
     bus: { emit: dispatch },
     sendMessage,
@@ -78,6 +78,13 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
 }
 
 describe("project lessons in the TUI", () => {
+  it("explains the bound-project requirement and restores the gate key help", () => {
+    const f = fixture({ bound: false });
+    expect(f.text()).toContain("enter or letter choose");
+    f.press("v");
+    expect(f.text()).toContain("Lessons require a chat bound to a saved project.");
+  });
+
   it("keeps a pending gate decision in the card when a lesson listing arrives", () => {
     const f = fixture();
     f.dispatch({ type: "project_card_pending" });

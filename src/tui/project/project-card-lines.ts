@@ -299,7 +299,7 @@ export function projectCardLines(card: ProjectCardState, inner: number, turnRunn
   });
   out.push({ segments: buttons });
   const backlogHint = backlogIds(view).length ? " b Backlog ·" : "";
-  out.push(line(card.pending ? " deciding…" : " v Lessons ·" + backlogHint + " ←→ move · enter choose · esc put away (/plan reopens)", "muted"));
+  out.push(line(card.pending ? " deciding…" : " v Lessons ·" + backlogHint + " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
   return out;
 }
 
