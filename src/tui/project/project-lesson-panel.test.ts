@@ -315,6 +315,29 @@ describe("project lessons in the TUI", () => {
     expect(f.text()).not.toContain(character);
   });
 
+  it("escapes invisible title, origin and touched paths even in a preloaded lesson view", () => {
+    const f = fixture();
+    const id = "storage";
+    const hash = "0".repeat(64);
+    f.dispatch({
+      type: "project_card_lessons_loaded", sessionId: "s1", panel: {
+        rows: [{ id, hash, hasChoice: false,
+          status: { personState: null, approvedByPerson: false, effectiveStatus: "unapproved", stale: false },
+          lesson: {
+            id, hash, title: "Title\u202Eend", from: "run\u{E0061}end", touches: ["src/\u2060path"], always: true,
+            declaredStatus: "active", approvedByPerson: false, source: "person",
+            sections: { decided: "", triedAndRuledOut: "", watchOut: "" },
+          },
+        }], problems: [],
+      },
+    });
+    f.press("", { return: true });
+    expect(f.text()).toContain("Title\\u{202E}end");
+    expect(f.text()).toContain("run\\u{E0061}end");
+    expect(f.text()).toContain("src/\\u{2060}path");
+    expect(f.text()).not.toMatch(/[\u202E\u2060\u{E0061}]/u);
+  });
+
   it("neutralizes terminal control characters in every author field shown", () => {
     const f = fixture();
     f.write("storage", "active", "before\x1b]52;c;AAAA\x07after\x9b2J");

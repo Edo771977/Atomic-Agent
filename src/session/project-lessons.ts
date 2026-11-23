@@ -56,7 +56,22 @@ function rejectInvisibleLessonText(text: string): void {
 
 function parseLessonText(text: string) {
   rejectInvisibleLessonText(text);
-  return frontMatter(text.split(/\r?\n/));
+  const parsed = frontMatter(text.split(/\r?\n/));
+  // Double-quoted scalars can encode invisible characters using JSON escapes.
+  // Consume single-quoted scalars whole so literal quotes inside them stay literal.
+  const decoded: string[] = [];
+  for (const raw of parsed.fields.values()) {
+    for (const [token] of raw.matchAll(/"(?:[^"\\]|\\.)*"|'(?:[^']|'')*'/g)) {
+      if (!token.startsWith('"')) continue;
+      try {
+        decoded.push(JSON.parse(token) as string);
+      } catch {
+        // The field reader reports invalid quoting with the field name.
+      }
+    }
+  }
+  rejectInvisibleLessonText(decoded.join("\n"));
+  return parsed;
 }
 
 // Flat YAML subset. Quotes protect hashes and list separators. See the session README.
