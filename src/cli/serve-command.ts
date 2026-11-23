@@ -94,8 +94,8 @@ export async function serveCommand(args: string[]): Promise<number> {
   let handle: HttpServerHandle | null = null;
   let releaseRecord: (() => void) | null = null;
   let orphanWatch: OrphanWatch | null = null;
-  let tunnel: WebhookTunnel | null = null;
   let memoryGuard: ServeMemoryGuard | null = null;
+  let tunnel: WebhookTunnel | null = null;
   try {
     runtime = await createAgentRuntime({
       workingDir: parsed.workingDir,

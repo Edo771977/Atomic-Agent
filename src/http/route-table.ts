@@ -102,10 +102,10 @@ import {
 } from "./route-mcp.js";
 import { createTelegramPairingHandlers } from "./route-telegram-pairing.js";
 import { createSetActiveLlmHandler } from "./route-llm-active.js";
+import { createLocalModelsTextHandler } from "./route-local-models.js";
 import { createPanelPageHandler, createPanelScriptHandler } from "./route-panel.js";
 import { createSetSessionWorkingDirHandler } from "./session-working-dir.js";
 import { createRestoreFileHandler } from "./route-fs-restore.js";
-import { createLocalModelsTextHandler } from "./route-local-models.js";
 import { createReconnectMemoryEmbeddingsHandler } from "./route-memory-embeddings.js";
 import {
   createDeleteMemoryNoteHandler,
