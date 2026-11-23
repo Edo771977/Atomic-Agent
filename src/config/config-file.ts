@@ -51,9 +51,12 @@ export function getDotenvPath(stateDir: string): string {
 export function getTrustConfigPaths(paths: {
   userConfigFile: string;
   stateDir: string;
+  localModelsDataDir: string;
 }): readonly string[] {
   return [
     paths.userConfigFile,
+    join(paths.localModelsDataDir, "llama-server.key"),
+    join(paths.stateDir, "serve-api.key"),
     getDotenvPath(paths.stateDir),
     // Opt-in OS keychain switch and the names it holds (ATO-474).
     join(paths.stateDir, SECRETS_STORE_FILE),
@@ -80,9 +83,7 @@ export function isTrustDirectoryEntry(entry: string): boolean {
 
 /**
  * Every file in the agent's state that holds a secret or the trust
- * config: the trust surface above, plus the bearer key the managed
- * llama-server is launched with (`resolveApiKeyFilePath`), the API key
- * `serve` generated for itself (`serveApiKeyPath`), the session
+ * config: the trust surface above (including the server keys), plus the session
  * records Atomic Chat Core writes with their per-session key
  * (`coreSessionPath`), the cached Atomic Mail session
  * (`resolveSessionPath`) and the folder of saved prompt caches
@@ -103,8 +104,6 @@ export function getStateSecretPaths(paths: {
 }): readonly string[] {
   return [
     ...getTrustConfigPaths(paths),
-    join(paths.localModelsDataDir, "llama-server.key"),
-    join(paths.stateDir, "serve-api.key"),
     join(paths.localModelsDataDir, "core", "chat.json"),
     join(paths.localModelsDataDir, "core", "embedding.json"),
     join(paths.stateDir, "atomic-mail", "session.json"),

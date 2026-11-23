@@ -286,6 +286,13 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(innerReads + innerShells).toBe(0);
   });
 
+  it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
+    answer = { approved: false };
+    await expect(shell({ cmd, args: [...(cmd === "sed -i" ? ["s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
+  });
+
   afterEach(() => {
     rmSync(s.home, { recursive: true, force: true });
   });

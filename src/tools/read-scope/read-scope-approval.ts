@@ -203,6 +203,7 @@ export class ReadOutsideApprover {
     ctx: ScopedContext,
     prompt: ReadOutsidePrompt,
     paths: readonly string[],
+    category: "state_secret" | "trust_config" = "state_secret",
   ): Promise<void> {
     return this.queue.run(ctx.sessionId, async () => {
       await requireApproval(
@@ -210,7 +211,7 @@ export class ReadOutsideApprover {
         {
           sessionId: ctx.sessionId,
           tool,
-          category: "state_secret",
+          category,
           reason: prompt.reason,
           ...(prompt.preview !== undefined ? { preview: prompt.preview } : {}),
           affectedResources: [...paths],

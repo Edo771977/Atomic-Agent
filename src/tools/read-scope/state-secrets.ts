@@ -272,6 +272,22 @@ export function findShellStateSecrets(
   return dedupe([...hits]);
 }
 
+/** Recognized writes to server key paths use the trust-config approval. */
+export function shellServerKeyMutation(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env?: ShellScopeEnv,
+): boolean {
+  const files = secrets.files.filter(path => /(?:^|[\\/])(?:serve-api|llama-server)\.key$/i.test(path));
+  if (files.length === 0) return false;
+  return shellCommandLine(args).split(/[;|&\n]+/).some(cmd => {
+    const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
+    return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
+      && findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
+  });
+}
+
 /** `file` appears in `line` as a whole path: not `.env` inside `.env.example`. */
 function spelledOut(line: string, file: string): boolean {
   for (let at = line.indexOf(file); at !== -1; at = line.indexOf(file, at + 1)) {
