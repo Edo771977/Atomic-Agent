@@ -33,3 +33,5 @@ The vault registry deliberately has process scope. Bootstrap sets the default sw
 ## Trust model
 
 References are predictable within an archive. If a model writes a known reference such as `[EMAIL_1]`, including by decoding percent-encoded text or HTML entities read from a file, the agent resolves it to the original value. This is intentional. Privacy Shield replaces detectable values on the protected provider's request, while the model can still refer to the same values the tools would receive without the shield. Existing approval, read-scope and output policies continue to apply after resolution.
+
+Provider overrides apply to OpenAI-compatible and native Anthropic adapters. Managed `llama-server` and `subscription-cli` entries accept the configuration for compatibility and ignore it because their transports bypass Privacy Shield.
