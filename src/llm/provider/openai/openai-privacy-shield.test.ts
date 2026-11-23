@@ -350,3 +350,26 @@ it("forces protection for a cloud gateway and can opt out a remote provider", as
     expect(sentBody(replies, replies.mock.calls.length - 1)).toContain(expected);
   }
 });
+
+it("restores plain text after a provider refuses response_format", async () => {
+  const secret = String.raw`Secret"With\Slash42`;
+  setPrivacyKnownSecrets(() => [{ label: "fixture", value: secret }]);
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn()
+    .mockImplementationOnce(async () => Response.json({
+      error: { message: "response_format json_schema is not supported" },
+    }, { status: 400 }))
+    .mockImplementationOnce(async () =>
+      json({ model: "m", choices: [{ message: { content: "Value [SECRET_1]" }, finish_reason: "stop" }] }),
+    );
+  const p = new OpenAiProvider({
+    id: "privacy-refusal", baseUrl: "https://api.example.test", apiKey: "", defaultChatModel: "m",
+    fetchImpl: replies as unknown as typeof fetch,
+  });
+  const result = await p.complete({
+    prompt: `Value ${secret}`, sessionId: "format-refusal",
+    responseFormat: { name: "format", schema: { type: "object" } },
+  });
+  expect(JSON.parse(sentBody(replies, 1))).not.toHaveProperty("response_format");
+  expect(result.content).toBe(`Value ${secret}`);
+});

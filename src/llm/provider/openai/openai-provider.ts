@@ -538,7 +538,7 @@ export class OpenAiProvider implements LlmProvider {
       this.reasoningFormat,
     );
     return this.withRateLimits(withSentMaxTokens(
-      vault ? unmaskCompletion(normalised, vault, request.responseFormat !== undefined) : normalised,
+      vault ? unmaskCompletion(normalised, vault, sentJsonResponseFormat(sentBody)) : normalised,
       sentBody,
     ));
   }
@@ -1180,7 +1180,7 @@ export class OpenAiProvider implements LlmProvider {
     );
     const safe = withSentMaxTokens(
       applyToolCallTerminationSafety(
-        vault ? unmaskCompletion(adaptedFinal, vault, request.responseFormat !== undefined) : adaptedFinal,
+        vault ? unmaskCompletion(adaptedFinal, vault, sentJsonResponseFormat(sentBody)) : adaptedFinal,
         // A stream the consumer ended itself has no provider terminal
         // event by definition, and it kept only calls whose arguments had
         // fully arrived — so the missing terminal is not a sign of a cut
@@ -1457,6 +1457,14 @@ function completionFromStreamFinal(
       ? { earlyStop: streamFinal.earlyStop }
       : {}),
   };
+}
+
+/** See the request that actually succeeded, including any provider wire conversion. */
+function sentJsonResponseFormat(body: Record<string, unknown> | undefined): boolean {
+  const openAi = body?.response_format as { type?: unknown } | undefined;
+  const anthropic = body?.output_config as { format?: { type?: unknown } } | undefined;
+  return openAi?.type === "json_schema" || openAi?.type === "json_object" ||
+    anthropic?.format?.type === "json_schema";
 }
 
 /**
