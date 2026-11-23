@@ -166,9 +166,7 @@ export function installRuntimeSessionDelete(
     // chat instead of waiting for the 30-day sweep. Best effort, async,
     // and never throws into the delete.
     if (fileCheckpoints) {
-      void Promise.resolve()
-        .then(() => fileCheckpoints.removeSession(id))
-        .catch(() => undefined);
+      void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
   };

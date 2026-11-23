@@ -383,7 +383,8 @@ export async function createAgentRuntime(
     },
   });
 
-  const sessionStore = prepareRuntimeSessionStore(config, logger);
+  const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
+  const sessionStore = prepareRuntimeSessionStore(config, logger, fileCheckpoints);
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -420,7 +421,7 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(
     sessionStore, dropRecorder, shellJobs, toolOutputSpill,
-    new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
+    fileCheckpoints,
   );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
@@ -471,7 +472,7 @@ export async function createAgentRuntime(
   const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, {
     onDispatch: (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); },
     dispatchGuard: egressGuard,
-  }, browserExtract);
+  }, browserExtract, fileCheckpoints);
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)

@@ -132,13 +132,13 @@ export class FileCheckpointStore {
    */
   async capture(sessionId: string, absolute: string, tool: string, extra: { movedFrom?: string } = {}): Promise<void> {
     try {
-      if (!this.pruned) {
-        this.pruned = true;
-        await this.pruneOld();
-      }
-      const at = this.now();
-      const before = await readBefore(absolute, BINARY_COPY_TOOLS.has(tool));
       await this.serialised(sessionId, async () => {
+        if (!this.pruned) {
+          this.pruned = true;
+          await this.pruneOld();
+        }
+        const at = this.now();
+        const before = await readBefore(absolute, BINARY_COPY_TOOLS.has(tool));
         const dir = this.sessionDir(sessionId);
         const created = await mkdir(dir, { recursive: true });
         if (created === undefined && !(await this.ownsDirectory(sessionId))) return;
@@ -210,9 +210,11 @@ export class FileCheckpointStore {
   }
 
   async removeSession(sessionId: string): Promise<void> {
-    if (await this.ownsDirectory(sessionId)) {
-      await rm(this.sessionDir(sessionId), { recursive: true, force: true });
-    }
+    await this.serialised(sessionId, async () => {
+      if (await this.ownsDirectory(sessionId)) {
+        await rm(this.sessionDir(sessionId), { recursive: true, force: true });
+      }
+    });
   }
 
   private async trim(dir: string, index: CheckpointIndex): Promise<void> {

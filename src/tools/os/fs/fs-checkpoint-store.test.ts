@@ -58,6 +58,15 @@ describe("FileCheckpointStore (ATO-1056)", () => {
     expect(existsSync(ambiguous)).toBe(true);
   });
 
+  it("removes checkpoints after a capture already in progress", async () => {
+    const file = join(work, "a.txt");
+    writeFileSync(file, "before");
+    const capturing = store.capture("s-1", file, "os.fs.write");
+    const removing = store.removeSession("s-1");
+    await Promise.all([capturing, removing]);
+    expect(existsSync(store.sessionDir("s-1"))).toBe(false);
+  });
+
   it("saves what a file held, and that a missing file did not exist", async () => {
     const a = join(work, "a.txt");
     writeFileSync(a, "before");
