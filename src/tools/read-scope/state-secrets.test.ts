@@ -514,3 +514,8 @@ it("keeps ordinary ps format arguments outside the process environment category"
 it("classifies direct procfs reads even without state secret files", () => {
   expect(findStateSecretReads("os.fs.read", { path: "/proc/self/environ" }, { workingDir: "/" }, { stateDir: "/atomic-state", files: [] })).toHaveLength(1);
 });
+
+it.each(["cd ~ && cat .atomic-agent/serve-api.key", "find . -name serve-api.key -exec cat {} +"])("classifies a serve key basename in shell arguments (%s)", (cmd) => {
+  const path = "/home/operator/.atomic-agent/serve-api.key";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir: "/home/operator/.atomic-agent", files: [path] }, { home: "/home/operator", platform: "linux" })).toContain(path);
+});

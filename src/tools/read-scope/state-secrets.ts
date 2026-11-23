@@ -272,6 +272,11 @@ export function findShellStateSecrets(
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
   const hits = new Set(processEnvironments(line));
+  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line)) {
+    for (const file of known.files) {
+      if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
+    }
+  }
   if (psShowsEnvironment(line)) hits.add("process environment (ps)");
   // A secret spelled out in full anywhere on the line, glued to code
   // (`python3 -c open(/…/.env)`) or not.
