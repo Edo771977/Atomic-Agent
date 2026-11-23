@@ -1,4 +1,5 @@
-import { closeSync, fstatSync, type Stats } from "node:fs";
+import { closeSync, fstatSync, openSync, type Stats } from "node:fs";
+import { devNull } from "node:os";
 import type { Readable } from "node:stream";
 
 /** ATO-1126: the shortest explicit API key serve takes. */
@@ -27,18 +28,24 @@ function stdinIdentity(): Stats | undefined {
   }
 }
 
-/** Node's stdio stream can close without releasing descriptor 0. */
+/** Release the credential stream and reserve fd 0 so sockets cannot reuse it. */
 function releaseStdinDescriptor(original: Stats | undefined): string | undefined {
   try {
-    if (original !== undefined) {
-      const current = fstatSync(0);
-      if (current.dev !== original.dev || current.ino !== original.ino || current.mode !== original.mode) {
-        return undefined; // The original descriptor was closed and reused.
+    const current = stdinIdentity();
+    if (current !== undefined) {
+      if (original === undefined || current.dev !== original.dev ||
+        current.ino !== original.ino || current.mode !== original.mode) {
+        return "--api-key-stdin descriptor 0 changed while reading the key";
       }
+      closeSync(0);
     }
-    closeSync(0);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EBADF") return "--api-key-stdin could not close stdin";
+    const fd = openSync(devNull, "r");
+    if (fd !== 0) {
+      closeSync(fd);
+      return "--api-key-stdin could not reserve descriptor 0";
+    }
+  } catch {
+    return "--api-key-stdin could not replace stdin with the null device";
   }
   return undefined;
 }
