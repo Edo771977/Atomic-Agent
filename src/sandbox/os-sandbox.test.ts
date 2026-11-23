@@ -273,3 +273,11 @@ it("round 3 point 1: privatizes Linux runtime directories", () => {
   expect(wrapped.ok && wrapped.args.join(" ")).toContain("--tmpfs /run --tmpfs /run/lock");
   expect(wrapped.ok && wrapped.args.join(" ")).toContain("--tmpfs /var/tmp");
 });
+
+it("round 3 point 3: rejects a missing protected model file below a writable root", () => {
+  const scoped = buildOsSandboxPolicy({
+    workspaceRoots: ["/fixture/project"], stateDir: "/fixture/state",
+    protectedPaths: ["/fixture/project/models/missing.key"], network: false,
+  });
+  expect(wrapWithOsSandbox("true", [], scoped, { platform: "linux", bwrap: "/usr/bin/bwrap" }).ok).toBe(false);
+});

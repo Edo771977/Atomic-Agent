@@ -7,7 +7,7 @@
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
@@ -57,6 +57,7 @@ export interface OsSandboxPolicy {
   denyRead: readonly string[];
   network: boolean;
   stateDir: string;
+  protectedParents: readonly string[];
   home: string;
   toolchainRoots: readonly string[];
 }
@@ -113,6 +114,17 @@ function real(path: string): string {
 }
 
 /** A path as named and, when it resolves elsewhere, as resolved. */
+function canonicalFuturePath(path: string): string {
+  const parent = dirname(path);
+  if (existsSync(path) || parent === path) return real(path);
+  return join(canonicalFuturePath(parent), basename(path));
+}
+
+function contains(root: string, path: string): boolean {
+  const offset = relative(root, path);
+  return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+}
+
 function bothSpellings(path: string): string[] {
   const resolved = real(path);
   return resolved === path ? [path] : [path, resolved];
@@ -157,7 +169,11 @@ export function buildOsSandboxPolicy(
   const configuredState = input.stateDir ?? process.env.ATOMIC_AGENT_STATE_DIR?.trim();
   const state = configuredState ? resolve(configuredState.replace(/^~(?=\/|$)/, home)) : join(home, ".atomic-agent");
   secret.push(...bothSpellings(state));
-  const canonicalState = real(state);
+  const canonicalState = canonicalFuturePath(state);
+  const protectedParents = (input.protectedPaths ?? []).flatMap(path => {
+    const canonical = canonicalFuturePath(resolve(path));
+    return contains(canonicalState, canonical) ? [] : [canonical, dirname(canonical)];
+  });
   for (const path of input.protectedPaths ?? []) {
     const outside = relative(canonicalState, real(resolve(path)));
     if (isAbsolute(outside) || outside === ".." || outside.startsWith(`..${sep}`)) {
@@ -171,7 +187,7 @@ export function buildOsSandboxPolicy(
   const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
     ? [dirname(node)] : [];
   const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
-  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, home, toolchainRoots };
+  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -355,6 +371,9 @@ export function wrapWithOsSandbox(
     return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
   })) {
     return { ok: false, reason: "the protected agent state overlaps a writable workspace root" };
+  }
+  if (policy.writableRoots.some(root => policy.protectedParents.some(path => contains(root, path) || contains(path, root)))) {
+    return { ok: false, reason: "a configured protected path overlaps a writable workspace root" };
   }
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);
