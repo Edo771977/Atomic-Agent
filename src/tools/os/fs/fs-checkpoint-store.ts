@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import type { Stats } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
+import { sessionFileName } from "../../../session/session-id.js";
 import { safeSegment, writeJsonAtomically } from "./fs-restore-manifest.js";
 
 /**
@@ -46,6 +47,7 @@ export const BINARY_COPY_TOOLS: ReadonlySet<string> = new Set(["os.fs.docx", "os
 /** Bytes scanned for a NUL to call a file binary. */
 const BINARY_SNIFF_BYTES = 8000;
 const INDEX_FILE = "index.json";
+const OWNER_FILE = "session-id";
 
 /** Why a changed file was recorded without a copy. */
 export type CheckpointSkip = "too_large" | "binary" | "not_a_file" | "unreadable";
@@ -113,7 +115,15 @@ export class FileCheckpointStore {
   ) {}
 
   sessionDir(sessionId: string): string {
-    return join(this.root, safeSegment(sessionId));
+    const name = sessionFileName(sessionId);
+    // Case-folding filesystems and Windows reserved names need their own
+    // namespace. "~c-" cannot occur in sessionFileName's escape syntax.
+    if (!name || name.toLowerCase() !== name || name.endsWith(".") || /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])(?:\.|$)/.test(name)) {
+      return join(this.root, "~c-" + sha256Of(Buffer.from(sessionId)));
+    }
+    // A plain name containing "_" can also be an older lossy encoding.
+    // Reserve a name outside the old alphabet for those sessions.
+    return join(this.root, !name.includes("~") && name.includes("_") ? "~_" + name : name);
   }
 
   /**
@@ -122,15 +132,22 @@ export class FileCheckpointStore {
    */
   async capture(sessionId: string, absolute: string, tool: string, extra: { movedFrom?: string } = {}): Promise<void> {
     try {
-      if (!this.pruned) {
-        this.pruned = true;
-        await this.pruneOld();
-      }
-      const at = this.now();
-      const before = await readBefore(absolute, BINARY_COPY_TOOLS.has(tool));
       await this.serialised(sessionId, async () => {
+        if (!this.pruned) {
+          this.pruned = true;
+          await this.pruneOld();
+        }
+        const at = this.now();
+        const before = await readBefore(absolute, BINARY_COPY_TOOLS.has(tool));
         const dir = this.sessionDir(sessionId);
-        await mkdir(dir, { recursive: true });
+        const created = await mkdir(dir, { recursive: true });
+        if (created === undefined && !(await this.ownsDirectory(sessionId))) return;
+        try {
+          await writeFile(join(dir, OWNER_FILE), JSON.stringify(sessionId), { flag: "wx" });
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+        }
+        if (!(await this.ownsDirectory(sessionId))) return;
         const index = await this.readIndex(sessionId);
         const n = index.next;
         const entry: CheckpointEntry = { n, path: absolute, at, tool, existed: before.existed };
@@ -164,6 +181,7 @@ export class FileCheckpointStore {
 
   async readCopy(sessionId: string, entry: CheckpointEntry): Promise<Buffer> {
     if (entry.file === undefined) throw new Error(`no copy kept of ${entry.path}`);
+    if (!(await this.ownsDirectory(sessionId))) throw new Error("checkpoint directory belongs to another session");
     return readFile(join(this.sessionDir(sessionId), entry.file));
   }
 
@@ -192,7 +210,11 @@ export class FileCheckpointStore {
   }
 
   async removeSession(sessionId: string): Promise<void> {
-    await rm(this.sessionDir(sessionId), { recursive: true, force: true });
+    await this.serialised(sessionId, async () => {
+      if (await this.ownsDirectory(sessionId)) {
+        await rm(this.sessionDir(sessionId), { recursive: true, force: true });
+      }
+    });
   }
 
   private async trim(dir: string, index: CheckpointIndex): Promise<void> {
@@ -229,10 +251,27 @@ export class FileCheckpointStore {
 
   private async readIndex(sessionId: string): Promise<CheckpointIndex> {
     try {
-      const raw = await readFile(join(this.sessionDir(sessionId), INDEX_FILE), "utf8");
-      return normalizeIndex(JSON.parse(raw));
+      if (await this.ownsDirectory(sessionId)) {
+        const raw = await readFile(join(this.sessionDir(sessionId), INDEX_FILE), "utf8");
+        return normalizeIndex(JSON.parse(raw));
+      }
     } catch {
-      return { version: 1, next: 1, totalBytes: 0, droppedThrough: 0, entries: [] };
+      // Missing or unreadable index.
+    }
+    return { version: 1, next: 1, totalBytes: 0, droppedThrough: 0, entries: [] };
+  }
+
+  private async ownsDirectory(sessionId: string): Promise<boolean> {
+    try {
+      return await readFile(join(this.sessionDir(sessionId), OWNER_FILE), "utf8") === JSON.stringify(sessionId);
+    } catch (err) {
+      // Legacy directories without underscores have no lossy substitutions.
+      // Legacy folders with ambiguous names are left to the age sweep.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT" ||
+          !/^[a-z0-9-][a-z0-9.-]*$/.test(sessionId)) return false;
+      const dir = this.sessionDir(sessionId);
+      return dir === join(this.root, safeSegment(sessionId)) &&
+        (await readdir(this.root).catch((): string[] => [])).includes(basename(dir));
     }
   }
 

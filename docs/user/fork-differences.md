@@ -12,6 +12,11 @@ The fork was last brought in step with upstream on 17 November 2026:
 - `main`: [#57](https://github.com/Edo771977/atomic-agent/pull/57), a one-time merge of upstream `main`, tracked in [#56](https://github.com/Edo771977/atomic-agent/issues/56).
 - The desktop line: [#61](https://github.com/Edo771977/atomic-agent/pull/61), upstream `desktop-v0.0.9` merged into `desktop-main`, tracked in [#59](https://github.com/Edo771977/atomic-agent/issues/59).
 
+Selective imports for offline use and chat data cleanup:
+
+- `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
+- `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
+
 Earlier upstream PRs came in as batches:
 
 - [#24](https://github.com/Edo771977/atomic-agent/pull/24): 14 upstream PRs (Fusion, local models, approvals, costs, router).
