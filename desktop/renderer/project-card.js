@@ -1059,7 +1059,7 @@ function pcDrawLessonPanel(doc, host, model, on, focusKey, previousBody) {
   if (row) body.setAttribute('data-pc-lesson-body', row.id + '@' + row.hash);
   if (blocked) body.appendChild(pcEl(doc, 'p', 'pc-warn', blocked));
   if (notice) body.appendChild(pcEl(doc, 'p', 'pc-notice', notice)).setAttribute('role', 'status');
-  if (error) body.appendChild(pcEl(doc, 'p', 'pc-error', error)).setAttribute('role', 'alert');
+  if (error && error !== blocked) body.appendChild(pcEl(doc, 'p', 'pc-error', error)).setAttribute('role', 'alert');
   if (busy) body.appendChild(pcEl(doc, 'p', 'pc-busy', 'Loading…')).setAttribute('role', 'status');
   if (row) {
     body.appendChild(pcEl(doc, 'code', 'pc-lesson-text', pcLessonPlain(row.id + '@' + row.hash)));
@@ -1381,6 +1381,13 @@ function pcCanContinue(env) {
  * answers whether it went (false: kept until that chat is on screen).
  * `onRevise()` puts the caret in the composer. `draw(model)` paints.
  */
+const PC_LESSON_AUTH_REQUIRED = 'To save a lesson choice, start atag serve with an API key and reconnect.';
+const PC_LESSON_CHOICE_ERRORS = {
+  'person-auth-required': PC_LESSON_AUTH_REQUIRED,
+  busy: 'Another process is saving the record. Try again shortly.',
+  io: 'Could not save the lesson choice. Refresh the panel before trying again.',
+};
+
 function createProjectCard(opts) {
   const store = pcStore();
   const pending = new Map();   // sid → continue message not sent yet
@@ -1397,7 +1404,8 @@ function createProjectCard(opts) {
   const projectChats = new Set();
   const canBrowseLessons = () => !!(sid && projectChats.has(sid) && opts.api.lessons);
   const selectedLesson = () => pcList(lessons?.panel?.rows).find((row) => row.id === lessons.id);
-  const lessonBlocked = () => turnRunning() ? 'Wait for the turn to finish.' : lessons?.panel?.blocked;
+  const lessonBlocked = () => turnRunning() ? 'Wait for the turn to finish.'
+    : lessons?.authBlocked ? PC_LESSON_AUTH_REQUIRED : lessons?.panel?.blocked;
 
   const key = () => {
     const v = state.view;
@@ -1470,10 +1478,13 @@ function createProjectCard(opts) {
       return;
     }
     shown.busy = false;
-    shown.panel = response?.panel ?? null;
+    if (response?.code === 'person-auth-required') shown.authBlocked = true;
+    const choiceError = choice && Object.hasOwn(PC_LESSON_CHOICE_ERRORS, response?.code)
+      ? PC_LESSON_CHOICE_ERRORS[response.code] : null;
+    shown.panel = response?.panel ?? (choiceError ? shown.panel : null);
     shown.notice = response?.notice;
     shown.error = response?.ok ? null : response?.supported === false
-      ? 'This agent does not support Fusion project lessons.' : response?.error || 'Could not load Fusion project lessons.';
+      ? 'This agent does not support Fusion project lessons.' : choiceError || response?.error || 'Could not load Fusion project lessons.';
     paint();
   }
   function openLessons() {

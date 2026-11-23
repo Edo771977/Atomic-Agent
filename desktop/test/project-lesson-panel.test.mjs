@@ -97,3 +97,28 @@ test('the IPC rebuilds a fingerprinted choice before sending it', () => {
     assert.equal(parseProjectLessonIpc({...body, ...bad}).ok, false);
   }
 });
+
+for (const [code, expected, blocked] of [
+  ['person-auth-required', /start atag serve with an API key/i, true],
+  ['busy', /another process.*try again/i, false],
+  ['io', /could not save.*refresh/i, false],
+]) {
+  test('the lesson panel explains ' + code + ' and keeps the displayed lesson', async () => {
+    let model, act, writes = 0;
+    const card = createProjectCard({
+      api: {read: () => ({ok: true, view}), lessons: () => ({ok: true, panel: {rows: [row]}}),
+        lessonChoice: () => { writes++; return {ok: false, code, error: 'server refusal'}; }},
+      draw: (m, a) => { model = m; act = a; }, onContinue() {},
+    });
+    card.follow('s1');
+    await tick();
+    await card.openLessons();
+    act({type: 'lesson-read', id: row.id});
+    await act({type: 'lesson-choice', action: 'retire'});
+    assert.match(model.lessonPanel.error, expected);
+    assert.equal(model.lessonPanel.row.hash, fingerprint);
+    assert.equal(Boolean(model.lessonPanel.blocked), blocked);
+    await act({type: 'lesson-choice', action: 'retire'});
+    assert.equal(writes, blocked ? 1 : 2);
+  });
+}
