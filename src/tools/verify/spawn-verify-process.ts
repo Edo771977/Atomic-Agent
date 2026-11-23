@@ -25,7 +25,7 @@ import {
   formatSandboxUnavailable,
   readOsSandboxSettings,
   wrapWithOsSandbox,
-  withSandboxCache,
+  buildOsSandboxEnv,
 } from "../../sandbox/os-sandbox.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
 import {
@@ -160,7 +160,7 @@ export function spawnVerifyProcess(
   }, options.env ?? {});
   const child = spawn(wrapped.command, wrapped.args, {
     cwd: options.cwd,
-    env: markAgentToolChild(sandboxed ? withSandboxCache(env) : env),
+    env: markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,

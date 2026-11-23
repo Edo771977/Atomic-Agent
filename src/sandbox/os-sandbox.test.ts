@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
   mkdtempSync,
@@ -12,6 +12,8 @@ import { join } from "node:path";
 
 import {
   buildOsSandboxPolicy,
+  buildOsSandboxEnv,
+  findBwrap,
   buildSeatbeltProfile,
   formatSandboxUnavailable,
   readOsSandboxSettings,
@@ -50,6 +52,35 @@ describe("readOsSandboxSettings (ATO-469)", () => {
       }),
     ).toEqual({ mode: "workspace", network: true });
   });
+});
+
+it("prepares the wrapper without caller-controlled native loader settings", () => {
+  const env = buildOsSandboxEnv({
+    PATH: "/usr/bin",
+    LD_PRELOAD: "/fixture/loader.so",
+    LD_DEBUG_OUTPUT: "/fixture/loader.log",
+    DYLD_INSERT_LIBRARIES: "/fixture/loader.dylib",
+    GCONV_PATH: "/fixture",
+    XDG_CACHE_HOME: "/fixture/cache",
+  });
+  expect(env).toEqual({
+    PATH: "/usr/bin",
+    XDG_CACHE_HOME: join(tmpdir(), "atomic-agent-tool-cache"),
+    npm_config_cache: join(tmpdir(), "atomic-agent-tool-cache", "npm"),
+  });
+});
+
+it("ignores a Bubblewrap executable supplied by the command PATH", () => {
+  const dir = mkdtempSync(join(tmpdir(), "atomic-sbx-path-"));
+  const fake = join(dir, "bwrap");
+  try {
+    writeFileSync(fake, "#!/bin/sh\nexit 0\n", { mode: 0o700 });
+    vi.stubEnv("PATH", dir);
+    expect(findBwrap()).not.toBe(fake);
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 describe("buildOsSandboxPolicy", () => {

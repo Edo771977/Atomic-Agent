@@ -4,9 +4,9 @@
  * Seatbelt on macOS keeps host loopback and uses parameterized paths.
  * Callers must refuse to spawn when a requested wrapper is unavailable.
  */
-import { existsSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { delimiter, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 export type OsSandboxMode = "off" | "workspace";
 
@@ -35,10 +35,12 @@ export function readOsSandboxSettings(
   return { mode, network: net === "on" || net === "1" || net === "true" };
 }
 
-/** Keep tools that need cache writes inside the sandbox's temporary roots. */
-export function withSandboxCache(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+/** Prepare the wrapper environment before the kernel has installed confinement. */
+export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const safe = Object.fromEntries(Object.entries(env).filter(([key]) =>
+    !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR)$/.test(key)));
   const cache = join(tmpdir(), "atomic-agent-tool-cache");
-  return { ...env, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
+  return { ...safe, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
 
 export interface OsSandboxPolicy {
@@ -191,12 +193,34 @@ function seatbeltArgs(
   return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
 }
 
-/** `bwrap` on PATH, or null. */
-export function findBwrap(env: NodeJS.ProcessEnv = process.env): string | null {
-  for (const dir of (env.PATH ?? "").split(delimiter)) {
-    if (dir.length === 0) continue;
-    const candidate = join(dir, "bwrap");
-    if (existsSync(candidate)) return candidate;
+const SYSTEM_BWRAP_PATHS = [
+  "/usr/bin/bwrap",
+  "/bin/bwrap",
+  "/usr/local/bin/bwrap",
+  "/run/wrappers/bin/bwrap",
+  "/run/current-system/sw/bin/bwrap",
+];
+
+/** Launch only a system-managed backend, never a binary supplied by a project's PATH. */
+export function findBwrap(): string | null {
+  for (const path of SYSTEM_BWRAP_PATHS) {
+    try {
+      const backend = realpathSync(path);
+      accessSync(backend, constants.X_OK);
+      if (!statSync(backend).isFile()) continue;
+      let trusted = true;
+      for (let target = backend; ; target = dirname(target)) {
+        const info = statSync(target);
+        if (info.uid !== 0 || (info.mode & 0o022) !== 0) {
+          trusted = false;
+          break;
+        }
+        if (dirname(target) === target) break;
+      }
+      if (trusted) return backend;
+    } catch {
+      // Continue to the next system installation path.
+    }
   }
   return null;
 }
@@ -222,7 +246,7 @@ function bwrapArgs(
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid"];
   for (const dir of policy.writableRoots) {
-    // A cache folder that does not exist yet cannot be bound; skipped.
+    // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
   out.push("--proc", "/proc");
@@ -238,7 +262,7 @@ function bwrapArgs(
 
 export interface WrapOptions {
   platform?: NodeJS.Platform;
-  /** `bwrap` path for Linux; looked up on PATH when omitted. */
+  /** `bwrap` path for Linux; looked up in system locations when omitted. */
   bwrap?: string | null;
   /** Whether `sandbox-exec` exists; checked when omitted. */
   seatbeltAvailable?: boolean;
@@ -267,7 +291,7 @@ export function wrapWithOsSandbox(
     if (bwrap === null) {
       return {
         ok: false,
-        reason: "bubblewrap (`bwrap`) is not installed; install it with your package manager (for example `sudo apt install bubblewrap`)",
+        reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
     }
     return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args) };

@@ -3,7 +3,7 @@
 Status: current
 Owner: docs/user/
 
-Base di revisione: `75c7f629fdc221f242fc448389b4a010dc58a1da`, con #191 integrata. #190 è ancora aperta. Dopo il merge, integrare nuovamente `origin/main` e verificare che la sanitizzazione dell’ambiente dei figli e il blocco delle invocazioni operative di `serve` siano ancora attivi.
+Base di revisione: `75c7f629fdc221f242fc448389b4a010dc58a1da`, con #191 integrata. #190 è entrata in main a `e75998c51`, poi integrata nel branch con `6b5b33410`. Le regressioni coprono la sanitizzazione dell’ambiente dei figli e il blocco delle invocazioni operative di `serve`.
 
 | Ramo upstream | SHA verificato | Decisione tecnica |
 | --- | --- | --- |

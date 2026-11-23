@@ -5,8 +5,9 @@ Owner: docs/user/
 
 Launch the agent with `ATOMIC_AGENT_SANDBOX=workspace` to isolate shell commands and their descendants, including background jobs. Verification commands use the same isolation. Use `ATOMIC_AGENT_SANDBOX=off` to run with the ordinary tool approvals and project policy. The sandbox is off by default. Automatic activation is deferred pending real compatibility tests on Linux and macOS.
 
-On Linux, install Bubblewrap and use a host that permits its namespaces and mounts. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. Windows has no supported backend. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
+On Linux, install Bubblewrap through the system package manager and use a host that permits its namespaces and mounts. The agent uses a system-managed executable. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. Windows has no supported backend. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
 
+- Native dynamic-loader overrides are stripped before starting the sandbox backend.
 - Writes are confined to the trusted working directory and temporary directories. A tool argument cannot grant a new write root.
 - The agent state directory and known credential paths are hidden. Keep application and provider secrets out of project files and other locations readable by the child.
 - On Linux, the private PID namespace keeps host process environment and arguments out of the child’s procfs. macOS does not provide the equivalent process-visibility guarantee.

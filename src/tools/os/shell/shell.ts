@@ -14,7 +14,7 @@ import {
   formatSandboxUnavailable,
   readOsSandboxSettings,
   wrapWithOsSandbox,
-  withSandboxCache,
+  buildOsSandboxEnv,
   type OsSandboxSettings,
 } from "../../../sandbox/os-sandbox.js";
 import { quoteCmdArg } from "../../../sandbox/shell-invocation.js";
@@ -509,7 +509,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     const job = startCommandJob(spawnCommand, spawnArgs, {
       cwd: pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: markAgentToolChild(sandbox.mode === "workspace" ? withSandboxCache(commandEnv) : commandEnv),
+      env: markAgentToolChild(sandbox.mode === "workspace" ? buildOsSandboxEnv(commandEnv) : commandEnv),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
