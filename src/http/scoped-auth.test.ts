@@ -1,3 +1,6 @@
+import { approvalActors } from "../approval/approval-actors.js";
+import { approvalEventPayload } from "./route-approval.js";
+import { startTestHarness } from "./test-harness.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -223,4 +226,46 @@ describe("identifyCaller", () => {
     expect(identifyCaller(null, KEY, () => ALL)).toBeNull();
     expect(identifyCaller(hashHttpToken(TOKENS.member), KEY, () => ALL)).toBeNull();
   });
+});
+
+it("labels an approval emitted by a named turn without showing its credential", async () => {
+  const h = await startTestHarness({ approvalLevel: 1 });
+  try {
+    const session = h.runtime.createSession();
+    let observed: ReturnType<typeof approvalEventPayload> | undefined;
+    h.approvalBus.subscribe(request => {
+      observed = approvalEventPayload(request, h.runtime.approvals);
+      h.runtime.approvals.resolve({ approvalId: request.approvalId, approved: false });
+    });
+    await approvalActors.run({
+      sessionId: session.id, requestedByToken: "member-test", steeredByTokens: new Set(["steerer-test"]),
+    }, () => h.runtime.approvals.request({ sessionId: session.id, tool: "test", category: "shell", reason: "confirmation" }));
+    expect(observed).toMatchObject({ requestedByToken: "member-test", steeredByTokens: ["steerer-test"] });
+    expect(observed?.reason).toContain("richiesto dal token member-test");
+    expect(JSON.stringify(observed)).not.toContain(TOKENS.member);
+  } finally {
+    await h.cleanup();
+  }
+});
+
+it("passes the named actor into both chat turns and accepted steers", async () => {
+  const h = await startTestHarness({ apiKey: KEY, namedTokens: () => ALL });
+  try {
+    const chat = vi.spyOn(h.runtime, "runTurn");
+    const headers = { ...bearer(TOKENS.member), "content-type": "application/json" };
+    const response = await fetch(h.baseUrl + "/v1/chat/completions", {
+      method: "POST", headers, body: JSON.stringify({ model: "test", messages: [{ role: "user", content: "hello" }] }),
+    });
+    expect(response.status).toBe(200);
+    expect(chat.mock.calls[0]?.[2]).toMatchObject({ origin: "http", requestedByToken: "member-laptop" });
+    const session = h.runtime.createSession({ persist: true });
+    h.runtime.steeringInbox.open(session.id);
+    const steer = vi.spyOn(h.runtime, "steer");
+    expect((await fetch(h.baseUrl + `/api/sessions/${session.id}/steer`, {
+      method: "POST", headers, body: JSON.stringify({ text: "change" }),
+    })).status).toBe(200);
+    expect(steer).toHaveBeenCalledWith(session.id, "change", "member-laptop");
+  } finally {
+    await h.cleanup();
+  }
 });

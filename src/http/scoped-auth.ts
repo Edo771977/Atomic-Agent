@@ -64,7 +64,9 @@ export function authorizeRequest(
   throttle?: AuthThrottle,
 ): boolean {
   if (input.apiKey === null || !input.namedTokens) {
-    return enforceAuth(req, res, input.apiKey, throttle);
+    const allowed = enforceAuth(req, res, input.apiKey, throttle);
+    if (allowed && input.apiKey !== null) input.onAuthorized?.({ name: "api-key", role: "owner" });
+    return allowed;
   }
   const address = req.socket?.remoteAddress;
   const wait = throttle ? throttle.retryAfter(address) : 0;

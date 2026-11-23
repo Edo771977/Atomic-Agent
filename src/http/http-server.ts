@@ -295,7 +295,8 @@ async function dispatch(
     namedTokens,
     scope: matched.route.scope,
     route: matched.route.key,
-    onAuthorized: (_caller, stillAuthorized) => {
+    onAuthorized: (caller, stillAuthorized) => {
+      ctx.caller = caller;
       if (stillAuthorized) ctx.stillAuthorized = stillAuthorized;
     },
   }, authThrottle)) {

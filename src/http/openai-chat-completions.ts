@@ -299,6 +299,7 @@ async function handleNonStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       // ATO-42: stamped inside the session's turn lock, so a turn that
       // is running cannot save over it.
       ...(env.request.project !== undefined ? { project: env.request.project } : {}),
@@ -492,6 +493,7 @@ async function handleStream(
     result = await ctx.runtime.runTurn(env.session, env.request.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       // ATO-1148: a project's own cloud model, for this turn only.
       ...(env.request.turnModel
         ? { providerId: env.request.turnModel.providerId, model: env.request.turnModel.model }

@@ -181,7 +181,9 @@ The serve key is the owner credential. It works on every authenticated route, in
 | `operator` | `read`, `chat`, `decide` | Resolve approvals and questions, make project decisions, change the backlog or lessons, and set project trust. |
 | `admin` | `read`, `chat`, `decide`, `admin` | Manage settings, integrations, scheduled tasks and other administrative resources. |
 
-An operator or administrator can resolve tool approvals. Grant those roles only to callers you trust to authorize tools, including shell commands. Roles apply across the whole server. They do not scope callers to a project or session.
+An operator or administrator can resolve tool approvals. Grant those roles only to callers you trust to authorize tools, including shell commands. Roles apply across the whole server. A viewer can read and export all chats exposed by the listener, subject to incognito and folder egress restrictions. A member can write to existing chats, including chats opened by the owner. The server uses shared sessions and does not assign them to token identities. A member can also name file paths in prompts and ask the agent to read them. The runtime applies the same file scope, tool approvals, and project policy as it does for other turns. Content read by the agent can appear in replies. Issue a member token only to clients you trust with that access.
+
+Named turn and steer requests carry their token name in runtime attribution and traces. Approval cards show the turn requester and name the tokens that have steered the running turn so far. This does not imply that a particular steer caused an approval.
 
 Use `atag http tokens add <name> --role <role>` from the local CLI. Copy the token from stdout when it is issued and send it as `Authorization: Bearer <token>` or `x-api-key`. Use `atag http tokens list` for names, roles and creation dates, and `atag http tokens remove <name>` to revoke it on the next request without restarting. The approval events, chat completions and AG-UI streams close on their next event or heartbeat after access is revoked. Buffered data already sent cannot be recalled. These management commands refuse agent tool children.
 

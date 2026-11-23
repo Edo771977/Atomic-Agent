@@ -1,3 +1,4 @@
+import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -145,7 +146,7 @@ export interface RuntimeTurnDependencies {
      */
     sessionTeam?: SessionTeamChoices;
   };
-  traces: Pick<RuntimeTraces, "ensureRecorder" | "pinSession" | "readContextUsage" | "clearContextUsage" | "releaseSession">;
+  traces: Partial<Pick<RuntimeTraces, "touchRecorder">> & Pick<RuntimeTraces, "ensureRecorder" | "pinSession" | "readContextUsage" | "clearContextUsage" | "releaseSession">;
   telemetry: {
     observability: Pick<ReturnType<typeof createRuntimeObservability>, "getAnalytics">;
     analyticsStateStore: AnalyticsStateStore;
@@ -191,6 +192,7 @@ export function createRuntimeTurnService(
   const { observability, analyticsStateStore, turnUsageMeter, sessionUsage } = deps.telemetry;
   const { pendingSessionNamings, turnsInFlight } = deps.state;
   // Owned by this runtime, bounded by active turns; workers share their parent's snapshot.
+  const activeActors = new Map<string, ApprovalActors>();
   const turnModelModes = new Map<string, ModelModePolicy>();
   /**
    * The loop-side budget for one turn. An explicit `maxSteps` from a
@@ -654,6 +656,7 @@ export function createRuntimeTurnService(
       checkpoint?: TurnCheckpointOptions;
       /** Where the turn came in; picks the reply's `### answer-style`. */
       origin?: TurnOrigin;
+      requestedByToken?: string;
       /**
        * The reply's surface when the origin cannot tell it: an HTTP
        * extensions client is the desktop app. Wins over `origin`.
@@ -878,14 +881,20 @@ export function createRuntimeTurnService(
       [SESSION_LLM_METADATA_KEY]: llmStamp,
       [SESSION_ROUTE_METADATA_KEY]: turnRoute,
     });
-    recorder?.noteTurnRoute(turnRoute);
+    recorder?.noteTurnRoute(turnRoute, runOptions.requestedByToken);
     // Pin this session for the duration of the turn. Without it a burst of
     // new sessions can push this one's recorder out mid-turn, after which
     // `emitAgentLoopEvent`'s `recorders.get(...)?.` silently drops every
     // remaining event of the turn and any tool call whose `pendingCalls`
     // entry went with it is logged with empty args.
     traces.pinSession(session.id);
-    return turnContext.run({ sessionId: session.id, projectFolder: projectFolderOf(session) }, async () => {
+    const actors: ApprovalActors = {
+      sessionId: session.id,
+      requestedByToken: runOptions.requestedByToken,
+      steeredByTokens: new Set(),
+    };
+    activeActors.set(session.id, actors);
+    return approvalActors.run(actors, () => turnContext.run({ sessionId: session.id, projectFolder: projectFolderOf(session) }, async () => {
       // Registered before the mark and ended after the turn's end is
       // written, so `shutdown` waiting on it waits for the row to be right.
       const inFlight = turnsInFlight.begin(runOptions.signal);
@@ -1060,6 +1069,8 @@ export function createRuntimeTurnService(
           fallbackChain.setTurnPrimary(session.id, null);
         }
       }
+    })).finally(() => {
+      if (activeActors.get(session.id) === actors) activeActors.delete(session.id);
     });
   };
 
@@ -1081,8 +1092,14 @@ export function createRuntimeTurnService(
    * running turn's window is open, and that window is closed by the
    * same call that performs the final drain.
    */
-  const steer = (sessionId: string, text: string): boolean =>
-    steeringInbox.push(sessionId, text);
+  const steer = (sessionId: string, text: string, requestedByToken?: string): boolean => {
+    if (!steeringInbox.push(sessionId, text)) return false;
+    if (requestedByToken) {
+      activeActors.get(sessionId)?.steeredByTokens.add(requestedByToken);
+      traces.touchRecorder?.(sessionId)?.noteSteer(requestedByToken);
+    }
+    return true;
+  };
 
   // Goal mode (ATO-451): rounds of ordinary turns until the acceptance
   // list is green. Owned here so every frontend gets it through runTurn.
@@ -1149,6 +1166,7 @@ export function createRuntimeTurnService(
       signal?: AbortSignal;
       eventHook?: TurnEventHook;
       origin?: TurnOrigin;
+      requestedByToken?: string;
       providerId?: string;
       /** See `executeTurn`'s `model`. */
       model?: string;

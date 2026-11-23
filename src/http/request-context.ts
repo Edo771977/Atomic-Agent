@@ -1,3 +1,4 @@
+import type { HttpCaller } from "./scoped-auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { openaiError, type OpenAiErrorPayload } from "./openai-errors.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
@@ -24,6 +25,7 @@ export interface HandlerContext {
   runtime: AgentRuntime;
   apiKey: string | null;
   params: Record<string, string>;
+  caller?: HttpCaller;
   stillAuthorized?: () => boolean;
   approvalBus: ApprovalBus;
   /**

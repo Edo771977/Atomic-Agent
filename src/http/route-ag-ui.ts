@@ -130,6 +130,7 @@ async function runAgUiTurn(
     result = await ctx.runtime.runTurn(session, input.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       eventHook: (event) => {
         if (cut) return;
         if (withheld()) {

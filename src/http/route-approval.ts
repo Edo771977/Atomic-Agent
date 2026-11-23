@@ -56,6 +56,11 @@ export function approvalEventPayload(
   const canAlways = gate.canGrantAlways(request);
   return {
     ...request,
+    reason: [
+      request.reason,
+      ...(request.requestedByToken ? [`richiesto dal token ${request.requestedByToken}`] : []),
+      ...((request.steeredByTokens ?? []).map(name => `steer dal token ${name}`)),
+    ].join(" · "),
     canAlways,
     ...(canAlways ? { alwaysLabel: describeAlwaysRule(request) } : {}),
   };
