@@ -157,7 +157,7 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     const out = join(dir, "bk");
     await createMemoryBackup({ memoryDbFile: dbFile }, out);
     const target = { memoryDbFile: join(dir, "target.sqlite"), maxEntries: 1, takeNotes: 1, takeFacts: 0 };
-    expect(restoreMemoryBackup({ ...target, preview: true }, out)).toEqual({ notes: 1, facts: 0 });
+    expect(restoreMemoryBackup({ ...target, preview: true }, out)).toMatchObject({ notes: 1, facts: 0, backupHash: expect.any(String) });
     expect(existsSync(target.memoryDbFile)).toBe(false);
     expect(restoreMemoryBackup(target, out)).toEqual({ notes: 1, facts: 0 });
     expect(restoreMemoryBackup(target, out)).toEqual({ notes: 0, facts: 0 });
@@ -284,6 +284,24 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite") }, out)).toEqual({ notes: 0, facts: 0 });
     expect(live.recall("paper notebooks")).toEqual([]);
     live.close();
+  });
+
+  it("binds restore confirmation to the previewed snapshot", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "first snapshot" });
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const target = { memoryDbFile: join(dir, "live.sqlite") };
+    const preview = restoreMemoryBackup({ ...target, preview: true }, out);
+    expect(preview.backupHash).toMatch(/^[a-f0-9]{64}$/);
+    const edited = new Database(join(out, "memory.sqlite"));
+    edited.exec("UPDATE memories SET content = 'a different snapshot'");
+    edited.close();
+    expect(() => restoreMemoryBackup({ ...target, expectedHash: preview.backupHash! }, out)).toThrow(/backup changed/);
+    expect(existsSync(target.memoryDbFile)).toBe(false);
+    const fresh = restoreMemoryBackup({ ...target, preview: true }, out);
+    expect(restoreMemoryBackup({ ...target, expectedHash: fresh.backupHash! }, out)).toEqual({ notes: 1, facts: 0 });
   });
 
   it("migrates an older archive privately while keeping the original bytes", () => {

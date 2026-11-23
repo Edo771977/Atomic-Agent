@@ -54,13 +54,16 @@ export async function handleBackup(args: string[], readOption: (args: string[], 
   }
 }
 
-export function handleRestore(directory: string | undefined, confirmed = false, maxNotes?: string, maxFacts?: string): number {
+export function handleRestore(directory: string | undefined, confirmed = false, maxNotes?: string, maxFacts?: string, expectedHash?: string): number {
   if (!directory) {
     process.stderr.write("usage: atomic-agent memory restore --from <dir> [--yes]\n");
     return 2;
   }
   try {
     assertMemoryBackupAllowed();
+    if (confirmed && !/^[a-f0-9]{64}$/.test(expectedHash ?? "")) {
+      throw new Error("confirmation requires --hash <SHA-256 from preview>");
+    }
     const limit = (raw: string | undefined, option: string) => {
       if (raw === undefined) return {};
       const count = Number(raw);
@@ -72,10 +75,10 @@ export function handleRestore(directory: string | undefined, confirmed = false, 
     const result = restoreMemoryBackup({
       ...config.paths, maxEntries: config.memory.notes.maxEntries,
       profileMaxEntries: config.memory.profile.maxEntries,
-      dedupThreshold: config.memory.dedup.fts5Threshold, preview: !confirmed, ...selection,
+      dedupThreshold: config.memory.dedup.fts5Threshold, preview: !confirmed, ...selection, ...(confirmed && expectedHash ? { expectedHash } : {}),
     }, directory);
     process.stdout.write(`${confirmed ? "Restored" : "Restore preview"}: ${formatMemoryRestoreResult(result)}\n`);
-    if (!confirmed) process.stdout.write("Repeat with --yes to confirm.\n");
+    if (!confirmed) process.stdout.write(`Backup SHA-256: ${result.backupHash}\nRepeat with --yes --hash ${result.backupHash} to confirm.\n`);
     return 0;
   } catch (error) {
     process.stderr.write(`memory restore failed: ${error instanceof Error ? error.message : String(error)}\n`);

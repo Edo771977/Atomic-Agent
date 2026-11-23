@@ -394,7 +394,7 @@ export interface TuiAppCallbacks {
   onExternalEditorRequested?(draft: string): import("./editor/index.js").ExternalEditResult;
   /** Ask the orchestrator to dump the current user profile into the chat log. */
   onMemoryDumpRequested?(): void;
-  onMemoryBackupRequested?(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean }): void;
+  onMemoryBackupRequested?(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean; expectedHash?: string }): void;
   /** Ask the orchestrator to print the skill catalog into the chat log (`/skills`). */
   onSkillCatalogRequested?(): void;
   /** Persist a new llama-server base URL after `/llama` (async health + disk write). */

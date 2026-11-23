@@ -105,7 +105,8 @@ export async function memoryCommand(args: string[]): Promise<number> {
     case "restore":
       return handleRestore(readOption(args.slice(1), "--from"), args.includes("--yes"),
         args.includes("--max-notes") ? readOption(args, "--max-notes") ?? "" : undefined,
-        args.includes("--max-facts") ? readOption(args, "--max-facts") ?? "" : undefined);
+        args.includes("--max-facts") ? readOption(args, "--max-facts") ?? "" : undefined,
+        readOption(args, "--hash"));
     case "list":
     case "disable":
     case "enable":

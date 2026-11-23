@@ -123,7 +123,7 @@ export class MemoryOrchestrator {
     }
   }
 
-  async runBackup(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean }): Promise<void> {
+  async runBackup(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean; expectedHash?: string }): Promise<void> {
     const { paths } = this.runtime.config;
     const context = { memoryDbFile: paths.memoryDbFile, incognito: this.options.isIncognito?.() ?? false };
     try {
@@ -135,6 +135,7 @@ export class MemoryOrchestrator {
         if (request.directory === undefined) throw new Error("restore requires a backup directory");
         assertMemoryBackupAllowed(context.incognito);
         if (request.confirmed) {
+          if (!request.expectedHash) throw new Error("confirmation requires the preview SHA-256");
           this.bus.emit({ type: "system_message", text: "Memory restore in progress…" });
           await delay(50);
           assertMemoryBackupAllowed(this.options.isIncognito?.());
@@ -143,9 +144,10 @@ export class MemoryOrchestrator {
           ...context, maxEntries: this.runtime.config.memory.notes.maxEntries,
           profileMaxEntries: this.runtime.config.memory.profile.maxEntries,
       dedupThreshold: this.runtime.config.memory.dedup.fts5Threshold, preview: !request.confirmed,
+          ...(request.expectedHash ? { expectedHash: request.expectedHash } : {}),
         }, request.directory);
         line = request.confirmed ? `Restored: ${formatMemoryRestoreResult(result)}`
-          : `Restore preview: ${formatMemoryRestoreResult(result)}. Repeat with /memory restore --yes <directory> to confirm.`;
+          : `Restore preview: ${formatMemoryRestoreResult(result)}. Backup SHA-256: ${result.backupHash}. Repeat with /memory restore --yes ${result.backupHash} <directory> to confirm.`;
         if (request.confirmed) this.refresh();
       }
       this.bus.emit({ type: "runtime_info", line });

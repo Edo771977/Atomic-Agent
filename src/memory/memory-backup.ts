@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { execFileSync } from "node:child_process";
 import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -42,7 +43,7 @@ export const MEMORY_RESTORE_INSTRUCTIONS = [
   "",
   "Preview the restore from inside this backup directory:",
   "  atomic-agent memory restore --from .",
-  "Repeat with --yes to confirm.",
+  "Repeat with --yes --hash <SHA-256 from preview> to confirm.",
   "",
   "The command merges notes and active profile facts, keeping existing entries.",
   "It does not bring back lessons, procedures, votes or note links.",
@@ -196,12 +197,14 @@ export interface MemoryRestoreContext extends MemoryBackupContext {
   profileMaxEntries?: number;
   dedupThreshold?: number;
   preview?: boolean;
+  expectedHash?: string;
   takeNotes?: number;
   takeFacts?: number;
 }
 
 export interface MemoryRestoreResult {
   notes: number;
+  backupHash?: string;
   facts: number;
   rejected?: number;
   pinnedOverflow?: number;
@@ -285,11 +288,16 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
       const version = readSchemaVersion(original);
       const bytes = Number(original.pragma("page_count", { simple: true })) * Number(original.pragma("page_size", { simple: true }));
       if (bytes > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
+      const snapshot = context.preview || context.expectedHash !== undefined ? original.serialize() : undefined;
+      const backupHash = snapshot ? createHash("sha256").update(snapshot).digest("hex") : undefined;
+      if (context.expectedHash !== undefined && backupHash !== context.expectedHash) {
+        throw new MemoryBackupError("backup changed since preview; preview the restore again");
+      }
       const missingColumns = ["memories", "profile_facts"].some((table) => !original.prepare(
         "SELECT 1 FROM pragma_table_info(?) WHERE name = 'disabled_at'",
       ).get(table));
       if (version < MEMORY_SCHEMA_VERSION || missingColumns) {
-        migrated = new DatabaseCtor(original.serialize());
+        migrated = new DatabaseCtor(snapshot ?? original.serialize());
         migrated.pragma("trusted_schema = OFF");
         applyMigrations(migrated);
       }
@@ -386,7 +394,7 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
           }
           const pinnedOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 1") - (context.profileMaxEntries ?? Infinity));
           if (pinnedOverflow) result.pinnedOverflow = pinnedOverflow;
-          if (context.preview) throw new RestorePreview(result);
+          if (context.preview) throw new RestorePreview({ ...result, backupHash: backupHash! });
           return result;
         }).immediate();
       } catch (error) {

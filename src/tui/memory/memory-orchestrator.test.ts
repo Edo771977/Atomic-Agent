@@ -66,7 +66,7 @@ describe("MemoryOrchestrator notes search", () => {
     const runtime = { config: { paths: { memoryDbFile: join(dir, "memory.sqlite") }, memory: { notes: {}, profile: {} } } };
     const bus = { subscribe: () => () => {}, emit: (action: unknown) => emitted.push(action) };
     const orchestrator = new MemoryOrchestrator(runtime as never, bus as never);
-    const pending = orchestrator.runBackup({ operation: "restore", directory: join(dir, "missing"), confirmed: true });
+    const pending = orchestrator.runBackup({ operation: "restore", directory: join(dir, "missing"), confirmed: true, expectedHash: "0".repeat(64) });
     expect(emitted).toContainEqual({ type: "system_message", text: "Memory restore in progress…" });
     await pending;
     expect(emitted).toContainEqual({ type: "system_message", text: expect.stringContaining("memory restore failed") });
