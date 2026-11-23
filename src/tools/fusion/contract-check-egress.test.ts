@@ -88,3 +88,56 @@ describe("contract checks under the folder's egress rule (issue #40)", () => {
     expect(withContractCheckEgress(inner, undefined)).toBe(inner);
   });
 });
+
+it("requires browser egress for served UI checks while keeping source checks offline", async () => {
+  const inner = runner();
+  const wrapped = withContractCheckEgress(inner, refuse("constrained"))!;
+  const source = { kind: "ui", path: "index.html" };
+  const out = await wrapped([
+    { type: "ui", url: "http://localhost:4173/" },
+    { kind: "ui", service: "preview" },
+    source,
+  ], { workingDir: "/work/secret", signal });
+  expect(inner.mock.calls[0]![0]).toEqual([source]);
+  expect(out.results.map(result => result.ok)).toEqual([false, false, true]);
+  expect(out.results[0]?.error).toContain('"browser"');
+});
+
+it.each(["task gate", "call-level remainder", "regression rerun", "after negative controls"])(
+  "repeats a selected UI check's service during %s without changing result positions", async mode => {
+    const { withContractCheckServices } = await import("./contract-check-egress.js");
+    const service = { kind: "service", id: "preview", task: "ui" };
+    const ui = { kind: "ui", service: "preview" };
+    const command = { kind: "command", cmd: "node" };
+    const inner = runner();
+    const wrapped = withContractCheckServices(inner, [service, ui])!;
+    if (mode === "after negative controls") await wrapped([command], { workingDir: "/w", signal });
+    const specs = mode === "call-level remainder" ? [command, ui] : [ui];
+    const result = await wrapped(specs, { workingDir: "/w", signal, checkTasks: specs.map(() => "ui") });
+    expect(inner.mock.lastCall?.[0]).toEqual([...specs.slice(0, -1), { kind: "service", id: "preview" }, ui]);
+    expect(result.results).toHaveLength(specs.length);
+  },
+);
+
+it("rejects cross-task services and negative controls on service-backed UI checks", async () => {
+  const { parseContractChecks } = await import("./contract-check-spec.js");
+  const problems: string[] = [];
+  const service = { kind: "service", id: "preview", task: "server" };
+  parseContractChecks([service, { kind: "ui", service: "preview", task: "client" }], () => null, problems);
+  expect(problems).toEqual([expect.stringContaining("same task")]);
+  problems.length = 0;
+  parseContractChecks([service, { kind: "ui", service: "preview", task: "server", negative: { args: ["--bad"] } }], () => null, problems);
+  expect(problems).toEqual([expect.stringContaining("service-backed UI")]);
+});
+
+it("runs a retained historical service before its UI check even when the regression selection is reordered", async () => {
+  const { withContractCheckServices } = await import("./contract-check-egress.js");
+  const service = { kind: "service", id: "preview" };
+  const ui = { kind: "ui", service: "preview" };
+  const inner = vi.fn<ContractCheckRunner>(async specs => ({
+    ok: true, results: specs.map(spec => ({ ok: true, summary: String(spec.kind) })),
+  }));
+  const result = await withContractCheckServices(inner, [service, ui])!([ui, service], { workingDir: "/w", signal });
+  expect(inner.mock.lastCall?.[0]).toEqual([service, ui]);
+  expect(result.results.map(entry => entry.summary)).toEqual(["ui", "service"]);
+});

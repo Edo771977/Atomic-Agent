@@ -7,7 +7,9 @@
  * `summary` with failures first. `ok` means the run itself went well
  * AND every check passed; a check that fails to parse fails the run.
  */
-import { resolve } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
 import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
@@ -22,7 +24,7 @@ import { runCommandKind } from "./run-command-kind.js";
 import { type BrowserLauncher, defaultBrowserLauncher, type PageRunOutcome, runPageKind } from "./run-page-kind.js";
 import { type FetchLike, type RequestOutcome, runServiceKind } from "./run-service-kind.js";
 import { type CheckOutcome, type CheckSubject, evaluateChecks } from "./verify-checks.js";
-import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
+import { isArtifactKind, parseVerifyRunArgs, uiServiceUrl, type VerifyRunArgs, type VerifyRunKind } from "./verify-run-args.js";
 import { runArtifactCheck, type ArtifactOutcome } from "./artifact-process.js";
 import { OUTPUT_TAIL_CHARS } from "./spawn-verify-process.js";
 import { APPROVED_IMPECCABLE, isImpeccableMarkup, runImpeccableCheck, type ApprovedImpeccable } from "./impeccable-check.js";
@@ -42,6 +44,7 @@ export interface VerifyRunResult {
   readonly impeccableVersion?: string;
   readonly impeccableFindings?: readonly string[];
   readonly impeccableSuppressions?: readonly string[];
+  readonly impeccableExceptions?: readonly string[];
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -157,7 +160,12 @@ function boundedDetectorDetails(lines: readonly string[], budget: number): strin
   return shown;
 }
 
-async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable, approveResearch?: ResearchApproval): Promise<VerifyRunResult> {
+interface ServiceVerification {
+  whileReady?: (url: string) => Promise<void>;
+  url?: string;
+}
+
+async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable, approveResearch?: ResearchApproval, service?: ServiceVerification): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
@@ -189,10 +197,10 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     });
     const text = delivery ? maskVerificationSecrets(detail, known) : detail;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
-    const findingsBudget = ui?.suppressions?.length ? 4094 : 8188;
-    const suppressionsBudget = ui?.findings?.length ? 4094 : 8188;
+    const evidenceCount = [ui?.findings, ui?.suppressions, ui?.usedExceptions].filter(lines => lines?.length).length;
+    const evidenceBudget = Math.floor(8188 / Math.max(1, evidenceCount));
     return finish({ ...common, artifactStatus: out.status, ...(researchLinks === undefined ? {} : { researchLinks }), stdoutTail: ui === undefined && !delivery ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
-      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, findingsBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, suppressionsBudget) }),
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, evidenceBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, evidenceBudget), ...(ui.usedExceptions === undefined ? {} : { impeccableExceptions: boundedDetectorDetails(ui.usedExceptions, evidenceBudget) }) }),
       ...(out.status === "uncheckable" ? { error: ui !== undefined ? text.split("\n", 1)[0] : delivery ? text.slice(0, OUTPUT_TAIL_CHARS) : text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }
@@ -207,7 +215,10 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     );
   }
   if (args.kind === "service") {
-    const out = await runServiceKind(args, { cwd, signal: ctx.signal, fetchImpl: ctx.fetchImpl });
+    const out = await runServiceKind(args, {
+      cwd, signal: ctx.signal, fetchImpl: ctx.fetchImpl,
+      ...(service?.whileReady === undefined ? {} : { whileReady: () => service.whileReady!(uiServiceUrl(args.ready!)) }),
+    });
     const runOk = out.ready && out.requests.every((q) => q.ok);
     return finish(
       { ...common, commandLine: out.commandLine, exitCode: out.exitCode, timedOut: out.timedOut, ready: out.ready, readyMs: out.readyMs, requests: out.requests, stdoutTail: out.stdoutTail, stderrTail: out.stderrTail, ...(out.readyError === undefined ? {} : { error: out.readyError }) },
@@ -287,18 +298,36 @@ function cancelledExecution(result: VerifyRunResult, args: VerifyRunArgs, starte
 export async function runVerify(
   rawArgs: VerifyRunArgs | Record<string, unknown>,
   ctx: VerifyRunContext,
+  service?: ServiceVerification,
 ): Promise<VerifyRunResult> {
   const started = Date.now();
-  const args = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
+  const parsed = parseVerifyRunArgs(rawArgs as Record<string, unknown>);
+  const args = parsed.service === undefined ? parsed : { ...parsed, url: service?.url };
   const detector = (rawArgs as { readonly [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE];
   const approveResearch = args.network ? (rawArgs as { readonly [APPROVE_RESEARCH_LINKS]?: ResearchApproval })[APPROVE_RESEARCH_LINKS] : undefined;
   const failed = (error: string, errorCode: VerifyRunResult["errorCode"], isolated = false): VerifyRunResult =>
     finish({ kind: args.kind, isolated, error, ...((args.kind === "ui" || isArtifactKind(args.kind)) && errorCode !== "cancelled" ? { artifactStatus: "uncheckable" as const } : {}), ...(errorCode === undefined ? {} : { errorCode }) }, { kind: args.kind }, args.checks, false, started);
   if (ctx.signal?.aborted) return failed("verification cancelled before execution", "cancelled");
+  if (args.service !== undefined && (service?.url === undefined || service.url !== detector?.serviceUrl)) {
+    return failed(uiVerificationUnavailable(rawArgs as Record<string, unknown>) ?? "the approved UI service was not ready in this batch", undefined);
+  }
   if (args.kind === "ui" && detector === undefined) {
     const unavailable = uiVerificationUnavailable(rawArgs as Record<string, unknown>);
-    return failed(unavailable ?? (isImpeccableMarkup(args.path!) ? "impeccable is not installed" :
+    return failed(unavailable ?? ((args.url !== undefined || isImpeccableMarkup(args.path!)) ? "impeccable is not installed" :
       "impeccable scans markup: specify the file that uses this CSS or script"), undefined);
+  }
+  if (args.kind === "ui" && args.url !== undefined && ctx.inputIntegrity === undefined) {
+    try {
+      const scratch = await mkdtemp(join(tmpdir(), "atag-verify-rendered-ui-"));
+      try {
+        const result = await runInWorkspace({ ...args, cwd: undefined }, scratch, false, ctx, started, detector);
+        return ctx.signal?.aborted ? cancelledExecution(result, args, started) : result;
+      } finally {
+        await rm(scratch, { recursive: true, force: true });
+      }
+    } catch (error) {
+      return failed(error instanceof Error ? error.message : String(error), ctx.signal?.aborted ? "cancelled" : undefined);
+    }
   }
   // File checks snapshot the approved regular file. An integrity-tracked
   // contract check first observes the files in the private workspace copy.
@@ -329,7 +358,7 @@ export async function runVerify(
     } else {
       const completeIntegrity = await ctx.inputIntegrity?.begin(workspace.dir, ctx.signal ?? new AbortController().signal);
       const executionArgs = rebaseVerifyWorkspaceValue(args, ctx.workingDir, workspace.dir);
-      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector, approveResearch);
+      result = await runInWorkspace(executionArgs, workspace.dir, true, ctx, started, detector, approveResearch, service);
       executionResult = result;
       await completeIntegrity?.();
       // Executors may settle normally after an abort (a page can skip
@@ -360,18 +389,43 @@ export const runChecks = Object.assign(async function runChecks(
   specs: readonly (VerifyRunArgs | Record<string, unknown>)[],
   ctx: VerifyRunContext,
 ): Promise<{ ok: boolean; results: VerifyRunResult[] }> {
-  const results: VerifyRunResult[] = [];
-  for (const [index, spec] of specs.entries()) {
-    if (ctx.signal?.aborted) break;
+  const results = new Map<number, VerifyRunResult>();
+  const run = async (index: number, service?: ServiceVerification) => {
+    const spec = specs[index]!;
     try {
       const target = ctx.screenshotTargetFor?.(index) ?? ctx.screenshots;
       const { screenshotTargetFor: _perSpec, screenshots: _shared, ...rest } = ctx;
-      results.push(await runVerify(spec, { ...rest, ...(target === undefined ? {} : { screenshots: target }) }));
+      results.set(index, await runVerify(spec, { ...rest, ...(target === undefined ? {} : { screenshots: target }) }, service));
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
       const kind = (typeof spec.kind === "string" ? spec.kind : "command") as VerifyRunKind;
-      results.push({ ok: false, kind, isolated: true, durationMs: 0, error, summary: `verify.run ${kind}: FAILED\n${error}` });
+      results.set(index, { ok: false, kind, isolated: true, durationMs: 0, error, summary: `verify.run ${kind}: FAILED\n${error}` });
+    }
+  };
+  for (const [index, spec] of specs.entries()) {
+    if (ctx.signal?.aborted) break;
+    if (results.has(index)) continue;
+    const kind = spec.kind ?? ("type" in spec ? spec.type : undefined);
+    const dependents: number[] = [];
+    if (kind === "service" && typeof spec.id === "string") {
+      for (let next = index + 1; next < specs.length; next++) {
+        const candidate = specs[next]!;
+        if (candidate.service === spec.id && (candidate as { [APPROVED_IMPECCABLE]?: ApprovedImpeccable })[APPROVED_IMPECCABLE]?.serviceUrl !== undefined) {
+          dependents.push(next);
+        }
+      }
+    }
+    await run(index, dependents.length === 0 ? undefined : { whileReady: async (url) => {
+      for (const next of dependents) {
+        if (ctx.signal?.aborted) break;
+        await run(next, { url });
+      }
+    } });
+    if (results.get(index)?.ready !== true) {
+      for (const next of dependents) results.delete(next);
     }
   }
-  return { ok: results.length === specs.length && results.every((r) => r.ok), results };
+  const ordered = [...results].sort(([a], [b]) => a - b).map(([, result]) => result);
+  return { ok: ordered.length === specs.length && ordered.every(result => result.ok), results: ordered };
+
 }, { supportsInputIntegrity: true as const });

@@ -7,7 +7,7 @@ import {
   awaitJobExit,
   startCommandJob,
 } from "../../../sandbox/command-job.js";
-import { buildCommandEnv } from "../../../sandbox/command-env.js";
+import { buildCommandEnv, markAgentToolChild } from "../../../sandbox/command-env.js";
 import { withToolchainEnv } from "../../../sandbox/command-toolchain-env.js";
 import { quoteCmdArg } from "../../../sandbox/shell-invocation.js";
 import {
@@ -413,7 +413,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     const job = startCommandJob(spawnSpec.command, spawnSpec.args, {
       cwd: pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path),
+      env: markAgentToolChild(pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path)),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }

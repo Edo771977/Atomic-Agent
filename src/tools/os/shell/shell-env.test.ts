@@ -61,6 +61,12 @@ describe.skipIf(process.platform === "win32")(
       expect(process.env.ATO347_TEST_API_KEY).toBe("leaked-key-value");
     });
 
+    it("marks children launched by the shell tool", async () => {
+      const result = await tool().run({ cmd: "printenv ATOMIC_AGENT_TOOL_CHILD" }, makeCtx());
+      expect(result.summary).toMatch(/\b1\b/);
+      expect(result.status).toBe("ok");
+    });
+
     it("passes a variable the operator listed in envPassthrough", async () => {
       const result = await tool(["ATO347_PASS_TOKEN"]).run(
         { cmd: line },

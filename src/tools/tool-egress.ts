@@ -27,7 +27,8 @@ export type { EgressClass } from "../config/project-constraints-config.js";
  *   browser is one class. A `verify.run` page probe (`kind: "page"`)
  *   is a headless browser too and is classed the same, whatever it
  *   opens: a local file or a loopback page can still load remote
- *   resources (its `network: false` block is a soft one).
+ *   resources (its `network: false` block is a soft one). A rendered UI
+ *   verification uses the same class.
  *   `video.render_html` records a page in the same headless browser, so
  *   it is `browser` too;
  * - `github`: every `github.*` tool (the GitHub API);
@@ -108,7 +109,9 @@ export function egressTargetOf(
   if (isNetworkedResearch(tool, args)) return { cls: "http" };
   if (tool === "os.http.request") return isLocalUrl(args.url) ? null : { cls: "http" };
   if (tool.startsWith("browser.")) return { cls: "browser" };
-  if (tool === VERIFY_TOOL && args.kind === "page") return { cls: "browser" };
+  const verifyKind = args.kind ?? args.type;
+  if (tool === VERIFY_TOOL && (verifyKind === "page" ||
+      (verifyKind === "ui" && (args.url != null || args.service != null)))) return { cls: "browser" };
   if (tool === "video.render_html") return { cls: "browser" };
   if (tool.startsWith("github.")) return { cls: "github" };
   if (GIT_REMOTE_TOOLS.has(tool)) return { cls: "git" };

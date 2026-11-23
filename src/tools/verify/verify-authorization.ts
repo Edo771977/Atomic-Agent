@@ -1,3 +1,4 @@
+import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { basename, isAbsolute, relative, resolve, sep } from "node:path";
 import { ApprovalDeniedError, requireApproval, type DangerousToolOptions } from "../../approval/dangerous-tool.js";
@@ -12,7 +13,7 @@ import type { ResearchApproval } from "./research-links.js";
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
 import { guardVerifyCommand, guardVerifyRun, verifyRunCommands, verifyRunStdinScript } from "./verify-run-guard.js";
-import { isArtifactKind, parseVerifyRunArgs, type VerifyRunArgs } from "./verify-run-args.js";
+import { isArtifactKind, parseVerifyRunArgs, uiServiceUrl, type VerifyRunArgs } from "./verify-run-args.js";
 import { isLocalPageProbe } from "./verify-page-local.js";
 import { localFileOfUrl, invalidLocalFileUrlReason } from "../read-scope/read-scope-targets.js";
 
@@ -49,7 +50,10 @@ function markUiUnavailable(spec: Record<string, unknown>, reason: string): void 
 export interface VerifyAuthorizationOptions extends DangerousToolOptions {
   /** Return a verdict for a refused UI check without holding its siblings. */
   continueOnUiApprovalDenial?: boolean;
+  /** Final Fusion pass. Service declarations were already authorized in preflight. */
+  onlyUi?: boolean;
   researchNetworkRefusal?: string;
+  uiExceptionStateDir?: string;
   shellPolicy?: ShellGuardPolicy;
   checkCommandReads?: CommandReadCheck;
   checkReadTargets?: ReadTargetCheck;
@@ -96,7 +100,7 @@ export function resolveVerifyCwd(root: string, cwd: string | undefined): string 
 }
 
 const VERIFICATION_FIELDS = new Set([
-  "kind", "type", "cmd", "command", "args", "start", "cwd", "env", "timeoutMs", "network",
+  "kind", "type", "id", "service", "cmd", "command", "args", "start", "cwd", "env", "timeoutMs", "network",
   "ready", "requests", "path", "url", "script", "seconds", "probes", "checks", "task", "stdin", "game", "screenshot", "criteria",
   // A fusion contract check's vision judgement (issue #40): read by the
   // judge, stripped before the runner like `task` and `criteria`.
@@ -141,12 +145,27 @@ export async function authorizeVerifyBatch(
   for (const spec of snapshot) assertDeclaredVerificationSchema(spec, options.approvalRequired);
   const project = ctx.ruleWorkdir ?? ctx.workingDir;
   const known = [...knownSecretsFromEnv(), ...(options.knownSecrets ?? [])];
+  const projectRef = ctx.incognito ? undefined : ctx.projectRef;
+  const stateDir = options.uiExceptionStateDir;
+  const loadExceptions = projectRef === undefined || stateDir === undefined ? undefined : () => {
+    const found = stateDirProjectRecords(stateDir).read(projectRef.folder);
+    return found.ok && found.record?.id === projectRef.id ? found.record.uiExceptions ?? [] : [];
+  };
   const plans = [];
+  const services = new Map<string, NonNullable<VerifyRunArgs["ready"]>>();
   for (const spec of snapshot) {
     // The injected runner API historically accepts non-process fixture/check
     // specs too. A trusted embedder explicitly opting out of approvals may
     // keep those; production cannot authorize an undisclosed executor.
     const kind = spec.kind ?? spec.type;
+    if (kind === "service" && spec.id != null) {
+      const service = parseVerifyRunArgs(spec);
+      if (service.id !== undefined) {
+        if (services.has(service.id)) throw new Error("duplicate verification service id");
+        services.set(service.id, service.ready!);
+      }
+    }
+    if (options.onlyUi && kind !== "ui") continue;
     const namedCommand = typeof spec.cmd === "string" || typeof spec.command === "string" ||
       typeof spec.start === "object" && spec.start !== null;
     if (kind === "command" && !namedCommand) {
@@ -162,14 +181,30 @@ export async function authorizeVerifyBatch(
     const cwd = resolveVerifyCwd(project, logical.cwd);
     const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
     const ui = logical.kind === "ui";
-    const detector = ui && artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
+    const ready = logical.service === undefined ? undefined : services.get(logical.service);
+    if (logical.service !== undefined && ready === undefined) {
+      markUiUnavailable(spec, "UI verification requires an earlier named service in the same batch");
+      continue;
+    }
+    let serviceUrl: string | undefined;
+    if (ready !== undefined) {
+      try {
+        serviceUrl = uiServiceUrl(ready);
+      } catch (error) {
+        markUiUnavailable(spec, error instanceof Error ? error.message : String(error));
+        continue;
+      }
+    }
+    const uiTarget = logical.url ?? serviceUrl ?? artifactTarget;
+    const supportedUi = logical.url !== undefined || serviceUrl !== undefined || (artifactTarget !== undefined && isImpeccableMarkup(artifactTarget));
+    const detector = ui && supportedUi
       ? await resolveImpeccable(ctx.workingDir, actualCwd, ctx.signal) : undefined;
     if (ui && detector === undefined) {
-      markUiUnavailable(spec, artifactTarget !== undefined && isImpeccableMarkup(artifactTarget)
+      markUiUnavailable(spec, supportedUi
         ? "impeccable is not installed" : "impeccable scans markup: specify the file that uses this CSS or script");
       continue;
     }
-    const detectorArgs = detector === undefined ? undefined : impeccableArgs(artifactTarget!);
+    const detectorArgs = detector === undefined ? undefined : impeccableArgs(uiTarget!);
     const uiVerdicts = detector === undefined ? [] : [
       guardVerifyCommand(detector.file, detectorArgs!, cwd, options.shellPolicy, false),
       guardVerifyCommand(detector.file, ["--version"], cwd, options.shellPolicy, false),
@@ -202,7 +237,9 @@ export async function authorizeVerifyBatch(
     const localExecutable = detector === undefined ? undefined : [detector.candidate, detector.file].map(file =>
       relative(ctx.workingDir, file)).find(file => file && file !== ".." && !file.startsWith(`..${sep}`) && !isAbsolute(file));
     const execution = ui
-      ? detector === undefined ? "no detector process will run" : "run installed impeccable in a private copy of this project"
+      ? (logical.url ?? serviceUrl) !== undefined
+        ? "launch an installed Chromium-based browser selected by Impeccable; the page can load external resources and follow redirects"
+        : "run installed impeccable in a private copy of this project"
       : logical.kind === "files" ? "inspect path names and types only"
       : artifactTarget === undefined
       ? "in a private verification copy of this project; absolute project references are rebased into that copy"
@@ -219,12 +256,12 @@ export async function authorizeVerifyBatch(
       sessionId: ctx.sessionId, tool: "verify.run",
       category: dangerous ? "shell_dangerous" as const : ui ? "verify_ui_detector" as const : isLocalPageProbe(logical, cwd, project) ? "verify_page_local" as const : "shell" as const,
       reason: logical.kind === "files" ? `verify file names and types in ${maskVerificationSecrets(cwd, previewKnown)}`
+        : ui
+        ? `verify UI with ${maskVerificationSecrets(detector!.file, previewKnown)} on ${maskVerificationSecrets(uiTarget!, previewKnown)}`
         : artifactTarget === undefined
         ? `${dangerous ? `${guard.dangerous.map(c => c.verdict.reason).join("; ")} — ` : ""}verify (${logical.kind}) in a throwaway copy of ${cwd}; the copy is not a sandbox${options.copyNote === undefined ? "" : `; ${options.copyNote}`}`
-        : logical.kind === "ui"
-          ? `verify UI with ${maskVerificationSecrets(detector?.file ?? "impeccable (unavailable)", previewKnown)} on ${maskVerificationSecrets(artifactTarget, previewKnown)}`
-          : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
-      preview, affectedResources: detector === undefined ? [artifactTarget ?? cwd] : [cwd, artifactTarget!, detector.file], targetPaths, commandSegments,
+        : `verify (${logical.kind}) by reading ${maskVerificationSecrets(artifactTarget, previewKnown)} offline`,
+      preview, affectedResources: detector === undefined ? [artifactTarget ?? cwd] : [cwd, uiTarget!, detector.file], targetPaths, commandSegments,
       ...(commandUnreadable ? { commandUnreadable } : {}),
       ...(commandArgv === undefined ? {} : { commandArgv }), workdir: project,
       // Issue #95: one direct exec (no shell reads it) with no env, no
@@ -236,7 +273,7 @@ export async function authorizeVerifyBatch(
         (logical.stdin === undefined || logical.stdin === "")
         ? { verifyPlainCommand: true as const } : {}),
     };
-    plans.push({ prompt, logical, cwd, spec, commands, detector });
+    plans.push({ prompt, logical, cwd, spec, commands, detector, serviceUrl });
   }
   // A deny for a later command wins before asking about an earlier command.
   for (const { prompt, logical, spec } of plans) {
@@ -290,7 +327,7 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd, logical, spec, detector } of plans) {
+  for (const { prompt, cwd, logical, spec, detector, serviceUrl } of plans) {
     ctx.signal.throwIfAborted();
     if (uiVerificationUnavailable(spec) !== undefined) continue;
     if (logical.kind === "ui" && options.continueOnUiApprovalDenial && options.approvalRequired &&
@@ -326,8 +363,10 @@ export async function authorizeVerifyBatch(
         if (outcome.pinnedExec !== undefined && outcome.pinnedExec.file !== detector?.file) {
           throw new Error("verify.run: the pinned file differs from the approved impeccable executable");
         }
+        const exceptionFile = projectRef === undefined || logical.path === undefined ? undefined
+          : relative(project, resolve(cwd, logical.path)).split(sep).join("/");
         Object.defineProperty(spec, APPROVED_IMPECCABLE, {
-          value: detector === undefined || outcome.pinnedExec === undefined ? detector : { ...detector, path: outcome.pinnedExec.path },
+          value: detector === undefined ? undefined : { ...detector, loadExceptions, exceptionFile, serviceUrl, path: outcome.pinnedExec?.path },
         });
       } else if (outcome.pinnedExec !== undefined) {
         // requireApproval checked the pin's argv against this check's

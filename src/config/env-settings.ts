@@ -167,6 +167,8 @@ export const INTERNAL_ENV_NAMES: ReadonlyMap<string, string> = new Map([
   ["ATOMIC_AGENT_INSTALL_ID_FILE", "the shared analytics install id file, passed through by the desktop app"],
   ["ATOMIC_AGENT_TEAM", "marks team test runs in analytics"],
   ["ATOMIC_AGENT_SESSION_PARENT_PID", "set by the desktop app on every agent process it starts"],
+  // Set in src/sandbox/command-env.ts and checked in src/cli/project-decision-origin.ts.
+  ["ATOMIC_AGENT_TOOL_CHILD", "set by the runtime on subprocesses launched by tools"],
   ["ATOMIC_AGENT_USER_PATH_B64", "used internally by the Windows uninstaller"],
   ["ATOMIC_AGENT_DEBUG_ARGV", "developer switch that prints the parsed command line"],
   ["ATOMIC_AGENT_INSTALL_SOURCE", "set by the install scripts for analytics"],

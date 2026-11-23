@@ -1,7 +1,9 @@
+import { projectDecisionOriginRefusal } from "./project-decision-origin.js";
 import { randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
+import { matchesUiException, uiExceptionTarget, validUiExceptionReason } from "../session/project-ui-exceptions.js";
 import { validProjectLessonId, stateDirProjectRecords } from "../session/project-decisions.js";
 import { RECEIPT_KINDS } from "../session/receipt-signing.js";
 import { verifyProjectReceiptDetails } from "../session/project-receipts.js";
@@ -50,6 +52,7 @@ const PROJECT_HELP = [
   "      and --reopen are your calls on an item, kept in this computer's record.",
   "  lessons [folder] [--json] [--approve <id>@<fingerprint> | --retire <id> | --reopen <id>]",
   "      List and decide project lessons (default: current folder)",
+  "  ui-exceptions [folder] [--json]  List or decide UI detector exceptions",
   "  resume <folder> [--no-open]",
   "      Open a chat on the folder's project and show the gate waiting for you;",
   "      --no-open only prints it and the chat to continue.",
@@ -300,6 +303,21 @@ export async function projectCommand(args: string[], deps: ProjectCommandDeps = 
       return 1;
     }
   }
+  if (sub === "ui-exceptions") {
+    return uiExceptionsCommand(args.slice(1), {
+      stdout,
+      stderr,
+      stateDir: () => deps.stateDir?.() ?? getConfig().paths.stateDir,
+      liveTurn: (folder, id) => {
+        const store = deps.sessionStore ?? new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+        try {
+          return store.liveProjectTurn(folder, id);
+        } finally {
+          if (deps.sessionStore === undefined) store.close();
+        }
+      },
+    });
+  }
   if (sub === "backlog" || sub === "lessons") {
     const run = sub === "backlog" ? backlogCommand : lessonsCommand;
     return run(args.slice(1), {
@@ -422,6 +440,11 @@ async function backlogCommand(
     else positional.push(a);
   }
   if (positional.length > 1) return usage();
+  const refusal = call === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) {
+    io.stderr(`${refusal}\n`);
+    return 1;
+  }
   const folder = resolve(positional[0] ?? ".");
   const stateDir = io.stateDir();
   const options = { stateDir, records: stateDirProjectRecords(stateDir) };
@@ -517,6 +540,8 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
   }
   if (positional.length > 1) return usage();
 
+  const refusal = decision === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) return refuse(refusal);
   const folder = resolve(positional[0] ?? ".");
   const records = stateDirProjectRecords(io.stateDir());
   const found = records.read(folder);
@@ -572,4 +597,71 @@ function lessonsCommand(args: string[], io: ProjectCommandIO): number {
     stdout(lines.length === 0 ? "No project lessons found.\n" : lines.join("\n") + "\n");
   }
   return problems.some(({ file }) => file === "lessons") ? 1 : 0;
+}
+
+function uiExceptionsCommand(args: string[], io: ProjectCommandIO): number {
+  const usage = 'Usage: atomic-agent project ui-exceptions [folder] [--json] [--allow <rule>[:<file>] --reason "<reason>" | --revoke <rule>[:<file>]]\n';
+  if (args.includes("--help") || args.includes("-h")) {
+    io.stdout(usage);
+    return 0;
+  }
+  const invalid = () => {
+    io.stderr(usage);
+    return 2;
+  };
+  const refuse = (message: string) => {
+    io.stderr(`project ui-exceptions: ${message}\n`);
+    return 1;
+  };
+  let folder: string | undefined;
+  let target: ReturnType<typeof uiExceptionTarget>;
+  let allow = false;
+  let reason: string | undefined;
+  let json = false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === "--json") json = true;
+    else if (arg === "--allow" || arg === "--revoke") {
+      if (target !== undefined) return invalid();
+      target = uiExceptionTarget(args[++index] ?? "");
+      if (target === undefined) return invalid();
+      allow = arg === "--allow";
+    } else if (arg === "--reason") {
+      if (reason !== undefined) return invalid();
+      reason = args[++index]?.trim() ?? "";
+      if (reason.startsWith("--") || !validUiExceptionReason(reason)) return invalid();
+    } else {
+      if (arg.startsWith("-") || folder !== undefined) return invalid();
+      folder = arg;
+    }
+  }
+  if (allow !== (reason !== undefined)) return invalid();
+  const refusal = target === undefined ? undefined : projectDecisionOriginRefusal();
+  if (refusal !== undefined) return refuse(refusal);
+  const projectFolder = resolve(folder ?? ".");
+  const records = stateDirProjectRecords(io.stateDir());
+  let result = records.read(projectFolder);
+  if (!result.ok) return refuse(result.problem.message);
+  if (target !== undefined) {
+    const record = result.record;
+    if (record === null) return refuse("Open the project in a regular chat before deciding a UI exception.");
+    if (io.liveTurn(record.folder, record.id) !== null) return refuse("A turn is running on this project. Wait for it to finish, then decide.");
+    if (!allow && !record.uiExceptions?.some(entry => matchesUiException(entry, target))) {
+      const message = "No matching approved UI exception to revoke.\n";
+      if (json) {
+        io.stderr(message);
+        io.stdout(JSON.stringify(record.uiExceptions ?? []) + "\n");
+      } else io.stdout(message);
+      return 0;
+    }
+    const written = records.write(projectFolder, record.id, record.seq, record.state, undefined, undefined,
+      reason === undefined ? { ...target, allow: false } : { ...target, allow: true, reason });
+    if (!written.ok) return refuse(written.problem.message);
+    result = records.read(projectFolder);
+    if (!result.ok) return refuse(result.problem.message);
+  }
+  const exceptions = result.record?.uiExceptions ?? [];
+  io.stdout(json ? JSON.stringify(exceptions) + "\n" : exceptions.length === 0 ? "No approved UI exceptions.\n" :
+    exceptions.map(({ rule, file, reason: note }) => `${rule}${file === undefined ? "" : `:${file}`} — ${note}\n`).join(""));
+  return 0;
 }
