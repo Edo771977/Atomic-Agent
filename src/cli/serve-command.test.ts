@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import { maskSecrets } from "../error-reporting/secret-detector.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { getConfig } from "../config/index.js";
+import { serveApiKeyPath } from "./serve-api-key.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
@@ -8,6 +13,7 @@ import { serveCommand } from "./serve-command.js";
 
 /** What `serveCommand` handed `createAgentRuntime`, the last time it ran. */
 const boot = vi.hoisted(() => ({
+  known: null as ReturnType<typeof runtimeKnownSecrets> | null,
   options: null as CreateAgentRuntimeOptions | null,
 }));
 
@@ -21,6 +27,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
     ...actual,
     createAgentRuntime: async (options: CreateAgentRuntimeOptions) => {
       boot.options = options;
+      boot.known = runtimeKnownSecrets({});
       throw new Error("runtime stand-in: not booting");
     },
   };
@@ -199,6 +206,20 @@ it("warns once when the serve key comes from the environment", async () => {
     const output = stderr.mock.calls.flat().join("");
     expect(output.match(/use --api-key-file/g)).toHaveLength(1);
     expect(output).not.toContain("synthetic-serve-warning-key");
+  } finally {
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it.each(["plainlowercasesynthetickey", undefined])("registers the active serve key for masking (%s)", async (given) => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", given);
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand([]);
+    const key = given ?? readFileSync(serveApiKeyPath(getConfig().paths.stateDir), "utf8").trim();
+    expect(maskSecrets("tool output: " + key, boot.known ?? [])).toBe("tool output: [redacted:serve-api-key]");
+    expect(runtimeKnownSecrets({}).some(secret => secret.value === key)).toBe(false);
   } finally {
     stderr.mockRestore();
     vi.unstubAllEnvs();

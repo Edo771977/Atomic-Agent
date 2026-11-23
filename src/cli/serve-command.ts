@@ -1,3 +1,5 @@
+import { registerServeKeyForRedaction, runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { maskSecrets } from "../error-reporting/secret-detector.js";
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
 import { getConfig } from "../config/index.js";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
@@ -114,6 +116,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   let orphanWatch: OrphanWatch | null = null;
   let memoryGuard: ServeMemoryGuard | null = null;
   let tunnel: WebhookTunnel | null = null;
+  const releaseKey = registerServeKeyForRedaction(apiKey.key);
   try {
     runtime = await createAgentRuntime({
       workingDir: parsed.workingDir,
@@ -248,20 +251,24 @@ export async function serveCommand(args: string[]): Promise<number> {
   } catch (err) {
     const message =
       err instanceof Error ? (err.stack ?? err.message) : String(err);
-    process.stderr.write(`serve failed: ${message}\n`);
+    process.stderr.write(`serve failed: ${maskSecrets(message, runtimeKnownSecrets({}))}\n`);
     return 1;
   } finally {
-    memoryGuard?.stop();
-    orphanWatch?.stop();
-    // The public address goes first, before the API it fronts.
-    if (tunnel) await tunnel.stop().catch(() => {});
-    if (handle) await handle.close();
-    if (runtime) await runtime.shutdown(crashedShutdown ? { crashed: true } : undefined);
-    // Released last, and only once the port and the databases are
-    // actually let go. A teardown that wedges must stay on record:
-    // a process still holding its port with no record is precisely the
-    // invisible stray this module exists to prevent.
-    releaseRecord?.();
+    try {
+      memoryGuard?.stop();
+      orphanWatch?.stop();
+      // The public address goes first, before the API it fronts.
+      if (tunnel) await tunnel.stop().catch(() => {});
+      if (handle) await handle.close();
+      if (runtime) await runtime.shutdown(crashedShutdown ? { crashed: true } : undefined);
+      // Released last, and only once the port and the databases are
+      // actually let go. A teardown that wedges must stay on record:
+      // a process still holding its port with no record is precisely the
+      // invisible stray this module exists to prevent.
+      releaseRecord?.();
+    } finally {
+      releaseKey();
+    }
   }
 }
 
