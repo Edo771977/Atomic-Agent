@@ -74,13 +74,14 @@ describe("os.shell.run honours the git remote-sync policy", () => {
     const gate = new ApprovalGate({
       emit: (request) => {
         categories.push(request.category);
-        gate.reject(request.approvalId, "fixture refuses any prompt");
+        if (request.category === "http_write") gate.reject(request.approvalId, "fixture refuses the URL");
+        else gate.resolve({ approvalId: request.approvalId, approved: true });
       },
     });
     const tool = buildOsShellTool({ approvals: gate, approvalRequired: true });
     const url = "https://docs.example/?q=first%0Asecond";
     await expect(tool.run({ cmd, args: [url] }, makeCtx(dir))).rejects.toMatchObject({ name: "ApprovalDeniedError" });
-    expect(categories).toEqual(["http_write"]);
+    expect(categories.at(-1)).toBe("http_write");
   });
 
   it("asks for approval as usual once remote sync is on", async () => {

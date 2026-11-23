@@ -264,15 +264,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       const refused = offlineRefusal(url, "os.shell.run");
       if (refused) throw refused;
     }
-    for (const url of urls) {
-      await requireUrlSendApproval(options, {
-        mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
-        tool: "os.shell.run",
-        url,
-        sessionId: ctx.sessionId,
-        signal: ctx.signal,
-      });
-    }
+
 
     // The files the command would write, move or remove: after the
     // user declined a write of one of them this turn, this is the same
@@ -398,6 +390,20 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         ctx.signal,
       );
       pinned = approval.pinnedExec;
+    }
+
+    // A host pin already consents to the exact argv and working directory.
+    // No saved or interactive shell grant substitutes for URL consent.
+    if (pinned === undefined) {
+      for (const url of urls) {
+        await requireUrlSendApproval(options, {
+          mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+          tool: "os.shell.run",
+          url,
+          sessionId: ctx.sessionId,
+          signal: ctx.signal,
+        });
+      }
     }
 
     const spawnSpec =
