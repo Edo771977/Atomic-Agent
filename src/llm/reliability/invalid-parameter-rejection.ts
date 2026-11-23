@@ -22,7 +22,8 @@ import { TransportError } from "./llm-failures.js";
 export function isInvalidParameterRejection(error: unknown): boolean {
   const status = statusOf(error);
   if (status !== 400 && status !== 422) return false;
-  return invalidSamplingParameter(messageChain(error)) !== null;
+  const { text, param } = describeRejection(error);
+  return invalidSamplingParameter(text, param) !== null;
 }
 
 function statusOf(error: unknown): number | null | undefined {
@@ -35,19 +36,22 @@ function statusOf(error: unknown): number | null | undefined {
 /** Depth cap on the `cause` walk — longer is a cycle. */
 const MAX_CAUSE_DEPTH = 5;
 
-function messageChain(error: unknown): string {
+function describeRejection(error: unknown): { text: string; param: string | undefined } {
   const parts: string[] = [];
   let current: unknown = error;
+  let param: string | undefined;
   for (let depth = 0; depth < MAX_CAUSE_DEPTH && current !== undefined; depth += 1) {
     if (current instanceof Error) {
       parts.push(current.message);
-      const body = current instanceof OpenAiHttpError ? current.body?.text : undefined;
-      if (typeof body === "string" && body.length > 0) parts.push(body);
+      if (current instanceof OpenAiHttpError && current.body) {
+        param ??= current.body.param;
+        parts.push(current.body.text);
+      }
       current = (current as { cause?: unknown }).cause;
     } else {
       parts.push(String(current));
       break;
     }
   }
-  return parts.join(" | ");
+  return { text: parts.join(" | "), param };
 }

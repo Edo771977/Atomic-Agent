@@ -1,3 +1,4 @@
+import { parseProviderErrorBody } from "../provider/openai/parse-provider-error-body.js";
 import { describe, it, expect } from "vitest";
 import { shouldAdvance } from "./should-advance.js";
 import { OpenAiHttpError } from "../provider/openai/openai-http.js";
@@ -110,6 +111,25 @@ describe("shouldAdvance", () => {
         }),
       ),
     ).toEqual({ advance: false, immediate: false });
+  });
+
+  it.each([
+    "Invalid schema for function 'set_thermostat': 'temperature' is not permitted",
+    "Invalid schema for a tool: ‘seed’ is not of type ‘integer’",
+    "Invalid 'tools[3].function.parameters': unknown keyword 'top_k'",
+    "response_format json_schema invalid: property 'temperature' must be number",
+    "Invalid 'messages[2].content': seed oil, expected a string",
+  ])("advances past schema or message errors: %s", (message) => {
+    expect(shouldAdvance(new OpenAiHttpError(message, 400, "u")).advance).toBe(true);
+  });
+
+  it("prefers the structured parameter over echoed request wording", () => {
+    const rejection = (param: string, message: string) => new TransportError("request rejected", 400, "u", {
+      cause: new OpenAiHttpError(message, 400, "u", false, null, "", undefined,
+        { body: parseProviderErrorBody(JSON.stringify({ error: { param, message } })) }),
+    });
+    expect(shouldAdvance(rejection("tools[1]", "invalid temperature")).advance).toBe(true);
+    expect(shouldAdvance(rejection("temperature", "value rejected while validating messages[2]")).advance).toBe(false);
   });
 
   it("does NOT advance on a cloud 400 that refuses a sampling setting (ATO-1218)", () => {

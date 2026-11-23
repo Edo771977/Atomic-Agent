@@ -21,6 +21,8 @@
  *    of some other field into this one.
  */
 
+const SCHEMA_OR_MESSAGE_RE = /\b(?:tools\s*\[|functions\b|function\s+['"‘“]|parameters\b|properties\b|(?:json_)?schema\b|response_format\b|messages\s*\[)/i;
+
 const SAMPLING_PARAMETER_RE =
   /\b(temperature|top_p|top_k|min_p|typical_p|presence_penalty|frequency_penalty|repetition_penalty|repeat_penalty|seed|logit_bias|top_logprobs|reasoning_effort)\b/gi;
 
@@ -34,7 +36,12 @@ const NEAR_CHARS = 100;
  * The name of the sampling setting the text refuses, lower-case, or null
  * when the text refuses none of them.
  */
-export function invalidSamplingParameter(text: string): string | null {
+export function invalidSamplingParameter(text: string, param?: string): string | null {
+  if (param !== undefined) {
+    const match = [...param.matchAll(SAMPLING_PARAMETER_RE)][0];
+    return match?.[0].length === param.length ? param.toLowerCase() : null;
+  }
+  if (SCHEMA_OR_MESSAGE_RE.test(text)) return null;
   for (const match of text.matchAll(SAMPLING_PARAMETER_RE)) {
     const at = match.index ?? 0;
     const from = Math.max(0, at - NEAR_CHARS);

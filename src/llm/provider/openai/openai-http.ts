@@ -344,7 +344,7 @@ export function humanizeOpenAiHttpError(err: OpenAiHttpError): string {
     // ATO-1218: the model refused one of the sampling settings we sent.
     // The turn stops here (`shouldAdvance`), so name the provider and the
     // setting, keep the provider's own words, and say what to change.
-    const param = invalidSamplingParameter(`${err.message}\n${err.body?.text ?? ""}`);
+    const param = invalidSamplingParameter(`${err.message}\n${err.body?.text ?? ""}`, err.body?.param);
     if (param !== null) {
       const own = providerReason(err);
       return (
