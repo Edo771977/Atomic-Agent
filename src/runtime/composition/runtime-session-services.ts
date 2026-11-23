@@ -1,3 +1,4 @@
+import { forgetPrivacyVault } from "../../privacy/index.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -169,6 +170,7 @@ export function installRuntimeSessionDelete(
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
+    forgetPrivacyVault(id);
   };
 }
 

@@ -20,6 +20,5 @@ export {
   resetPrivacyVaults,
   setPrivacyKnownSecrets,
   setPrivacyShieldEnabled,
-  SHARED_VAULT_KEY,
   type PrivacyShieldTotals,
 } from "./privacy-vault-registry.js";

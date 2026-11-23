@@ -13,10 +13,12 @@ import {
 afterEach(() => resetPrivacyVaults());
 
 describe("privacy vault registry (ATO-599)", () => {
-  it("keeps one vault per session, and one shared vault without an id", () => {
+  it("keeps one vault per session, and isolates requests without an id", () => {
     expect(privacyVaultFor("s1")).toBe(privacyVaultFor("s1"));
     expect(privacyVaultFor("s1")).not.toBe(privacyVaultFor("s2"));
-    expect(privacyVaultFor(undefined)).toBe(privacyVaultFor(""));
+    expect(privacyVaultFor(undefined)).not.toBe(privacyVaultFor(""));
+    privacyVaultFor(undefined).mask("isolated@example.test");
+    expect(privacyVaultFor(undefined).unmask("[EMAIL_1]")).toBe("[EMAIL_1]");
   });
 
   it("numbers placeholders per session", () => {

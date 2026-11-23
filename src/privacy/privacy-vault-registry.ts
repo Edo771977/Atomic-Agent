@@ -8,9 +8,6 @@
 import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret-detector.js";
 import { PrivacyVault } from "./privacy-vault.js";
 
-/** Requests without a session id (one-off sub-calls) share this vault. */
-export const SHARED_VAULT_KEY = "*";
-
 const vaults = new Map<string, PrivacyVault>();
 /** The agent's own keys (its `.env` is loaded into `process.env`). */
 let knownSecrets: () => readonly KnownSecret[] = () => knownSecretsFromEnv();
@@ -36,7 +33,9 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 }
 
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
-  const key = sessionId && sessionId.length > 0 ? sessionId : SHARED_VAULT_KEY;
+  // Auxiliary calls have no session lifetime and must not share substitutions.
+  if (!sessionId) return new PrivacyVault(() => knownSecrets());
+  const key = sessionId;
   let vault = vaults.get(key);
   if (!vault) {
     vault = new PrivacyVault(() => knownSecrets());
