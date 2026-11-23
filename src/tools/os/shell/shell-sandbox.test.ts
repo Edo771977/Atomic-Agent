@@ -20,6 +20,10 @@ const availability = smoke.ok ? spawnSync(smoke.command, smoke.args, { encoding:
 const unavailable = !smoke.ok ? smoke.reason : availability?.status === 0 ? undefined
   : availability?.stderr?.trim() || availability?.error?.message || "backend probe failed";
 
+if (unavailable !== undefined && process.env.ATOMIC_AGENT_REQUIRE_BWRAP === "1") {
+  throw new Error(`Bubblewrap required for this job: ${unavailable}`);
+}
+
 if (unavailable !== undefined) console.warn(`Skipping real OS sandbox tests: ${unavailable}`);
 
 describe.skipIf(unavailable !== undefined)(
@@ -80,6 +84,18 @@ describe.skipIf(unavailable !== undefined)(
     }
 
     const on: OsSandboxSettings = { mode: "workspace", network: false };
+
+    it.skipIf(process.platform !== "linux" || process.getuid?.() !== 0)("review 4: a root invocation has zero effective capabilities and read-only host mounts", async () => {
+      const marker = join(outside, "host-write.txt");
+      const result = await tool(on).run({ cmd: process.execPath, args: ["-e", [
+        "const fs=require('node:fs');",
+        "console.log(fs.readFileSync('/proc/self/status','utf8').match(/^CapEff:.*$/m)[0]);",
+        "try { fs.writeFileSync(process.argv[1], 'fixture'); process.exitCode=1; } catch (e) { console.log(e.code) }",
+      ].join(" "), marker] }, ctx());
+      expect(result.status).toBe("ok");
+      expect(result.summary).toMatch(/CapEff:\s+0{16}/);
+      expect(existsSync(marker)).toBe(false);
+    });
 
     it("writes inside the working folder", async () => {
       await tool(on).run({ cmd: "echo inside > inside.txt" }, ctx());

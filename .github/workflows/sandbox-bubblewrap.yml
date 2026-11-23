@@ -1,0 +1,29 @@
+name: Bubblewrap isolation
+
+on:
+  pull_request:
+    paths:
+      - 'src/sandbox/**'
+      - 'src/tools/**'
+      - 'src/cli/mcp-server*.ts'
+      - '.github/workflows/sandbox-bubblewrap.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  bubblewrap:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25.9'
+          cache: npm
+      - run: sudo apt-get update && sudo apt-get install -y bubblewrap
+      - run: npm ci
+      - name: Run real Bubblewrap fixtures as root
+        run: |
+          sudo env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "$(command -v node)" \
+            node_modules/vitest/vitest.mjs run src/sandbox/os-sandbox.test.ts src/tools/os/shell/shell-sandbox.test.ts

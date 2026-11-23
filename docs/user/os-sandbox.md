@@ -16,3 +16,5 @@ On Linux, install Bubblewrap through the system package manager and use a host t
 - On Linux, service verification performs readiness and HTTP checks inside the same private network as the service. Host-browser checks that launch a page server cannot reach that private network and fail explicitly.
 
 The sandbox covers command processes on these entry points. Project rules, approvals and read scope continue to govern dispatch. Browser, HTTP, Git tools, skill scripts, hooks and stdio MCP have their own execution paths.
+
+Linux requires a user namespace and removal of all capabilities, including when the agent runs as root. If Bubblewrap cannot apply either restriction, the command fails.

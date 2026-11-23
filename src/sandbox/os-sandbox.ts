@@ -268,7 +268,7 @@ function bwrapArgs(
   command: string,
   args: readonly string[],
 ): string[] {
-  const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid"];
+  const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-user", "--cap-drop", "ALL"];
   for (const dir of unique(policy.writableRoots.map(real))) {
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);

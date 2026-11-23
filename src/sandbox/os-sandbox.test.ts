@@ -227,3 +227,8 @@ describe("wrapWithOsSandbox", () => {
     expect(formatSandboxUnavailable(win.reason)).toContain("ATOMIC_AGENT_SANDBOX");
   });
 });
+
+it("review 4: drop all Linux capabilities", () => {
+  const w = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(w.ok && w.args).toEqual(expect.arrayContaining(["--cap-drop", "ALL", "--unshare-user"]));
+});
