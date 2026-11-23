@@ -189,11 +189,11 @@ jobs:
       - name: Set the isolated Playwright browser directory
         run: echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/verify-playwright" >> "$GITHUB_ENV"
       - name: Verify real system Chrome fallback
-        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=system npx vitest run src/tools/verify/run-verify.test.ts -t 'expected real macOS browser'
+        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=system node scripts/run-tests.mjs src/tools/verify/run-verify.test.ts
       - name: Install Playwright Chromium
         run: npx playwright-core install chromium
       - name: Verify real Playwright Chromium takes precedence
-        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=playwright npx vitest run src/tools/verify/run-verify.test.ts -t 'expected real macOS browser'
+        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=playwright node scripts/run-tests.mjs src/tools/verify/run-verify.test.ts
 
   windows-core:
     name: Windows core reliability
