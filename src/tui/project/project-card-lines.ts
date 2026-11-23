@@ -20,6 +20,8 @@ import {
   type ProjectCardState,
 } from "./project-card-state.js";
 
+import { projectLessonLines } from "./project-lesson-lines.js";
+
 function evidenceVerifyHint(folder: string | undefined): string {
   const command = "Run atomic-agent project verify";
   if (folder === undefined) return command;
@@ -128,7 +130,8 @@ export function projectTotalsLine(view: ProjectGateView): string {
   return `${rows.length} task${rows.length === 1 ? "" : "s"} · ${formatUsd(t.costUsd)}${unpriced} · ${formatEstMs(t.ms)}`;
 }
 
-export function projectCardLines(card: ProjectCardState, inner: number): ProjectCardLine[] {
+export function projectCardLines(card: ProjectCardState, inner: number, turnRunning = false): ProjectCardLine[] {
+  if (card.mode === "lessons") return projectLessonLines(card, inner, turnRunning);
   const view = card.view;
   const full = projectCardIsFull(card) || card.mode === "edit";
   const out: ProjectCardLine[] = [line(` ${projectCardTitle(view)}`, "title", true)];
@@ -296,7 +299,7 @@ export function projectCardLines(card: ProjectCardState, inner: number): Project
   });
   out.push({ segments: buttons });
   const backlogHint = backlogIds(view).length ? " b Backlog ·" : "";
-  out.push(line(card.pending ? " deciding…" : backlogHint + " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
+  out.push(line(card.pending ? " deciding…" : " v Lessons ·" + backlogHint + " ←→ move · enter or letter choose · esc put away (/plan reopens)", "muted"));
   return out;
 }
 

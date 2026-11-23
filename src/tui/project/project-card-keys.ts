@@ -4,6 +4,8 @@ import type { AppKeyContext } from "../app-key-bindings.js";
 import { MAX_PROJECT_NOTE_CHARS } from "../../session/project-decision-parse.js";
 import type { ProjectDecision, ProjectVerdict } from "../../session/session-project.js";
 import {
+  lessonActions,
+  selectedLesson,
   projectBacklogActions,
   projectCardActions,
   projectEditRows,
@@ -27,6 +29,7 @@ export function handleProjectCardKey(
   key: Key,
   card: ProjectCardState,
   ctx: ProjectCardKeyContext,
+  turnRunning = false,
 ): void {
   const { dispatch, callbacks } = ctx;
   if (key.pageDown || key.pageUp) {
@@ -34,7 +37,8 @@ export function handleProjectCardKey(
     return;
   }
   if (key.escape) {
-    if (card.mode !== "actions" && !card.pending) dispatch({ type: "project_card_mode_set", mode: "actions" });
+    if (card.mode === "lessons" && card.lessonDetail) dispatch({ type: "project_card_lesson_detail", open: false });
+    else if (card.mode === "lessons" || (card.mode !== "actions" && !card.pending)) dispatch({ type: "project_card_mode_set", mode: "actions" });
     else dispatch({ type: "project_card_closed" });
     return;
   }
@@ -45,6 +49,25 @@ export function handleProjectCardKey(
     callbacks.onProjectDecision?.(card.sessionId, decision);
   };
   const letter = !key.ctrl && !key.meta ? input.toLowerCase() : "";
+  if (card.mode === "actions" && letter === "v") {
+    callbacks.onProjectLessons?.(card.sessionId);
+    return;
+  }
+  if (card.mode === "lessons") {
+    if (letter === "f") callbacks.onProjectLessons?.(card.sessionId);
+    const selected = selectedLesson(card);
+    if (!card.lessonDetail) {
+      if (key.upArrow || key.downArrow) dispatch({ type: "project_card_lesson_moved", delta: key.downArrow ? 1 : -1 });
+      if (key.return && selected) dispatch({ type: "project_card_lesson_detail", open: true });
+      return;
+    }
+    const action = lessonActions(card, turnRunning).find(entry => entry.key === letter);
+    if (selected && action) {
+      const { id, hash, lesson } = selected;
+      callbacks.onProjectLessons?.(card.sessionId, { id, hash, state: action.state, ...(lesson ? {} : { orphaned: true }) });
+    }
+    return;
+  }
   if (card.mode === "actions" && letter === "b") {
     dispatch({ type: "project_card_mode_set", mode: "backlog" });
     return;

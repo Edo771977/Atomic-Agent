@@ -49,9 +49,11 @@ In your paired Telegram chat, send `/lessons` to list that project's lessons and
 
 The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to make it binding. Every task whose declared files or checks match its `touches` must cite the lesson. A binding lesson with omitted or empty `touches`, or with `touches: ["."]`, applies to every task in a milestone that has yet to start. Existing approvals of unchanged `always: true` lessons with `touches: []` also apply to every such task. The existing approval remains valid because it covers the same file fingerprint. You can defer the lesson at the plan gate to set it aside for the current plan. Missing citations block approval, and assigned workers receive the cited lessons as binding project data. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
 
+In the TUI, open the project card with `/plan` and press **v**. Select a lesson with the arrow keys and press **Enter** to read its text and fingerprint. Use **a** to approve an active lesson, **t** to retire it, or **r** to clear your choice. If the file changes while you are reading it, the panel reloads and asks you to review the new text. Press **f** to refresh after editing a file or when a running turn has finished. Use a regular chat between turns to make decisions.
+
 ### Lessons proposed by the director
 
-The director can propose a reusable lesson after a correction, a failed milestone or the final review. Find the proposal and its origin with `atomic-agent project lessons`. After reviewing the Markdown, change `status: proposed` to `status: active`, list the lessons again and approve the new fingerprint.
+The director can propose a reusable lesson after a correction, a failed milestone or the final review. Find the proposal and its origin in the TUI or with `atomic-agent project lessons`. After reviewing the Markdown, change `status: proposed` to `status: active`, list the lessons again and approve the new fingerprint.
 
 When a milestone is reported done, its runtime notes list known changed files covered by active lessons. Use these reminders during review to check that the changes follow the lessons.
 
