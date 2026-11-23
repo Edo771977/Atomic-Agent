@@ -57,6 +57,7 @@ interface ImpeccableCheckEvidence {
   impeccableFindings?: readonly string[];
   impeccableSuppressions?: readonly string[];
   impeccableExceptions?: readonly string[];
+  impeccableExceptionCount?: number;
 }
 
 export interface ContractCheckResult extends ImpeccableCheckEvidence {
@@ -554,6 +555,7 @@ function maskResult(
     ...(games === undefined ? {} : { games }),
     ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: maskSecrets(result.impeccableVersion, known) }),
     ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings.map(e => maskSecrets(e, known)) }),
+    ...(result.impeccableExceptionCount === undefined ? {} : { impeccableExceptionCount: result.impeccableExceptionCount }),
     ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: result.impeccableExceptions.map(e => maskSecrets(e, known)) }),
     ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions.map(e => maskSecrets(e, known)) }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
@@ -711,6 +713,7 @@ export async function runContractChecks(
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),
       ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, evidenceBudget) }),
+      ...(result.impeccableExceptionCount === undefined ? {} : { impeccableExceptionCount: result.impeccableExceptionCount }),
       ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: boundedImpeccableLines(result.impeccableExceptions, evidenceBudget) }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),

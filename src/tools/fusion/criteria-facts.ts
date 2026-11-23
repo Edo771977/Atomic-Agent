@@ -1,4 +1,5 @@
 import { weakestCriterionBasis, type ProjectCriterionBasis, type ProjectCriterionCheckReference } from "../../session/project-criterion-basis.js";
+import { PROJECT_LIMITS } from "../../session/project-limits.js";
 import { receiptHash } from "../../session/receipt-signing.js";
 import type { CriterionFactState, ProjectCriterionFact } from "../../session/session-project.js";
 import { checkDidNotRun } from "./check-ran.js";
@@ -73,6 +74,28 @@ export function criterionLabel(criterion: Pick<TaskCriterion, "id" | "text">): s
 
 const RANK: Record<CriterionFactState, number> = { passed: 0, unverified: 1, failed: 2 };
 
+function clipReservation(text: string, limit: number): string {
+  return text.length <= limit ? text : `${text.slice(0, limit - 1).replace(/[\uD800-\uDBFF]$/u, "").trimEnd()}…`;
+}
+
+function describeUiExceptions(outcome: ContractCheckOutcome): string[] {
+  const lines = outcome.impeccableExceptions ?? [];
+  const exceptions = lines.flatMap(line => {
+    const match = /^(.*?) — approved by the operator: (.+)$/u.exec(line.replace(/\s+/gu, " ").trim());
+    return match === null ? [] : [{ target: match[1]!, reason: match[2]! }];
+  });
+  const count = outcome.impeccableExceptionCount ?? exceptions.length +
+    lines.reduce((total, line) => total + Number(/^\+(\d+) more$/u.exec(line)?.[1] ?? 0), 0);
+  if (count === 0) return [];
+  const hidden = Math.max(0, count - exceptions.length);
+  const targets = exceptions.map(({ target }) => clipReservation(target, 72));
+  if (hidden > 0) targets.push(`${hidden} more`);
+  return [
+    `${count} exception${count === 1 ? "" : "s"}: ${targets.join(", ")}`,
+    ...exceptions.map(({ reason }) => clipReservation(reason, 72)),
+  ];
+}
+
 /** One fact per criterion, in the order given. */
 export function criteriaFactsFor(
   criteria: readonly TaskCriterion[],
@@ -84,21 +107,12 @@ export function criteriaFactsFor(
   const reservations = checkReservations(contract);
   const reservationOf = (index: number, outcome: ContractCheckOutcome): string | undefined => {
     const reasons: string[] = [];
-    const { warningCount = 0, consoleWarningCount = 0, cleanupWarning, impeccableExceptions = [], negative } = outcome;
+    const { warningCount = 0, consoleWarningCount = 0, cleanupWarning, negative } = outcome;
     if (warningCount > 0) {
       reasons.push(`${warningCount} warning${warningCount === 1 ? "" : "s"}`);
       if (consoleWarningCount > 0) reasons.push(`${consoleWarningCount} console warning${consoleWarningCount === 1 ? "" : "s"}`);
       if (cleanupWarning) reasons.push("verification copy cleanup warning");
-      for (const exception of impeccableExceptions) {
-        const line = exception.replace(/\s+/g, " ").trim();
-        const approved = /^([a-z0-9-]+)(?::.*?)? — approved by the operator: (.+)$/u.exec(line);
-        if (approved === null) {
-          reasons.push(line.slice(0, 180));
-          continue;
-        }
-        const reason = approved[2]!;
-        reasons.push(`${approved[1]} (approved by the operator: ${reason.length > 100 ? `${reason.slice(0, 100)}…` : reason})`);
-      }
+      reasons.push(...describeUiExceptions(outcome));
     }
     if (negative !== undefined) reasons.push(`its negative control did not run (${negative})`);
     else if (contract?.checks?.[index]?.negative === undefined) {
@@ -195,8 +209,10 @@ export function criteriaFactsFor(
     const source = (state as CriterionFactState) === "passed" ? basis : decisiveBasis;
     const fact = { id: criterion.id, state, why, ...(source === undefined ? {} : { basis: source }) };
     if (state !== "passed" || clean) return fact;
-    const reservation = [...new Set([...held].map(([i, reason]) => `check ${i + 1}: ${reason}`))].join("; ");
-    return reservation.length === 0 ? fact : { ...fact, reservation };
+    if (held.size === 0) return fact;
+    const quota = Math.floor((PROJECT_LIMITS.shortText + 2) / held.size) - 2;
+    const reservation = [...held].map(([i, reason]) => clipReservation(`check ${i + 1}: ${reason}`, quota)).join("; ");
+    return { ...fact, reservation };
   });
 }
 

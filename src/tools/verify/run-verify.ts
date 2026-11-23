@@ -46,6 +46,7 @@ export interface VerifyRunResult {
   readonly impeccableFindings?: readonly string[];
   readonly impeccableSuppressions?: readonly string[];
   readonly impeccableExceptions?: readonly string[];
+  readonly impeccableExceptionCount?: number;
   readonly durationMs: number;
   /** A run that could not happen (no browser, bad cwd, spawn failure). */
   readonly error?: string;
@@ -204,7 +205,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     const evidenceCount = [ui?.findings, ui?.suppressions, ui?.usedExceptions].filter(lines => lines?.length).length;
     const evidenceBudget = Math.floor(8188 / Math.max(1, evidenceCount));
     return finish({ ...common, artifactStatus: out.status, ...(warningCount > 0 ? { warningCount } : {}), ...(researchLinks === undefined ? {} : { researchLinks }), stdoutTail: ui === undefined && !delivery ? text : text.slice(0, OUTPUT_TAIL_CHARS), exitCode,
-      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, evidenceBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, evidenceBudget), ...(ui.usedExceptions === undefined ? {} : { impeccableExceptions: boundedDetectorDetails(ui.usedExceptions, evidenceBudget) }) }),
+      ...(ui === undefined ? {} : { impeccableVersion: ui.version, impeccableFindings: ui.findings === undefined ? undefined : boundedDetectorDetails(ui.findings, evidenceBudget), impeccableSuppressions: ui.suppressions === undefined ? undefined : boundedDetectorDetails(ui.suppressions, evidenceBudget), ...(ui.usedExceptions === undefined ? {} : { impeccableExceptions: boundedDetectorDetails(ui.usedExceptions, evidenceBudget), impeccableExceptionCount: ui.usedExceptions.length }) }),
       ...(out.status === "uncheckable" ? { error: ui !== undefined ? text.split("\n", 1)[0] : delivery ? text.slice(0, OUTPUT_TAIL_CHARS) : text } : {}), ...(out.timedOut ? { timedOut: true } : {}) },
       { kind: args.kind, stdout: text, stderr: "", exitCode }, args.checks, ok, started);
   }

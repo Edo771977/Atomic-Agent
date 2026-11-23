@@ -95,6 +95,26 @@ describe("criteria facts (issue #40)", () => {
     expect(criteriaFactsFor(criteria, ui, [{ ...warnings, ok: false, artifactStatus: "uncheckable" }], undefined)[0]).toMatchObject({ state: "unverified" });
   });
 
+  it("budgets exception details per check and preserves scoped rules", () => {
+    const ui: DelegateContract = { checks: [
+      { kind: "ui", task: "ui", criteria: ["c1"], path: "index.html" },
+      { kind: "ui", task: "ui", criteria: ["c1"], path: "page.html" },
+    ] };
+    const [fact] = criteriaFactsFor(taskCriteria("ui", ui, CRITERIA), ui, [
+      green({ warningCount: 5, impeccableExceptions: [
+        "low-contrast:index.html — approved by the operator: " + "brand ".repeat(80),
+        "tiny-text:index.html — approved by the operator: Legal copy", "+3 more",
+      ] }),
+      green({ warningCount: 1, impeccableExceptions: ["broken-image:page.html — approved by the operator: Sample image"] }),
+    ], undefined);
+    expect(fact?.reservation?.length).toBeLessThanOrEqual(300);
+    expect(fact?.reservation).toContain("5 exceptions: low-contrast:index.html, tiny-text:index.html");
+    expect(fact?.reservation).toContain("3 more");
+    expect(fact?.reservation).toContain("1 exception: broken-image:page.html");
+    expect(fact?.reservation).toContain("Sample image");
+    expect(fact?.reservation).not.toContain("+3 more");
+  });
+
   it("names the source of console and cleanup warnings", () => {
     const page: DelegateContract = { checks: [{ kind: "page", task: "ui", criteria: ["c1"], path: "index.html" }] };
     const [fact] = criteriaFactsFor(taskCriteria("ui", page, CRITERIA), page, [
