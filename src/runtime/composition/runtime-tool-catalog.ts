@@ -174,6 +174,8 @@ export function createRuntimeToolRegistry(
       userProfile: config.browser.connect === "user-chrome",
       ...(config.browser.connect === "user-chrome" ? { userSites: new UserSiteApprovals() } : {}),
       localPages: localPageCheck(runtimeReadConfinement(config, dangerous)),
+      // ATO-1377: the same switch as os.web.fetch and os.http.request.
+      ...(config.http.urlDataGuard !== undefined ? { urlDataGuard: config.http.urlDataGuard } : {}),
     };
     for (const tool of buildBrowserTools(browserBackend, dangerous, domainPolicy, browserExtract)) {
       toolRegistry.register(tool);

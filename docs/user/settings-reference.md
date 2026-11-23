@@ -124,6 +124,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `http.hostAllowlist` | `string[] \| null` | `null` | Hosts `os.http.request` may call (`*.example.com` matches subdomains). `null`: any host. |
 | `http.maxResponseBytes` | `number` | `1048576` | Largest response body `os.http.request` reads, in bytes. |
 | `http.defaultTimeoutMs` | `number` | `30000` | Timeout of one `os.http.request` call that sets none, in ms. |
+| `http.urlDataGuard` | `'off' \| 'data' \| 'strict'` | `"data"` | Ask before `os.web.fetch`, a GET `os.http.request` or the browser opens an address that carries data out (ATO-1377). `"data"` (default) asks only when the address carries a lot of data (a long value after `?`, an encoded blob, text with line breaks); `"strict"` also asks once per site per chat; `"off"` never asks. |
 
 ## web
 

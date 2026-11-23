@@ -88,6 +88,7 @@ export const SETTINGS_DOCS: Readonly<Record<string, SettingDoc>> = {
   "http.maxResponseBytes": { type: "number", description: "Largest response body `os.http.request` reads, in bytes." },
   "http.defaultTimeoutMs": { type: "number", description: "Timeout of one `os.http.request` call that sets none, in ms." },
   "web.search.enabled": { type: "boolean", description: "Register the web search tool." },
+  "http.urlDataGuard": { type: "'off' | 'data' | 'strict'", description: "Ask before `os.web.fetch`, a GET `os.http.request` or the browser opens an address that carries data out (ATO-1377). `\"data\"` (default) asks only when the address carries a lot of data (a long value after `?`, an encoded blob, text with line breaks); `\"strict\"` also asks once per site per chat; `\"off\"` never asks." },
   "web.search.provider": { type: "'duckduckgo' | 'searxng' | 'exa' | 'brave'", description: "Primary provider. The default `exa` uses its API endpoint when its `apiKeyEnv` resolves to a key, and its free keyless tier otherwise, with `duckduckgo` appended to the chain when it lacks it. The free tier runs out fast; a 429 parks it and the search result asks for a key (ATO-327). Existing configs need no rewrite for that." },
   "web.search.maxResults": { type: "number", description: "Most results one search returns." },
   "web.search.timeoutMs": { type: "number", description: "Timeout of one search request, in ms." },
