@@ -24,6 +24,9 @@ function proposal(raw: Record<string, unknown>) {
       typeof watchOut !== "string" || ![decided, triedAndRuledOut, watchOut].some((section) => section.trim() !== "")) {
     throw new Error("Expected id, title, source, from, touches, always and three lesson sections, with at least one section filled.");
   }
+  if ([decided, triedAndRuledOut, watchOut].some(section => section.length > PROJECT_LIMITS.text)) {
+    throw new Error(`Lesson sections must be at most ${PROJECT_LIMITS.text} characters each.`);
+  }
   const text = [
     "---", "id: " + id, "title: " + JSON.stringify(title), "source: " + source, "from: " + JSON.stringify(from),
     "touches: " + JSON.stringify(touches), "status: proposed", "always: " + always, "---",
