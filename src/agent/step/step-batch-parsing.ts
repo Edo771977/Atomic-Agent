@@ -1,3 +1,4 @@
+import { resolveToolName } from "../tool-name-resolution.js";
 import type { StepContext, StepDependencies } from "./step-contract.js";
 import type { PreparedStepInference } from "./step-inference.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
@@ -211,7 +212,7 @@ function readForeignShapes(
  * on the step's thread, on whatever a model wrote.
  */
 const SCAN_CHARS = 16_000;
-const CALL_KEYS = new Set(["tool", "action", "function", "tool_calls"]);
+const CALL_KEYS = new Set(["tool", "function", "tool_calls"]);
 const ARG_KEYS = new Set(["arguments", "args", "parameters"]);
 
 /** The parts of `text` worth scanning: all of it when short, else its head and tail. */
@@ -281,9 +282,9 @@ function scanForCall(text: string, endsText: boolean): boolean {
       if (top.object && text[end - 1] === ch && text[skipSpace(text, end)] === ":") {
         const key = text.slice(i + 1, end - 1);
         if (CALL_KEYS.has(key)) return true;
-        if (key === "name") {
+        if (key === "name" || key === "action") {
           top.name = true;
-          if (top.keys === 0) top.nameFirst = true;
+          if (key === "name" && top.keys === 0) top.nameFirst = true;
         }
         if (ARG_KEYS.has(key)) top.args = true;
         if (top.name && top.args) return true;
@@ -326,7 +327,10 @@ function admitProseWithoutGrammar(
   completion: CompletionResult,
   parsed: ToolCallBatchParseResult,
 ): ToolCallBatchParseResult {
-  if (parsed.ok || completion.grammarSkipped !== true) return parsed;
+  if (completion.grammarSkipped !== true) return parsed;
+  if (parsed.ok && parsed.batch.calls.some((call) =>
+    resolveToolName(call.tool, args.deps.registry) !== null
+  )) return parsed;
   const { profile } = args.deps;
   const assumeOpen = args.assumesOpenReasoning(completion);
   const text = extractReasoning(

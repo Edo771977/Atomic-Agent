@@ -63,6 +63,22 @@ describe("parseStepBatch on a completion served without the grammar (ATO-1675)",
     expect(messages).toContain("reading a reply served without the grammar");
   });
 
+  it.each([
+    'Here is your package.json:\n{"name":"my-app","version":"1.0.0"}',
+    'Result: {"name": "Alice", "age": 3}',
+    '{"action":"deploy","target":"prod"}',
+  ])("keeps JSON examples as prose: %s", (answer) => {
+    const { parsed } = run(answer, { grammarSkipped: true });
+    expect(parsed).toMatchObject({ ok: true, batch: {
+      calls: [{ tool: "reply", args: { text: answer } }],
+    } });
+  });
+
+  it("preserves a registered tool in a permissive JSON shape", () => {
+    const { parsed } = run('{"name":"os.fs.read","path":"a.ts"}', { grammarSkipped: true });
+    expect(parsed).toMatchObject({ ok: true, batch: { calls: [{ tool: "os.fs.read" }] } });
+  });
+
   it("still parses a call the model wrote", () => {
     const { parsed } = run('Reading it.\n[{"tool":"os.fs.read","args":{"path":"a.ts"}}]', { grammarSkipped: true });
     expect(parsed.ok).toBe(true);
