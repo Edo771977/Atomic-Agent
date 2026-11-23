@@ -4,6 +4,7 @@
  * Seatbelt on macOS keeps host loopback and uses parameterized paths.
  * Callers must refuse to spawn when a requested wrapper is unavailable.
  */
+import { randomUUID } from "node:crypto";
 import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
@@ -40,7 +41,7 @@ export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   const safe = Object.fromEntries(Object.entries(env).filter(([key]) =>
     !/^(?:LD_|DYLD_|_RLD_)|^(?:GLIBC_TUNABLES|GCONV_PATH|LOCPATH|NLSPATH|GIO_EXTRA_MODULES|GIO_MODULE_DIR|SSH_AUTH_SOCK|DOCKER_HOST|DBUS_SESSION_BUS_ADDRESS|DISPLAY|XAUTHORITY|WAYLAND_DISPLAY|TMUX|XDG_RUNTIME_DIR)$/.test(key)));
   const temp = process.platform === "linux" ? "/tmp" : tmpdir();
-  const cache = join(temp, "atomic-agent-tool-cache");
+  const cache = join(temp, `atomic-agent-tool-cache-${randomUUID()}`);
   return { ...safe, TMPDIR: temp, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
 }
 

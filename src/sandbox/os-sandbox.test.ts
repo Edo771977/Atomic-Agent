@@ -68,8 +68,8 @@ it("prepares the wrapper without caller-controlled native loader settings", () =
   expect(env).toEqual({
     PATH: "/usr/bin",
     TMPDIR: process.platform === "linux" ? "/tmp" : tmpdir(),
-    XDG_CACHE_HOME: join(process.platform === "linux" ? "/tmp" : tmpdir(), "atomic-agent-tool-cache"),
-    npm_config_cache: join(process.platform === "linux" ? "/tmp" : tmpdir(), "atomic-agent-tool-cache", "npm"),
+    XDG_CACHE_HOME: expect.stringContaining("atomic-agent-tool-cache-"),
+    npm_config_cache: join(env.XDG_CACHE_HOME!, "npm"),
   });
 });
 
@@ -261,4 +261,8 @@ it("review 5: rejects protected state beneath a writable root", () => {
 it("review 6: masks a synthetic home", () => {
   const wrapper = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
   expect(wrapper.ok && wrapper.args.join(" ")).toContain("--tmpfs " + HOME);
+});
+
+it("review 11: commands receive distinct tool cache paths", () => {
+  expect(buildOsSandboxEnv({}).XDG_CACHE_HOME).not.toBe(buildOsSandboxEnv({}).XDG_CACHE_HOME);
 });
