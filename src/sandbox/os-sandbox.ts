@@ -4,6 +4,7 @@
  * Seatbelt on macOS keeps host loopback and uses parameterized paths.
  * Callers must refuse to spawn when a requested wrapper is unavailable.
  */
+import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { accessSync, constants, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
@@ -328,8 +329,10 @@ function bwrapArgs(
   command: string,
   args: readonly string[],
   cwd?: string,
+  disableUserns = false,
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
+  if (disableUserns) out.push("--disable-userns");
   out.push("--tmpfs", policy.home, "--tmpfs", "/tmp", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/var/tmp");
   if (real("/var/run") !== "/run" && isDirectory("/var/run")) out.push("--tmpfs", "/var/run");
   // A systemd resolv.conf symlink can point into the hidden runtime tree.
@@ -365,12 +368,23 @@ export interface WrapOptions {
   /** Whether `sandbox-exec` exists; checked when omitted. */
   seatbeltAvailable?: boolean;
   cwd?: string;
+  disableUsernsAvailable?: boolean;
 }
 
 /**
  * The spawn for `command args` inside the sandbox, or why there is none
  * on this machine. The caller decides what to do without one.
  */
+const usernsSupport = new Map<string, boolean>();
+function supportsDisableUserns(backend: string): boolean {
+  const cached = usernsSupport.get(backend);
+  if (cached !== undefined) return cached;
+  const probe = spawnSync(backend, ["--help"], { encoding: "utf8", timeout: 2000 });
+  const supported = probe.status === 0 && (probe.stdout ?? "").includes("--disable-userns");
+  usernsSupport.set(backend, supported);
+  return supported;
+}
+
 export function wrapWithOsSandbox(
   command: string,
   args: readonly string[],
@@ -406,7 +420,7 @@ export function wrapWithOsSandbox(
         reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
     }
-    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, options.cwd) };
+    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, options.cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
   }
   return {
     ok: false,

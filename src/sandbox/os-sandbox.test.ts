@@ -293,3 +293,10 @@ it("round 3 point 4: refuses a workspace inside state and passes an explicit chd
 it("round 3 point 5: protects root home and privileged etc files", () => {
   expect(policy().denyRead).toEqual(expect.arrayContaining(["/root", "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d"]));
 });
+
+it("round 3 point 6: disables nested user namespaces when Bubblewrap supports it", () => {
+  const wrapped = wrapWithOsSandbox("true", [], policy(), {
+    platform: "linux", bwrap: "/usr/bin/bwrap", disableUsernsAvailable: true,
+  });
+  expect(wrapped.ok && wrapped.args).toContain("--disable-userns");
+});
