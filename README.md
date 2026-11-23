@@ -575,14 +575,20 @@ atomic-agent serve \
   --cwd /path/to/work
 ```
 
-`serve` always requires an API key, on loopback too: any program on the machine can reach a loopback port, and whoever holds the key can run the agent and its tools. Pass your own with `--api-key` or `ATOMIC_AGENT_API_KEY`. Without one, `serve` generates a key on the first run, keeps it in `<state dir>/serve-api.key` (owner-only, `~/.atomic-agent/serve-api.key` by default), reuses it after, and says where it is when it starts; in a terminal it also prints the phone panel address with the key in it (`http://127.0.0.1:8787/panel#key=…`). Every authenticated route wants it as `Authorization: Bearer <key>` (or `x-api-key`):
+Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials get HTTP 401 on loopback. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders that use the tunnel’s old `/api/webhooks/{name}` path must send the serve key as well, or switch to the new URL shown at startup.
+
+On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Run `atomic-agent serve --print-api-key` from your own terminal to retrieve it. The command refuses when `ATOMIC_AGENT_TOOL_CHILD` is present. The local panel also accepts the key from the `#key=…` link printed at interactive startup. Scripts and HTTP clients should use the same state directory and send the key as `Authorization: Bearer <key>` or `x-api-key`.
 
 ```bash
 curl -H "Authorization: Bearer $(atomic-agent serve --print-api-key)" \
   http://127.0.0.1:8787/api/sessions
 ```
 
-`--print-api-key` prints the key `serve` runs with and exits; delete the file to get a new one on the next start. On a host other than loopback (`0.0.0.0`, a LAN address) `serve` wants a key you chose yourself, at least 16 characters, and refuses to start with only the generated one. `/health`, `/v1/models` and the `/panel` page answer without a key.
+To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. On a LAN listen address, supply an explicit key of at least 16 characters.
+
+Start with `--api-key-file <path>` and leave `ATOMIC_AGENT_API_KEY` unset to keep an explicit key out of the startup environment and command line. Use a file that only your account can read. Serve keeps that file, so its creator manages cleanup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`.
+
+The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated.
 
 `POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` with `ANTHROPIC_API_KEY` set to the serve key) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
 
