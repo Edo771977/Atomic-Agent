@@ -4,11 +4,12 @@
  * command file stays about running a server rather than describing one.
  */
 
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
 
-import { readSecretKeyFile } from "../local-llm/server/managed-api-key.js";
+import { hasOwnerOnlyWindowsAcl } from "../config/windows-acl.js";
 
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
@@ -99,6 +100,29 @@ export const HELP =
     "  GET  /api/webhooks                       Webhook bindings, and their public addresses with --tunnel",
     "  POST /api/webhooks/{name}                Deliver a webhook (x-webhook-secret, or a signature per the binding's verify)",
   ].join("\n") + "\n";
+
+function readExplicitKey(path: string): { key: string } | { error: string } {
+  const permissions = { error: "--api-key-file must be an owner-only regular file (0600 or stricter on POSIX), without symlinks" };
+  let fd: number | undefined;
+  try {
+    const entry = lstatSync(path);
+    if (!entry.isFile()) return permissions;
+    const windows = process.platform === "win32";
+    fd = openSync(path, windows ? constants.O_RDONLY :
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const opened = fstatSync(fd);
+    if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
+    if (windows ? !hasOwnerOnlyWindowsAcl(path)
+      : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
+    const key = readFileSync(fd, "utf8").trim();
+    if (!/^[!-~]+$/.test(key)) return { error: "could not read a usable API key from --api-key-file" };
+    return { key };
+  } catch {
+    return { error: "could not open --api-key-file as an owner-only file" };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
 
 export function parseArgs(
   args: string[],
@@ -204,10 +228,9 @@ export function parseArgs(
     return { error: "use either --api-key or --api-key-file" };
   }
   if (apiKeyFile !== null && !reapOnly) {
-    apiKey = readSecretKeyFile(apiKeyFile);
-    if (apiKey === null || !/^[!-~]+$/.test(apiKey)) {
-      return { error: "could not read a usable API key from --api-key-file" };
-    }
+    const explicit = readExplicitKey(apiKeyFile);
+    if ("error" in explicit) return explicit;
+    apiKey = explicit.key;
   } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;

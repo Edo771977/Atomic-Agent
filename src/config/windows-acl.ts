@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { userInfo } from "node:os";
+import { join } from "node:path";
 
 /** I/O seams, injectable for tests. Production callers omit them. */
 export interface WindowsAclDeps {
@@ -85,4 +86,28 @@ export function restrictWindowsAcl(
     // loader will surface the unreadable file loudly (#59).
   }
   return false;
+}
+
+/** Check an existing credential without changing its owner or ACL. */
+export function hasOwnerOnlyWindowsAcl(path: string): boolean {
+  const root = process.env.SystemRoot;
+  if (!root) return false;
+  const encodedPath = Buffer.from(path, "utf16le").toString("base64");
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$path = [Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('" + encodedPath + "'))",
+    "$acl = Get-Acl -LiteralPath $path",
+    "$sid = [Security.Principal.WindowsIdentity]::GetCurrent().User",
+    "$rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])",
+    "if ($acl.GetOwner([Security.Principal.SecurityIdentifier]) -ne $sid -or",
+    "    @($rules | Where-Object { $_.AccessControlType -eq 'Allow' -and $_.IdentityReference -ne $sid }).Count -gt 0) { exit 1 }",
+  ].join("\n");
+  try {
+    execFileSync(join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"), [
+      "-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(script, "utf16le").toString("base64"),
+    ], { stdio: "ignore", timeout: 5_000, windowsHide: true });
+    return true;
+  } catch {
+    return false;
+  }
 }

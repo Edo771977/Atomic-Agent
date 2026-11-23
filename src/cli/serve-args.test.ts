@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -184,4 +187,21 @@ describe("serve --tunnel flags (ATO-625)", () => {
     expect(parseError(["--tunnel-name"])).toContain("requires a value");
     expect(parseError(["--tunnel-name", "--tunnel"])).toContain("requires a value");
   });
+});
+
+it.skipIf(process.platform === "win32")("rejects loose permissions and symlinks for an explicit key file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "serve-explicit-auth-"));
+  try {
+    const path = join(dir, "key");
+    const link = join(dir, "link");
+    writeFileSync(path, "synthetic-file-key\n", { mode: 0o600 });
+    symlinkSync(path, link);
+    expect(parseError(["--api-key-file", link])).toMatch(/owner|symlink/i);
+    chmodSync(path, 0o644);
+    expect(parseError(["--api-key-file", path])).toMatch(/0600|owner/i);
+    chmodSync(path, 0o600);
+    expect(parsedOk(["--api-key-file", path]).apiKey).toBe("synthetic-file-key");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
