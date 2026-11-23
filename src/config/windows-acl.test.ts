@@ -35,7 +35,7 @@ describe("restrictWindowsAcl", () => {
 
   it("tightens the ACL and verifies the file is still readable", () => {
     const { deps, icaclsCalls, probeCalls } = makeDeps();
-    restrictWindowsAcl(PATH, deps);
+    expect(restrictWindowsAcl(PATH, deps)).toBe(true);
     expect(icaclsCalls).toEqual([[PATH, "/inheritance:r", "/grant:r", "u:F"]]);
     expect(probeCalls).toEqual([PATH]);
   });
@@ -46,7 +46,7 @@ describe("restrictWindowsAcl", () => {
         throw new Error("EPERM: operation not permitted");
       },
     });
-    restrictWindowsAcl(PATH, deps);
+    expect(restrictWindowsAcl(PATH, deps)).toBe(false);
     expect(icaclsCalls).toEqual([
       [PATH, "/inheritance:r", "/grant:r", "u:F"],
       [PATH, "/reset"],
@@ -59,7 +59,7 @@ describe("restrictWindowsAcl", () => {
       icaclsCalls.push(args);
       throw new Error("icacls not found");
     };
-    restrictWindowsAcl(PATH, deps);
+    expect(restrictWindowsAcl(PATH, deps)).toBe(false);
     // Only the tighten attempt; the file stayed readable so no reset.
     expect(icaclsCalls).toEqual([[PATH, "/inheritance:r", "/grant:r", "u:F"]]);
     expect(probeCalls).toEqual([PATH]);

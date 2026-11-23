@@ -7,6 +7,7 @@
  */
 import type { ToolContext } from "../tool-registry.js";
 import type { UserSiteApprovals } from "./user-profile-sites.js";
+import type { UrlDataGuardMode, UrlSendSites } from "../os/web/url-data-guard.js";
 
 export interface BrowserDomainPolicy {
   readonly blockedDomains: readonly string[];
@@ -33,6 +34,14 @@ export interface BrowserDomainPolicy {
    * checked (embedders, tests).
    */
   readonly localPages?: LocalPageCheck;
+  /**
+   * `http.urlDataGuard` (ATO-1377): ask before opening an address that
+   * carries a lot of data, and under `"strict"` before the chat's first
+   * visit to a site. Absent ⇒ `"data"`.
+   */
+  readonly urlDataGuard?: UrlDataGuardMode;
+  /** Sites a chat already used under `"strict"`. Absent ⇒ the shared store. */
+  readonly urlSendSites?: UrlSendSites;
 }
 
 /** Enough of the tool context to place a local page in the read scope. */

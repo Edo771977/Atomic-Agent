@@ -77,10 +77,10 @@ function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
 
-function readKeyFile(dataDir: string): KeyFile {
+function readKeyFile(path: string): KeyFile {
   for (let attempt = 0; ; attempt += 1) {
     try {
-      const key = readFileSync(resolveApiKeyFilePath(dataDir), "utf-8").trim();
+      const key = readFileSync(path, "utf-8").trim();
       return { state: "read", key: isUsableKey(key) ? key : null };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === "ENOENT") return { state: "missing" };
@@ -92,7 +92,12 @@ function readKeyFile(dataDir: string): KeyFile {
 
 /** The persisted key, or `null` when there is none (or it is unreadable). */
 export function readManagedApiKey(dataDir: string): string | null {
-  const file = readKeyFile(dataDir);
+  return readSecretKeyFile(resolveApiKeyFilePath(dataDir));
+}
+
+/** The key held in the 0600 file at `path`, or `null` (missing, unreadable, unusable). */
+export function readSecretKeyFile(path: string): string | null {
+  const file = readKeyFile(path);
   return file.state === "read" ? file.key : null;
 }
 
@@ -101,11 +106,11 @@ export function readManagedApiKey(dataDir: string): string | null {
  * links the file exists (exclusive create) a moment before its bytes do,
  * so an empty read means "not written yet", not "no key".
  */
-function readWrittenKey(dataDir: string): string | null {
+function readWrittenKey(path: string): string | null {
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const key = readManagedApiKey(dataDir);
+    const key = readSecretKeyFile(path);
     if (key) return key;
-    if (!existsSync(resolveApiKeyFilePath(dataDir))) return null;
+    if (!existsSync(path)) return null;
     sleepSync(10);
   }
   return null;
@@ -117,25 +122,40 @@ function readWrittenKey(dataDir: string): string | null {
  * launch stays as unprotected as it was before, rather than failing.
  */
 export function ensureManagedApiKey(dataDir: string): string | null {
-  let file = readKeyFile(dataDir);
+  return ensureSecretKeyFile(resolveApiKeyFilePath(dataDir));
+}
+
+type ProtectKeyFile = (path: string) => boolean;
+
+/**
+ * The key in the 0600 file at `path`, generating it on first use (32
+ * random bytes, hex). The same rules as the managed llama-server key
+ * above: reused while the file holds a usable key, healed when it holds
+ * an unusable one, never overwritten when it cannot be read, and `null`
+ * when it can be neither read nor written. `atomic-agent serve` keeps its
+ * own API key this way (`src/cli/serve-api-key.ts`).
+ */
+export function ensureSecretKeyFile(path: string, protect?: ProtectKeyFile): string | null {
+  if (protect && existsSync(path) && !protect(path)) return null;
+  let file = readKeyFile(path);
   if (file.state === "unreadable") {
     // The key may be fine and a running daemon may hold it: restore the
     // owner's read bit and look again, but never overwrite a key that
     // could not be read.
     try {
-      chmodSync(resolveApiKeyFilePath(dataDir), SECRET_FILE_MODE);
+      chmodSync(path, SECRET_FILE_MODE);
     } catch {
       /* not ours to change */
     }
-    file = readKeyFile(dataDir);
+    file = readKeyFile(path);
     if (file.state === "unreadable") return null;
   }
   if (file.state === "read") {
     // Present but not a key: give a racing writer the usual grace, then
     // replace what is still unusable instead of launching keyless.
-    return file.key ?? readWrittenKey(dataDir) ?? healUnusableKey(dataDir);
+    return file.key ?? readWrittenKey(path) ?? healUnusableKey(path, protect);
   }
-  return createKeyFile(dataDir);
+  return createKeyFile(path, protect);
 }
 
 /**
@@ -143,17 +163,18 @@ export function ensureManagedApiKey(dataDir: string): string | null {
  * key: the new key is written to a private temp file and hard-linked into
  * place, which fails for the loser, who then reads the winner's.
  */
-function createKeyFile(dataDir: string): string | null {
-  const path = resolveApiKeyFilePath(dataDir);
+function createKeyFile(path: string, protect?: ProtectKeyFile): string | null {
   const key = randomBytes(32).toString("hex");
   try {
     mkdirSync(dirname(path), { recursive: true });
     const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
-    writeFileSync(tmp, `${key}\n`, { encoding: "utf-8", mode: SECRET_FILE_MODE });
+    if (!writePrivateKey(tmp, key, protect)) return null;
     try {
       linkSync(tmp, path);
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") {
+        // A strict Windows key must be published with the ACL already in place.
+        if (protect && process.platform === "win32") throw err;
         // No hard links on this filesystem: exclusive create instead.
         writeFileSync(path, `${key}\n`, {
           encoding: "utf-8",
@@ -167,15 +188,15 @@ function createKeyFile(dataDir: string): string | null {
   } catch {
     // Lost an exclusive-create race, or the directory is not writable:
     // whatever is on disk now is the answer.
-    return readWrittenKey(dataDir);
+    return readWrittenKey(path);
   }
   try {
     chmodSync(path, SECRET_FILE_MODE);
   } catch {
     /* best-effort on Windows */
   }
-  restrictWindowsAcl(path);
-  return readWrittenKey(dataDir);
+  if (!protect) restrictWindowsAcl(path);
+  return readWrittenKey(path);
 }
 
 function unlinkQuietly(path: string): void {
@@ -336,19 +357,31 @@ function renameOverSync(from: string, to: string): void {
   }
 }
 
-/** A fresh key in a private temp file (0600, restricted ACL), or `null`. */
-function writeTempKey(path: string): string | null {
-  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+/** Prepare the ACL before writing any secret when strict protection is requested. */
+function writePrivateKey(path: string, key: string, protect?: ProtectKeyFile): boolean {
   try {
-    writeFileSync(tmp, `${randomBytes(32).toString("hex")}\n`, {
-      encoding: "utf-8",
-      mode: SECRET_FILE_MODE,
-      flag: "wx",
-    });
+    writeFileSync(path, "", { mode: SECRET_FILE_MODE, flag: "wx" });
   } catch {
-    return null;
+    return false;
   }
-  restrictWindowsAcl(tmp);
+  try {
+    if (protect && !protect(path)) {
+      unlinkQuietly(path);
+      return false;
+    }
+    writeFileSync(path, `${key}\n`, "utf-8");
+    return true;
+  } catch {
+    unlinkQuietly(path);
+    return false;
+  }
+}
+
+/** A fresh key in a private temp file (0600, restricted ACL), or `null`. */
+function writeTempKey(path: string, protect?: ProtectKeyFile): string | null {
+  const tmp = `${path}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+  if (!writePrivateKey(tmp, randomBytes(32).toString("hex"), protect)) return null;
+  if (!protect) restrictWindowsAcl(tmp);
   return tmp;
 }
 
@@ -364,24 +397,23 @@ function writeTempKey(path: string): string | null {
  * every process returns what it finally reads from disk, never the key it
  * generated.
  */
-function healUnusableKey(dataDir: string): string | null {
-  const path = resolveApiKeyFilePath(dataDir);
+function healUnusableKey(path: string, protect?: ProtectKeyFile): string | null {
   const lock = `${path}.heal-lock`;
-  const tmp = writeTempKey(path);
+  const tmp = writeTempKey(path, protect);
   // Cannot write next to the key file, so cannot replace it either.
-  if (!tmp) return readManagedApiKey(dataDir);
+  if (!tmp) return readSecretKeyFile(path);
   const deadline = Date.now() + HEAL_WAIT_MS;
   try {
     for (;;) {
-      const file = readKeyFile(dataDir);
+      const file = readKeyFile(path);
       if (file.state === "unreadable") return null;
-      if (file.state === "missing") return createKeyFile(dataDir);
+      if (file.state === "missing") return createKeyFile(path, protect);
       if (file.key) return file.key;
       const token = tryTakeHealLock(lock);
       if (token) {
         let replaced = false;
         try {
-          const held = readKeyFile(dataDir);
+          const held = readKeyFile(path);
           if (held.state === "read" && !held.key) {
             renameOverSync(tmp, path);
             replaced = true;
@@ -391,9 +423,9 @@ function healUnusableKey(dataDir: string): string | null {
         } finally {
           releaseLock(lock, token);
         }
-        if (replaced) return readManagedApiKey(dataDir);
+        if (replaced) return readSecretKeyFile(path);
       }
-      if (Date.now() >= deadline) return readManagedApiKey(dataDir);
+      if (Date.now() >= deadline) return readSecretKeyFile(path);
       sleepSync(25);
     }
   } finally {

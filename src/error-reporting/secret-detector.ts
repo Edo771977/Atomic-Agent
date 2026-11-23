@@ -43,6 +43,8 @@ export interface KnownSecret {
   /** Shown in the marker, e.g. `OPENROUTER_API_KEY` or `openrouter-key`. */
   label: string;
   value: string;
+  /** A verified active credential. Skip heuristics used for inferred secrets. */
+  exact?: boolean;
 }
 
 /** Shortest exact value worth matching: shorter ones would shred ordinary words. */
@@ -369,11 +371,11 @@ function usableKnownSecrets(known: readonly KnownSecret[]): KnownSecret[] {
   const seen = new Set<string>();
   const out: KnownSecret[] = [];
   for (const secret of known) {
-    const value = secret.value.trim();
+    const value = secret.exact ? secret.value : secret.value.trim();
     if (seen.has(value)) continue;
-    if (!usableKnownValue(value)) continue;
+    if (!value || (!secret.exact && !usableKnownValue(value))) continue;
     seen.add(value);
-    out.push({ label: secret.label, value });
+    out.push({ ...secret, value });
   }
   return out.sort((a, b) => b.value.length - a.value.length);
 }
@@ -384,14 +386,19 @@ function usableKnownSecrets(known: readonly KnownSecret[]): KnownSecret[] {
  * pattern layer. Returns `text` itself when nothing was found.
  */
 export function maskSecrets(text: string, known: readonly KnownSecret[] = []): string {
-  if (text.length < MIN_KNOWN_SECRET_LENGTH) return text;
+  if (text.length < MIN_KNOWN_SECRET_LENGTH && !known.some(secret => secret.exact)) return text;
   let out = text;
   if (out.includes("PRIVATE KEY-----")) {
     out = out.replace(PEM_PRIVATE_KEY, redactedMarker("private-key"));
   }
   for (const secret of usableKnownSecrets(known)) {
-    if (out.includes(secret.value)) {
-      out = out.split(secret.value).join(redactedMarker(secret.label));
+    if (!out.includes(secret.value)) continue;
+    const marker = redactedMarker(secret.label);
+    if (secret.exact && secret.value.length < 16) {
+      const literal = secret.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp("(?<![\\p{L}\\p{N}_])" + literal + "(?![\\p{L}\\p{N}_])", "gu"), () => marker);
+    } else {
+      out = out.split(secret.value).join(marker);
     }
   }
   for (const rule of SHAPE_RULES) {

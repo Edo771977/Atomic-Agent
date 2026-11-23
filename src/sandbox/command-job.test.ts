@@ -28,6 +28,15 @@ async function waitForExit(pid: number): Promise<void> {
 }
 
 describe.skipIf(process.platform === "win32")("startCommandJob", () => {
+  it("strips the serve key from an explicit child environment", async () => {
+    const job = startCommandJob(process.execPath, ["-p", "typeof process.env.atomic_agent_api_key"], {
+      cwd,
+      env: { ...process.env, atomic_agent_api_key: "synthetic-serve-key" },
+    });
+    expect((await awaitJobExit(job)).exitCode).toBe(0);
+    expect(job.output().stdout.trim()).toBe("undefined");
+  });
+
   it("captures both streams and reports the exit", async () => {
     const job = startCommandJob("sh", ["-c", "echo one; echo err >&2; exit 3"], {
       cwd,

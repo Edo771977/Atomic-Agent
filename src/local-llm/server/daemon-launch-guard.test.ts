@@ -93,6 +93,17 @@ describe("assertPortFree", () => {
   });
 });
 
+it("reports an authenticated listener without claiming its model catalog is empty", async () => {
+  const server = createServer((req, res) => {
+    res.writeHead(req.url === "/health" ? 200 : 401).end();
+  });
+  servers.push(server);
+  await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const port = (server.address() as AddressInfo).port;
+  expect(await fetchServedModelIds(port)).toBeNull();
+  await expect(assertPortFree(port)).rejects.toMatchObject({ servedModels: null });
+});
+
 describe("fetchServedModelIds", () => {
   it("reads the ids, and says null when nothing answers", async () => {
     expect(await fetchServedModelIds(await llamaLike(["a", "b"]))).toEqual(["a", "b"]);
