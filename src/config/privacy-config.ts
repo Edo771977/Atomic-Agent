@@ -4,16 +4,16 @@ import { parseBool } from "./config-primitives.js";
  * `privacy` block of config.json (unversioned, additive, ATO-599).
  *
  * - `shield.enabled` (default `false`): Privacy Shield. Personal data and
- *   keys in a request to a cloud model are swapped for placeholders
+ *   keys in a request to a supported cloud model are swapped for placeholders
  *   (`[EMAIL_1]`, `[CARD_1]`, `[SECRET_1]`) and put back in the reply
  *   and in tool calls on this machine. See `src/privacy/README.md`.
  */
 export interface PrivacyShieldConfig {
   /**
    * Privacy Shield (ATO-599): when `true`, emails, phone numbers, card
-   * numbers, IBANs and keys in a request to a cloud model are replaced
+   * numbers, IBANs and keys in a request to a supported cloud model are replaced
    * with placeholders such as `[EMAIL_1]` and put back in the reply on
-   * this machine. Off by default. Local models always get the real text.
+   * this machine. Off by default. Covers remote OpenAI-compatible providers and native Anthropic Messages. Local models always get the real text.
    */
   enabled: boolean;
 }

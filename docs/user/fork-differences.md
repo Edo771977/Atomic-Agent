@@ -17,6 +17,11 @@ Selective imports for offline use and chat data cleanup:
 - `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
 - `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
 
+Selective Privacy Shield imports:
+
+- `feat/ato-599-privacy-shield-detector` (`31592d25ad9f28d75d60b09efdfa68f026331ba1`) and `feat/ato-1081-privacy-shield-providers` (`6a5ae1845c713bed46e0abd6f2faa0d852a8863a`) bring reversible masking to remote OpenAI-compatible providers and native Anthropic Messages. The fork reuses its known credentials and drops the in-memory archive on chat deletion, including incognito close. Enable it with `privacy.shield.enabled`. [Coverage and session behavior](../../src/privacy/README.md).
+- The HTTP/TUI toggle and the shared Fusion planner/worker archive are deferred.
+
 Earlier upstream PRs came in as batches:
 
 - [#24](https://github.com/Edo771977/atomic-agent/pull/24): 14 upstream PRs (Fusion, local models, approvals, costs, router).

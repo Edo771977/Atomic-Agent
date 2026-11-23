@@ -225,7 +225,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 
 | Key | Type | Default | Description |
 | --- | --- | --- | --- |
-| `privacy.shield.enabled` | `boolean` | `false` | Privacy Shield (ATO-599): when `true`, emails, phone numbers, card numbers, IBANs and keys in a request to a cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply on this machine. Off by default. Local models always get the real text. |
+| `privacy.shield.enabled` | `boolean` | `false` | Privacy Shield (ATO-599): when `true`, emails, phone numbers, card numbers, IBANs and keys in a request to a supported cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply on this machine. Off by default. Covers remote OpenAI-compatible providers and native Anthropic Messages. Local models always get the real text. |
 
 ## memory
 
