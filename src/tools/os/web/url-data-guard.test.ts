@@ -5,6 +5,7 @@ import {
   MAX_URL_TAIL_CHARS,
   MAX_URL_VALUE_CHARS,
   UrlSendSites,
+  noteUrlSendAllowed,
 } from "./url-data-guard.js";
 
 /** ATO-1377: the cheap filter on what an address carries out. */
@@ -127,4 +128,14 @@ describe("checkUrlSend", () => {
     expect(checkUrlSend("strict", "https://api.docs.example/", "s", sites)).toMatchObject({ kind: "new_site" });
     expect(checkUrlSend("strict", `https://docs.example/?d=${encodeURIComponent(FILE_TEXT)}`, "s", sites)).toMatchObject({ kind: "data" });
   });
+});
+
+it("normalizes a trailing DNS dot, tracks ports, and releases the session's visits", () => {
+  const sites = new UrlSendSites();
+  const first = checkUrlSend("strict", "https://docs.example:8443", "s", sites)!;
+  noteUrlSendAllowed(first, "s", sites);
+  expect(checkUrlSend("strict", "https://docs.example.:8443", "s", sites)).toBeNull();
+  expect(checkUrlSend("strict", "https://docs.example:9443", "s", sites)?.kind).toBe("new_site");
+  sites.clearSession("s");
+  expect(checkUrlSend("strict", "https://docs.example:8443", "s", sites)?.kind).toBe("new_site");
 });

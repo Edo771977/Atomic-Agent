@@ -235,6 +235,10 @@ export function findUrlData(url: string): UrlDataFinding | null {
 export class UrlSendSites {
   private readonly bySession = new Map<string, Set<string>>();
 
+  clearSession(sessionId: string): void {
+    this.bySession.delete(sessionId);
+  }
+
   has(sessionId: string, host: string): boolean {
     return this.bySession.get(sessionId)?.has(host.toLowerCase()) ?? false;
   }
@@ -271,7 +275,7 @@ export function checkUrlSend(
     return null;
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
-  const host = parsed.hostname.toLowerCase();
+  const host = parsed.hostname.toLowerCase().replace(/\.$/, "") + (parsed.port ? `:${parsed.port}` : "");
   const origin = parsed.origin;
   const data = findUrlData(url);
   if (data !== null) return { kind: "data", host, origin, reason: data.reason };

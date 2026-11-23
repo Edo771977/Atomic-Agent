@@ -1,3 +1,4 @@
+import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
@@ -771,6 +772,7 @@ export function createRuntimeTurnService(
           traces.clearContextUsage(session.id);
           // A worker's turn is its whole life: nothing waits on its jobs.
           shellJobs.endSession(session.id);
+          SHARED_URL_SEND_SITES.clearSession(session.id);
           // A throwaway worker must not keep its server slot pinned.
           slotManager.release(session.id);
           // Nor its browser tabs (ATO-961).
@@ -1027,7 +1029,10 @@ export function createRuntimeTurnService(
           nextStep.maybeSuggest(finished, runOptions.origin);
         }
         // `finish` ended the whole session: its kept jobs go with it.
-        if (finished.status === "completed") shellJobs.endSession(session.id);
+        if (finished.status === "completed") {
+          shellJobs.endSession(session.id);
+          SHARED_URL_SEND_SITES.clearSession(session.id);
+        }
         return { ...result, session: finished };
       } catch (err) {
         // The loop hands back a state for every ending it can classify —
