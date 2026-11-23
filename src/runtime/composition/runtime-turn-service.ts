@@ -1,4 +1,4 @@
-import { forgetPrivacyVault } from "../../privacy/index.js";
+import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -1118,8 +1118,14 @@ export function createRuntimeTurnService(
       sessionId: session.id,
     });
   };
-  const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
-    inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+  const executeTurn: typeof executeTurnInPolicy = async (session, userMessage, runOptions) => {
+    const release = pinPrivacyVault(session.id);
+    try {
+      return await inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+    } finally {
+      release();
+    }
+  };
 
   // ATO-646: every turn, whatever its origin, counted and timed for
   // `/metrics`. Timed from the queue's hand-over, so the wait behind

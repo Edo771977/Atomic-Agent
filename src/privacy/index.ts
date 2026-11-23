@@ -17,6 +17,7 @@ export {
   isPrivacyShieldEnabled,
   privacyShieldTotals,
   privacyVaultFor,
+  pinPrivacyVault,
   resetPrivacyVaults,
   setPrivacyKnownSecrets,
   setPrivacyShieldEnabled,

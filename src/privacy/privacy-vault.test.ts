@@ -125,3 +125,12 @@ it("does not reapply a value inside a reference it just created", () => {
   const vault = new PrivacyVault();
   expect(vault.mask("password=SECRET_1")).toBe("password=[SECRET_1]");
 });
+
+it("discovers an assignment before masking the earlier bare occurrence in the same request", () => {
+  const input = ["use Zq8vLp3mWx7tRb2n", "DB_PASSWORD=Zq8vLp3mWx7tRb2n"];
+  const cold = new PrivacyVault();
+  const warm = new PrivacyVault();
+  warm.mask(input[1]!);
+  expect(JSON.stringify(cold.maskDeep(input))).toBe(JSON.stringify(warm.maskDeep(input)));
+  expect(cold.maskDeep(input)).toEqual(["use [SECRET_1]", "DB_PASSWORD=[SECRET_1]"]);
+});

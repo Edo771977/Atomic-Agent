@@ -5,6 +5,7 @@ import {
   isPrivacyShieldEnabled,
   privacyShieldTotals,
   privacyVaultFor,
+  pinPrivacyVault,
   resetPrivacyVaults,
   setPrivacyKnownSecrets,
   setPrivacyShieldEnabled,
@@ -56,4 +57,15 @@ it("bounds the registry and retains recently used sessions", () => {
     expect(privacyVaultFor("recent")).toBe(recent);
   }
   expect(privacyVaultFor("oldest")).not.toBe(oldest);
+});
+
+it("keeps an active turn's vault through registry pressure", () => {
+  const release = pinPrivacyVault("active");
+  try {
+    const original = privacyVaultFor("active");
+    for (let i = 0; i < 140; i++) privacyVaultFor(`idle-${i}`);
+    expect(privacyVaultFor("active")).toBe(original);
+  } finally {
+    release();
+  }
 });

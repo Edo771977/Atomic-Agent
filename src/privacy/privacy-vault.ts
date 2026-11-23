@@ -206,8 +206,8 @@ export class PrivacyVault {
       this.clearMaskCache();
       this.#knownCacheKey = knownKey;
     }
-    const mask = (text: string): string => this.maskCached(text, known, options.request);
-    return mapStrings(value, (text, key) => {
+    const walk = (request?: Set<string>): unknown => mapStrings(value, (text, key) => {
+      const mask = (plain: string): string => this.maskCached(plain, known, request);
       if (key === undefined || key !== options.jsonField) return mask(text);
       let parsed: unknown;
       try {
@@ -218,13 +218,16 @@ export class PrivacyVault {
       const masked = mapStrings(parsed, (value, field) => {
         if (field !== undefined && secretAssignment(field, value)) {
           const placeholder = this.placeholderFor(value, "SECRET");
-          options.request?.add(placeholder);
+          request?.add(placeholder);
           return placeholder;
         }
         return mask(value);
       });
       return masked === parsed ? text : JSON.stringify(masked);
-    }) as T;
+    });
+    // Discover values throughout the window before producing its wire bytes.
+    walk();
+    return walk(options.request) as T;
   }
 
   /** {@link unmask} on every string inside plain objects and arrays. */
