@@ -12,6 +12,11 @@ The fork was last brought in step with upstream on 17 November 2026:
 - `main`: [#57](https://github.com/Edo771977/atomic-agent/pull/57), a one-time merge of upstream `main`, tracked in [#56](https://github.com/Edo771977/atomic-agent/issues/56).
 - The desktop line: [#61](https://github.com/Edo771977/atomic-agent/pull/61), upstream `desktop-v0.0.9` merged into `desktop-main`, tracked in [#59](https://github.com/Edo771977/atomic-agent/issues/59).
 
+Selective imports for offline use and chat data cleanup:
+
+- `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
+- `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
+
 Earlier upstream PRs came in as batches:
 
 - [#24](https://github.com/Edo771977/atomic-agent/pull/24): 14 upstream PRs (Fusion, local models, approvals, costs, router).
@@ -21,6 +26,11 @@ Earlier upstream PRs came in as batches:
 - [#41](https://github.com/Edo771977/atomic-agent/pull/41): batch 5 (`browser.debug`, `ask_user`, LSP diagnostics, skill bins, settings reference, per-turn model).
 
 Anything upstream published after 17 November is not here until it is imported.
+
+Selective imports for provider and scheduler reliability:
+
+- `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.
+- `fix/issue-1735-scheduler-leader-overlap` (`50d34a2544e5eab09dd5b895a0118b2a07b2e6a9`): give the Telegram owner priority for scheduler leadership.
 
 The official installer (`curl … atomicagent.io/install`) and upstream's release packages install upstream's code, without any of the changes below. To use this fork:
 

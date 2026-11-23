@@ -11,7 +11,9 @@ Checks: `npx vitest run src/analytics` when tests are present; `npm run lint`; `
 
 ## Offline mode
 
-Offline mode (`network.offline` or `ATOMIC_AGENT_OFFLINE=1`, ATO-1084) counts as a kill switch in `isAnalyticsKilledByEnv`: no PostHog or Sentry client is built while it is on. See [offline mode](../llm/docs/offline-network.md).
+Offline mode (`network.offline` or `ATOMIC_AGENT_OFFLINE=1`, ATO-1084) counts as a kill switch in `isAnalyticsKilledByEnv`: no PostHog or Sentry client is built while it is on, and a client built before it was switched on at run time drops every event while it is on (ATO-1085). See [offline mode](../llm/docs/offline-network.md).
+
+The one-time model and first-message events are marked sent after delivery is confirmed. If offline, they can be retried on the next verified model setup or eligible message. Ordinary message events are dropped while offline.
 
 ## Install events and the shared state folder
 
