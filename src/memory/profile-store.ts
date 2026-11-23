@@ -73,6 +73,12 @@ export interface ProfileFact {
    */
   keywords: string[];
   /**
+   * ATO-1124. Set (wall-clock ms) while the person has turned this fact
+   * off: it stays in `list()` but not in `listForPrompt()`, and a new
+   * version of the key stays off. Absent while the fact is on.
+   */
+  disabledAt?: number;
+  /**
    * Memory-v2 phase 4. `id` of the row this one replaces. NULL when
    * this is the first version for the key. Soft pointer (no FK
    * constraint) so `remove()` of an active row never cascades into
@@ -190,6 +196,7 @@ interface ProfileRow {
   name_grounding: string | null;
   name_checked_at: number | null;
   constraint_scope?: string | null;
+  disabled_at: number | null;
 }
 
 /**
@@ -246,11 +253,11 @@ export class ProfileStore {
       `INSERT INTO profile_facts
          (key, value, pinned, keywords, valid_from, superseded_by,
           supersedes, created_at, updated_at, name_grounding,
-          name_checked_at, constraint_scope)
+          name_checked_at, constraint_scope, disabled_at)
        VALUES
          (@key, @value, @pinned, @keywords, @valid_from, NULL,
           @supersedes, @created_at, @updated_at, @name_grounding,
-          @name_checked_at, memory_scope_write())`,
+          @name_checked_at, memory_scope_write(), @disabled_at)`,
     );
     this.markSupersededStmt = this.db.prepare(
       `UPDATE profile_facts
@@ -276,9 +283,9 @@ export class ProfileStore {
     this.selectActiveByKeyStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
-        WHERE key = ? AND superseded_by IS NULL`,
+        WHERE key = ? AND superseded_by IS NULL AND memory_scope_visible(constraint_scope)`,
     );
     // Per-folder provider constraints (issue #33): reads see only the
     // facts the call's scope may (memory-constraint-scope.ts); the write
@@ -294,21 +301,21 @@ export class ProfileStore {
     this.selectActiveByIdStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE id = ? AND memory_scope_visible(constraint_scope)`,
     );
     this.selectAnyByIdStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE id = ?`,
     );
     this.selectAllActiveStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE superseded_by IS NULL
           AND memory_scope_visible(constraint_scope)
@@ -317,7 +324,7 @@ export class ProfileStore {
     this.selectEveryActiveStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE superseded_by IS NULL
         ORDER BY key ASC`,
@@ -325,7 +332,7 @@ export class ProfileStore {
     this.historyByKeyStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE key = ?
           AND memory_scope_visible(constraint_scope)
@@ -456,6 +463,9 @@ export class ProfileStore {
           updated_at: now,
           name_grounding: nameGrounding,
           name_checked_at: nameGrounding !== null ? now : null,
+          // ATO-1124: the person turned this key off; a new value for it
+          // (an edit, or the agent learning it again) stays off.
+          disabled_at: sameKeyActive?.disabled_at ?? null,
         }) as { lastInsertRowid: number | bigint };
         const newId = Number(insertResult.lastInsertRowid);
 
@@ -598,7 +608,28 @@ export class ProfileStore {
    * the prompt (votes, reflection) treats them as known.
    */
   listForPrompt(): ProfileFact[] {
-    return this.list().filter(isProfileFactPromptVisible);
+    // ATO-1124: a fact the person turned off never reaches the prompt.
+    return this.list().filter(
+      (fact) => fact.disabledAt === undefined && isProfileFactPromptVisible(fact),
+    );
+  }
+
+  /**
+   * ATO-1124. Turn the active fact for `key` off (`disabled: true`) or
+   * back on. Off keeps the fact and its history; it only leaves the
+   * prompt. Not a new version. Returns the fact, or `null` when the key
+   * has no active row.
+   */
+  setDisabled(key: string, disabled: boolean, now: number = Date.now()): ProfileFact | null {
+    const normalisedKey = validateKey(key);
+    // Turning off an already-off fact keeps the first time.
+    this.db
+      .prepare(
+        `UPDATE profile_facts SET disabled_at = ${disabled ? "COALESCE(disabled_at, ?)" : "NULL"}
+          WHERE key = ? AND superseded_by IS NULL AND memory_scope_visible(constraint_scope)`,
+      )
+      .run(...(disabled ? [now] : []), normalisedKey);
+    return this.get(normalisedKey);
   }
 
   /**
@@ -695,6 +726,7 @@ function rowToFact(row: ProfileRow): ProfileFact {
       isNameProfileKey(row.key) && isNameGroundingStatus(row.name_grounding)
         ? row.name_grounding
         : null,
+    ...(typeof row.disabled_at === "number" ? { disabledAt: row.disabled_at } : {}),
   };
 }
 
