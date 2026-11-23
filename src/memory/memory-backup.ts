@@ -99,12 +99,17 @@ function assertNoSecrets(db: Database.Database): void {
   for (const { schema, name, type } of tables) {
     if (schema !== "main" || type !== "table" || name.startsWith("sqlite_")) continue;
     const escaped = name.replaceAll('"', '""');
+    let position = 0;
     for (const row of db.prepare(`SELECT * FROM "${escaped}"`).iterate() as Iterable<Record<string, unknown>>) {
+      position += 1;
       const { key, value } = row;
       const secretPair = name === "profile_facts" && typeof key === "string" && typeof value === "string"
         && (isSecretKey(key) || containsSecretPair(key, value));
       const secretField = Object.values(row).some(includesSecret);
-      if (secretPair || secretField) throw new MemoryBackupError("memory contains a credential; export refused");
+      if (secretPair || secretField) {
+        const entry = typeof row.id === "number" ? row.id : position;
+        throw new MemoryBackupError(`Memory table ${name}, entry ${entry}, contains a credential; export refused`);
+      }
     }
   }
 }
@@ -133,6 +138,9 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     try {
       requireCurrentSchema(snapshot);
       applyMigrations(snapshot);
+      if (snapshot.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'memory_change_log'").get()) {
+        snapshot.exec("DELETE FROM memory_change_log");
+      }
       assertNoSecrets(snapshot);
       // Rebuild FTS from live rows and compact away freed pages.
       for (const index of ["memories_fts", "lessons_fts", "procedures_fts"]) {

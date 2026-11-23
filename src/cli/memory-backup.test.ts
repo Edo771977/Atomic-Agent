@@ -201,6 +201,23 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(existsSync(target.memoryDbFile)).toBe(false);
   });
 
+  it("ignores removed credentials in the backup journal", async () => {
+    const profile = new ProfileStore({ dbFile });
+    profile.set("city", "Rome");
+    const live = new Database(dbFile);
+    live.exec("UPDATE profile_facts SET key = 'pin', value = '4821'");
+    profile.remove("pin");
+    expect(live.prepare("SELECT count(*) FROM memory_change_log").pluck().get()).toBe(1);
+    live.close();
+    profile.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const copy = new Database(join(out, "memory.sqlite"), { readonly: true });
+    expect(copy.prepare("SELECT count(*) FROM memory_change_log").pluck().get()).toBe(0);
+    copy.close();
+    expect(readFileSync(join(out, "memory.sqlite")).includes(Buffer.from("4821"))).toBe(false);
+  });
+
   it("never publishes a backup containing a legacy credential", async () => {
     const profile = new ProfileStore({ dbFile });
     profile.set("city", "Rome");
@@ -209,7 +226,7 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     live.exec("UPDATE profile_facts SET key = 'pin', value = '4821'");
     live.close();
     const out = join(dir, "bk");
-    await expect(createMemoryBackup({ memoryDbFile: dbFile }, out)).rejects.toThrow(/contains a credential/);
+    await expect(createMemoryBackup({ memoryDbFile: dbFile }, out)).rejects.toThrow(/profile_facts.*entry 1.*contains a credential/);
     expect(existsSync(out)).toBe(false);
   });
 
