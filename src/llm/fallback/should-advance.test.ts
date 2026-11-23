@@ -1,3 +1,4 @@
+import { PrivacyArchiveLimitError } from "../../privacy/index.js";
 import { describe, it, expect } from "vitest";
 import { shouldAdvance } from "./should-advance.js";
 import { OpenAiHttpError } from "../provider/openai/openai-http.js";
@@ -254,4 +255,10 @@ describe("shouldAdvance", () => {
       immediate: false,
     });
   });
+});
+
+it("never fails over to an unprotected link on a wrapped Privacy Shield limit", () => {
+  const limit = new PrivacyArchiveLimitError();
+  expect(shouldAdvance(new TransportError("request failed", null, "", { cause: limit })))
+    .toEqual({ advance: false, immediate: false });
 });
