@@ -73,6 +73,7 @@ export const handleProjectLessons: HttpHandler = async (req, res, ctx) => {
       : result.notice ?? result.panel.blocked ?? "Lesson choice refused.";
     return sendJson(res, status[result.code], { ...openaiError(message, "invalid_request_error", null, result.code), panel });
   }
+  if (choice && view) ctx.projectGateBus?.publish({ type: "project_gate", sessionId, view });
   sendJson(res, 200, {
     session_id: sessionId,
     panel,

@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import * as lessons from "../session/project-lessons.js";
+import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
 import { stateDirProjectRecords } from "../session/project-decisions.js";
 import type { ProjectLessonPanel } from "../session/project-lesson-operations.js";
 import { createEmptySessionState } from "../session/session-state.js";
@@ -157,4 +158,24 @@ it("uses the same browser-friendly running-turn message in the panel and error",
   const body = await read(response);
   expect(body.error).toMatchObject({ code: "turn-running", message: "Wait for the turn to finish." });
   expect(body.panel.blocked).toBe("Wait for the turn to finish.");
+});
+
+it("publishes the updated gate and its lesson coverage only after a successful choice", async () => {
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  const coverage = [{ id: "storage", title: "Local storage", citedBy: [], missingFrom: ["t1"], deferred: false }];
+  const view = fixtureProjectGateView({ kind: "plan" }, { lessonCoverage: coverage });
+  vi.spyOn(h.runtime, "projectState").mockReturnValue(view);
+  const observer = vi.fn();
+  const off = h.handle.projectGateBus.subscribe(observer);
+  try {
+    expect((await decide("approve", "0".repeat(64))).status).toBe(409);
+    expect(observer).not.toHaveBeenCalled();
+    const choice = await decide("approve", row.hash);
+    expect(choice.status).toBe(200);
+    expect(await choice.json()).toMatchObject({ view: { lessonCoverage: coverage } });
+    expect(observer).toHaveBeenCalledExactlyOnceWith({ type: "project_gate", sessionId: session.id, view });
+  } finally {
+    off();
+  }
 });
