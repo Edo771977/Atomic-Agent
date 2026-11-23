@@ -409,6 +409,7 @@ async function handleStream(
 ): Promise<void> {
   // A turn can be silent for minutes (parked on an approval): the
   // heartbeat keeps the client from dropping it (SSE_HEARTBEAT_MS).
+  const controller = new AbortController();
   const sse = beginSse(
     res,
     {
@@ -416,9 +417,8 @@ async function handleStream(
       [COMPLETION_ID_HEADER]: env.completionId,
       ...turnModelHeader(env.request),
     },
-    { heartbeatMs: SSE_HEARTBEAT_MS },
+    { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized, onUnauthorized: () => controller.abort() } : {}) },
   );
-  const controller = new AbortController();
   ctx.completionRegistry.register({
     completionId: env.completionId,
     sessionId: env.session.id,

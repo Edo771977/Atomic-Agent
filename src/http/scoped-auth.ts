@@ -28,6 +28,7 @@ export interface ScopedAuthInput {
   scope: HttpScope;
   /** `"POST /api/config"`, for the 403 message. */
   route: string;
+  onAuthorized?: (caller: HttpCaller, stillAuthorized?: () => boolean) => void;
 }
 
 /**
@@ -79,7 +80,23 @@ export function authorizeRequest(
     return false;
   }
   if (caller.role === "owner") throttle?.ownerSucceeded(address);
-  if (caller.role === "owner" || roleHasScope(caller.role, input.scope)) return true;
+  if (caller.role === "owner") {
+    input.onAuthorized?.(caller);
+    return true;
+  }
+  if (roleHasScope(caller.role, input.scope)) {
+    const hash = hashHttpToken(presented!);
+    const registry = input.namedTokens;
+    input.onAuthorized?.(caller, () => {
+      let allowed = false;
+      for (const token of registry()) {
+        if (secretEquals(hash, token.sha256) && token.name === caller.name &&
+            roleHasScope(token.role, input.scope)) allowed = true;
+      }
+      return allowed;
+    });
+    return true;
+  }
   sendJson(
     res,
     403,

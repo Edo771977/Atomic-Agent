@@ -24,6 +24,7 @@ export interface HandlerContext {
   runtime: AgentRuntime;
   apiKey: string | null;
   params: Record<string, string>;
+  stillAuthorized?: () => boolean;
   approvalBus: ApprovalBus;
   /**
    * Fusion project gates (issue #39) for `GET /api/events`. Absent in
@@ -263,7 +264,7 @@ export const SSE_HEARTBEAT_MS = 15_000;
 export function beginSse(
   res: ServerResponse,
   extraHeaders: Record<string, string> = {},
-  options: { heartbeatMs?: number } = {},
+  options: { heartbeatMs?: number; stillAuthorized?: () => boolean; onUnauthorized?: () => void } = {},
 ): SseWriter {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -274,9 +275,16 @@ export function beginSse(
   });
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const mayWrite = (): boolean => {
+    if (closed || res.writableEnded) return false;
+    if (options.stillAuthorized?.() !== false) return true;
+    close();
+    options.onUnauthorized?.();
+    return false;
+  };
   if (options.heartbeatMs && options.heartbeatMs > 0) {
     heartbeat = setInterval(() => {
-      if (!closed && !res.writableEnded) res.write(": keepalive\n\n");
+      if (mayWrite()) res.write(": keepalive\n\n");
     }, options.heartbeatMs);
     heartbeat.unref?.();
   }
@@ -288,22 +296,23 @@ export function beginSse(
     closed = true;
     stopHeartbeat();
   });
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    stopHeartbeat();
+    res.end();
+  };
   return {
     writeEvent(event, payload) {
-      if (closed) return false;
+      if (!mayWrite()) return false;
       const prefix = event ? `event: ${event}\n` : "";
       return res.write(`${prefix}data: ${JSON.stringify(payload)}\n\n`);
     },
     writeRaw(chunk) {
-      if (closed) return false;
+      if (!mayWrite()) return false;
       return res.write(chunk);
     },
-    close() {
-      if (closed) return;
-      closed = true;
-      stopHeartbeat();
-      res.end();
-    },
+    close,
     get closed() {
       return closed;
     },

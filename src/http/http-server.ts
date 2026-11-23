@@ -289,15 +289,18 @@ async function dispatch(
     );
     return;
   }
+  const ctx: HandlerContext = { ...baseCtx, params: matched.params };
   if (matched.route.requiresAuth && !authorizeRequest(req, res, {
     apiKey: baseCtx.apiKey,
     namedTokens,
     scope: matched.route.scope,
     route: matched.route.key,
+    onAuthorized: (_caller, stillAuthorized) => {
+      if (stillAuthorized) ctx.stillAuthorized = stillAuthorized;
+    },
   }, authThrottle)) {
     return;
   }
-  const ctx: HandlerContext = { ...baseCtx, params: matched.params };
   // A session's own routes (transcript, export, steer, compaction, ...)
   // carry its content (issue #33).
   const sessionId = url.pathname.startsWith("/api/sessions/") ? matched.params.id : undefined;

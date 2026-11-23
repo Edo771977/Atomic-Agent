@@ -197,8 +197,9 @@ function parseDecision(raw: unknown): ParsedDecision | null {
  * (undici: 300 s) does not drop it and replay on every reconnect.
  */
 export function createApprovalEventsHandler(): HttpHandler {
-  return async (req, res, ctx) => {
-    const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS });
+  return async (_req, res, ctx) => {
+    const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized } : {}) });
+    res.flushHeaders();
     ctx.approvalBus.prune((request) =>
       ctx.runtime.approvals.isPending(request.approvalId),
     );
@@ -224,7 +225,7 @@ export function createApprovalEventsHandler(): HttpHandler {
     for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);
     const unsubscribeGates = ctx.projectGateBus?.subscribe(writeGate);
     await new Promise<void>((resolvePromise) => {
-      req.on("close", () => {
+      res.once("close", () => {
         unsubscribe();
         unsubscribeGates?.();
         sse.close();
