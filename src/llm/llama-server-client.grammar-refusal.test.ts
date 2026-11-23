@@ -286,7 +286,7 @@ describe("LlamaServerClient on a grammar refusal (ATO-1675)", () => {
     expect(sent).toHaveLength(2);
   });
 
-  it("warns once with the port, never the server's words", async () => {
+  it("warns once that the refusal disables grammar for the entire endpoint", async () => {
     const warnings: Array<{ message: string; context?: Record<string, unknown> }> = [];
     const sent: Sent[] = [];
     const client = refusingServer(EXTERNAL, sent, undefined, {
@@ -300,7 +300,11 @@ describe("LlamaServerClient on a grammar refusal (ATO-1675)", () => {
     await client.complete({ prompt: "p", grammar: "root ::= x" });
     await client.complete({ prompt: "p", grammar: "root ::= x" });
     expect(warnings).toHaveLength(1);
-    expect(warnings[0]?.context).toMatchObject({ status: 400, port: "8080", loopback: true });
+    expect(warnings[0]?.message).toContain("all grammars for this server URL");
+    expect(warnings[0]?.context).toMatchObject({
+      status: 400, port: "8080", loopback: true,
+      grammarSkipped: true, scope: "server_url",
+    });
     expect(JSON.stringify(warnings)).not.toContain("Failed to parse");
   });
 });

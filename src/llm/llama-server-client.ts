@@ -1036,7 +1036,7 @@ export class LlamaServerClient {
     try {
       return markGrammarSkipped(await this.completeOnce(request), skipped);
     } catch (err) {
-      if (!this.learnGrammarRefusal(request, err)) throw err;
+      if (skipped || !this.learnGrammarRefusal(request, err)) throw err;
       try {
         return markGrammarSkipped(await this.completeOnce(request), true);
       } catch (retryErr) {
@@ -1069,7 +1069,7 @@ export class LlamaServerClient {
         yield step.value;
       }
     } catch (err) {
-      if (yielded || !this.learnGrammarRefusal(request, err)) throw err;
+      if (yielded || skipped || !this.learnGrammarRefusal(request, err)) throw err;
       refusal = err;
     } finally {
       // A consumer that walks away mid-stream closes the request too.
@@ -1121,14 +1121,17 @@ export class LlamaServerClient {
     if (!isGrammarRefusal(err.status, err.message, err.body?.type)) return false;
     const base = this.baseUrlOverride ?? getConfig().localModels.url;
     if (this.isManagedEngine(base)) return false;
+    if (this.grammarRefusedFor.has(base)) return true;
     this.grammarRefusedFor.add(base);
     // Warn, so a field log shows the agent runs this server without a
     // grammar. The port and whether it is loopback only: never the
     // server's words, which may quote the request.
-    this.logger?.warn?.("llama: server refused the grammar; sending requests to it without one", {
+    this.logger?.warn?.("llama: server refused a grammar; skipping all grammars for this server URL until reconnect or restart", {
       sessionId: request.sessionId ?? null,
       status: err.status,
       midStream: err.midStream,
+      grammarSkipped: true,
+      scope: "server_url",
       ...describeBase(base),
     });
     return true;
