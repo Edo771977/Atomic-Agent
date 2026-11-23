@@ -1,6 +1,7 @@
+import { traceFilePath } from "../../tracing/trace/trace-sink.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as configuration from "../../config/index.js";
@@ -90,7 +91,7 @@ describe("runtime session phases", () => {
     expect(existsSync(spill.dirFor("s-kept"))).toBe(true);
   });
 
-  it("keeps the orphan row when file checkpoint cleanup fails and completes on the next boot", async () => {
+  it("deletes the private row and trace despite a checkpoint failure and retries on the next boot", async () => {
     const checkpoints = new FileCheckpointStore(join(dir, "file-checkpoints"));
     const file = join(dir, "private.txt");
     await writeFile(file, "private");
@@ -101,14 +102,19 @@ describe("runtime session phases", () => {
     }), userTurn("private")));
     seeded.close();
 
-    vi.spyOn(checkpoints, "removeSession").mockRejectedValueOnce(new Error("checkpoint busy"));
+    await mkdir(config.paths.tracesDir, { recursive: true });
+    const trace = traceFilePath(config.paths.tracesDir, "s-dead");
+    await writeFile(trace, "private trace");
+    const remove = vi.spyOn(checkpoints, "removeSession").mockRejectedValue(new Error("checkpoint busy"));
     const first = await prepareRuntimeSessionStore(config, logger, checkpoints);
     stores.push(first);
-    expect(first.load("s-dead")?.id).toBe("s-dead");
+    expect(first.load("s-dead")).toBeNull();
+    expect(existsSync(trace)).toBe(false);
     expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(true);
     expect(records.some(record => record.context?.error === "checkpoint busy")).toBe(true);
 
-    const second = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    remove.mockRestore();
+    const second = await prepareRuntimeSessionStore(config, logger, new FileCheckpointStore(join(dir, "file-checkpoints")));
     stores.push(second);
     expect(second.load("s-dead")).toBeNull();
     expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false);

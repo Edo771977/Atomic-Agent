@@ -96,14 +96,21 @@ export async function sweepOrphanIncognitoSessions(
     const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {
         tasks.removeTasks(id);
-        await removeArtifacts?.(id);
-        removeIncognitoTrace(tracesDir, id);
       } catch (err) {
         logger.warn("could not clean up an incognito chat left by a stopped agent; the next start will retry", {
           sessionId: id,
           error: err instanceof Error ? err.message : String(err),
         });
         throw err;
+      }
+      removeIncognitoTrace(tracesDir, id);
+      try {
+        await removeArtifacts?.(id);
+      } catch (err) {
+        logger.warn("could not remove artifacts of an incognito chat", {
+          sessionId: id,
+          error: err instanceof Error ? err.message : String(err),
+        });
       }
     });
     if (ids.length > 0) {

@@ -28,7 +28,7 @@ The turn service captures [model behavior settings](../llm/docs/model-mode.md) o
 
 For tool integration read composition/runtime-tool-catalog.ts; for provider hot swap read composition/runtime-inference.ts and runtime-local-profile.ts. For sidecar locking read composition/runtime-turn-service.ts and turn-controller.ts. For memory sub-call cancellation read composition/runtime-memory-services.ts. For a channel/store shutdown race read composition/runtime-lifecycle.ts and docs/lifecycle.md. [Component routes and tests](composition/README.md) link each task to its owner.
 
-The startup incognito sweep runs before task recovery. It removes the orphan chat’s tasks, Fusion checkpoints, spilled outputs, file checkpoints and trace before deleting its session row. Cleanup errors that propagate keep the row available for the next startup.
+The startup incognito sweep runs before task recovery. It removes the orphan chat’s tasks, Fusion checkpoints, spilled outputs, file checkpoints and trace before deleting its session row. If task cleanup fails, the chat stays available for the next startup. File checkpoint failures are retried separately.
 
 ## Fusion director
 

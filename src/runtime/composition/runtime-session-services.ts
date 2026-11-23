@@ -66,13 +66,18 @@ export async function prepareRuntimeSessionStore(
   }
   // At boot, remove abandoned incognito chats and the state they own.
   const fusionRuns = new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) });
+  await fileCheckpoints.retryIncognitoRemovals(error => {
+    logger.warn("could not retry incognito file checkpoint removal", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
   await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },
     async (id) => {
       fusionRuns.removeForSession(id);
       outputSpill.removeSession(id);
-      await fileCheckpoints.removeSession(id);
+      await fileCheckpoints.removeIncognitoSession(id);
     },
   );
   // `sessions.sqlite` and the traces beside it are the only state this
