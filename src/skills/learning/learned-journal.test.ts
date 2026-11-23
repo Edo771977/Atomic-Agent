@@ -1,4 +1,4 @@
-import { hashSkillText } from "./pending-drafts.js";
+import { draftFingerprint } from "./pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -109,6 +109,15 @@ describe("learned journal and undo", () => {
     expect((await runLearnCommand({ kind: "list" }, { stateDir: root, skillsDir })).text).toContain("(undone)");
   });
 
+  it("invalidates the preview fingerprint when draft metadata changes", async () => {
+    const content = "---\nname: deploy-staging\ndescription: Deploy to staging.\n---\nConsult the staging deployment checklist before proceeding.\n";
+    const draft = await savePendingDraft(root, { kind: "create", name: "deploy-staging", reason: "initial reason", content, sources: [] });
+    const show = async () => JSON.parse((await runLearnCommand({ kind: "show", id: draft.id, json: true }, { stateDir: root, skillsDir })).text).fingerprint as string;
+    const fingerprint = await show();
+    writeFileSync(join(root, "skills-pending", draft.id, "draft.json"), JSON.stringify({ ...draft, reason: "changed reason" }));
+    expect(await show()).not.toBe(fingerprint);
+  });
+
   it("/learn lists drafts as Pending review, approves one and discards another", async () => {
     const content = "---\nname: fetch-release-notes\ndescription: Collect release notes from the changelog.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n2. Copy the newest section.\n";
     const keep = await savePendingDraft(root, { kind: "create", name: "fetch-release-notes", reason: "changelog steps", content, sources: ["os.web.fetch"], origin: "telegram", now: () => Date.UTC(2026, 10, 18, 9, 0) });
@@ -118,7 +127,7 @@ describe("learned journal and undo", () => {
     expect(listed.text).toContain(`${keep.id}  2026-11-18 09:00  new skill fetch-release-notes (Pending review): changelog steps [read: telegram, os.web.fetch]`);
     expect(listed.text).toContain("/learn approve <id>");
 
-    const approved = await runLearnCommand({ kind: "approve", id: keep.id, fingerprint: hashSkillText(content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() });
+    const approved = await runLearnCommand({ kind: "approve", id: keep.id, fingerprint: draftFingerprint(keep, content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() });
     expect(approved).toMatchObject({ ok: true, skillsChanged: true });
     expect(read("fetch-release-notes")).toBe(content);
     expect((await readLearnedChanges(journal)).map((e) => e.id)).toEqual([keep.id]);
@@ -128,7 +137,7 @@ describe("learned journal and undo", () => {
     expect(existsSync(join(skillsDir, "other-steps"))).toBe(false);
     expect(await listPendingDrafts(root)).toEqual([]);
     expect((await runLearnCommand({ kind: "discard", id: drop.id }, { stateDir: root, skillsDir })).ok).toBe(false);
-    expect((await runLearnCommand({ kind: "approve", id: drop.id, fingerprint: hashSkillText(content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() })).ok).toBe(false);
+    expect((await runLearnCommand({ kind: "approve", id: drop.id, fingerprint: draftFingerprint(drop, content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() })).ok).toBe(false);
   });
 
   it("/learn lists each draft with its path and strips control characters (ATO-67 review2)", async () => {

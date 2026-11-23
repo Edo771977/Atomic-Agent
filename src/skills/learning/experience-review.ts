@@ -16,7 +16,7 @@ import {
   readLearnedChanges,
   type LearnedChange,
 } from "./learned-journal.js";
-import { hashSkillText, readPendingDraft, removePendingDraft, savePendingDraft, type PendingDraft } from "./pending-drafts.js";
+import { draftFingerprint, hashSkillText, readPendingDraft, removePendingDraft, savePendingDraft, type PendingDraft } from "./pending-drafts.js";
 import { LEARNED_SKILL_LIMITS, lintLearnedSkill } from "./skill-lint.js";
 
 /**
@@ -478,7 +478,7 @@ async function activateDraft(ctx: ApprovePendingDraftContext, id: string): Promi
   const found = await readPendingDraft(ctx.stateDir, id);
   if (found === null) throw new PendingDraftError(`no pending draft with id ${id} (see /learn)`);
   const { draft, content } = found;
-  if (hashSkillText(content) !== ctx.expectedFingerprint) throw new PendingDraftError("The draft changed since review. Read the current text and fingerprint.");
+  if (draftFingerprint(draft, content) !== ctx.expectedFingerprint) throw new PendingDraftError("The draft changed since review. Read the current text and fingerprint.");
   const decision: WriteDecision = { action: draft.kind, name: draft.name, reason: draft.reason, content };
   let candidates: PatchCandidate[] = [];
   if (draft.kind === "patch") {
@@ -515,7 +515,7 @@ async function activateDraft(ctx: ApprovePendingDraftContext, id: string): Promi
     draftId: draft.id,
     beforeInstall: async () => {
       const latest = await readPendingDraft(ctx.stateDir, id);
-      if (!latest || JSON.stringify(latest.draft) !== JSON.stringify(draft) || hashSkillText(latest.content) !== ctx.expectedFingerprint) {
+      if (!latest || JSON.stringify(latest.draft) !== JSON.stringify(draft) || draftFingerprint(latest.draft, latest.content) !== ctx.expectedFingerprint) {
         throw new PendingDraftError("The draft changed since review. Read the current text and fingerprint.");
       }
       if (draft.kind === "patch" && hashSkillText(await readFile(join(ctx.skillsDir, draft.name, "SKILL.md"), "utf8")) !== draft.targetHash) {

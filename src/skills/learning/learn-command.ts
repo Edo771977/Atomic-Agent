@@ -16,7 +16,7 @@ import {
   type LearnedEntry,
 } from "./learned-journal.js";
 import {
-  hashSkillText,
+  draftFingerprint,
   listPendingDrafts,
   PENDING_ID_PATTERN,
   pendingDraftSkillFile,
@@ -281,7 +281,7 @@ export async function showPendingDraft(
     sources: draft.sources.map(oneLine).filter((s) => s.length > 0),
     reason: oneLine(draft.reason),
     createdAt: draft.createdAt,
-    fingerprint: hashSkillText(content),
+    fingerprint: draftFingerprint(draft, content),
     skillMd: content,
     currentSkillMd: current === null ? null : multiLine(current),
     diff: current === null ? null : multiLine(skillMdDiff(draft.name, current, content)),

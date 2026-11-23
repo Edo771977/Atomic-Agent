@@ -1,6 +1,6 @@
 import * as terminal from "./learn-terminal.js";
 import { learnedSkillScope, withLearnedTurn } from "../skills/learning/learn-scope.js";
-import { hashSkillText } from "../skills/learning/pending-drafts.js";
+import { draftFingerprint } from "../skills/learning/pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -166,7 +166,7 @@ describe("skill history / restore / curate", () => {
   it("refuses approval without a terminal even with a valid fingerprint argument", async () => {
     const content = "---\nname: console-check\ndescription: Check the console.\n---\nRead the report and compare it with the approved checklist.\n";
     const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "console-check", reason: "console", content, sources: [] });
-    expect(await skillCommand(["learned", "approve", `${draft.id}@${hashSkillText(content)}`])).not.toBe(0);
+    expect(await skillCommand(["learned", "approve", `${draft.id}@${draftFingerprint(draft, content)}`])).not.toBe(0);
     expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
     expect(stderr).toContain("interactive terminal");
     expect(existsSync(join(scope().skillsDir, "console-check"))).toBe(false);
@@ -210,7 +210,7 @@ describe("skill history / restore / curate", () => {
 
     const read = vi.spyOn(terminal, "readLearnFingerprint");
     const approve = (text: string) => {
-      read.mockResolvedValue(hashSkillText(text));
+      read.mockResolvedValue(draftFingerprint(draft, text));
       return skillCommand(["learned", "approve", draft.id]);
     };
     expect(await skillCommand(["learned", "approve"])).toBe(2);
@@ -222,7 +222,7 @@ describe("skill history / restore / curate", () => {
     stderr = "";
     expect(await approve(content)).toBe(1);
     expect(stderr).toContain(edited.trimEnd());
-    expect(stderr).toContain(hashSkillText(edited));
+    expect(stderr).toContain(draftFingerprint(draft, edited));
     vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
     expect(await approve(edited)).toBe(1);
     expect(stderr).toContain("outside an agent tool process");

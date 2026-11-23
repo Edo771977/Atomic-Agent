@@ -19,7 +19,7 @@ import {
   UNTRUSTED_DATA_OPEN,
 } from "./experience-review.js";
 import { learnedJournalFile, readLearnedChanges, undoLearnedChange } from "./learned-journal.js";
-import { hashSkillText, listPendingDrafts, pendingDraftsDir, readPendingDraft } from "./pending-drafts.js";
+import { draftFingerprint, hashSkillText, type PendingDraft, listPendingDrafts, pendingDraftsDir, readPendingDraft } from "./pending-drafts.js";
 
 const at = 1;
 
@@ -254,21 +254,21 @@ describe("pending drafts (outside content, decided 18.11)", () => {
 
   it("approval writes the skill under the same id, and undo still works", async () => {
     const held = await draftCreate();
-    const id = (held as { draft: { id: string } }).draft.id;
-    const change = await approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: hashSkillText(createContent), takenNames: new Set(["deploy-staging"]) }, id);
+    const id = (held as { draft: PendingDraft }).draft.id;
+    const change = await approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: draftFingerprint((held as { draft: PendingDraft }).draft, createContent), takenNames: new Set(["deploy-staging"]) }, id);
     expect(change).toMatchObject({ id, name: "sync-with-delete", action: "create", approvedDraft: id, sessionId: "s1" });
     expect(readFileSync(join(skillsDir, "sync-with-delete", "SKILL.md"), "utf8")).toBe(createContent);
     expect((await journal()).map((e) => e.id)).toEqual([id]);
     expect(await readPendingDraft(root, id)).toBeNull();
-    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: hashSkillText(createContent), takenNames: new Set() }, id)).rejects.toBeInstanceOf(PendingDraftError);
+    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: draftFingerprint((held as { draft: PendingDraft }).draft, createContent), takenNames: new Set() }, id)).rejects.toBeInstanceOf(PendingDraftError);
     await undoLearnedChange({ skillsDir, paths: skillCuratorPaths(root) }, id);
     expect(existsSync(join(skillsDir, "sync-with-delete"))).toBe(false);
   });
 
   it("approve refuses a create whose name was taken since", async () => {
     const held = await draftCreate();
-    const id = (held as { draft: { id: string } }).draft.id;
-    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: hashSkillText(createContent), takenNames: new Set(["sync-with-delete"]) }, id)).rejects.toThrow(/linter/);
+    const id = (held as { draft: PendingDraft }).draft.id;
+    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: draftFingerprint((held as { draft: PendingDraft }).draft, createContent), takenNames: new Set(["sync-with-delete"]) }, id)).rejects.toThrow(/linter/);
     expect(existsSync(join(skillsDir, "sync-with-delete"))).toBe(false);
     expect(await readPendingDraft(root, id)).not.toBeNull();
   });
@@ -287,19 +287,19 @@ describe("pending drafts (outside content, decided 18.11)", () => {
       apply: { recorder },
       draft: { stateDir: root, sources: ["mcp:github"] },
     });
-    const first = (await holdPatch()) as { draft: { id: string; targetHash?: string } };
+    const first = (await holdPatch()) as { draft: PendingDraft };
     expect(first.draft.targetHash).toMatch(/^[0-9a-f]{64}$/);
     expect(readFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), "utf8")).toBe(before);
 
     // The owner edits the skill by hand: the draft was written against the old text.
     const edited = before.replace("Done, nothing else to check.", "Done; the owner edited this.");
     writeFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), edited);
-    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: hashSkillText(after), takenNames: new Set(["deploy-staging"]) }, first.draft.id))
+    await expect(approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: draftFingerprint(first.draft, after), takenNames: new Set(["deploy-staging"]) }, first.draft.id))
       .rejects.toThrow(/changed since draft/);
     expect(readFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), "utf8")).toBe(edited);
 
     writeFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), before);
-    const change = await approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: hashSkillText(after), takenNames: new Set(["deploy-staging"]) }, first.draft.id);
+    const change = await approvePendingDraft({ stateDir: root, skillsDir, expectedFingerprint: draftFingerprint(first.draft, after), takenNames: new Set(["deploy-staging"]) }, first.draft.id);
     expect(change).toMatchObject({ action: "patch", name: "deploy-staging" });
     expect(change.snapshot).toBeDefined();
     expect(readFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), "utf8")).toBe(after);

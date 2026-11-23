@@ -42,6 +42,17 @@ export function hashSkillText(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
+/** Fingerprint the exact content and the decision described in the preview. */
+export function draftFingerprint(draft: Pick<PendingDraft, "kind" | "name" | "targetHash" | "reason">, content: string): string {
+  return hashSkillText(JSON.stringify({
+    kind: draft.kind,
+    name: draft.name,
+    targetHash: draft.targetHash ?? null,
+    reason: draft.reason,
+    content,
+  }));
+}
+
 function parseDraft(raw: string, folder: string): PendingDraft | null {
   let obj: Record<string, unknown>;
   try {
