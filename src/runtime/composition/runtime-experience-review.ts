@@ -1,3 +1,4 @@
+import { sameSideCallProvider, type SideCallProvider } from "./turn-sidecall-provider.js";
 import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { join } from "node:path";
 import { learnedSkillScope, withLearnedTurn } from "../../skills/learning/learn-scope.js";
@@ -42,7 +43,8 @@ export interface ExperienceReviewerDeps {
   getConfig: () => AtomicAgentConfig;
   llmComplete: (params: LlmStreamParams) => Promise<CompletionResult>;
   slotManager: Pick<SlotManager, "sideCallSlotId">;
-  resolveTransport: () => ToolCallTransport;
+  resolveTransport: (providerId?: string) => ToolCallTransport;
+  activeProvider?: () => SideCallProvider;
   skillRegistry: Pick<SkillRegistry, "listAll">;
   restricted?: (state: SessionState) => boolean;
   /** Teardown's handles (`pendingSessionNamings`, shared with naming). */
@@ -81,6 +83,7 @@ export interface ReviewTurnInfo {
   answerChannel?: AnswerChannel;
   /** A `skill eval` run: it must not change skills either. */
   memoryReadOnly?: boolean;
+  turnProvider?: SideCallProvider;
 }
 
 function selfLearning(config: AtomicAgentConfig) {
@@ -106,6 +109,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     state: SessionState,
     experience: TurnExperience,
     hold: { sources: readonly string[]; origin?: string },
+    turnProvider?: SideCallProvider,
   ): Promise<void> => {
     if (deps.isShutdown()) return;
     const config = deps.getConfig();
@@ -128,7 +132,10 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
       const candidates = await readPatchCandidates(skillsDir, experience.usedSkills);
       const takenNames = await takenSkillNames(targets);
       for (const name of await takenSkillNames({ ...targets, globalSkillsDir: config.paths.globalSkillsDir, archiveDir: join(config.paths.stateDir, "skills-archive") })) takenNames.add(name);
-      const transport = deps.resolveTransport();
+      const active = deps.activeProvider?.();
+      if (turnProvider && (!active || !sameSideCallProvider(turnProvider, active))) return;
+      const providerId = turnProvider?.providerId ?? active?.providerId;
+      const transport = deps.resolveTransport(providerId);
       const result = await runExperienceReview({
         experience,
         candidates,
@@ -166,7 +173,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
                         },
                       }),
                 };
-          const completion = await deps.llmComplete({ ...request, signal: abort.signal });
+          const completion = await deps.llmComplete({ ...request, ...(providerId === undefined ? {} : { providerId }), signal: abort.signal });
           abort.signal.throwIfAborted();
           return answerText(completion);
         },
@@ -215,6 +222,8 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
   const maybeReview = (state: SessionState, info: ReviewTurnInfo): boolean => {
     try {
       if (running || deps.isShutdown() || currentProviderPolicy() || deps.restricted?.(state)) return false;
+      const active = deps.activeProvider?.();
+      if (info.turnProvider && (!active || !sameSideCallProvider(info.turnProvider, active))) return false;
       if (reviewModeForOrigin(info.origin, info.answerChannel) === "skip") return false;
       if (info.memoryReadOnly === true || isIncognitoSession(state)) return false;
       if (info.result.reason !== "reply" && info.result.reason !== "finish") return false;
@@ -237,7 +246,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
       });
       if (!verdict.review) return false;
       const hold = { sources: outsideSources, ...(info.origin !== undefined ? { origin: info.origin } : {}) };
-      running = review(state, verdict.experience, hold)
+      running = review(state, verdict.experience, hold, info.turnProvider)
         .catch((err: unknown) => {
           deps.logger.warn("self-learning review failed", { sessionId: state.id, error: err instanceof Error ? err.message : String(err) });
         })

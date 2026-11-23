@@ -113,6 +113,17 @@ describe("createExperienceReviewer", () => {
     expect(prompts[0]).not.toContain(name);
   });
 
+  it("skips a review when the selected turn provider differs from the active provider", async () => {
+    const { reviewer, llmComplete } = rig(undefined, {
+      activeProvider: () => ({ providerId: "cloud", mode: "cloud" }),
+    });
+    const info = { result: reply(10), origin: "tui" as const, turnProvider: { providerId: "local", mode: "local" as const } };
+    expect(reviewer.maybeReview(session(10), info)).toBe(false);
+    expect(reviewer.maybeReview(session(10), { ...info, turnProvider: { providerId: "cloud", mode: "local" } })).toBe(false);
+    await reviewer.whenIdle();
+    expect(llmComplete).not.toHaveBeenCalled();
+  });
+
   it("does not call the model for a short turn", async () => {
     const { reviewer, llmComplete } = rig();
     expect(reviewer.maybeReview(session(9), { result: reply(9), origin: "tui" })).toBe(false);

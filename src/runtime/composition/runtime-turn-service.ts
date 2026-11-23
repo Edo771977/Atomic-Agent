@@ -1,3 +1,4 @@
+import { sameSideCallProvider } from "./turn-sidecall-provider.js";
 import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
 import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
@@ -303,7 +304,7 @@ export function createRuntimeTurnService(
    * the next turn may already have saved over it, so the read-modify-
    * write has to happen when the answer arrives, not before.
    */
-  const nameSession = async (state: SessionState): Promise<void> => {
+  const nameSession = async (state: SessionState, providerId: string): Promise<void> => {
     // A turn can finish *during* teardown — `shutdown` aborts the set
     // below and then awaits channel/MCP/browser teardown before the
     // stores close, and a turn completing in that window would register
@@ -327,6 +328,7 @@ export function createRuntimeTurnService(
         complete: async (params) => {
           const result = await llmComplete({
             ...params,
+            providerId,
             signal: abort.signal,
           });
           return { content: result.content, ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}) };
@@ -335,7 +337,7 @@ export function createRuntimeTurnService(
         // Which wire shape this call has to take. A cloud link answers a
         // bare prompt with an empty `content`, so the title has to be
         // asked for the way every other sub-call asks.
-        toolTransport: resolveActiveLlmSlice().transport,
+        toolTransport: resolveActiveLlmSlice(providerId).transport,
         serverTemplate: getConfig().localModels.useServerTemplate !== "off",
         onError: (err: unknown) =>
           logger.debug("session naming failed", {
@@ -387,7 +389,7 @@ export function createRuntimeTurnService(
     sessionStore,
     llmComplete,
     slotManager,
-    resolveTransport: () => resolveActiveLlmSlice().transport,
+    resolveTransport: (providerId) => resolveActiveLlmSlice(providerId).transport,
     pending: pendingSessionNamings,
     isShutdown: () => lifecycle.isShutdown(),
     ...(deps.emitEvent ? { emitEvent: deps.emitEvent } : {}),
@@ -1061,24 +1063,28 @@ export function createRuntimeTurnService(
         // too, and a run that promised to stop at its cap must not make
         // one more paid call. The session stays unnamed until a later
         // turn answers within its budget.
+        const turnProvider = resolveModelMode(modelModePolicy, runOptions.providerId ?? turnPrimary ?? turnRoute.main.providerId, runOptions.model);
+        const activeProvider = resolveModelMode(captureModelModePolicy(resolveLlmConfig(getConfig()), resolveActiveModelName));
+        const sameProvider = sameSideCallProvider(turnProvider, activeProvider);
         // Never for an incognito chat (ATO-586): no list shows its name,
         // and the late title save would write back a row its close deleted.
         if (
-          getConfig().agent.nameSessions &&
+          sameProvider && getConfig().agent.nameSessions &&
           !stoppedForMoney(result.stopCause) &&
           !isIncognitoSession(finished) &&
           shouldNameSession(finished)
         ) {
-          trackArchiveCall(session.id, nameSession(finished));
+          trackArchiveCall(session.id, nameSession(finished, activeProvider.providerId));
         }
         // Same contract as naming: fire-and-forget, never after a budget stop.
-        if (!stoppedForMoney(result.stopCause)) {
-          trackArchiveCall(session.id, nextStep.maybeSuggest(finished, runOptions.origin));
+        if (sameProvider && !stoppedForMoney(result.stopCause)) {
+          trackArchiveCall(session.id, nextStep.maybeSuggest(finished, runOptions.origin, activeProvider.providerId));
         }
         // Self-learning (ATO-67): same contract, gated on the turn's
         // length, origin and ending inside the reviewer.
         if (deps.experienceReview?.maybeReview(finished, {
           result,
+          turnProvider,
           origin: runOptions.origin,
           ...(runOptions.answerChannel !== undefined ? { answerChannel: runOptions.answerChannel } : {}),
           ...(runOptions.memoryReadOnly === true ? { memoryReadOnly: true } : {}),

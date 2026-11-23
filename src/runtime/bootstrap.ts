@@ -1117,7 +1117,8 @@ export async function createAgentRuntime(
   // Opt-in self-learning proposes drafts after long turns.
   const experienceReview = createExperienceReviewer({
     getConfig, llmComplete, slotManager,
-    resolveTransport: () => resolveActiveLlmSlice().transport,
+    resolveTransport: (providerId) => resolveActiveLlmSlice(providerId).transport,
+    activeProvider: () => resolveModelMode(captureModelModePolicy(resolveLlmConfig(getConfig()), resolveActiveModelName)),
     skillRegistry,
     restricted: (session) => sessionProviderPolicy.effectivePolicyForSession(session) !== undefined,
     pending: turnState.pendingSessionNamings,
