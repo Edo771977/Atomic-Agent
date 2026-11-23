@@ -538,15 +538,16 @@ export class MemoryStore {
 
     if (source === "agent") {
       const disabled = this.db.prepare(
-        `SELECT id FROM memories WHERE disabled_at IS NOT NULL AND content = ? AND memory_scope_same(constraint_scope) LIMIT 1`,
-      ).get(content) as { id: number } | undefined;
-      if (disabled) {
-        const entry = this.get(disabled.id);
+        `SELECT id, tags FROM memories WHERE disabled_at IS NOT NULL AND content = ? AND memory_scope_same(constraint_scope)`,
+      ).iterate(content) as Iterable<{ id: number; tags: string | null }>;
+      for (const candidate of disabled) {
+        if (!isTagSuperset(parseTags(candidate.tags), tags)) continue;
+        const entry = this.get(candidate.id);
         if (entry) return entry;
       }
     }
     if (this.dedupEnabled) {
-      const merged = this.tryDedupMerge({ content, tags, now });
+      const merged = this.tryDedupMerge({ content, tags, now, suppressDisabled: source === "agent" });
       if (merged !== null) return merged;
     } else {
       this.metrics?.recordMemoryDedup({
@@ -632,6 +633,7 @@ export class MemoryStore {
     content: string;
     tags: string[];
     now: number;
+    suppressDisabled: boolean;
   }): MemoryEntry | null {
     const ftsQuery = buildFtsQuery(args.content);
     if (ftsQuery.length === 0) {
@@ -660,7 +662,7 @@ export class MemoryStore {
     };
     let candidates: CandidateRow[];
     try {
-      candidates = [...this.dedupCandidateStmt.all(ftsQuery, 1), ...this.dedupCandidateStmt.all(ftsQuery, 0)] as CandidateRow[];
+      candidates = [...(args.suppressDisabled ? this.dedupCandidateStmt.all(ftsQuery, 1) : []), ...this.dedupCandidateStmt.all(ftsQuery, 0)] as CandidateRow[];
     } catch {
       // Malformed FTS query degrades to "no candidates"; the write
       // proceeds as a fresh INSERT rather than failing the call.
@@ -679,7 +681,7 @@ export class MemoryStore {
         tokeniseForSimilarity(row.content),
       );
       if (row.disabled_at !== null) {
-        if (score >= this.dedupThreshold) return this.get(row.id);
+        if (score >= this.dedupThreshold && isTagSuperset(parseTags(row.tags), args.tags)) return this.get(row.id);
         continue;
       }
       if (best === null || score > best.score) {

@@ -134,6 +134,16 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(notes.store({ content: "the user prefers paper notebooks." }).id).toBe(active.id);
   });
 
+  it("only suppresses agent notes with compatible tags", () => {
+    const notes = notesStore({ dedup: { enabled: true } });
+    const disabled = notes.store({ content: "the user prefers paper notebooks", tags: ["office"] });
+    notes.setDisabled(disabled.id, true);
+    expect(notes.store({ content: disabled.content, tags: ["travel"] }).id).not.toBe(disabled.id);
+    expect(notes.store({ content: disabled.content, tags: ["office"], source: "user" }).id).not.toBe(disabled.id);
+    expect(notes.store({ content: disabled.content + ".", tags: ["other"] }).id).not.toBe(disabled.id);
+    expect(notes.store({ content: disabled.content + "!", tags: ["office"] }).id).toBe(disabled.id);
+  });
+
   it("does not relearn a turned-off note", () => {
     const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.5 } });
     const off = notes.store({ content: "the user prefers dark roast coffee" });
