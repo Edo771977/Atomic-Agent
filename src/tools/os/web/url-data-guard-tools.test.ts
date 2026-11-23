@@ -37,7 +37,7 @@ function httpConfig(overrides: Partial<AtomicAgentConfig["http"]> = {}): Pick<At
   };
 }
 
-function recordingRun(calls: string[][]) {
+function recordingRun(calls: string[][], firstResponse?: string) {
   return async (_cmd: string, args: string[]): Promise<CommandResult> => {
     calls.push(args);
     return {
@@ -45,7 +45,7 @@ function recordingRun(calls: string[][]) {
       args,
       exitCode: 0,
       signal: null,
-      stdout: "ok\n__ATOMIC_CURL_META__200|text/plain|2|0.01",
+      stdout: (calls.length === 1 ? firstResponse : undefined) ?? "ok\n__ATOMIC_CURL_META__200|text/plain|2|0.01",
       stderr: "",
       durationMs: 1,
       timedOut: false,
@@ -69,29 +69,29 @@ function recordingGate(level: ApprovalLevel, approve: boolean): { gate: Approval
   return { gate, asked };
 }
 
-type Build = (gate: ApprovalGate, calls: string[][], http: Pick<AtomicAgentConfig, "http">, sites: UrlSendSites) => ToolDefinition;
+type Build = (gate: ApprovalGate, calls: string[][], http: Pick<AtomicAgentConfig, "http">, sites: UrlSendSites, firstResponse?: string) => ToolDefinition;
 
 const tools: Array<[string, Build]> = [
   [
     "os.http.request GET",
-    (gate, calls, http, sites) =>
+    (gate, calls, http, sites, firstResponse) =>
       buildOsHttpRequestTool({
         approvals: gate,
         approvalRequired: true,
         config: http,
         lookup: publicLookup,
-        runCommand: recordingRun(calls),
+        runCommand: recordingRun(calls, firstResponse),
         urlSendSites: sites,
       }),
   ],
   [
     "os.web.fetch",
-    (gate, calls, http, sites) =>
+    (gate, calls, http, sites, firstResponse) =>
       buildOsWebFetchTool({
         dangerous: { approvals: gate, approvalRequired: true },
         config: { web: { fetch: undefined } as unknown as AtomicAgentConfig["web"], ...http },
         lookup: publicLookup,
-        runCommand: recordingRun(calls) as unknown as NonNullable<Parameters<typeof buildOsWebFetchTool>[0]>["runCommand"],
+        runCommand: recordingRun(calls, firstResponse) as unknown as NonNullable<Parameters<typeof buildOsWebFetchTool>[0]>["runCommand"],
         sleep: async () => {},
         urlSendSites: sites,
       }),
@@ -146,6 +146,20 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
       expect(asked[0]!.reason).toMatch(/first request to docs\.example in this chat/);
       await tool.run({ url: PLAIN_URL }, ctx("another-chat")).catch(() => undefined);
       expect(asked).toHaveLength(2);
+    });
+  }
+
+  for (const [[name, build], marker, metadata] of [
+    [tools[0]!, "__ATOMIC_CURL_META__", `302|text/plain|0|0.01|${DATA_URL}`],
+    [tools[1]!, "__ATOMIC_WEBFETCH_META__", `302|text/plain|${DATA_URL}|0|{}`],
+  ] as const) {
+    it(`${name}: refuses a cross-host data redirect before sending the second request`, async () => {
+      const { gate, asked } = recordingGate(3, false);
+      const calls: string[][] = [];
+      const tool = build(gate, calls, httpConfig(), new UrlSendSites(), `\n${marker}${metadata}`);
+      await expect(tool.run({ url: PLAIN_URL }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+      expect(asked).toEqual([expect.objectContaining({ category: "http_write", grantKey: "https://evil.example" })]);
+      expect(calls).toHaveLength(1);
     });
   }
 

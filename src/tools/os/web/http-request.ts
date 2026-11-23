@@ -29,6 +29,7 @@ import {
   checkUrlSend,
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
+  requireUrlSendApproval,
   urlSendReason,
   type UrlSendSites,
 } from "./url-data-guard.js";
@@ -162,6 +163,20 @@ export function buildOsHttpRequestTool(
             maxResponseBytes: httpCfg.maxResponseBytes,
             isHostAllowed: (hostname) =>
               hostAllowed(hostname, httpCfg.hostAllowlist),
+            authorizeRedirect: async (url) => {
+              const target = url.toString();
+              const refused = offlineRefusal(target, "os.http.request");
+              if (refused) throw refused;
+              if (httpCfg.approvalMode === "never") return;
+              await requireUrlSendApproval(options, {
+                mode: httpCfg.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+                tool: "os.http.request",
+                url: target,
+                sessionId: ctx.sessionId,
+                signal: ctx.signal,
+                ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+              });
+            },
           },
         );
       } catch (err) {

@@ -5,6 +5,7 @@ import {
   type CommandResult,
 } from "../../../sandbox/command-runner.js";
 import {
+  ApprovalDeniedError,
   requireApproval,
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
@@ -36,6 +37,7 @@ import {
   checkUrlSend,
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
+  requireUrlSendApproval,
   urlSendReason,
   type UrlSendSites,
 } from "./url-data-guard.js";
@@ -237,8 +239,26 @@ export function buildOsWebFetchTool(
           fetchCfg,
           timeoutMs: args.timeoutMs,
           sleep,
+          ...(gate === undefined ? {} : {
+            hooks: {
+              authorizeRedirect: async (url) => {
+                const target = url.toString();
+                const refused = offlineRefusal(target, TOOL_NAME);
+                if (refused) throw refused;
+                await requireUrlSendApproval(gate, {
+                  mode: options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+                  tool: TOOL_NAME,
+                  url: target,
+                  sessionId: ctx.sessionId,
+                  signal: ctx.signal,
+                  ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+                });
+              },
+            },
+          }),
         });
       } catch (err) {
+        if (err instanceof ApprovalDeniedError) throw err;
         return compressToolResult({
           tool: TOOL_NAME,
           status: "error",
@@ -461,6 +481,7 @@ export interface FetchRequestHooks {
   afterResponse?: (url: URL, status: number, retryAfterMs: number | null) => void;
   /** Asked before a redirect hop is requested; `false` stops there (robots.txt in `os.web.crawl`). */
   allowRedirect?: (url: URL) => boolean;
+  authorizeRedirect?: (url: URL) => Promise<void>;
 }
 
 export interface FetchRawPageOptions {
@@ -543,6 +564,7 @@ async function fetchWithGuard(
           refusedRedirect: nextUrl.toString(),
         };
       }
+      await opts.hooks?.authorizeRedirect?.(nextUrl);
       currentUrl = nextUrl;
       continue;
     }
