@@ -263,8 +263,8 @@ describe("Telegram project gate", () => {
   }
 
   it("recognizes a lesson command addressed to the bot in a group", () => {
-    const update = { from: { id: OWNER }, chat: { id: CHAT, type: "group" }, text: "/lesson-approve@lesson_bot storage", message_id: 1 };
-    expect(addressedText(update, { id: 1, username: "lesson_bot" })).toEqual({ text: "/lesson-approve storage" });
+    const update = { from: { id: OWNER }, chat: { id: CHAT, type: "group" }, text: "/lesson_approve@lesson_bot storage", message_id: 1 };
+    expect(addressedText(update, { id: 1, username: "lesson_bot" })).toEqual({ text: "/lesson_approve storage" });
   });
 
   it("lists lessons and skipped files without changing the record", async () => {
@@ -279,7 +279,7 @@ describe("Telegram project gate", () => {
   it("previews the current fingerprint and lets only the paired owner approve it", async () => {
     const record = await openLessons();
     const hash = readProjectLessons(dir).lessons[0]!.hash;
-    const { preview, confirm } = await previewLesson("/lesson-approve");
+    const { preview, confirm } = await previewLesson("/lesson_approve");
     expect(preview).toContain(hash.slice(0, 12));
     for (const part of ["Local storage", "always: true", "src/storage", "<b>Keep SQLite</b>", "Remote storage", "Check migrations"]) {
       expect(preview).toContain(part);
@@ -302,14 +302,14 @@ describe("Telegram project gate", () => {
     await openLessons();
     const lines = Array.from({ length: 12 }, (_, index) => "Review line " + (index + 1));
     writeLesson("active", lines.join("\n"));
-    const { preview } = await previewLesson("/lesson-approve");
+    const { preview } = await previewLesson("/lesson_approve");
     for (const line of lines) expect(preview).toContain(line);
   });
 
   it("refuses approval when the full section cannot be shown", async () => {
     const record = await openLessons();
     writeLesson("active", "a".repeat(601));
-    await say("/lesson-approve storage");
+    await say("/lesson_approve storage");
     expect(sent.at(-1)).toMatch(/too long.*file.*CLI/i);
     expect(sent.at(-1)).not.toMatch(/storage [0-9a-f]{16}/);
     expect(record().lessonCalls).toBeUndefined();
@@ -324,37 +324,45 @@ describe("Telegram project gate", () => {
     writeFileSync(file, readFileSync(file, "utf8").replace("src/storage", paths));
     vi.mocked(ctx.api.sendMessage).mockRejectedValueOnce(new Error("delivery failed"));
     const start = sent.length;
-    await say("/lesson-approve storage");
+    await say("/lesson_approve storage");
     expect(sent.slice(start).join("\n")).not.toMatch(/storage [0-9a-f]{16}/);
+  });
+
+  it("routes Telegram-compatible lesson commands and advertises them in help", async () => {
+    await openLessons();
+    await say("/help");
+    expect(sent.join("\n")).toContain("/lesson_approve");
+    const { preview } = await previewLesson("/lesson_approve");
+    expect(preview).toContain("reply /lesson_approve storage");
   });
 
   it("refuses a changed file and a proposed lesson", async () => {
     const record = await openLessons();
-    const { confirm } = await previewLesson("/lesson-approve");
+    const { confirm } = await previewLesson("/lesson_approve");
     writeLesson("active", "Changed");
     await say(confirm);
     expect(sent.at(-1)).toMatch(/lesson has changed.*read it again/i);
     writeLesson("proposed");
-    await say("/lesson-approve storage");
+    await say("/lesson_approve storage");
     expect(sent.at(-1)).toMatch(/cannot approve.*proposed/i);
     expect(record().lessonCalls).toBeUndefined();
   });
 
   it("retires the current file and reopens the protected choice", async () => {
     const record = await openLessons();
-    await say((await previewLesson("/lesson-retire")).confirm);
+    await say((await previewLesson("/lesson_retire")).confirm);
     expect(record().lessonCalls?.storage?.state).toBe("retired");
     writeLesson("active", "Changed after retirement");
     await say("/lessons");
     expect(sent.at(-1)).toMatch(/stale/i);
-    await say((await previewLesson("/lesson-reopen")).confirm);
+    await say((await previewLesson("/lesson_reopen")).confirm);
     expect(record().lessonCalls?.storage).toBeUndefined();
   });
 
-  it.each([["/lesson-defer", "deferred", false], ["/lesson-activate", "active", true]] as const)(
+  it.each([["/lesson_defer", "deferred", false], ["/lesson_activate", "active", true]] as const)(
     "confirms %s only against the displayed plan version", async (command, status, deferred) => {
       await openLessons();
-      await say((await previewLesson("/lesson-approve")).confirm);
+      await say((await previewLesson("/lesson_approve")).confirm);
       const base = fixtureProjectGateView({ kind: "plan" }, {
         lessonCoverage: [{ id: "storage", title: "Local storage", deferred, citedBy: [], missingFrom: ["t1"] }],
       });
@@ -363,7 +371,7 @@ describe("Telegram project gate", () => {
       expect(sent.at(-1)).toMatch(/plan.*approval/i);
       view = base;
       await say("/plan");
-      expect(sent.at(-1)).toContain("/lesson-defer <id> or /lesson-activate <id>");
+      expect(sent.at(-1)).toContain("/lesson_defer <id> or /lesson_activate <id>");
       const { preview, confirm } = await previewLesson(command);
       expect(preview).toContain("Plan v3");
       view = { ...base, version: 4 };
@@ -378,7 +386,7 @@ describe("Telegram project gate", () => {
 
   it("refuses confirmation while a turn is live on the same project", async () => {
     const record = await openLessons();
-    const { confirm } = await previewLesson("/lesson-approve");
+    const { confirm } = await previewLesson("/lesson_approve");
     ctx.inflight.set(String(CHAT), new AbortController());
     await say(confirm);
     expect(sent.at(-1)).toMatch(/wait for the current turn to finish/i);
@@ -391,7 +399,7 @@ describe("Telegram project gate", () => {
 
   it("refuses lesson commands in incognito", async () => {
     const record = await openLessons("active", true);
-    for (const command of ["/lessons", "/lesson-approve storage", "/lesson-defer storage"]) {
+    for (const command of ["/lessons", "/lesson_approve storage", "/lesson_defer storage"]) {
       await say(command);
       expect(sent.at(-1)).toMatch(/unavailable in incognito/i);
     }

@@ -13,8 +13,8 @@ import { confirmationCode } from "./confirmation-code.js";
 // Every prompt projection includes at most 300 UTF-16 units per section.
 const MAX_APPROVAL_SECTION_CHARS = 600;
 
-const CALLS = { "/lesson-approve": "approved", "/lesson-retire": "retired", "/lesson-reopen": null } as const;
-type PlanLessonCommand = "/lesson-defer" | "/lesson-activate";
+const CALLS = { "/lesson_approve": "approved", "/lesson_retire": "retired", "/lesson_reopen": null } as const;
+type PlanLessonCommand = "/lesson_defer" | "/lesson_activate";
 export type LessonCommand = "/lessons" | keyof typeof CALLS | PlanLessonCommand;
 
 interface LessonCommandDeps {
@@ -41,7 +41,7 @@ function renderLessons({ lessons, problems }: ProjectLessons, calls: Record<stri
     ...lessons.map((lesson) => lessonLine(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined)),
     ...missing.map(([id, call]) => `Stale ${call.state} choice for ${id}. The file is missing or invalid.`),
     ...problems.map(({ file, reason }) => visiblePreviewLine(`Skipped ${JSON.stringify(file)}: ${reason}`)),
-    "Use /lesson-approve, /lesson-retire or /lesson-reopen with a lesson ID to preview a choice.",
+    "Use /lesson_approve, /lesson_retire or /lesson_reopen with a lesson ID to preview a choice.",
   ].join("\n");
 }
 
@@ -84,7 +84,7 @@ function runPlanLessonCommand(
   if (row === undefined || lesson?.always !== true) {
     return `No binding lesson named ${id} in this plan. Reply /plan to see the binding lessons.`;
   }
-  const status = command === "/lesson-defer" ? "deferred" : "active";
+  const status = command === "/lesson_defer" ? "deferred" : "active";
   if (row.deferred === (status === "deferred")) return `Lesson ${id} is already ${status} for this plan.`;
   if (confirmation === undefined) {
     return [
@@ -133,7 +133,7 @@ export function runLessonCommand(
   const lesson = files.lessons.find((candidate) => candidate.id === id);
   const previous = Object.hasOwn(calls, id) ? calls[id] : undefined;
   const basis = [chatKey, sessionId, ref.folder, ref.id, command, id, lesson?.hash, previous?.hash, previous?.state];
-  if (command === "/lesson-defer" || command === "/lesson-activate") {
+  if (command === "/lesson_defer" || command === "/lesson_activate") {
     return runPlanLessonCommand(command, id, confirmation, lesson, basis, { ...deps, sessionId });
   }
   const code = confirmationCode(basis);

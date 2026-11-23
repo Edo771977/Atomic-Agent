@@ -35,7 +35,7 @@ function gateMessage(view: ProjectGateView): string {
     ? "\nUse /defer <id> or /reactivate <id> to review a decision status change."
     : "";
   const lessons = view.gate.kind === "plan" && view.allowedVerdicts.includes("edit") && view.lessonCoverage?.length
-    ? "\nUse /lesson-defer <id> or /lesson-activate <id> to preview a binding lesson's status change."
+    ? "\nUse /lesson_defer <id> or /lesson_activate <id> to preview a binding lesson's status change."
     : "";
   return `${text}\n${verdicts}${review}${decisions}${lessons}`;
 }
