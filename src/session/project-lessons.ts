@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import {
-  closeSync, constants, fstatSync, linkSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, realpathSync, rmSync, writeFileSync,
+  closeSync, constants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, opendirSync, openSync, readSync, realpathSync, rmSync, writeFileSync,
 } from "node:fs";
 import { dirname, join, posix, resolve, win32 } from "node:path";
 
@@ -221,7 +221,15 @@ export function writeProjectLessonProposal(folder: string, id: string, text: str
     try {
       writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
       // Publish complete bytes without replacing a competing file.
-      linkSync(temp, path);
+      try {
+        linkSync(temp, path);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code !== "ENOTSUP" && code !== "EOPNOTSUPP" && code !== "ENOSYS" && code !== "EPERM") throw error;
+        // Some shares and removable filesystems cannot create hard links.
+        // COPYFILE_EXCL still refuses an existing destination.
+        copyFileSync(temp, path, constants.COPYFILE_EXCL);
+      }
     } finally {
       rmSync(temp, { force: true });
     }

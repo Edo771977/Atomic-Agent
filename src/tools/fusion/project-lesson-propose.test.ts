@@ -1,10 +1,15 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { linkSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { wouldRefuse } from "../../agent/policies/fusion-orchestrator-mode.js";
 import { expect, it, vi } from "vitest";
 import { approvedProjectLessons, readProjectLessons } from "../../session/project-lessons.js";
 import { sameLessonProjectFolder, buildProjectLessonTool } from "./project-lesson-propose.js";
+
+vi.mock("node:fs", async (importOriginal) => {
+  const fs = await importOriginal<typeof import("node:fs")>();
+  return { ...fs, linkSync: vi.fn(fs.linkSync) };
+});
 
 it("uses workspace write approval and creates only a new, inactive proposal", async () => {
   const folder = mkdtempSync(join(tmpdir(), "atomic-proposal-"));
@@ -19,6 +24,9 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
     expect((await tool.run(args, { ...(ctx as object), projectRef: undefined } as never)).status).toBe("error");
     await expect(tool.run(args, ctx)).rejects.toThrow("denied");
     expect(readProjectLessons(folder).lessons).toEqual([]);
+    vi.mocked(linkSync).mockImplementationOnce(() => {
+      throw Object.assign(new Error("hard links unsupported"), { code: "EOPNOTSUPP" });
+    });
     const result = await tool.run(args, ctx);
     expect(result.status).toBe("ok");
     expect(request.mock.calls[0]?.[0]).toMatchObject({ category: "trust_config" });
