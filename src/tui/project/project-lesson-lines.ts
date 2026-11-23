@@ -53,7 +53,10 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
   const selected = selectedLesson(card);
   line(" Project lessons", "title");
 
-  if (card.lessonDetail && selected) {
+  if (card.lessonDetail && selected && !selected.lesson) {
+    text(`${selected.id}@${projectLessonFingerprint(selected)}`, "muted");
+    text(`Missing or invalid lesson · previous choice: ${selected.orphanedChoice}`, "warn");
+  } else if (card.lessonDetail && selected?.lesson) {
     const { lesson } = selected;
     text(`${lesson.id}@${projectLessonFingerprint(lesson)}`, "muted");
     text(lesson.title, "title");
@@ -72,6 +75,10 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
     }
   } else {
     for (const row of panel?.rows ?? []) {
+      if (!row.lesson) {
+        text(`${row.id} · missing or invalid · previous choice: ${row.orphanedChoice}`, "warn", row === selected);
+        continue;
+      }
       const { lesson, status } = row;
       const chosen = row === selected;
       const effective = status.stale ? "stale" : status.effectiveStatus === "active" ? "approved" : status.effectiveStatus;

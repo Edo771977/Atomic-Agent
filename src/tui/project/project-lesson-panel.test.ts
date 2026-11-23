@@ -118,6 +118,26 @@ describe("project lessons in the TUI", () => {
     expect(f.sendMessage).not.toHaveBeenCalled();
   });
 
+  it.each(["deleted", "invalid"])("reopens a recorded choice for a %s lesson", (change) => {
+    const f = fixture();
+    f.write("storage");
+    f.detail();
+    f.press("a");
+    const hash = f.record().lessonCalls?.storage?.hash;
+    expect(hash).toBeDefined();
+    const file = join(f.directory, "storage.md");
+    if (change === "deleted") rmSync(file);
+    else writeFileSync(file, "invalid");
+    f.press("f");
+    expect(f.text()).toMatch(/storage.*missing or invalid/i);
+    f.press("", { return: true });
+    expect(f.text()).toContain("storage@" + hash!.slice(0, 12));
+    expect(f.text()).toContain("r Reopen");
+    expect(f.text()).not.toMatch(/a Approve|t Retire/);
+    f.press("r");
+    expect(f.record().lessonCalls?.storage).toBeUndefined();
+  });
+
   it("rejects an edited file and reloads before a new approval", () => {
     const f = fixture();
     f.write("storage");

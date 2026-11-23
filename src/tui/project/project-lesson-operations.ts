@@ -16,13 +16,13 @@ export interface ProjectLessonChoice {
   id: string;
   hash: string;
   state: ProjectLessonCall["state"] | null;
+  orphaned?: true;
 }
 
-export interface ProjectLessonRow {
-  lesson: ProjectLesson;
-  status: ReturnType<typeof projectLessonStatus>;
-  hasChoice: boolean;
-}
+export type ProjectLessonRow = Pick<ProjectLesson, "id" | "hash"> & (
+  | { lesson: ProjectLesson; status: ReturnType<typeof projectLessonStatus>; hasChoice: boolean }
+  | { lesson?: undefined; orphanedChoice: ProjectLessonCall["state"] }
+);
 
 export interface ProjectLessonPanel {
   rows: ProjectLessonRow[];
@@ -52,23 +52,27 @@ export function projectLessonPanel(
   const calls = { ...record.lessonCalls };
   const blocked = projectDecisionOriginRefusal() ??
     (isBusy(record.folder, record.id) ? PROJECT_LESSON_TURN_RUNNING : undefined);
-  const result = (notice?: string) => ({
-    panel: {
-      rows: lessons.map(lesson => {
-        const call = Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined;
-        return { lesson, status: projectLessonStatus(lesson, call), hasChoice: call !== undefined };
-      }),
-      problems,
-      blocked,
-    },
-    notice,
-  });
+  const current = new Map(lessons.map(lesson => [lesson.id, lesson]));
+  const result = (notice?: string) => {
+    const rows: ProjectLessonRow[] = lessons.map(lesson => {
+      const { id, hash } = lesson;
+      const call = Object.hasOwn(calls, id) ? calls[id] : undefined;
+      return { id, hash, lesson, status: projectLessonStatus(lesson, call), hasChoice: call !== undefined };
+    });
+    for (const [id, call] of Object.entries(calls)) {
+      if (!current.has(id)) rows.push({ id, hash: call.hash, orphanedChoice: call.state });
+    }
+    return { panel: { rows, problems, blocked }, notice };
+  };
   if (!choice || blocked) return result();
 
-  const { id, hash, state } = choice;
-  const lesson = lessons.find(item => item.id === id);
-  if (lesson?.hash !== hash) return result("The lesson has changed. Read it again before deciding.");
+  const { id, hash, state, orphaned } = choice;
+  const lesson = current.get(id);
   const previous = Object.hasOwn(calls, id) ? calls[id] : undefined;
+  const matches = orphaned
+    ? lesson === undefined && state === null && previous?.hash === hash
+    : lesson?.hash === hash;
+  if (!matches) return result("The lesson has changed. Read it again before deciding.");
   const prepared = prepareProjectLessonDecision(id, state, lesson, previous);
   if (!prepared.ok) return result(prepared.message);
   const { call } = prepared.decision;

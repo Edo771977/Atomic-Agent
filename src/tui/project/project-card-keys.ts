@@ -63,8 +63,8 @@ export function handleProjectCardKey(
     }
     const action = lessonActions(card, turnRunning).find(entry => entry.key === letter);
     if (selected && action) {
-      const { id, hash } = selected.lesson;
-      callbacks.onProjectLessons?.(card.sessionId, { id, hash, state: action.state });
+      const { id, hash, lesson } = selected;
+      callbacks.onProjectLessons?.(card.sessionId, { id, hash, state: action.state, ...(lesson ? {} : { orphaned: true }) });
     }
     return;
   }

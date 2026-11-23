@@ -39,7 +39,7 @@ export function projectBacklogActions(card: ProjectCardState) {
 }
 
 export function selectedLesson(card: ProjectCardState) {
-  return card.lessons?.rows.find(row => row.lesson.id === card.lessonId);
+  return card.lessons?.rows.find(row => row.id === card.lessonId);
 }
 
 const actions = [
@@ -51,9 +51,11 @@ const actions = [
 export function lessonActions(card: ProjectCardState, turnRunning: boolean) {
   const row = selectedLesson(card);
   if (!row || !card.lessonDetail || turnRunning || card.lessons?.blocked) return [];
+  if (!row.lesson) return actions.filter(({ state }) => state === null);
+  const { lesson, status } = row;
   return actions.filter(({ state }) => state === null ? row.hasChoice
-    : state === "approved" ? row.lesson.declaredStatus === "active" && row.status.personState !== "approved"
-    : row.status.personState !== "retired");
+    : state === "approved" ? lesson.declaredStatus === "active" && status.personState !== "approved"
+    : status.personState !== "retired");
 }
 
 export type ProjectCardField = "worker" | "reviewer";
@@ -282,20 +284,20 @@ export function reduceProjectCard(
   switch (action.type) {
     case "project_card_lessons_loaded": {
       if (card.sessionId !== action.sessionId) return card;
-      const selected = action.panel.rows.find(row => row.lesson.id === card.lessonId);
-      const previous = card.lessons?.rows.find(row => row.lesson.id === card.lessonId);
-      const sameLesson = selected !== undefined && selected.lesson.hash === previous?.lesson.hash;
+      const selected = action.panel.rows.find(row => row.id === card.lessonId);
+      const previous = card.lessons?.rows.find(row => row.id === card.lessonId);
+      const sameLesson = selected !== undefined && selected.hash === previous?.hash && Boolean(selected.lesson) === Boolean(previous.lesson);
       const lessonDetail = card.mode === "lessons" && card.lessonDetail === true && sameLesson;
       return {
         ...card, mode: "lessons", lessons: action.panel, lessonNotice: action.notice,
-        lessonId: (selected ?? action.panel.rows[0])?.lesson.id, lessonDetail,
+        lessonId: (selected ?? action.panel.rows[0])?.id, lessonDetail,
         scroll: lessonDetail ? card.scroll : 0, error: null,
       };
     }
     case "project_card_lesson_moved": {
       const rows = card.lessons?.rows ?? [];
-      const index = rows.findIndex(row => row.lesson.id === card.lessonId);
-      const lessonId = rows[wrap(index + action.delta, rows.length)]?.lesson.id;
+      const index = rows.findIndex(row => row.id === card.lessonId);
+      const lessonId = rows[wrap(index + action.delta, rows.length)]?.id;
       return { ...card, lessonId, scroll: 0, lessonNotice: undefined };
     }
     case "project_card_lesson_detail":
