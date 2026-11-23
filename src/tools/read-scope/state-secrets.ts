@@ -164,31 +164,37 @@ export function findStateSecretReads(
     } catch {
       continue; // The tool refuses this path itself.
     }
-    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
+    for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     const hit = secretNamedBy(path, known, RECURSIVE_READ_TOOLS.has(tool));
     if (hit !== null) hits.add(hit);
   }
   return dedupe([...hits]);
 }
 
-const PROC_ENVIRON = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/environ)(?=$|[^\w/.-])/g;
+const PROC_SECRETS = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/(?:environ|cmdline))(?=$|[^\w/.-])/g;
 
-function processEnvironments(text: string): string[] {
-  return [...text.matchAll(PROC_ENVIRON)].map(match => match[1]!);
+function processSecretPaths(text: string): string[] {
+  return [...text.matchAll(PROC_SECRETS)].map(match => match[1]!);
 }
 
-function psShowsEnvironment(line: string): boolean {
+function psShowsProcessSecrets(line: string): boolean {
   return line.split(/[;|&\n]+/).some(segment => {
     const match = /(?:^|\s)(?:[^\s]+\/)?ps\s+(.+)$/.exec(segment);
     if (!match?.[1]) return false;
     const words = match[1].split(/\s+/);
     for (let index = 0; index < words.length; index++) {
       const word = words[index]!;
-      if (/^(?:-[opqgGstTuU]|--(?:format|pid|ppid|sid|user|group|tty|sort))$/.test(word)) {
+      const format = /^(?:-o|--format=?)(.*)$/.exec(word);
+      if (format) {
+        const columns = format[1] || words[++index] || "";
+        if (/(?:^|[,\s])(?:args|arguments|cmd|command)(?=$|[=,\s])/.test(columns)) return true;
+        continue;
+      }
+      if (/^(?:-[pqgGstTuU]|--(?:format|pid|ppid|sid|user|group|tty|sort))$/.test(word)) {
         index++;
         continue;
       }
-      if (word === "--environment" || /^-[A-Za-z]*E[A-Za-z]*$/.test(word) || /^[a-zA-Z]*e[a-zA-Z]*$/.test(word)) return true;
+      if (/^-\p{L}*[fF]\p{L}*$/u.test(word) || word === "--environment" || /^-[A-Za-z]*E[A-Za-z]*$/.test(word) || /^[a-zA-Z]*[efu][a-zA-Z]*$/.test(word)) return true;
     }
     return false;
   });
@@ -271,13 +277,13 @@ export function findShellStateSecrets(
   line = line.replace(/["']/g, "");
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
-  const hits = new Set(processEnvironments(line));
+  const hits = new Set(processSecretPaths(line));
   if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line)) {
     for (const file of known.files) {
       if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
     }
   }
-  if (psShowsEnvironment(line)) hits.add("process environment (ps)");
+  if (psShowsProcessSecrets(line)) hits.add("process environment or arguments (ps)");
   // A secret spelled out in full anywhere on the line, glued to code
   // (`python3 -c open(/…/.env)`) or not.
   for (const file of [...known.files, ...known.directories]) {
@@ -288,7 +294,7 @@ export function findShellStateSecrets(
     if (token.length === 0) continue;
     const path = pathOfToken(token, cwd, env.home);
     if (path === null) continue;
-    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
+    for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     if (GLOB.test(path)) {
       const pattern = globToRegExp(path, env.platform);
       for (const candidate of candidates) {

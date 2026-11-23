@@ -524,3 +524,8 @@ it.each(["ps -Ef", "ps -fE", "ps -aEw", "ps -p 42 -aEw -o pid", "/usr/bin/ps -aE
   const stateDir = "/home/operator/.atomic-agent";
   expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
 });
+
+it.each(["cat /proc/self/cmdline", "ps -o args", "/bin/ps aux"])("round2-3 recognizes %s", (cmd) => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
+});

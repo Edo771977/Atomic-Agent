@@ -74,8 +74,10 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 0;
   }
 
-  if (parsed.apiKeyFromEnvironment) {
-    process.stderr.write("serve: ATOMIC_AGENT_API_KEY can be visible in the startup environment. For explicit keys, use --api-key-file.\n");
+  if (parsed.apiKeyFromEnvironment || parsed.apiKeyFromArgument) {
+    const exposure = parsed.apiKeyFromArgument ? "--api-key can be visible in process arguments" :
+      "ATOMIC_AGENT_API_KEY can be visible in the startup environment";
+    process.stderr.write("serve: " + exposure + ". For explicit keys, use --api-key-file.\n");
   }
 
   // Always a key, on loopback too: the operator's, else the persisted one

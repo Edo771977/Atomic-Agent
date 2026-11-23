@@ -24,6 +24,7 @@ export interface ServeArgs {
    */
   apiKey: string | null;
   apiKeyFromEnvironment: boolean;
+  apiKeyFromArgument: boolean;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -274,6 +275,7 @@ export function parseArgs(
     workingDir: workingDir ?? process.cwd(),
     apiKey,
     apiKeyFromEnvironment,
+    apiKeyFromArgument: apiKeyProvided,
     noApproval,
     parentPid,
     noParentExit,

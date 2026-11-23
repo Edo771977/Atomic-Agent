@@ -225,3 +225,15 @@ it.each(["plainlowercasesynthetickey", undefined])("registers the active serve k
     vi.unstubAllEnvs();
   }
 });
+
+it("round2-3 warns once when a key was passed on the command line", async () => {
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand(["--api-key", "synthetic-argv-credential"]);
+    const output = stderr.mock.calls.flat().join("");
+    expect(output.match(/use --api-key-file/g)).toHaveLength(1);
+    expect(output).not.toContain("synthetic-argv-credential");
+  } finally {
+    stderr.mockRestore();
+  }
+});
