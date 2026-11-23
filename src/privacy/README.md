@@ -27,3 +27,5 @@ The direct HTTP skills-eval judge uses the global setting and address classifica
 Separate image and audio descriptions bypass the shield. Web search and remote MCP or Composio tools receive the original arguments so they can perform the requested action. Tool schemas, including MCP schemas, are sent as supplied.
 
 A value learned later can invalidate the provider's cached prefix once. If the detector could not recognize that value when it first occurred in the prefix, that earlier request may already have sent it verbatim. Later requests use the learned reference at every matching occurrence. Enable protection and configure known secrets before sending sensitive context.
+
+The vault registry deliberately has process scope. Bootstrap sets the default switch from configuration and supplies the live known-secrets reader. Main turns and auxiliary completions share the same provider registry and session boundary. Provider-specific overrides are explicit options. The default switch is read at startup.

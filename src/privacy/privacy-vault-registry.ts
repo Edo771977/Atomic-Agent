@@ -15,10 +15,8 @@ let knownSecrets: () => readonly KnownSecret[] = () => knownSecretsFromEnv();
 let shieldEnabled = false;
 
 /**
- * Whether Privacy Shield is on for this process. Read per request by
- * the cloud provider adapters, so a toggle applies to the next request
- * without rebuilding a provider; set from `privacy.shield.enabled` at
- * startup and by the live toggle. Same shape as `isOfflineNetwork`.
+ * Bootstrap sets the process default from config at startup. Provider
+ * overrides are captured separately when their adapters are built.
  */
 export function isPrivacyShieldEnabled(): boolean {
   return shieldEnabled;
