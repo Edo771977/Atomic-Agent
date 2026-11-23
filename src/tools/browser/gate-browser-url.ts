@@ -136,10 +136,6 @@ export async function gateBrowserUrl(
     await requireUrlData(dangerous, policy, tool, url, ctx, "data");
     return null;
   }
-  // ATO-1377: an address that carries data out, or under `"strict"` the
-  // chat's first visit to a site. One question: it stands in for
-  // `browser_offsite` (http_write never goes quiet below it).
-  if (await requireUrlData(dangerous, policy, tool, url, ctx)) return null;
   if (verdict.kind === "offsite") {
     await requireApproval(
       dangerous,
@@ -154,13 +150,14 @@ export async function gateBrowserUrl(
       ctx.signal,
     );
   }
+  await requireUrlData(dangerous, policy, tool, url, ctx);
   return null;
 }
 
 /**
  * Ask as `http_write` when `checkUrlSend` says `url` must ask first
  * (`url-data-guard.ts`). `modeCap` lowers `"strict"` to `"data"` where
- * sites are already asked about another way. Returns whether it asked.
+ * sites are already asked about another way.
  */
 async function requireUrlData(
   dangerous: DangerousToolOptions,
@@ -169,11 +166,11 @@ async function requireUrlData(
   url: string,
   ctx: Pick<ToolContext, "sessionId" | "signal">,
   modeCap?: "data",
-): Promise<boolean> {
+): Promise<void> {
   const configured = policy.urlDataGuard ?? DEFAULT_URL_DATA_GUARD;
   const mode = modeCap !== undefined && configured === "strict" ? modeCap : configured;
   const check = checkUrlSend(mode, url, ctx.sessionId, policy.urlSendSites);
-  if (check === null) return false;
+  if (check === null) return;
   const shown = maskUrlSecrets(url.trim());
   await requireApproval(
     dangerous,
@@ -189,7 +186,6 @@ async function requireUrlData(
     ctx.signal,
   );
   noteUrlSendAllowed(check, ctx.sessionId, policy.urlSendSites);
-  return true;
 }
 
 /**

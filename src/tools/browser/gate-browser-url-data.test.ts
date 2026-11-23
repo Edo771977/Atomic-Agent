@@ -23,6 +23,15 @@ describe("browser URL data guard (ATO-1377)", () => {
     expect(backend.navigations).toHaveLength(0);
   });
 
+  it("preserves the browser offsite decision for a data-bearing URL", async () => {
+    const backend = new GateBackend();
+    const { prompts, options } = recordingGate(false);
+    const tool = buildBrowserNavigateTool(backend, options, { ...NO_LISTS, allowedDomains: ["docs.example"] });
+    await expect(tool.run({ url: DATA_URL }, CTX)).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["browser_offsite"]);
+    expect(backend.navigations).toHaveLength(0);
+  });
+
   it("navigate to an ordinary address does not ask", async () => {
     const backend = new GateBackend();
     const { prompts, options } = recordingGate(false);
