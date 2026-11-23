@@ -40,3 +40,26 @@ it("fails a paused document redirect before allowing Chrome to send it", async (
   expect(send.mock.calls.map(([method]) => method)).not.toContain("Fetch.continueRequest");
   expect(session.detach).toHaveBeenCalledOnce();
 });
+
+it("keeps the listener until Chrome disables Fetch and releases a queued navigation", async () => {
+  const commands: string[] = [];
+  let listener: ((event: { requestId: string; request: { url: string } }) => void) | undefined;
+  const session = {
+    on: (_event: string, callback: typeof listener) => { listener = callback; },
+    off: () => { commands.push("off"); listener = undefined; },
+    detach: async () => { commands.push("detach"); },
+    send: async (command: string) => {
+      commands.push(command);
+      if (command === "Fetch.disable") listener?.({ requestId: "next", request: { url: "https://next.example/" } });
+    },
+  };
+  const page = {
+    context: () => ({ newCDPSession: async () => session }),
+    goto: async () => null,
+  } as unknown as Page;
+  await gotoWithRedirectGuard(page, "https://first.example/", undefined, {
+    signal: new AbortController().signal,
+    authorize: vi.fn(),
+  });
+  expect(commands).toEqual(["Fetch.enable", "Fetch.disable", "Fetch.continueRequest", "off", "detach"]);
+});

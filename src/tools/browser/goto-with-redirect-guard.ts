@@ -36,8 +36,8 @@ export async function gotoWithRedirectGuard(
       try {
         if (event.redirectedRequestId !== undefined) {
           await guard.authorize(event.request.url, signal);
+          signal.throwIfAborted();
         }
-        signal.throwIfAborted();
         await session.send("Fetch.continueRequest", { requestId: event.requestId });
       } catch (error) {
         refusal ??= error;
@@ -60,6 +60,7 @@ export async function gotoWithRedirectGuard(
   } finally {
     controller.abort();
     await Promise.all([...pending].map(fail));
+    await session.send("Fetch.disable").catch(() => undefined);
     session.off("Fetch.requestPaused", onPaused);
     await session.detach().catch(() => undefined);
   }
