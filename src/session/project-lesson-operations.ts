@@ -1,4 +1,3 @@
-import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { isIncognitoSession } from "./incognito.js";
 import { stateDirProjectRecords, type ProjectLessonCall } from "./project-decisions.js";
 import {
@@ -9,6 +8,7 @@ import {
   type ProjectLesson,
   type ProjectLessonProblem,
 } from "./project-lessons.js";
+import { projectFolderOf, sameProjectFolder } from "./project-folder.js";
 import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-text.js";
 import { readProjectRef } from "./session-project-store.js";
 import type { SessionState } from "./session-state.js";
@@ -31,27 +31,31 @@ export interface ProjectLessonPanel {
   blocked?: string;
 }
 
-type LessonError = "incognito" | "no-project" | "turn-running" | "wrong-origin" | "stale-view" | "invalid";
+type LessonError = "incognito" | "no-project" | "turn-running" | "stale-view" | "invalid" | "busy" | "io";
 
 export function projectLessonPanel(
   session: SessionState,
   stateDir: string,
   isBusy: (folder: string, id: string) => boolean,
   choice?: ProjectLessonChoice,
-): { panel: ProjectLessonPanel; notice?: string; code?: LessonError } {
+  originRefusal?: () => string | undefined,
+): { panel: ProjectLessonPanel; notice?: string; code?: LessonError; recordReadFailed?: true } {
   const unavailable = (blocked: string, code: LessonError = "no-project") => ({ panel: { rows: [], problems: [], blocked }, code });
   if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.", "incognito");
   const ref = readProjectRef(session);
   if (!ref) return unavailable("Lessons require a chat bound to a saved project.");
+  if (session.projectProblem !== undefined || !sameProjectFolder(ref.folder, projectFolderOf(session))) {
+    return unavailable("This chat's project is unavailable.");
+  }
   const records = stateDirProjectRecords(stateDir);
   const read = records.read(ref.folder);
-  if (!read.ok) return unavailable(read.problem.message);
+  if (!read.ok) return { ...unavailable(read.problem.message), recordReadFailed: true };
   const record = read.record;
   if (record?.id !== ref.id) return unavailable("This chat has no matching project decision record.");
 
   const { lessons, problems } = readProjectLessons(ref.folder);
   const calls = { ...record.lessonCalls };
-  const origin = projectDecisionOriginRefusal();
+  const origin = originRefusal?.();
   const busy = isBusy(ref.folder, ref.id);
   const blocked = origin ?? (busy ? PROJECT_LESSON_TURN_RUNNING : undefined);
   const current = new Map(lessons.map(lesson => [lesson.id, lesson]));
@@ -66,7 +70,7 @@ export function projectLessonPanel(
     }
     return { panel: { rows, problems, blocked }, notice, code };
   };
-  if (!choice || blocked) return result(undefined, origin ? "wrong-origin" : busy ? "turn-running" : undefined);
+  if (!choice || blocked) return result(undefined, busy ? "turn-running" : undefined);
 
   const { id, hash, state, orphaned } = choice;
   const lesson = current.get(id);
@@ -79,8 +83,20 @@ export function projectLessonPanel(
   if (!prepared.ok) return result(prepared.message, "invalid");
   const { call } = prepared.decision;
   if (call === null && previous === undefined) return result("No choice to reopen.", "invalid");
-  const written = writeProjectLessonDecision(records, record, prepared.decision);
-  if (!written.ok) return result(written.problem.message, "stale-view");
+  let written: ReturnType<typeof writeProjectLessonDecision>;
+  try {
+    written = writeProjectLessonDecision(records, record, prepared.decision);
+  } catch (error) {
+    return result(error instanceof Error ? error.message : String(error), "io");
+  }
+  if (!written.ok) {
+    const { code, message } = written.problem;
+    if (code === "conflict") {
+      const latest = projectLessonPanel(session, stateDir, isBusy, undefined, originRefusal);
+      return { ...latest, code: "stale-view", notice: "The project's record changed. Read it again before deciding." };
+    }
+    return result(message, code === "locked" ? "busy" : "io");
+  }
   if (call === null) delete calls[id];
   else calls[id] = call;
   const verb = state === "approved" ? "Approved" : state === "retired" ? "Retired" : "Reopened";

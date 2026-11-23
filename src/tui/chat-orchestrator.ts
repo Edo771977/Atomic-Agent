@@ -1,3 +1,4 @@
+import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import type { ProviderRestriction } from "../llm/provider-policy.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -754,7 +755,7 @@ export class ChatOrchestrator {
         (folder, id) => this.currentController !== null ||
           this.runtime.turnController?.busySessionIds?.().includes(sessionId) === true ||
           this.runtime.sessionStore.liveProjectTurn(folder, id) !== null,
-        choice);
+        choice, projectDecisionOriginRefusal);
       this.bus.emit({ type: "project_card_lessons_loaded", sessionId, ...result });
     } catch (error) {
       const blocked = error instanceof Error ? error.message : String(error);

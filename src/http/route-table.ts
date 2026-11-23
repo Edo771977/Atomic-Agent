@@ -1,4 +1,4 @@
-import { handleProjectLessons } from "./route-project-lessons.js";
+import { createProjectLessonsHandler } from "./route-project-lessons.js";
 import { createGetProjectHandler, createProjectBacklogHandler, createProjectDecisionHandler } from "./route-project.js";
 import { createForgetProjectHandler, createListProjectsHandler, createResumeProjectHandler } from "./route-projects.js";
 import { createFusionTeamHandler } from "./route-fusion-team.js";
@@ -153,6 +153,7 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
   // Same again: MCP browser sign-ins in progress and their loopback
   // listener belong to this server.
   const mcpOAuth = createMcpOAuthHandlers();
+  const projectLessons = createProjectLessonsHandler();
   return [
     {
       method: "GET",
@@ -325,9 +326,10 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // Issue #39: the fusion project gate's view and the person's verdict.
     { method: "GET", path: "/api/project", handler: createGetProjectHandler() },
     { method: "POST", path: "/api/project/decision", handler: createProjectDecisionHandler() },
+    // Issue #125: browse lessons and record the person's choice.
+    { method: "GET", path: "/api/project/lessons", handler: projectLessons },
+    { method: "POST", path: "/api/project/lessons", handler: projectLessons },
     // Issue #111: the person's call on a backlog item.
-    { method: "GET", path: "/api/project/lessons", handler: handleProjectLessons },
-    { method: "POST", path: "/api/project/lessons", handler: handleProjectLessons },
     { method: "POST", path: "/api/project/backlog", handler: createProjectBacklogHandler() },
     // Issue #109: the fusion projects this machine knows, forget one, resume one.
     { method: "GET", path: "/api/projects", handler: createListProjectsHandler() },
