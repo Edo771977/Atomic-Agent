@@ -376,7 +376,11 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
         if (milestone !== undefined && actor === "person" && (decision.verdict === "edit" || decision.verdict === "approveOverReview")) {
           hints.push(lessonProposalHint("correction", milestone));
         }
-        if (decided.milestones.every(m => m.state === "reviewed")) hints.push(PROJECT_LESSONS_COMPLETE_HINT);
+        if (next.expectation.kind === "complete" && decided.milestones.some(m =>
+          m.reportedFailure || m.reviewOverride !== undefined || (m.corrections?.length ?? 0) > 0 ||
+          m.history?.some(revision => revision.state === "failed" || (revision.correctionCount ?? 0) > 0))) {
+          hints.push(PROJECT_LESSONS_COMPLETE_HINT);
+        }
       }
       if (hints.length > 0) next.lessonProposalHint = hints.join(" ");
       deps.emit(sessionId, { type: "project_gate", view: next });

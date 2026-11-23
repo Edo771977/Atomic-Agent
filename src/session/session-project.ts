@@ -244,6 +244,8 @@ export interface ProjectMilestone {
    * report is accepted.
    */
   failedRefusals?: number;
+  /** A reported failure remains evidence after the milestone is retried. */
+  reportedFailure?: true;
   /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
@@ -1545,6 +1547,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
     ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
+    ...(raw.reportedFailure === true || raw.state === "failed" ? { reportedFailure: true as const } : {}),
     ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
     ...(() => {
@@ -2025,7 +2028,7 @@ function supersede(
     });
   }
   const kept = history.slice(-PROJECT_LIMITS.history);
-  return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
+  return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(old.reportedFailure ? { reportedFailure: true as const } : {}), ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
 }
 
 /** Ids whose evidence an update just moved to history (a new newest revision). */
@@ -2302,6 +2305,8 @@ function replannedMilestone(
   return {
     ...base,
     state: keep ? old.state : "planned",
+    ...(old.reportedFailure ? { reportedFailure: true as const } : {}),
+    ...(old.reviewOverride === undefined ? {} : { reviewOverride: old.reviewOverride }),
     runIds: old.runIds,
     ...(old.evidenceSince === undefined ? {} : { evidenceSince: old.evidenceSince }),
     ...(old.replacedEvidenceRunIds === undefined ? {} : { replacedEvidenceRunIds: old.replacedEvidenceRunIds }),
@@ -2498,6 +2503,7 @@ function milestoneUpdate(
   // A new report describes a new result: the old pictures go with it.
   const { reportNotes: _oldNotes, ...previous } = current;
   const reported: ProjectMilestone = { ...previous, state: update.state, summary, updatedAt: now, ...reportNotesOf(update.reportNotes) };
+  if (update.state === "failed") reported.reportedFailure = true;
   delete reported.attachments;
   delete reported.criteriaFacts;
   delete reported.reviewBlocks;
