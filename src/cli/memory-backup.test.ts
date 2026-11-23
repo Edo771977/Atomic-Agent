@@ -1,12 +1,15 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Database } from "../native/load-better-sqlite3.js";
 import { MemoryStore } from "../memory/memory-store.js";
 import { ProfileStore } from "../memory/profile-store.js";
-import { defaultBackupDir, restoreCommandFor, restoreNoteFor, runMemoryBackup } from "./memory-backup.js";
+import { defaultBackupDir, runMemoryBackup } from "./memory-backup.js";
+
+import { createMemoryBackup, restoreMemoryBackup } from "../memory/memory-backup.js";
 
 let dir: string;
 let dbFile: string;
@@ -14,7 +17,10 @@ beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "memory-backup-"));
   dbFile = join(dir, "memory.sqlite");
 });
-afterEach(() => rmSync(dir, { recursive: true, force: true }));
+afterEach(() => {
+  vi.unstubAllEnvs();
+  rmSync(dir, { recursive: true, force: true });
+});
 
 function quiet() {
   const lines: string[] = [];
@@ -44,11 +50,115 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(copyNotes.hasContent("The person ships on Fridays")).toBe(true);
     copyNotes.close();
     const note = readFileSync(join(out, "RESTORE.txt"), "utf8");
-    expect(note).toBe(restoreNoteFor(out));
-    expect(note).toContain(restoreCommandFor(out));
+    expect(note).toContain("atomic-agent memory restore --from .");
     // The import restores notes and facts only (ATOMIC_DESKTOP_NOT_IMPORTED); the note must not promise more.
     expect(note).toContain("does not bring back lessons, procedures, votes or note links");
-    expect(io.lines.join("")).toContain("--include memory");
+    expect(io.lines.join("")).toContain("memory restore --from");
+  });
+
+  it("publishes private files and merges twice without duplicates", async () => {
+    const source = new MemoryStore({ dbFile, maxEntries: 10 });
+    const profile = new ProfileStore({ dbFile });
+    source.store({ content: "A stable note about oranges" });
+    profile.set("city", "Milan");
+    const out = join(dir, "bk");
+    expect(await runMemoryBackup(out, { memoryDbFile: dbFile, stateDir: dir, ...quiet() })).toBe(0);
+    source.close();
+    profile.close();
+    if (process.platform !== "win32") {
+      for (const file of ["memory.sqlite", "RESTORE.txt"]) {
+        expect(statSync(join(out, file)).mode & 0o777).toBe(0o600);
+      }
+    }
+    const target = { memoryDbFile: join(dir, "live", "memory.sqlite") };
+    expect(restoreMemoryBackup(target, out)).toEqual({ notes: 1, facts: 1 });
+    expect(restoreMemoryBackup(target, out)).toEqual({ notes: 0, facts: 0 });
+    const restored = new MemoryStore({ dbFile: target.memoryDbFile, maxEntries: 10 });
+    try {
+      expect(restored.recall("oranges")).toHaveLength(1);
+    } finally {
+      restored.close();
+    }
+  });
+
+  it.skipIf(process.platform !== "win32")("publishes Windows files with only the current user's ACL", async () => {
+    new MemoryStore({ dbFile, maxEntries: 10 }).close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    for (const file of ["memory.sqlite", "RESTORE.txt"]) {
+      const result = execFileSync("powershell.exe", [
+        "-NoProfile", "-NonInteractive", "-Command",
+        `$acl = Get-Acl -LiteralPath $env:ATAG_BACKUP_ACL_TEST_PATH
+         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+         $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+         if (!$acl.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid) {
+           exit 1
+         }`,
+      ], { env: { ...process.env, ATAG_BACKUP_ACL_TEST_PATH: join(out, file) } });
+      expect(result.toString()).toBe("");
+    }
+  });
+
+  it("rolls back a partial merge and permits a clean retry", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "A note before the interruption" });
+    const profile = new ProfileStore({ dbFile });
+    profile.set("city", "Rome");
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    notes.close();
+    profile.close();
+
+    const target = { memoryDbFile: join(dir, "target.sqlite") };
+    new MemoryStore({ dbFile: target.memoryDbFile, maxEntries: 10 }).close();
+    const live = new Database(target.memoryDbFile);
+    try {
+      live.exec(`CREATE TRIGGER interrupt_restore BEFORE INSERT ON profile_facts
+        BEGIN SELECT RAISE(ABORT, 'interrupted'); END`);
+      expect(() => restoreMemoryBackup(target, out)).toThrow("interrupted");
+      expect(live.prepare("SELECT count(*) FROM memories").pluck().get()).toBe(0);
+      live.exec("DROP TRIGGER interrupt_restore");
+      expect(restoreMemoryBackup(target, out)).toEqual({ notes: 1, facts: 1 });
+      expect(restoreMemoryBackup(target, out)).toEqual({ notes: 0, facts: 0 });
+    } finally {
+      live.close();
+    }
+  });
+
+  it("rejects a mismatched schema before creating the target", async () => {
+    new MemoryStore({ dbFile, maxEntries: 10 }).close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const snapshot = new Database(join(out, "memory.sqlite"));
+    snapshot.exec("UPDATE schema_meta SET value = '999' WHERE key = 'version'");
+    snapshot.close();
+    const target = { memoryDbFile: join(dir, "target.sqlite") };
+    expect(() => restoreMemoryBackup(target, out)).toThrow(/unsupported memory schema/);
+    expect(existsSync(target.memoryDbFile)).toBe(false);
+  });
+
+  it("never publishes a backup containing a legacy credential", async () => {
+    const profile = new ProfileStore({ dbFile });
+    profile.set("city", "Rome");
+    profile.close();
+    const live = new Database(dbFile);
+    live.exec("UPDATE profile_facts SET key = 'pin', value = '4821'");
+    live.close();
+    const out = join(dir, "bk");
+    await expect(createMemoryBackup({ memoryDbFile: dbFile }, out)).rejects.toThrow(/contains a credential/);
+    expect(existsSync(out)).toBe(false);
+  });
+
+  it("refuses incognito and tool children before writing", async () => {
+    const out = join(dir, "nested", "bk");
+    const context = { memoryDbFile: dbFile };
+    await expect(createMemoryBackup({ ...context, incognito: true }, out)).rejects.toThrow(/incognito/);
+    expect(() => restoreMemoryBackup({ ...context, incognito: true }, out)).toThrow(/incognito/);
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    await expect(createMemoryBackup(context, out)).rejects.toThrow(/tool subprocesses/);
+    expect(() => restoreMemoryBackup(context, out)).toThrow(/tool subprocesses/);
+    expect(existsSync(join(dir, "nested"))).toBe(false);
+    expect(existsSync(dbFile)).toBe(false);
   });
 
   it("never overwrites an earlier backup", async () => {

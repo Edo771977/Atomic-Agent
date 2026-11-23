@@ -18,7 +18,7 @@ import {
   type MemoryEmbeddingConnection,
 } from "../memory/embeddings/memory-embedding-connection.js";
 import { forgetMemoryBefore, parseForgetDate } from "./memory-forget.js";
-import { handleBackup } from "./memory-backup.js";
+import { handleBackup, handleRestore } from "./memory-backup.js";
 
 const HELP =
   [
@@ -45,7 +45,7 @@ const HELP =
     "                            as <dir>/memory.sqlite, safe while the agent runs.",
     "                            Default <stateDir>/backups/memory-<time>. Restore",
     "                            notes and profile facts (merged, no duplicates):",
-    "                            import atomic-agent --source <dir> --include memory,",
+    "                            memory restore --from <dir>,",
     "                            as RESTORE.txt says. Lessons, procedures and links",
     "                            are not imported back.",
     "  reindex [--prune] [--json]",
@@ -80,6 +80,7 @@ const HELP =
     "  atomic-agent memory export --vault ~/Documents/MyVault",
     "  OBSIDIAN_VAULT_PATH=~/Documents/MyVault atomic-agent memory export",
     "  atomic-agent memory backup --out ~/Backups/agent-memory",
+    "  atomic-agent memory restore --from ~/Backups/agent-memory",
     "  atomic-agent memory reindex",
     "  atomic-agent memory reindex --prune",
     "  atomic-agent memory forget --before 2026-10-15",
@@ -97,6 +98,8 @@ export async function memoryCommand(args: string[]): Promise<number> {
       return handleExport(args.slice(1));
     case "backup":
       return handleBackup(args.slice(1), readOption);
+    case "restore":
+      return handleRestore(readOption(args.slice(1), "--from"));
     case "reindex":
       return handleReindex(args.slice(1));
     case "forget":
