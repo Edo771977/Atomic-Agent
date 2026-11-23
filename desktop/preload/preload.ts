@@ -143,6 +143,8 @@ contextBridge.exposeInMainWorld("atomic", {
   projectDecision: (decision: unknown) => ipcRenderer.invoke("agent:projectDecision", decision),
   /** Issue #146: the person's call on a backlog item, `{sessionId, item, state: promoted | dropped | open}`. */
   projectBacklog: (decision: unknown) => ipcRenderer.invoke("agent:projectBacklog", decision),
+  projectLessons: (session: string) => ipcRenderer.invoke("agent:projectLessons", session),
+  projectLessonChoice: (choice: unknown) => ipcRenderer.invoke("agent:projectLessonChoice", choice),
   /** Issue #109: the Fusion projects this computer knows, forget one (files stay), resume one (its chat's id). */
   fusionProjects: () => ipcRenderer.invoke("agent:fusionProjects"),
   fusionProjectForget: (folder: string) => ipcRenderer.invoke("agent:fusionProjectForget", folder),

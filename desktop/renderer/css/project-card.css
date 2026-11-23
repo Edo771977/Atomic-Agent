@@ -82,3 +82,9 @@
 .pc-backlog-item.is-dropped .pc-row-title{color:var(--ink-2)}
 .pc-warn-item{margin:2px 0 0;font-size:var(--fs-cap);color:var(--warn);overflow-wrap:anywhere}
 .pc-item-actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+
+.pc-lesson-panel .pc-body > *{flex-shrink:0}
+.pc-lesson-panel .pc-meta,.pc-lesson-text{white-space:pre-wrap;overflow-wrap:anywhere}
+.pc-lesson-panel .pc-row button{max-width:100%;white-space:normal;overflow-wrap:anywhere;text-align:left}
+.pc-lesson-heading{margin:0 0 4px;font-size:inherit;overflow-wrap:anywhere}
+.pc-lesson-section{display:grid;gap:4px}

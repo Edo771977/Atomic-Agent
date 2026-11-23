@@ -14,7 +14,7 @@ import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
 import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
-import type { ProjectBacklogBody, ProjectDecisionBody } from "./project-ipc.js";
+import type { ProjectBacklogBody, ProjectDecisionBody, ProjectLessonBody } from "./project-ipc.js";
 import { runMemoryWrite, type MemoryWriteResult } from "./memory-write.js";
 import { projectBodyFields as projectFields } from "./projects-store.js";
 import { reasoningBodyField, type ReasoningLevel } from "./reasoning-level.js";
@@ -2773,6 +2773,16 @@ export class AgentClient extends EventEmitter {
     if (r.ok) return { supported: true, ok: true, view: parsed.view ?? null };
     const code = parsed.error?.code;
     return { supported: true, ok: false, status: r.status, code: typeof code === "string" ? code : null, error: r.error, view: parsed.view ?? null };
+  }
+
+  async projectLessons(session: string, choice?: ProjectLessonBody) {
+    const path = choice ? "/api/project/lessons" : "/api/project/lessons?session=" + encodeURIComponent(session);
+    const result = await this.projectsRequest(choice ? "POST" : "GET", path, choice);
+    if (!result.supported) return result;
+    const payload = result.body as { panel?: unknown; notice?: string; view?: unknown; error?: { code?: string } } | null;
+    return result.ok
+      ? { supported: true, ok: true, panel: payload?.panel, notice: payload?.notice, view: payload?.view }
+      : { supported: true, ok: false, panel: payload?.panel, code: payload?.error?.code, error: result.error };
   }
 
   async resolveApproval(

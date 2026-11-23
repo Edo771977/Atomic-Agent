@@ -40,7 +40,7 @@ import { promisify } from "node:util";
 
 import { wireAgentAutoRestart } from "./agent-auto-restart-wire.js";
 import { AgentClient, APPROVAL_DECISIONS, commandOf, probeRemoteAgent, type ProjectTrustAnswerBody } from "./agent-client.js";
-import { parseProjectBacklogIpc, parseProjectDecisionIpc, parseProjectFolderIpc, parseProjectSessionIpc } from "./project-ipc.js";
+import { parseProjectBacklogIpc, parseProjectDecisionIpc, parseProjectFolderIpc, parseProjectLessonIpc, parseProjectSessionIpc } from "./project-ipc.js";
 import { wireAgentLiveIpc } from "./agent-live.js";
 import { wirePluginsIpc } from "./plugins-ipc.js";
 import { wireSkillEvalIpc } from "./skill-eval-ipc.js";
@@ -1913,6 +1913,15 @@ function wireIpc(client: AgentClient): void {
     const parsed = parseProjectBacklogIpc(raw);
     if (!parsed.ok) return { supported: true, ok: false, status: 0, code: null, error: parsed.error, view: null };
     return client.projectBacklogDecision(parsed.body);
+  });
+
+  ipcMain.handle("agent:projectLessons", async (_event, raw: unknown) => {
+    const session = parseProjectSessionIpc(raw);
+    return session ? client.projectLessons(session) : { ok: false, error: "Session required" };
+  });
+  ipcMain.handle("agent:projectLessonChoice", async (_event, raw: unknown) => {
+    const parsed = parseProjectLessonIpc(raw);
+    return parsed.ok ? client.projectLessons(parsed.body.session, parsed.body) : parsed;
   });
 
   /* ATO-1148: a project's own cloud model, per working folder
