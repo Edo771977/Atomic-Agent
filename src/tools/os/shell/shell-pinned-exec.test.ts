@@ -35,6 +35,20 @@ describe("os.shell.run with a pinned exec", () => {
     expect(existsSync(join(dir, "ran.txt"))).toBe(true);
   });
 
+  it("an exact host pin covers the URL decision in strict mode", async () => {
+    const requests: string[] = [];
+    decide = (request) => {
+      requests.push(request.category);
+      return request.commandArgv
+        ? { approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv, cwd: dir, path: dirname(process.execPath) } }
+        : { approved: false };
+    };
+    const run = buildOsShellTool({ approvals: gate, approvalRequired: true, urlDataGuard: "strict" });
+    await run.run({ cmd: "curl", args: ["mark.cjs", "https://example.com/"] }, ctx());
+    expect(requests).toEqual(["shell"]);
+    expect(existsSync(join(dir, "ran.txt"))).toBe(true);
+  });
+
   it("refuses a pin for another folder instead of running it there or unpinned", async () => {
     const other = realpathSync.native(mkdtempSync(join(tmpdir(), "aa-pinned-other-")));
     decide = (request) => ({ approved: true, pinnedExec: { file: process.execPath, argv: request.commandArgv!, cwd: other, path: dirname(process.execPath) } });

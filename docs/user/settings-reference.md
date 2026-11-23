@@ -124,6 +124,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `http.hostAllowlist` | `string[] \| null` | `null` | Hosts `os.http.request` may call (`*.example.com` matches subdomains). `null`: any host. |
 | `http.maxResponseBytes` | `number` | `1048576` | Largest response body `os.http.request` reads, in bytes. |
 | `http.defaultTimeoutMs` | `number` | `30000` | Timeout of one `os.http.request` call that sets none, in ms. |
+| `http.urlDataGuard` | `'off' \| 'data' \| 'strict'` | `"data"` | Ask before an address sends data in web fetch, the initial crawl URL, HTTP GET, browser navigation, supported shell clients, and literal MCP URL arguments (ATO-1377). `"data"` (default) checks for substantial or encoded data. `"strict"` also asks on the first visit per site per chat. `"off"` disables these URL prompts. |
 
 ## web
 
@@ -628,7 +629,7 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_NO_SYNC_OUTPUT` | unset | env only | Set to 1 to stop the TUI from wrapping frames in synchronized-output markers (for terminals that mishandle them). |
 | `ATOMIC_AGENT_PERSONA` | unset | env only | Persona name to use for this process, above every config.json setting. |
 | `ATOMIC_AGENT_OFFLINE` | unset | env only | Set to 1 (or true, yes, on) to turn offline mode on for this process whatever network.offline says; it cannot turn it off. Not saved. |
-| `ATOMIC_AGENT_ALLOWED_ORIGINS` | unset | env only | Comma-separated web origins that may call a keyless local `serve`, besides loopback ones. |
+| `ATOMIC_AGENT_ALLOWED_ORIGINS` | unset | env only | Comma-separated web origins for the unauthenticated HTTP test harness, besides loopback ones. |
 | `ATOMIC_AGENT_MEMORY_GUARD` | unset | env only | Set to 0 to turn off `serve`'s memory guard, which shuts the server down cleanly when its heap nears the limit (for a heap raised on purpose). |
 | `ATOMIC_AGENT_SERVE_NO_PARENT_EXIT` | unset | env only | Set to 1 to keep `serve` running after the process that started it exits (same as --no-parent-exit). |
 | `ATOMIC_AGENT_RUN_RSS_LIMIT_MB` | unset | env only | Memory cap, in MB of resident memory, past which the exit watchdog of `run` ends the process. Unset: 4096. |

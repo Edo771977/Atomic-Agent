@@ -33,6 +33,8 @@ In a folder with an egress constraint (`projects.constraints[...].allowedEgress`
 
 While offline mode is on (ATO-1084), a `streamable_http` or `sse` server that is not on this machine is refused before connecting. A stdio server is a separate program and is not network-isolated. See [offline mode](../llm/docs/offline-network.md).
 
+A dynamic MCP tool checks literal HTTP(S) URL argument values before forwarding them, including values in nested arguments. A whole string matching an HTTP(S) URL is treated as a possible destination even in a text field, so offline mode may refuse a call that would only save that URL. URL-prefixed prose with no URL-data finding is treated as text. The data heuristic also checks the normalized form of URL-like text, including a query with literal spaces. An ambiguous string that carries URL data is treated as potentially outbound in offline mode and does not receive a strict first-visit prompt. Offline refusal precedes approvals. The URL check uses origin-scoped HTTP write approval in addition to the tool's MCP approval policy. Requests and redirects the server makes after receiving the arguments run in the server.
+
 ## Task-specific reading
 
 Read docs/client.md before lifecycle, trust, sampling, elicitation or dynamic schema changes; ../tui/AGENTS.md for MCP panel work.

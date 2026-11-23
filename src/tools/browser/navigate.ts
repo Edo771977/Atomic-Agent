@@ -12,7 +12,7 @@ import {
   EMPTY_DOMAIN_POLICY,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
-import { gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
+import { browserRedirectGuard, gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
 import { statSync } from "node:fs";
 import { dirname, sep } from "node:path";
 import { localFileOfUrl } from "../read-scope/read-scope-targets.js";
@@ -123,6 +123,7 @@ export function buildBrowserNavigateTool(
       await backend.ensureReady();
       const result = await backend.navigate({
         url,
+        ...(isSafeUrl(url) ? { redirectGuard: browserRedirectGuard(options, policy, "browser.navigate", ctx) } : {}),
         ...(waitUntil !== undefined ? { waitUntil } : {}),
         ...(timeoutMs !== undefined ? { timeoutMs } : {}),
       });

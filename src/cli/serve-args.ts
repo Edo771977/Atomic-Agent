@@ -4,17 +4,30 @@
  * command file stays about running a server rather than describing one.
  */
 
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, type Stats } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
 
+import { hasOwnerOnlyWindowsAcl } from "../config/windows-acl.js";
+
+import { explicitKeyLengthError, MIN_EXPLICIT_KEY_LENGTH, validateExplicitKey } from "./serve-api-key-input.js";
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
 export interface ServeArgs {
   host: string;
   port: number;
   workingDir: string;
+  /**
+   * The key the operator gave (`--api-key`, `ATOMIC_AGENT_API_KEY`), or
+   * `null` for none: serve then runs with its persisted key
+   * (`resolveServeApiKey`), never without one.
+   */
   apiKey: string | null;
+  apiKeyFromEnvironment: boolean;
+  apiKeyFromArgument: boolean;
+  apiKeyFromStdin: boolean;
+  deleteKeyFile?: () => string | undefined;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -32,16 +45,22 @@ export const HELP =
     "",
     "Options:",
     "  --host <h>          Listen host (default 127.0.0.1). A host other than loopback",
-    "                      (0.0.0.0, a LAN address) needs an API key: serve refuses to start without one",
+    "                      (0.0.0.0, a LAN address) needs a key you choose: serve refuses to start without one",
     "  --port <p>          Listen port (default 8787)",
     "  --cwd <dir>         Working directory for OS tools / sessions (default: cwd)",
-    "  --api-key <k>       Require this bearer token on all routes except /health and /v1/models",
-    "                      (falls back to env ATOMIC_AGENT_API_KEY when flag is omitted;",
-    "                      serve removes it from its environment once read).",
-    "                      On a network host it must be at least 16 characters, and an address",
+    "  --api-key <k>       The bearer token required on all routes except /health",
+    "                      and /panel (falls back to env ATOMIC_AGENT_API_KEY when the flag is omitted).",
+    "                      Without either, serve uses the key in <state dir>/serve-api.key,",
+    "                      generated on the first run: a key is always required, on loopback too.",
+    "                      Explicit keys must be at least 16 characters. On a network host, an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
-    "                      Without a key only loopback Host/Origin and JSON bodies are accepted;",
-    "                      ATOMIC_AGENT_ALLOWED_ORIGINS=<a,b> lets listed web origins in",
+    "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
+    "                      The file itself cannot be a symlink. Its ancestor directories may be symlinks.",
+    "                      Use a path whose directories you control.",
+    "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
+    "  --api-key-file-delete  Remove the explicit key file after reading it, before runtime startup.",
+    "  --api-key-stdin     Read one newline-terminated key from stdin before startup, then close stdin.",
+    "                      Cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY.",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
     "  --no-parent-exit    Keep running after the parent exits — the way to daemonise from a shell,",
@@ -49,8 +68,8 @@ export const HELP =
     "  --reap              Sweep stranded servers from earlier runs, print what was found, and exit",
     "  --tunnel            Reach the webhooks from the internet through a Cloudflare quick tunnel",
     "                      (random https://….trycloudflare.com address, no account). Needs cloudflared",
-    "                      on PATH and at least one webhook with a secret; only POST /api/webhooks/{name}",
-    "                      is reachable through it, every other route stays on this machine",
+    "                      on PATH and at least one webhook with a secret; only webhook deliveries",
+    "                      are reachable through it. The main listener stays on this machine.",
     "  --tunnel-name <n>   Use your named Cloudflare tunnel <n> instead (cloudflared login done),",
     "  --tunnel-hostname <h>  with the public hostname routed to it, e.g. hooks.example.com",
     "",
@@ -70,7 +89,7 @@ export const HELP =
     "  POST /v1/messages                        Anthropic Messages API (Claude Code; stream or sync)",
     "  POST /v1/messages/count_tokens           Rough input token estimate for Anthropic clients",
     "  POST /v1/responses                       OpenAI Responses API (Codex, Agents SDK; stream or sync)",
-    "  GET  /v1/models                          Single-model catalog (public)",
+    "  GET  /v1/models                          Single-model catalog",
     "  GET  /health                             Liveness + llama-server reachability (public)",
     "  GET  /api/capabilities                   Runtime wiring summary",
     "  GET|PATCH /api/config                    Read or merge-write the user config file",
@@ -91,6 +110,43 @@ export const HELP =
     "  POST /api/webhooks/{name}                Deliver a webhook (x-webhook-secret, or a signature per the binding's verify)",
   ].join("\n") + "\n";
 
+function deleteReadKeyFile(path: string, opened: Stats): string | undefined {
+  try {
+    const current = lstatSync(path);
+    if (!current.isFile() || current.nlink !== 1 || current.dev !== opened.dev || current.ino !== opened.ino) {
+      return "--api-key-file-delete refused because the key file changed after reading";
+    }
+    unlinkSync(path);
+    return undefined;
+  } catch {
+    return "--api-key-file-delete could not remove the key file";
+  }
+}
+
+function readExplicitKey(path: string, deleteAfterRead: boolean): { key: string; remove?: () => string | undefined } | { error: string } {
+  const permissions = { error: "--api-key-file must be an owner-only regular file (0600 or stricter on POSIX), without symlinks" };
+  let fd: number | undefined;
+  try {
+    const entry = lstatSync(path);
+    if (!entry.isFile()) return permissions;
+    const windows = process.platform === "win32";
+    fd = openSync(path, windows ? constants.O_RDONLY :
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    const opened = fstatSync(fd);
+    if (opened.nlink !== 1) return { error: "--api-key-file must not have additional hard links" };
+    if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
+    if (windows ? !hasOwnerOnlyWindowsAcl(path)
+      : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
+    const result = validateExplicitKey(readFileSync(fd, "utf8"), "--api-key-file");
+    if ("error" in result || !deleteAfterRead) return result;
+    return { ...result, remove: () => deleteReadKeyFile(path, opened) };
+  } catch {
+    return { error: "could not open --api-key-file as an owner-only file" };
+  } finally {
+    if (fd !== undefined) closeSync(fd);
+  }
+}
+
 export function parseArgs(
   args: string[],
 ): ServeArgs | { help: true } | { error: string } {
@@ -99,6 +155,9 @@ export function parseArgs(
   let workingDir: string | null = null;
   let apiKey: string | null = null;
   let apiKeyProvided = false;
+  let apiKeyFromStdin = false;
+  let apiKeyFile: string | null = null;
+  let deleteAfterRead = false;
   let noApproval = false;
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
@@ -142,6 +201,18 @@ export function parseArgs(
         apiKeyProvided = true;
         break;
       }
+      case "--api-key-file-delete":
+        deleteAfterRead = true;
+        break;
+      case "--api-key-stdin":
+        apiKeyFromStdin = true;
+        break;
+      case "--api-key-file": {
+        const value = args[++i];
+        if (!value || value.startsWith("--")) return { error: "--api-key-file requires a path" };
+        apiKeyFile = resolve(value);
+        break;
+      }
       case "--no-approval":
         noApproval = true;
         break;
@@ -183,9 +254,26 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
-  if (!apiKeyProvided) {
+  if (deleteAfterRead && (apiKeyFile === null || reapOnly)) {
+    return { error: "--api-key-file-delete requires --api-key-file on server startup" };
+  }
+  let deleteKeyFile: ServeArgs["deleteKeyFile"];
+  if (apiKeyFromStdin && (apiKeyProvided || apiKeyFile !== null || process.env.ATOMIC_AGENT_API_KEY !== undefined)) {
+    return { error: "--api-key-stdin cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY" };
+  }
+  let apiKeyFromEnvironment = false;
+  if (apiKeyFile !== null && apiKeyProvided) {
+    return { error: "use either --api-key or --api-key-file" };
+  }
+  if (apiKeyFile !== null && !reapOnly) {
+    const explicit = readExplicitKey(apiKeyFile, deleteAfterRead);
+    if ("error" in explicit) return explicit;
+    apiKey = explicit.key;
+    deleteKeyFile = explicit.remove;
+  } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;
+    apiKeyFromEnvironment = apiKey !== null;
   }
   // A bearer header is trimmed before it is compared, so a key of only
   // whitespace could never be sent back: serve would start and refuse
@@ -196,16 +284,12 @@ export function parseArgs(
         "the API key is only whitespace (--api-key or ATOMIC_AGENT_API_KEY); set a real token",
     };
   }
-  if (!reapOnly && apiKey === null && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey === null && !apiKeyFromStdin && !isLoopbackListenHost(host)) {
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
-  if (!reapOnly && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
-    return {
-      error:
-        `--host ${host} accepts connections from other machines, and an API key of ${apiKey.length} characters can be guessed. ` +
-        `Use at least ${MIN_NETWORK_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
-    };
+  if (!reapOnly && apiKey !== null && apiKey.trim().length < MIN_EXPLICIT_KEY_LENGTH) {
+    return { error: explicitKeyLengthError() };
   }
   let tunnel: TunnelRequest | null = null;
   if (tunnelName !== null || tunnelHostname !== null) {
@@ -224,6 +308,10 @@ export function parseArgs(
     port,
     workingDir: workingDir ?? process.cwd(),
     apiKey,
+    apiKeyFromEnvironment,
+    apiKeyFromArgument: apiKeyProvided,
+    apiKeyFromStdin,
+    ...(deleteKeyFile === undefined ? {} : { deleteKeyFile }),
     noApproval,
     parentPid,
     noParentExit,
@@ -231,9 +319,6 @@ export function parseArgs(
     tunnel,
   };
 }
-
-/** ATO-1126: the shortest API key serve takes on a network host. */
-export const MIN_NETWORK_KEY_LENGTH = 16;
 
 /**
  * Whether a `--host` value only accepts connections from this machine.
@@ -264,32 +349,19 @@ export function isLoopbackListenHost(host: string): boolean {
 }
 
 /**
- * Serve without an API key gives whoever reaches the port the agent and
- * every tool it runs: shell commands, file writes, the config file. On a
- * network host that is anyone on the network, so the parse refuses it
- * (ATO-760); the message says how to set a key.
+ * Whoever holds the key gets the agent and every tool it runs: shell
+ * commands, file writes, the config file. On loopback serve falls back to
+ * its own generated key (`serve-api-key.ts`); on a network host the parse
+ * wants a key the operator chose and knows (ATO-760), so a machine never
+ * opens to the network with a key nobody meant to hand out.
  */
 function missingKeyOnNetworkError(host: string): string {
   return (
-    `--host ${host} accepts connections from other machines, and serve without an API key ` +
-    "lets anyone who reaches the port run the agent and its tools. " +
-    "Set a key with --api-key <token> or the ATOMIC_AGENT_API_KEY environment variable " +
+    `--host ${host} accepts connections from other machines, and whoever holds the API key ` +
+    "can run the agent and its tools there. " +
+    "Choose the key yourself with --api-key <token> or the ATOMIC_AGENT_API_KEY environment variable " +
     "(for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)), " +
     "or listen on 127.0.0.1"
-  );
-}
-
-/**
- * The one-line warning serve prints when it starts without a key (only
- * possible on loopback, see `parseArgs`), or `null` when it has one.
- * Loopback without a key keeps working (scripts on the same machine rely
- * on it), but any program on this machine can then drive the agent.
- */
-export function serveAuthWarning(args: Pick<ServeArgs, "apiKey">): string | null {
-  if (args.apiKey !== null) return null;
-  return (
-    "[atomic-agent] serve: no API key, so any program on this machine can run the agent and its tools; " +
-    "pass --api-key <token> or set ATOMIC_AGENT_API_KEY\n"
   );
 }
 

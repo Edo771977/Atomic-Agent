@@ -27,12 +27,6 @@ export function createProjectLessonsHandler(): HttpHandler {
     let sessionId: unknown = new URL(req.url ?? "/", "http://localhost").searchParams.get("session");
     let choice: ProjectLessonChoice | undefined;
     if (req.method === "POST") {
-      if (ctx.apiKey === null) {
-        return sendError(res, 403, openaiError(
-          "Saving project lesson choices over HTTP requires atag serve with an API key.",
-          "permission_error", null, "person-auth-required",
-        ));
-      }
       const body = await readJsonBody<Record<string, unknown> | null>(req).catch(() => null);
       const { session, lesson, action, fingerprint, orphaned } = body ?? {};
       if (typeof lesson !== "string" || !validProjectLessonId(lesson) ||

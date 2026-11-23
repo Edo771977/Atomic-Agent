@@ -485,3 +485,11 @@ it("marks every verify child even with a differently cased environment override"
   }, ctx());
   expect(result.stdoutTail).toContain("marker:1");
 });
+
+it("strips the serve key from a verification environment override", async () => {
+  const result = await runVerify({
+    kind: "command", cmd: NODE, env: { ATOMIC_AGENT_API_KEY: "synthetic-serve-key" },
+    args: ["-p", "typeof process.env.ATOMIC_AGENT_API_KEY"],
+  }, ctx());
+  expect(result.stdoutTail?.trim()).toBe("undefined");
+});

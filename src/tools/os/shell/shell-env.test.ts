@@ -12,6 +12,7 @@ describe.skipIf(process.platform === "win32")(
   "os.shell.run does not hand the agent's secrets to the command",
   () => {
     const NAMES = {
+      ATOMIC_AGENT_API_KEY: "synthetic-serve-key",
       ATO347_TEST_API_KEY: "leaked-key-value",
       ATO347_PASS_TOKEN: "passed-token-value",
       ATO347_PLAIN: "plain-value",
@@ -74,6 +75,14 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(result.summary).toContain("passed-token-value");
       expect(result.summary).not.toContain("leaked-key-value");
+    });
+
+    it("strips the serve key even when listed in envPassthrough", async () => {
+      const result = await tool(["atomic_agent_api_key"]).run({
+        cmd: "printenv ATOMIC_AGENT_API_KEY; echo done",
+      }, makeCtx());
+      expect(result.summary).toContain("done");
+      expect(result.summary).not.toContain(NAMES.ATOMIC_AGENT_API_KEY);
     });
 
     it("keeps a variable the command line sets itself", async () => {

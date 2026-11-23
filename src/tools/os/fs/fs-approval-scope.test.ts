@@ -361,8 +361,13 @@ describe("the fusion projects' records in the state dir (issue #109 review)", ()
     const home = await mkdtemp(join(tmpdir(), "fs-scope-records-"));
     try {
       const stateDir = join(home, ".atomic-agent");
-      const trust = getTrustConfigPaths({ userConfigFile: join(stateDir, "config.json"), stateDir });
+      const trust = getTrustConfigPaths({ userConfigFile: join(stateDir, "config.json"), stateDir, localModelsDataDir: join(stateDir, "models") });
       const o = { workingDir: join(home, "proj"), homeDir: home, trustConfigPaths: trust };
+      for (const key of [join(stateDir, "serve-api.key"), join(stateDir, "models", "llama-server.key")]) {
+        expect(await categorizeFsMutation("write", [key], o)).toBe("trust_config");
+        expect(await categorizeFsMutation("write", [key, join(home, "moved")], o)).toBe("trust_config");
+        expect(await categorizeFsMutation("trash", [key], o)).toBe("trust_config");
+      }
       expect(await categorizeFsMutation("write", [join(stateDir, "project-decisions", "abc.json")], o)).toBe("trust_config");
       expect(await categorizeFsMutation("write", [join(stateDir, "projects", "registry.json")], o)).toBe("trust_config");
     } finally {

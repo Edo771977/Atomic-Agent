@@ -32,6 +32,8 @@ Earlier upstream PRs came in as batches:
 
 Anything upstream published after 17 November is not here until it is imported.
 
+The fork imports mandatory `serve` authentication from upstream commit `8e2e65b7c3650d249ec782e8b2fbadf9a3635ffa`. The fork authenticates model discovery and its own project routes, excludes the serve key from agent subprocesses, and accepts an explicit key from a file. Signed tunnel deliveries without the serve key use `/webhooks/{name}`. See the [HTTP guide](../../src/http/README.md), [upstream triage](upstream-2026-11-triage.md), and [#187](https://github.com/Edo771977/Atomic-Agent/issues/187).
+
 Selective imports for provider and scheduler reliability:
 
 - `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.
@@ -154,6 +156,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 ## Folder constraints for confidential data
 
 - **Per-folder rules.** `projects.constraints` lists the providers and egress classes each folder allows ([#34](https://github.com/Edo771977/atomic-agent/pull/34)). Settings: [settings reference](settings-reference.md).
+- **Web URL approvals.** The ATO-1377 port checks data-bearing URLs in the guarded HTTP and web fetch paths, including redirects, and in explicit browser navigation. Literal URL arguments in MCP calls and classified shell commands are also checked. The URL check uses origin-scoped HTTP write approval alongside the browser's domain policy. [November upstream triage](upstream-2026-11-triage.md)
+- **Agent proxy.** Upstream ATO-87 remains deferred. Routing through a proxy must preserve the folder's egress decision and the destination IP checks across HTTP transports. [November upstream triage](upstream-2026-11-triage.md)
 - **MCP servers and "local" providers.** A stdio MCP server that uses the network needs `mcp:<server>` or `"local": true`. A "local" provider pointed at another machine needs `allowedProviderHosts` ([#63](https://github.com/Edo771977/atomic-agent/pull/63)).
 - **The restriction follows the chat.** A chat keeps it when it moves, is retried or is handed off. Read taint is persisted ([#69](https://github.com/Edo771977/atomic-agent/pull/69), [#75](https://github.com/Edo771977/atomic-agent/pull/75)).
 - **In the desktop.** A "restricted to: …" chip, the refusal in plain words, and the chat's own folder ([#70](https://github.com/Edo771977/atomic-agent/pull/70)).

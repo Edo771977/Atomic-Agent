@@ -353,7 +353,12 @@ export function ruleMatches(
     return false;
   }
   if (rule.path !== undefined && !allPathsInside(request, rule.path)) return false;
-  if (rule.origin !== undefined && rule.origin !== request.grantKey) return false;
+  if (rule.origin !== undefined && rule.origin !== request.grantKey) {
+    const legacyDeniedOrigin = rule.decision === "deny" && rule.category === "http_write" &&
+      request.category === "http_write" && /^https?:\/\//.test(rule.origin) &&
+      (request.grantKey === `url-data:${rule.origin}` || request.grantKey === `url-visit:${rule.origin}`);
+    if (!legacyDeniedOrigin) return false;
+  }
   // ATO-1612: before the fix, "Allow always" on a POST saved no origin, so
   // the rule silenced every POST to every host. A prompt-made HTTP allow
   // with no origin is that bug's leftover and is not honoured; the
