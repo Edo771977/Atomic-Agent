@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { closeSync, fchmodSync, lstatSync, mkdirSync, openSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, fchmodSync, lstatSync, mkdirSync, openSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 
 /** Apply an owner-only DACL, using the same current-user identity as core's ACL check. */
@@ -24,11 +24,11 @@ function restrictWindowsAccess(path: string): void {
   ], { stdio: "ignore", timeout: 5_000, windowsHide: true });
 }
 
-function keyDirectory(path: string): string {
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+function keyDirectory(path: string, create: boolean): string {
+  if (create) mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   const directory = join(realpathSync(dirname(path)), basename(path));
   try {
-    mkdirSync(directory, { mode: 0o700 });
+    if (create) mkdirSync(directory, { mode: 0o700 });
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   }
@@ -43,7 +43,7 @@ function keyDirectory(path: string): string {
 }
 
 export function createServeKeyFile(directory: string, token: string): string {
-  const path = join(keyDirectory(directory), `serve-key-${process.pid}-${randomBytes(16).toString("hex")}`);
+  const path = join(keyDirectory(directory, true), `serve-key-${process.pid}-${randomBytes(16).toString("hex")}`);
   const fd = openSync(path, "wx", 0o600);
   try {
     try {
@@ -58,5 +58,36 @@ export function createServeKeyFile(directory: string, token: string): string {
   } catch (error) {
     unlinkSync(path);
     throw error;
+  }
+}
+
+
+export function removeServeKeyFile(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
+/** Skip other running Desktop instances, including concurrent development runs. */
+export function cleanStaleServeKeys(directory: string): void {
+  let path: string;
+  try {
+    path = keyDirectory(directory, false);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw error;
+  }
+  for (const name of readdirSync(path)) {
+    const match = /^serve-key-([1-9][0-9]{0,9})-[0-9a-f]{32}$/.exec(name);
+    if (!match) continue;
+    const pid = Number(match[1]);
+    if (pid > 0x7fffffff) continue;
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ESRCH") removeServeKeyFile(join(path, name));
+    }
   }
 }

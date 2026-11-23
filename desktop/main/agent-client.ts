@@ -11,7 +11,7 @@ import type { Readable } from "node:stream";
 import { LineSplitter, lineLevel } from "./agent-output.js";
 // r5 item 9 — the supervised `atag serve` child gets the desktop state dir.
 import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
-import { createServeKeyFile } from "./serve-key-file.js";
+import { cleanStaleServeKeys, createServeKeyFile, removeServeKeyFile } from "./serve-key-file.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
 import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
@@ -739,6 +739,7 @@ export class AgentClient extends EventEmitter {
   private readonly opts: AgentClientOptions;
   private readonly recordPath: string;
   private readonly serveKeyDirectory: string;
+  private pendingServeKey: (() => void) | null = null;
 
   /** Issue #74: the remote agent's /api/events refused the token (401/403); cleared by an accepted stream. */
   private eventsRefused = false;
@@ -758,6 +759,11 @@ export class AgentClient extends EventEmitter {
     this.opts = opts;
     this.recordPath = opts.serveRecordPath ?? serveRecordPath();
     this.serveKeyDirectory = opts.serveKeyDirectory ?? join(dirname(this.recordPath), "serve-keys");
+    try {
+      cleanStaleServeKeys(this.serveKeyDirectory);
+    } catch {
+      this.say("[desktop] Could not clean up leftover serve key files.");
+    }
   }
 
   /** The pid of the agent this client runs, or null (diagnostics and the T41 smoke). */
@@ -985,6 +991,18 @@ export class AgentClient extends EventEmitter {
       this.setStatus({ state: "error", port: null, error: "Could not create a private API key file for the local agent." });
       return this.status;
     }
+    let removed = false;
+    const removeKey = () => {
+      if (removed) return;
+      try {
+        removeServeKeyFile(keyPath);
+        removed = true;
+        if (this.pendingServeKey === removeKey) this.pendingServeKey = null;
+      } catch {
+        this.say("[desktop] Could not remove the temporary serve key file.");
+      }
+    };
+    this.pendingServeKey = removeKey;
     const env = agentEnv();
     for (const name of Object.keys(env)) {
       // Windows environment variable names are case-insensitive.
@@ -1018,7 +1036,7 @@ export class AgentClient extends EventEmitter {
     } catch (err) {
       // Nothing was started for the stand-in to stand in for.
       sentinel?.kill();
-      unlinkSync(keyPath);
+      removeKey();
       throw err;
     }
     this.child = child;
@@ -1048,6 +1066,7 @@ export class AgentClient extends EventEmitter {
 
     // Backlog 41: registered per child, and acting only for the child it was registered on.
     child.on("exit", (code, signal) => {
+      removeKey();
       // A child a stop let go of is gone at last: nothing waits for it any more, and its record goes.
       if (this.lingering.delete(child) && child.pid !== undefined) forgetServeRecord(this.recordPath, child.pid);
       // ATO-763: read before the stand-in is ended below, or it would always read as gone.
@@ -1061,13 +1080,14 @@ export class AgentClient extends EventEmitter {
        one says nothing about how the agent is doing, and its exit still comes. */
     child.on("error", (err) => {
       if (child.pid === undefined) {
+        removeKey();
         this.endSentinel(child);
         this.childFailedToSpawn(child, err);
       }
     });
 
     const budget = this.opts.healthBudgetMs ?? this.healthBudgetMs();
-    const verdict = await this.waitForHealth(child, port, budget, superseded).finally(() => unlinkSync(keyPath));
+    const verdict = await this.waitForHealth(child, port, budget, superseded, removeKey).finally(removeKey);
     if (verdict === "healthy") this.openApprovalStream(() => this.child === child);
     /* Backlog 41: "did not become healthy" is said only when the budget really
        ran out with this agent still running. An agent that exited while it
@@ -1164,6 +1184,7 @@ export class AgentClient extends EventEmitter {
     port: number,
     budgetMs: number,
     superseded: () => boolean,
+    removeKey: () => void,
   ): Promise<HealthVerdict> {
     const ended = (): HealthVerdict | null => {
       if (superseded() || this.stopped.has(child)) return "superseded";
@@ -1186,6 +1207,7 @@ export class AgentClient extends EventEmitter {
           // A stop may have come while it answered.
           const goneMeanwhile = ended();
           if (goneMeanwhile) return goneMeanwhile;
+          removeKey();
           this.setStatus({
             state: "connected",
             error: null,
@@ -2845,9 +2867,15 @@ export class AgentClient extends EventEmitter {
     return this.stop();
   }
 
+  /** Synchronous cleanup for immediate Electron exits that skip before-quit. */
+  discardPendingServeKey(): void {
+    this.pendingServeKey?.();
+  }
+
   private async stopNow(): Promise<boolean> {
     this.stopping = true;
     this.stopEpoch++;
+    this.discardPendingServeKey();
     // Issue #39: the next agent (an update, another build) says again whether it runs the project flow.
     this.projectFlow = null;
     for (const controller of this.turns.values()) controller.abort();
