@@ -84,6 +84,7 @@ import { PlaywrightBackend } from "../tools/browser/playwright-backend.js";
 import type { BrowserBackend } from "../tools/browser/browser-backend.js";
 import type { BrowserExtractModelRef } from "../tools/browser/extract-request.js";
 import { DeclaredInputsRegistry, ShellJobRegistry } from "../tools/os/index.js";
+import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
 import { ToolOutputSpill } from "../tools/index.js";
 import { registerSessionTools } from "../tools/sessions/index.js";
 import {
@@ -382,7 +383,8 @@ export async function createAgentRuntime(
     },
   });
 
-  const sessionStore = prepareRuntimeSessionStore(config, logger);
+  const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
+  const sessionStore = prepareRuntimeSessionStore(config, logger, fileCheckpoints);
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -417,7 +419,10 @@ export async function createAgentRuntime(
     parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
   });
   toolOutputSpill.sweepStale();
-  installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
+  installRuntimeSessionDelete(
+    sessionStore, dropRecorder, shellJobs, toolOutputSpill,
+    fileCheckpoints,
+  );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
   // narrows the session's provider policy at dispatch.
@@ -467,7 +472,7 @@ export async function createAgentRuntime(
   const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, {
     onDispatch: (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); },
     dispatchGuard: egressGuard,
-  }, browserExtract);
+  }, browserExtract, fileCheckpoints);
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)

@@ -148,6 +148,7 @@ export function createRuntimeToolRegistry(
   hooks: Pick<ToolRegistryOptions, "onDispatch" | "dispatchGuard"> = {},
   /** The model `browser.extract` calls; bootstrap fills it in once the completer exists. */
   browserExtract: BrowserExtractModelRef = {},
+  fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
 ) {
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
@@ -163,7 +164,7 @@ export function createRuntimeToolRegistry(
       dangerous.approvals.noteUntrustedContent(sessionId, source),
     // "Roll back here" (ATO-1056): what a file tool is about to change is
     // saved first, per session, so a chat can be taken back with its files.
-    beforeInvoke: checkpointBeforeInvoke(new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir))),
+    beforeInvoke: checkpointBeforeInvoke(fileCheckpoints),
   });
   toolRegistry.register(finishTool);
   toolRegistry.register(replyTool);
