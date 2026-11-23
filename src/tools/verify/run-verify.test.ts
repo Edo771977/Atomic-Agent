@@ -3,7 +3,7 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { Browser } from "playwright-core";
@@ -371,6 +371,8 @@ describe("isLoopbackHost", () => {
 });
 
 describe("defaultBrowserLauncher — launch order", () => {
+  beforeEach(() => vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", undefined));
+  afterEach(() => vi.unstubAllEnvs());
   type LaunchOpts = { executablePath?: string; headless?: boolean; args?: string[]; env?: NodeJS.ProcessEnv };
   const fakeBrowser = {} as Browser;
   const recorder = (fail: (opts: LaunchOpts) => boolean = () => false) => {
@@ -390,20 +392,24 @@ describe("defaultBrowserLauncher — launch order", () => {
   const findExecutable = () => ({ kind: "chrome" as const, path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
 
   it("macOS with no explicit browser tries the Playwright Chromium first", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
     const { calls, loadPlaywright } = recorder();
     const browser = await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
     expect(browser).toBe(fakeBrowser);
     expect(calls).toHaveLength(1);
     expect(calls[0]?.executablePath).toBeUndefined();
     expect(calls[0]?.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+    expect(calls[0]?.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
   });
 
   it("macOS falls back to the system Chrome when the Playwright Chromium is missing", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
     const { calls, loadPlaywright } = recorder((o) => o.executablePath === undefined);
     await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
     expect(calls.map((c) => c.executablePath)).toEqual([undefined, findExecutable().path]);
     for (const call of calls) {
       expect(call.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+      expect(call.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
     }
   });
 
