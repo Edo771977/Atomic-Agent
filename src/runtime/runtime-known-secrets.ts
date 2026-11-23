@@ -51,7 +51,7 @@ export function runtimeKnownSecrets(
     // Explicit credential references are secrets whatever their variable name.
     // Do not sweep unrelated environment values into the masking set.
     addEnv(`${entry.id}-key`, entry.apiKeyEnvVar);
-    for (const extra of resolveExtraApiKeys(entry, env)) add(`${entry.id}-key`, extra);
+    for (const extra of resolveExtraApiKeys(entry, env, { scopeOpenAiKey: false })) add(`${entry.id}-key`, extra);
     addHeaders(`${entry.id}-header`, entry.headers);
   }
   // Tokens printed by provider key commands (Vertex AI) live only in memory.
