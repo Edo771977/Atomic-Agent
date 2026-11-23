@@ -57,7 +57,9 @@ describe("resolveServeApiKey", () => {
     const path = serveApiKeyPath(stateDir);
     writeFileSync(path, "my-own-serve-key-0123\n", { mode: 0o644 });
     chmodSync(path, 0o644);
-    expect(resolved(null).key).toBe("my-own-serve-key-0123");
+    const key = resolved(null);
+    expect(key.key).toBe("my-own-serve-key-0123");
+    expect(serveApiKeyNotice(key, "http://127.0.0.1:8787")).toMatch(/could have been read.*rotate/i);
     expect(statSync(path).mode & 0o777).toBe(0o600);
   });
 

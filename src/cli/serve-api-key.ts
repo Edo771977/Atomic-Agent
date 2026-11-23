@@ -33,14 +33,15 @@ export type ServeApiKey =
   /** The operator's own key: `--api-key` or `ATOMIC_AGENT_API_KEY`. */
   | { readonly key: string; readonly source: "given" }
   /** The key in the state dir; `created` when this run wrote it. */
-  | { readonly key: string; readonly source: "file"; readonly path: string; readonly created: boolean };
+  | { readonly key: string; readonly source: "file"; readonly path: string; readonly created: boolean; readonly permissionsTightened?: boolean };
 
-function protectServeKey(path: string): boolean {
+function protectServeKey(path: string, onExposed: () => void): boolean {
   try {
     const entry = lstatSync(path);
     if (!entry.isFile()) return false;
     if (process.platform === "win32") return restrictWindowsAcl(path);
     if ((entry.mode & 0o777) !== 0o600) chmodSync(path, 0o600);
+    if ((entry.mode & 0o077) !== 0) onExposed();
     return true;
   } catch {
     return false;
@@ -59,7 +60,8 @@ export function resolveServeApiKey(
   if (given !== null) return { key: given, source: "given" };
   const path = serveApiKeyPath(stateDir);
   const existed = existsSync(path);
-  const key = ensureSecretKeyFile(path, protectServeKey);
+  let permissionsTightened = false;
+  const key = ensureSecretKeyFile(path, file => protectServeKey(file, () => { permissionsTightened = true; }));
   if (key === null) {
     return {
       error:
@@ -67,12 +69,15 @@ export function resolveServeApiKey(
         "Fix its permissions, or pass --api-key-file <path>, --api-key <token> or set ATOMIC_AGENT_API_KEY",
     };
   }
-  return { key, source: "file", path, created: !existed };
+  return { key, source: "file", path, created: !existed, permissionsTightened };
 }
 
 /** Report where the operator can find the generated credential. */
 export function serveApiKeyNotice(key: ServeApiKey, baseUrl: string): string {
   if (key.source === "given") return "";
-  return "[atomic-agent] serve API key " + (key.created ? "generated" : "read") +
+  const warning = key.permissionsTightened
+    ? "[atomic-agent] serve API key permissions were too broad. The key could have been read. To rotate it, stop serve, remove " + key.path + ", and restart.\n"
+    : "";
+  return warning + "[atomic-agent] serve API key " + (key.created ? "generated" : "read") +
     " from " + key.path + "; use it as 'Authorization: Bearer <key>' or enter it at " + baseUrl + "/panel\n";
 }
