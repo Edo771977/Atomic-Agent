@@ -290,6 +290,18 @@ describe("fusion.delegate measured routing", () => {
     expect(pins).toEqual(["local-llama"]);
     expect(result.details.routing).toMatchObject([{ reason: "insufficient-evidence" }]);
   });
+  it("does not reuse or record base-model evidence for a legacy worker model override", async () => {
+    const logged: OutcomeRecord[] = [];
+    const { pins, result } = await route({ workerPinModel: "small" }, undefined, {
+      resolveDefaultModel: () => "actual-v1",
+      outcomeLog: { append: (records) => { logged.push(...records); } },
+    });
+    expect(pins).toEqual(["local-llama"]);
+    expect(result.details.routing).toMatchObject([{ reason: "insufficient-evidence" }]);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]?.type === "task" ? logged[0].routingIdentity : null).toBeUndefined();
+  });
+
   it("keeps unidentified configured targets insufficient", async () => {
     const { pins } = await route({}, undefined, { ...{ resolveRoutingIdentity: () => undefined } });
     expect(pins).toEqual(["local-llama"]);

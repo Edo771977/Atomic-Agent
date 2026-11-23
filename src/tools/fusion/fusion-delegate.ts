@@ -783,6 +783,7 @@ export function buildFusionDelegateTool(
           attempted: (id) => turnBudget.attempts(ctx.sessionId, id) > 0,
           cliToolsStayOn: (provider) => deps.cliToolsStayOn?.(provider) === true,
           identityFor: (provider) => deps.resolveRoutingIdentity?.(provider),
+          ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(teamTasks === undefined ? {} : { team: true }),
         }) : undefined;
       if (routing !== undefined) taskLegs = routing.legs;
@@ -1676,9 +1677,9 @@ export function buildFusionDelegateTool(
           const taskId = readFusionWorkerMeta(session.metadata)?.taskId;
           const provider = options.providerId;
           if (taskId !== undefined) {
-            // A model of the turn's own (a team member's) is not what the
-            // entry's identity describes, unless it is the worker leg's.
-            const pinnedElsewhere = options.model !== undefined && options.model !== workerModel;
+            // The registry supplies an identity for the base entry only.
+            const pinnedElsewhere = options.model !== undefined &&
+              (provider === undefined || options.model !== deps.resolveDefaultModel?.(provider));
             const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined && !pinnedElsewhere
               ? deps.resolveRoutingIdentity?.(provider) : undefined;
             // Once a task's identity changes between turns it stays unattributed.

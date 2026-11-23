@@ -147,7 +147,7 @@ export function measuredTaskLegs(
   roles: FusionRoleModels | undefined, orchestrator: WorkerLegRef | undefined,
   options: { records: readonly OutcomeRecord[]; minSamples: number; days: number; now?: number;
     remainingOrchestrator: number; attempted: (id: string) => boolean; cliToolsStayOn: (provider: string) => boolean;
-    identityFor?: (provider: string) => string | undefined; team?: boolean },
+    identityFor?: (provider: string) => string | undefined; defaultModelOf?: (provider: string) => string | undefined; team?: boolean },
 ): { legs: Map<string, TaskLeg>; decisions: RoutingDecision[] } {
   const legs = new Map(baseline);
   const decisions: RoutingDecision[] = [];
@@ -175,6 +175,7 @@ export function measuredTaskLegs(
       excluded.push({ provider: build.providerId, reason: "not-a-team-worker" });
     } else if (build !== undefined && build.providerId !== worker.providerId) {
       candidates.push({ leg: { providerId: build.providerId, model: build.model ?? build.providerId, isWorkerLeg: false,
+        ...(build.pinModel === undefined ? {} : { pinModel: build.pinModel }),
         ...(build.providerId === orchestrator?.providerId ? { orchestrator: true as const } : { role: "build" as const }) }, local: build.local });
     }
     const sameAsWorker = orchestrator !== undefined && orchestrator.providerId === worker.providerId &&
@@ -194,8 +195,12 @@ export function measuredTaskLegs(
       if (why !== undefined) { excluded.push({ provider: leg.providerId, reason: why }); return false; }
       return true;
     });
-    const stats = eligible.map((candidate) => ({ candidate, stats: evidence(options.records, candidate.leg, task, since, now, candidate.leg.pinModel !== undefined && candidate.leg.pinModel !== worker.model
-      ? undefined : options.identityFor?.(candidate.leg.providerId)) }));
+    const stats = eligible.map((candidate) => {
+      const { leg } = candidate;
+      const usesBaseModel = leg.pinModel === undefined || leg.pinModel === options.defaultModelOf?.(leg.providerId);
+      return { candidate, stats: evidence(options.records, leg, task, since, now,
+        usesBaseModel ? options.identityFor?.(leg.providerId) : undefined) };
+    });
     decision.candidates = stats.map((s) => s.stats);
     const base = stats.find((s) => s.candidate.leg.isWorkerLeg);
     if (base === undefined || base.stats.blocked) { decision.reason = "blocking-history"; continue; }
