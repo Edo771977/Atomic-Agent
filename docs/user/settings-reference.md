@@ -222,6 +222,12 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | --- | --- | --- | --- |
 | `network.offline` | `boolean` | `false` | Network kill switch (ATO-1084): `{ offline: false }` by default. Additive and unversioned: a file without the block reads the default. |
 
+## privacy
+
+| Key | Type | Default | Description |
+| --- | --- | --- | --- |
+| `privacy.shield.enabled` | `boolean` | `false` | Privacy Shield (ATO-599): when `true`, emails, phone numbers, card numbers, IBANs and keys in a request to a supported cloud model are replaced with placeholders such as `[EMAIL_1]` and put back in the reply on this machine. Off by default. Covers remote OpenAI-compatible providers and native Anthropic Messages. Local-looking addresses are skipped by default. |
+
 ## memory
 
 | Key | Type | Default | Description |
@@ -481,6 +487,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `llm.activeEmbeddingProvider` | `string` | `unset` | Id of the `providers` entry that computes embeddings for memory recall. |
 | `llm.toolTransport` | `'auto' \| 'grammar' \| 'native_tools'` | `unset` | How tool calls reach the model: `grammar` (a constrained-output grammar), `native_tools` (the provider's tool-calling API), or `auto` to pick per provider. |
 | `llm.providers` | `UserLlmProviderEntry[]` | `unset` | The configured model providers (local llama-server, OpenAI-compatible, Anthropic, Gemini, OpenRouter, subscription CLIs), each with an `id`, `kind` and connection settings. The provider screens in the TUI and the desktop app write it. |
+| `llm.providers[].privacy.shield` | `'off' \| 'auto' \| 'on'` | `unset` | Privacy Shield routing for OpenAI-compatible and Anthropic providers. The default auto follows the global switch and skips local-looking endpoints. On forces protection for gateways that forward to the cloud. Off bypasses protection. Managed llama-server and subscription-cli ignore this setting. |
 | `llm.fallback.chain` | `string[]` | `unset` | Provider ids to fall over to, in order, when the active provider keeps failing. |
 | `llm.fallback.appendLocal` | `boolean` | `unset` | Also append the local llama-server provider to the end of the chain. Default `false`: a cloud error is shown rather than silently moving to a local model. |
 | `llm.fallback.failureThreshold` | `number` | `unset` | Consecutive failures before the chain moves on (errors that mean the provider is down move at once). Default `3`. |

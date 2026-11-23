@@ -1,3 +1,4 @@
+import { forgetPrivacyVault } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -171,6 +172,7 @@ export function installRuntimeSessionDelete(
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
+    forgetPrivacyVault(id);
   };
 }
 

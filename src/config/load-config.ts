@@ -667,6 +667,10 @@ export function loadConfig(options: LoadConfigOptions = {}): AtomicAgentConfig {
     network: {
       offline: user.network.offline || readBool(OFFLINE_ENV, false),
     },
+    // ATO-599: Privacy Shield, read by the cloud provider adapters.
+    privacy: {
+      shield: { enabled: user.privacy.shield.enabled },
+    },
     memory: {
       profile: {
         enabled: user.memory.profile.enabled,

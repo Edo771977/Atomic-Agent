@@ -57,6 +57,7 @@ export function getTrustConfigPaths(paths: {
     paths.userConfigFile,
     join(paths.localModelsDataDir, "llama-server.key"),
     join(paths.stateDir, "serve-api.key"),
+    join(paths.stateDir, "http-tokens.json"),
     getDotenvPath(paths.stateDir),
     // Opt-in OS keychain switch and the names it holds (ATO-474).
     join(paths.stateDir, SECRETS_STORE_FILE),

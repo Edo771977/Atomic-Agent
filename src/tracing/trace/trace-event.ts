@@ -26,6 +26,7 @@ export type TraceEvent =
   | TraceCompaction
   | TraceSessionStarted
   | TraceTurnStarted
+  | TraceTokenSteer
   | TraceTurnFinished
   | TraceStepStarted
   | TraceStepFinished
@@ -78,10 +79,17 @@ export interface TraceSessionStarted extends TraceEventBase {
   metadata?: Record<string, unknown>;
 }
 
+export interface TraceTokenSteer extends TraceEventBase {
+  type: "token_steer";
+  turnIndex: number;
+  requestedByToken: string;
+}
+
 export interface TraceTurnStarted extends TraceEventBase {
   type: "turn_started";
   turnIndex: number;
   userMessage?: string;
+  requestedByToken?: string;
   /**
    * What this turn is served by, resolved from the live config at turn
    * start (`resolveTurnRoute`): provider, model, run mode and fusion

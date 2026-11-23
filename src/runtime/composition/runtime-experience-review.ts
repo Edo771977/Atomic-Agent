@@ -1,3 +1,4 @@
+import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { join } from "node:path";
 import { learnedSkillScope, withLearnedTurn } from "../../skills/learning/learn-scope.js";
 import { currentProviderPolicy } from "../../llm/provider-policy.js";
@@ -115,6 +116,8 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     const timer = setTimeout(() => abort.abort(), EXPERIENCE_REVIEW_LIMITS.timeoutMs);
     timer.unref?.();
     deps.pending.add(abort);
+    const sessionId = `${EXPERIENCE_REVIEW_SESSION_PREFIX}${state.id}`;
+    const release = pinPrivacyVault(sessionId);
     try {
       const targets = {
         records: deps.skillRegistry.listAll().map((e) => e.record).filter(record => record.source === "global"),
@@ -125,7 +128,6 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
       const candidates = await readPatchCandidates(skillsDir, experience.usedSkills);
       const takenNames = await takenSkillNames(targets);
       for (const name of await takenSkillNames({ ...targets, globalSkillsDir: config.paths.globalSkillsDir, archiveDir: join(config.paths.stateDir, "skills-archive") })) takenNames.add(name);
-      const sessionId = `${EXPERIENCE_REVIEW_SESSION_PREFIX}${state.id}`;
       const transport = deps.resolveTransport();
       const result = await runExperienceReview({
         experience,
@@ -200,6 +202,8 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     } finally {
       clearTimeout(timer);
       deps.pending.delete(abort);
+      forgetPrivacyVault(sessionId);
+      release();
     }
   };
 

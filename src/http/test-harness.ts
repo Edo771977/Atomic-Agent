@@ -97,6 +97,7 @@ export interface HarnessOptions {
    * `serve` always has a key.
    */
   apiKey?: string | null;
+  namedTokens?: NonNullable<Parameters<typeof createHttpServer>[0]["namedTokens"]>;
   /** Installed as a metric sink and handed to `GET /metrics`, as serve does (ATO-646). */
   metricsRegistry?: PrometheusRegistry;
   /**
@@ -271,6 +272,7 @@ export async function startTestHarness(
     host: options.host ?? "127.0.0.1",
     port: 0,
     apiKey: options.apiKey || null,
+    ...(options.namedTokens ? { namedTokens: options.namedTokens } : {}),
     // The harness's explicit keyless seam; `serve` itself never runs without a key.
     unauthenticated: !options.apiKey,
     routes: buildRouteTable(

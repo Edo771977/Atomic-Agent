@@ -432,7 +432,7 @@ export function createResponsesHandler(): HttpHandler {
         },
         onStreamStart(headers) {
           withSession(headers);
-          sse = beginSse(res, passThroughHeaders(headers), { heartbeatMs: SSE_HEARTBEAT_MS });
+          sse = beginSse(res, passThroughHeaders(headers), { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized } : {}) });
           write(translator.start());
         },
         onStreamData(data) {
