@@ -310,6 +310,10 @@ export class ApprovalBridge {
       await this.acknowledge(update.id, "Already resolved");
       return;
     }
+    if (update.message?.message_id !== pending.messageId || update.message.chat.id !== pending.chatId) {
+      await this.acknowledge(update.id, EXPIRED_APPROVAL_NOTICE);
+      return;
+    }
     // A question is answered by an option or skipped; an option button
     // answers nothing else. A forged callback cannot do either across.
     if (pending.question !== undefined || option !== null) {

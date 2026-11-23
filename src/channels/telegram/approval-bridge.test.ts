@@ -477,6 +477,21 @@ describe("ApprovalBridge.handleCallback", () => {
     });
   });
 
+  it.each([
+    { chat: { id: 7 }, message_id: 98 },
+    { chat: { id: 8 }, message_id: 99 },
+    undefined,
+  ])("ignores callbacks that do not identify the pending prompt: %j", async (message) => {
+    const h = makeHarness();
+    await h.bridge.dispatch(req("reused"), 7);
+    const update = callback("reused", "y");
+    if (message) update.message = message;
+    else delete update.message;
+    await h.bridge.handleCallback(update);
+    expect(h.approvals.decisions).toEqual([]);
+    expect(h.bridge.pendingCount()).toBe(1);
+  });
+
   it("says a button from before a restart expired, runs nothing and removes the keyboard (ATO-613)", async () => {
     const previous = makeHarness();
     await previous.bridge.dispatch(req("old"), 7);
