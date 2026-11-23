@@ -8,6 +8,8 @@ import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
 
+import { readSecretKeyFile } from "../local-llm/server/managed-api-key.js";
+
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
 export interface ServeArgs {
@@ -48,6 +50,8 @@ export const HELP =
     "                      generated on the first run: a key is always required, on loopback too.",
     "                      On a network host it must be at least 16 characters, and an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
+    "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
+    "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
     "  --print-api-key     Print the key serve runs with (generating it if needed) and exit,",
     "                      e.g. curl -H \"Authorization: Bearer $(atomic-agent serve --print-api-key)\"",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
@@ -107,6 +111,7 @@ export function parseArgs(
   let workingDir: string | null = null;
   let apiKey: string | null = null;
   let apiKeyProvided = false;
+  let apiKeyFile: string | null = null;
   let noApproval = false;
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
@@ -149,6 +154,12 @@ export function parseArgs(
         if (value.length === 0) return { error: "--api-key needs a non-empty token" };
         apiKey = value;
         apiKeyProvided = true;
+        break;
+      }
+      case "--api-key-file": {
+        const value = args[++i];
+        if (!value || value.startsWith("--")) return { error: "--api-key-file requires a path" };
+        apiKeyFile = resolve(value);
         break;
       }
       case "--no-approval":
@@ -195,7 +206,15 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
-  if (!apiKeyProvided) {
+  if (apiKeyFile !== null && apiKeyProvided) {
+    return { error: "use either --api-key or --api-key-file" };
+  }
+  if (apiKeyFile !== null && !reapOnly) {
+    apiKey = readSecretKeyFile(apiKeyFile);
+    if (apiKey === null || !/^[!-~]+$/.test(apiKey)) {
+      return { error: "could not read a usable API key from --api-key-file" };
+    }
+  } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;
   }
