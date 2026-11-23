@@ -15,4 +15,14 @@ A folder listed in `projects.constraints` (see the README's "Confidential folder
 
 Deleting a chat is not the same operation as deleting durable memory. Review what the selected memory operation changes. Do not store secrets as facts.
 
+## Disable or re-enable an entry
+
+In the TUI, open `/memory`, select a note or profile fact and press `d`. Disabled entries are marked in the unfiltered list and stay out of agent recall, search and prompts. In the CLI, use `atomic-agent memory list note` or `atomic-agent memory list profile`, then `atomic-agent memory disable note <id>` or `atomic-agent memory disable profile <key>`. Use `enable` with the same arguments to reactivate it. `atomic-agent memory history` displays the journal and `atomic-agent memory undo <change-id>` reverses a change.
+
+## Back up and recover memory
+
+Run `atomic-agent memory backup [--out <directory>]` or `/memory backup [directory]` in the TUI. The result contains a private `memory.sqlite` and `RESTORE.txt` under the chosen directory or under the state directory's `backups/`. The backup is published as a complete directory. It is refused if the memory scanner detects a credential.
+
+Use `atomic-agent memory restore --from <directory>` or `/memory restore <directory>` to merge notes and current profile facts. Existing entries win. Repeating the operation does not duplicate entries. A schema version mismatch is reported before the destination is changed. Memory lessons, procedures, links, votes and the source journal stay in the snapshot. The restored notes are searchable and can be embedded again with `atomic-agent memory reindex`. Project lessons in `.atomic/project/lessons/` belong to the project folder. Incognito sessions and tool subprocesses cannot run backup or restore.
+
 For implementation work read [memory](../../src/memory/README.md), [retrieval](../../src/memory/docs/retrieval.md), [formation](../../src/memory/docs/formation.md), and [configuration](../../src/config/docs/compatibility.md).
