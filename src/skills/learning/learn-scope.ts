@@ -31,8 +31,11 @@ export async function withLearnedTurn<T>(stateDir: string, folder: string, run: 
   await writeFile(temp, serializeTurnOwner(turnOwnerFor(probe, Date.now())), { mode: 0o600, flag: "wx" });
   await rename(temp, lease);
   try {
-    // A decision that already passed its final lease check gets to finish first.
+    // Give a live writer a short chance to finish. The file lock
+    // already takes over dead owners and expired records.
+    const deadline = performance.now() + 1000;
     while (!withFileLock(activationLock(scope.stateDir), () => undefined, lockOptions).ok) {
+      if (performance.now() >= deadline) throw new Error("A learned skill approval is in progress. Try the turn again after it finishes.");
       await delay(25);
     }
     return await run();
