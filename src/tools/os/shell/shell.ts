@@ -17,6 +17,9 @@ import {
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
 import type { PinnedExec } from "../../../approval/approval-gate.js";
+import { offlineRefusal } from "../../../llm/offline-network.js";
+import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
+import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
 import { nodeCheckMultiFileNotice } from "./node-check-notice.js";
@@ -109,6 +112,7 @@ export interface OsShellToolOptions extends DangerousToolOptions {
    * and tests, which then get the static rule set.
    */
   shellPolicy?: ShellGuardPolicy;
+  urlDataGuard?: UrlDataGuardMode;
   /**
    * `tools.shell.defaultTimeoutMs`: after this long a call whose
    * `timeoutMs` the model omitted is detached as a job; `0` = never.
@@ -255,6 +259,21 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       execArgs.length > 0 && process.platform === "win32"
         ? [cmd, ...execArgs.map(quoteCmdArg)].join(" ")
         : commandLine;
+    const urls = shellNetworkUrls(cmd, execArgs, useShell ? subshellCommandLine : undefined);
+    for (const url of urls) {
+      const refused = offlineRefusal(url, "os.shell.run");
+      if (refused) throw refused;
+    }
+    for (const url of urls) {
+      await requireUrlSendApproval(options, {
+        mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+        tool: "os.shell.run",
+        url,
+        sessionId: ctx.sessionId,
+        signal: ctx.signal,
+      });
+    }
+
     // The files the command would write, move or remove: after the
     // user declined a write of one of them this turn, this is the same
     // write by another route, and the gate refuses it unasked. Read

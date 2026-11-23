@@ -271,6 +271,7 @@ export function registerOsTools(
       approvals: options.approvals,
       approvalRequired: options.approvalRequired,
       defaultTimeoutMs: options.config.tools.shell.defaultTimeoutMs,
+      ...(options.config.http.urlDataGuard !== undefined ? { urlDataGuard: options.config.http.urlDataGuard } : {}),
       envPassthrough: options.config.tools.shell.envPassthrough,
       ...(options.shellPolicy === undefined
         ? {}

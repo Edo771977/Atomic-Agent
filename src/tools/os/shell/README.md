@@ -24,6 +24,8 @@ This area owns the implementation of `os.shell.run`, including its command, jobs
 
 The existing [shell-command-guard](../shell-command-guard/index.ts) owns command classification, normalization and policy rules. It is shared with agent verification command classification and remains a separate owner. Approval owns grants and interaction; sandbox owns process execution. This directory does not own runtime shutdown ordering or configuration defaults.
 
+The network command classifier also reads explicit HTTP(S) URLs passed to recognized clients such as curl, wget and Invoke-WebRequest. Offline refusal and URL data approval apply before spawn. The check sees the command arguments and the shell segments it can classify. Redirects handled inside the network client and URLs computed by another program are outside that dispatch check.
+
 ## Validation
 
 Run `npx vitest run src/tools/os/shell src/tools/os/shell-command-guard` and affected runtime lifecycle seams for job ownership changes. Adjacent suites cover command policy, detach, jobs, result formatting, timeouts, argv glob expansion and node-check notices. Use disposable directories and fixtures. Run `npm run lint`, `npm run typecheck:tests` and `npm run imports:check`; preserve catalog/resource-class coverage when changing registration. Moving modules does not authorize changing tool descriptions, approval rules or process lifecycle.

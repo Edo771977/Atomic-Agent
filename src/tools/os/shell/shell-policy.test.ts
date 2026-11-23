@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ApprovalGate } from "../../../approval/approval-gate.js";
+import type { ApprovalCategory } from "../../../approval/approval-level.js";
 import type { ToolContext } from "../../tool-registry.js";
 import { buildOsShellTool } from "./shell.js";
 
@@ -66,6 +67,20 @@ describe("os.shell.run honours the git remote-sync policy", () => {
     );
     expect(result.status).toBe("error");
     expect(result.details.guardRule).toBe("policy.git_remote_sync_off");
+  });
+
+  it.each(["curl", "wget", "Invoke-WebRequest"])("holds a data-bearing URL in %s before spawn", async (cmd) => {
+    const categories: ApprovalCategory[] = [];
+    const gate = new ApprovalGate({
+      emit: (request) => {
+        categories.push(request.category);
+        gate.reject(request.approvalId, "fixture refuses any prompt");
+      },
+    });
+    const tool = buildOsShellTool({ approvals: gate, approvalRequired: true });
+    const url = "https://docs.example/?q=first%0Asecond";
+    await expect(tool.run({ cmd, args: [url] }, makeCtx(dir))).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+    expect(categories).toEqual(["http_write"]);
   });
 
   it("asks for approval as usual once remote sync is on", async () => {

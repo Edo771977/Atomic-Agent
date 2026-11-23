@@ -31,6 +31,7 @@ const HTTP_CLIENTS = new Set([
   "curl", "wget", "wget2", "http", "https", "xh", "aria2c", "lwp-request",
   "invoke-webrequest", "iwr", "invoke-restmethod", "irm", "start-bitstransfer", "bitsadmin",
 ]);
+const URL_CLIENTS = new Set(["curl", "wget", "wget2", "invoke-webrequest", "iwr", "invoke-restmethod", "irm"]);
 const RAW_CLIENTS = new Set(["ssh", "scp", "sftp", "nc", "ncat", "netcat", "telnet", "ftp", "socat", "mosh"]);
 const GIT_NETWORK_VERBS = new Set(["push", "fetch", "pull", "clone", "ls-remote"]);
 const PUBLISHERS = new Set(["npm", "pnpm", "yarn", "bun"]);
@@ -56,13 +57,21 @@ function unwrap(words: readonly string[]): readonly string[] {
   return words.slice(i);
 }
 
-function inSegment(words: readonly string[], depth: number): ShellNetworkUse | null {
+function inSegment(words: readonly string[], depth: number, urls?: Set<string>): ShellNetworkUse | null {
   const command = unwrap(words);
   const first = command[0];
   if (first === undefined) return null;
   const program = programName(first);
   const rest = command.slice(1);
-  if (HTTP_CLIENTS.has(program)) return { program, cls: "http" };
+  if (HTTP_CLIENTS.has(program)) {
+    if (urls && URL_CLIENTS.has(program)) {
+      for (const word of rest) {
+        const url = word.replace(/^(?:--url=|-uri[:=])/i, "");
+        if (/^https?:\/\//i.test(url)) urls.add(url);
+      }
+    }
+    return { program, cls: "http" };
+  }
   if (RAW_CLIENTS.has(program)) return { program, cls: null };
   if (program === "gh") return { program, cls: "github" };
   if (program === "rsync") {
@@ -85,25 +94,29 @@ function inSegment(words: readonly string[], depth: number): ShellNetworkUse | n
   }
   if (depth > 3) return null;
   if (NESTED.has(program)) {
+    let firstUse: ShellNetworkUse | null = null;
     for (const script of scanNestedShellOptions(rest, program).scripts) {
-      const found = inLine(script, depth + 1);
-      if (found !== null) return found;
+      const found = inLine(script, depth + 1, urls);
+      firstUse ??= found;
+      if (!urls && firstUse !== null) break;
     }
-    return null;
+    return firstUse;
   }
   if (POWERSHELLS.has(program) || program === "cmd") {
     const at = rest.findIndex((w) => /^[-/](?:c|command|encodedcommand)$/i.test(w));
-    if (at >= 0 && rest[at + 1] !== undefined) return inLine(rest.slice(at + 1).join(" "), depth + 1);
+    if (at >= 0 && rest[at + 1] !== undefined) return inLine(rest.slice(at + 1).join(" "), depth + 1, urls);
   }
   return null;
 }
 
-function inLine(line: string, depth: number): ShellNetworkUse | null {
+function inLine(line: string, depth: number, urls?: Set<string>): ShellNetworkUse | null {
+  let firstUse: ShellNetworkUse | null = null;
   for (const segment of splitCommandSegments(line)) {
-    const found = inSegment(segment, depth);
-    if (found !== null) return found;
+    const found = inSegment(segment, depth, urls);
+    firstUse ??= found;
+    if (!urls && firstUse !== null) break;
   }
-  return null;
+  return firstUse;
 }
 
 /** The first network client a `{cmd, args}` call would run, or `null`. */
@@ -125,4 +138,12 @@ export function shellNetworkUse(call: Record<string, unknown>): ShellNetworkUse 
   // A direct exec: the words are already split; only a nested shell's
   // script is a line to read.
   return inSegment([cmd, ...args], 0);
+}
+
+/** Explicit HTTP URLs passed to classified shell HTTP clients. */
+export function shellNetworkUrls(cmd: string, args: readonly string[], shellLine?: string): Set<string> {
+  const urls = new Set<string>();
+  if (shellLine === undefined) inSegment([cmd, ...args], 0, urls);
+  else inLine(shellLine, 0, urls);
+  return urls;
 }
