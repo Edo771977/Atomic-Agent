@@ -51,20 +51,18 @@ export function removeIncognitoTrace(
 function createIncognitoTaskSweeper(
   tasksDbFile: string | null | undefined,
   options: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
-): { removeTasks: (sessionId: string) => void; close: () => void } {
+): { removeTasks: (sessionId: string) => boolean; close: () => void } {
   let store: TaskStore | null = null;
   return {
     removeTasks: (sessionId) => {
-      if (!tasksDbFile || !existsSync(tasksDbFile)) return;
+      if (!tasksDbFile || !existsSync(tasksDbFile)) return true;
       store ??= new TaskStore({
         dbFile: tasksDbFile,
         ...(options.ownerProbe ? { ownerProbe: options.ownerProbe } : {}),
       });
-      // The chat's process is gone, so a task it was running is held by
-      // no one: deleted too, not left `cancelled` with its prompt.
-      store.removeForSessionAtBoot(sessionId, {
+      return store.removeForSessionAtBoot(sessionId, {
         staleAfterMs: options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS,
-      });
+      }) !== null;
     },
     close: () => {
       try {
@@ -96,7 +94,10 @@ export async function sweepOrphanIncognitoSessions(
   try {
     const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {
-        tasks.removeTasks(id);
+        if (!tasks.removeTasks(id)) {
+          retained.push(id);
+          return false;
+        }
       } catch (err) {
         retained.push(id);
         logger.warn("could not clean up an incognito chat left by a stopped agent; the next start will retry", {

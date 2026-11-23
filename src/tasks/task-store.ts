@@ -835,18 +835,14 @@ export class TaskStore {
   }
 
   /**
-   * `removeForSession` for the boot sweep of a chat whose process is gone
-   * (ATO-1547): a `running` row whose run is gone too (the same rule as
-   * `recoverInterrupted`: its recorded owner is dead, or with no owner it
-   * is older than `staleAfterMs`) is deleted as well, prompt and all,
-   * since no runner holds it. A running row a live process still holds
-   * is only cancelled, as `removeForSession` does. Boot only, before this
-   * process claims a task. Returns the number of rows deleted.
+   * Purge an orphan incognito chat's tasks in one immediate transaction.
+   * Return null if a running claim still has a live or potentially live
+   * owner, so the caller leaves the session available to that runner.
    */
   removeForSessionAtBoot(
     sessionId: string,
     options: { staleAfterMs: number; now?: number; isOwnerGone?: (owner: string) => boolean },
-  ): number {
+  ): number | null {
     const now = options.now ?? Date.now();
     const probe = this.ownerProbe;
     const dbIdentity = this.dbIdentity;
@@ -854,14 +850,13 @@ export class TaskStore {
       options.isOwnerGone ??
       ((owner: string) => isTurnOwnerGone(owner, probe, dbIdentity));
     const ownerColumn = this.runOwnersUnavailable === null ? "run_owner" : "NULL AS run_owner";
-    const remove = this.db.transaction((): number => {
+    const remove = this.db.transaction((): number | null => {
       const running = this.db
         .prepare(
           `SELECT id, started_at, ${ownerColumn}
              FROM tasks WHERE session_id = ? AND status = 'running'`,
         )
         .all(sessionId) as RunningRow[];
-      let deleted = 0;
       for (const row of running) {
         const owner = parseTurnOwner(row.run_owner);
         const ownsThisRun =
@@ -869,12 +864,9 @@ export class TaskStore {
         const gone = ownsThisRun
           ? isOwnerGone(row.run_owner as string)
           : row.started_at !== null && row.started_at < now - options.staleAfterMs;
-        if (!gone) continue;
-        deleted += this.db
-          .prepare(`DELETE FROM tasks WHERE id = ? AND status = 'running' AND started_at IS ?`)
-          .run(row.id, row.started_at).changes;
+        if (!gone) return null;
       }
-      return deleted + this.removeForSession(sessionId, now);
+      return this.db.prepare("DELETE FROM tasks WHERE session_id = ?").run(sessionId).changes;
     });
     return remove.immediate();
   }

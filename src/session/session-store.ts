@@ -1267,11 +1267,11 @@ export class SessionStore {
    * Returns the deleted ids so the caller can remove their trace files.
    *
    * `beforeDelete` runs for each chat before its row goes (ATO-1547: the
-   * runtime drops the chat's tasks there). When it throws, that chat is
+   * runtime drops the chat's tasks there). When it throws or returns false, that chat is
    * kept for the next start, so a crash or a locked file between the two
    * never leaves the tasks behind with no chat left to find them by.
    */
-  async sweepOrphanIncognito(beforeDelete?: (id: string) => void | Promise<void>): Promise<string[]> {
+  async sweepOrphanIncognito(beforeDelete?: (id: string) => boolean | void | Promise<boolean | void>): Promise<string[]> {
     const ids = orphanIncognitoSessionIds(
       this.db,
       this.turnOwnerProbe,
@@ -1281,7 +1281,7 @@ export class SessionStore {
     for (const id of ids) {
       if (beforeDelete) {
         try {
-          await beforeDelete(id);
+          if (await beforeDelete(id) === false) continue;
         } catch {
           continue;
         }

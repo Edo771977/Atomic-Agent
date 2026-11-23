@@ -130,7 +130,7 @@ describe("incognito sessions in the runtime", () => {
     tasks.close();
   });
 
-  it("deletes a task the dead process was running, prompt and all; one a live process runs is only cancelled", async () => {
+  it("retains an orphan chat while a live process owns one of its tasks", async () => {
     alive.add(10).add(20);
     save(open(10), "s-dead", true);
     const tasksDbFile = join(dir, "tasks.sqlite");
@@ -145,11 +145,18 @@ describe("incognito sessions in the runtime", () => {
     deadRunner.close();
     alive.delete(10);
 
-    expect(
-      await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, tasksDbFile, { ownerProbe: probe(30, alive) }),
-    ).toEqual({ deleted: ["s-dead"], retained: [] });
+    const boot = open(30);
+    const sweep = () => sweepOrphanIncognitoSessions(boot, tracesDir, logger, tasksDbFile, { ownerProbe: probe(30, alive) });
+    expect(await sweep()).toEqual({ deleted: [], retained: ["s-dead"] });
+    expect(boot.isIncognito("s-dead")).toBe(true);
+    expect(liveRunner.get(killed)?.status).toBe("running");
+    expect(liveRunner.get(held)?.status).toBe("running");
+
+    alive.delete(20);
+    expect(await sweep()).toEqual({ deleted: ["s-dead"], retained: [] });
+    expect(boot.isIncognito("s-dead")).toBe(false);
     expect(liveRunner.get(killed)).toBeNull();
-    expect(liveRunner.get(held)?.status).toBe("cancelled");
+    expect(liveRunner.get(held)).toBeNull();
     liveRunner.close();
   });
 

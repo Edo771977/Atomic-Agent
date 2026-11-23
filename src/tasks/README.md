@@ -30,7 +30,7 @@ An operator can pause a waiting task (`pending` -> `paused`) and resume it (ATO-
 
 A run cut off from outside (the boot sweep took it back from a dead process, or a shutdown left a one-shot task due) is continued from its session's checkpoint rather than started over ([task-resume.ts](task-resume.ts), ATO-1109): the turn's message starts with a note saying how far the cut-off run got, and the session's progress marker records the task id and the resumes spent. Resumes after a crash or kill count towards `agent.task.maxResumes` and back off on the retry curve; past the limit the task fails with a sentence saying why. A run a person stopped is never resumed. `agent.task.resumeInterrupted: false` restores the fresh re-run.
 
-Startup cleanup drops abandoned incognito sessions’ tasks before task recovery, including running tasks whose recorded process is gone. A live runner’s task is cancelled. Tasks belonging to other sessions follow normal recovery.
+Startup cleanup drops abandoned incognito sessions’ tasks before task recovery, including running tasks whose recorded process is gone. A live or potentially live claim keeps the chat and its tasks for a later startup. Tasks belonging to other sessions follow normal recovery.
 
 ## Pausing a recurring task
 
