@@ -394,7 +394,7 @@ export function maskSecrets(text: string, known: readonly KnownSecret[] = []): s
   for (const secret of usableKnownSecrets(known)) {
     if (!out.includes(secret.value)) continue;
     const marker = redactedMarker(secret.label);
-    if (secret.exact) {
+    if (secret.exact && secret.value.length < 16) {
       const literal = secret.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       out = out.replace(new RegExp("(?<![\\p{L}\\p{N}_])" + literal + "(?![\\p{L}\\p{N}_])", "gu"), () => marker);
     } else {

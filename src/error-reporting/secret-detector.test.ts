@@ -343,3 +343,9 @@ it("round2-2 masks exact credentials at word boundaries only", () => {
   expect(maskSecrets("a cat, scatter and catapult", [{label: "serve-api-key", value: "cat", exact: true}]))
     .toBe("a [redacted:serve-api-key], scatter and catapult");
 });
+
+it("redacts long exact credentials even inside text and identifiers", () => {
+  const token = "0123456789abcdef";
+  expect(maskSecrets("prefix" + token + "_9", [{ label: "serve-api-key", value: token, exact: true }]))
+    .toBe("prefix[redacted:serve-api-key]_9");
+});

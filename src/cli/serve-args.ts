@@ -11,7 +11,7 @@ import { resolve } from "node:path";
 
 import { hasOwnerOnlyWindowsAcl } from "../config/windows-acl.js";
 
-import { MIN_EXPLICIT_KEY_LENGTH, validateExplicitKey } from "./serve-api-key-input.js";
+import { explicitKeyLengthError, MIN_EXPLICIT_KEY_LENGTH, validateExplicitKey } from "./serve-api-key-input.js";
 import { normalizeTunnelHostname, type TunnelRequest } from "./cloudflared.js";
 
 export interface ServeArgs {
@@ -289,11 +289,7 @@ export function parseArgs(
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
   if (!reapOnly && apiKey !== null && apiKey.trim().length < MIN_EXPLICIT_KEY_LENGTH) {
-    return {
-      error:
-        "Explicit API keys must have at least " + MIN_EXPLICIT_KEY_LENGTH + " characters. " +
-        `Use at least ${MIN_EXPLICIT_KEY_LENGTH} (for example: export ATOMIC_AGENT_API_KEY=$(openssl rand -hex 24)).`,
-    };
+    return { error: explicitKeyLengthError() };
   }
   let tunnel: TunnelRequest | null = null;
   if (tunnelName !== null || tunnelHostname !== null) {

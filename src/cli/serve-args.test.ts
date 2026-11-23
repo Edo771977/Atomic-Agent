@@ -251,3 +251,10 @@ it.skipIf(process.platform === "win32")("keeps an invalid file even when deletio
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it("reports the key length minimum once and points to safe key inputs", () => {
+  const error = parseError(["--api-key", "short"]);
+  expect(error.match(/at least 16/g)).toHaveLength(1);
+  expect(error).toContain("--api-key-stdin");
+  expect(error).toContain("--api-key-file");
+});

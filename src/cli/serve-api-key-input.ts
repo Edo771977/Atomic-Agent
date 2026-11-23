@@ -9,13 +9,18 @@ const STDIN_TIMEOUT_MS = 10_000;
 
 type KeyInput = { key: string } | { error: string };
 
+export function explicitKeyLengthError(): string {
+  return "Explicit API keys must have at least " + MIN_EXPLICIT_KEY_LENGTH +
+    " characters. Pass the key with --api-key-stdin or --api-key-file.";
+}
+
 export function validateExplicitKey(raw: string, source: "--api-key-file" | "--api-key-stdin"): KeyInput {
   const key = raw.trim();
   if (!/^[!-~]+$/.test(key)) {
     return { error: source + " expects one key with printable ASCII characters and no spaces" };
   }
   if (key.length < MIN_EXPLICIT_KEY_LENGTH) {
-    return { error: source + " requires a key with at least " + MIN_EXPLICIT_KEY_LENGTH + " characters" };
+    return { error: explicitKeyLengthError() };
   }
   return { key };
 }
