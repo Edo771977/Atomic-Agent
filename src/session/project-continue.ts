@@ -27,7 +27,7 @@ export function projectContinueMessage(view: ProjectGateView, decision: ProjectD
   const reviewReason = decision.verdict === "approveOverReview" && note
     ? ` My reason for approving over the review: ${note}` : "";
   const lessonHint = view.lessonProposalHint === undefined ? undefined : view.lessonProposalHint + reviewReason;
-  if (exp.kind === "complete") return lessonHint ?? null;
+  if (exp.kind === "complete") return lessonHint === undefined ? null : `[Runtime follow-up] ${lessonHint}`;
   const withLessonHint = (message: string): string => lessonHint === undefined ? message : `${message} ${lessonHint}`;
   if (exp.kind !== "draft_brief" && exp.kind !== "draft_plan" && exp.kind !== "run_milestone") return null;
   const title = (id: string): string => view.milestones.find((m) => m.id === id)?.title ?? id;

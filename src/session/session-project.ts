@@ -244,8 +244,8 @@ export interface ProjectMilestone {
    * report is accepted.
    */
   failedRefusals?: number;
-  /** A reported failure remains evidence after the milestone is retried. */
-  reportedFailure?: true;
+  /** A correction, reported failure or review override survives a retry or replan. */
+  lessonEvidence?: true;
   /**
    * Evidence of earlier work under this id (issue #77), oldest first
    * ({@link PROJECT_LIMITS}.history newest kept): a re-plan that changes
@@ -1547,7 +1547,7 @@ function readMilestone(raw: unknown): ProjectMilestone | null {
     ...(facts.length === 0 ? {} : { criteriaFacts: facts }),
     ...(blocks.length === 0 ? {} : { reviewBlocks: blocks }),
     ...(override === undefined || override.note.length === 0 ? {} : { reviewOverride: override }),
-    ...(raw.reportedFailure === true || raw.state === "failed" ? { reportedFailure: true as const } : {}),
+    ...(raw.lessonEvidence === true || raw.state === "failed" ? { lessonEvidence: true as const } : {}),
     ...(isCount(raw.failedRefusals) && (raw.failedRefusals as number) > 0 ? { failedRefusals: Math.min(raw.failedRefusals as number, 99) } : {}),
     ...(history.length === 0 ? {} : { history }),
     ...(() => {
@@ -2028,7 +2028,7 @@ function supersede(
     });
   }
   const kept = history.slice(-PROJECT_LIMITS.history);
-  return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(old.reportedFailure ? { reportedFailure: true as const } : {}), ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
+  return { id: old.id, title: old.title, kind: old.kind, state: "planned", runIds: [], ...(old.lessonEvidence || old.reviewOverride !== undefined || (old.corrections?.length ?? 0) > 0 ? { lessonEvidence: true as const } : {}), ...(kept.length === 0 ? {} : { history: kept }), updatedAt: now };
 }
 
 /** Ids whose evidence an update just moved to history (a new newest revision). */
@@ -2305,8 +2305,7 @@ function replannedMilestone(
   return {
     ...base,
     state: keep ? old.state : "planned",
-    ...(old.reportedFailure ? { reportedFailure: true as const } : {}),
-    ...(old.reviewOverride === undefined ? {} : { reviewOverride: old.reviewOverride }),
+    ...(old.lessonEvidence || old.reviewOverride !== undefined || (old.corrections?.length ?? 0) > 0 ? { lessonEvidence: true as const } : {}),
     runIds: old.runIds,
     ...(old.evidenceSince === undefined ? {} : { evidenceSince: old.evidenceSince }),
     ...(old.replacedEvidenceRunIds === undefined ? {} : { replacedEvidenceRunIds: old.replacedEvidenceRunIds }),
@@ -2503,7 +2502,7 @@ function milestoneUpdate(
   // A new report describes a new result: the old pictures go with it.
   const { reportNotes: _oldNotes, ...previous } = current;
   const reported: ProjectMilestone = { ...previous, state: update.state, summary, updatedAt: now, ...reportNotesOf(update.reportNotes) };
-  if (update.state === "failed") reported.reportedFailure = true;
+  if (update.state === "failed") reported.lessonEvidence = true;
   delete reported.attachments;
   delete reported.criteriaFacts;
   delete reported.reviewBlocks;
@@ -2700,6 +2699,7 @@ function decideProject(
           ...rest,
           state: "done" as const,
           ...reportNotesOf([...(rest.reportNotes ?? []).slice(0, 7), line]),
+          lessonEvidence: true as const,
           reviewOverride: { note, at: now, blocks },
         };
       }),
