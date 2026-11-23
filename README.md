@@ -575,7 +575,7 @@ atomic-agent serve \
   --cwd /path/to/work
 ```
 
-Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials get HTTP 401 on loopback. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders that use the tunnel’s old `/api/webhooks/{name}` path must send the serve key as well, or switch to the new URL shown at startup.
+Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials return HTTP 401. Non-loopback callers can receive HTTP 429 after repeated failures. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders that use the tunnel’s old `/api/webhooks/{name}` path must send the serve key as well, or switch to the new URL shown at startup.
 
 If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward the serve credential in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include the serve key, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds the serve key must limit this to the exact configured webhook path and method and preserve signed request bodies.
 
