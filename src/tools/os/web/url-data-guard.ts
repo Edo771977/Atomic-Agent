@@ -298,11 +298,16 @@ function withoutServerSignature(initialUrl: string, target: URL): string {
   const githubRelease = initial.origin === "https://github.com" &&
     initial.pathname.includes("/releases/download/") &&
     target.origin === "https://release-assets.githubusercontent.com";
+  if (githubRelease) {
+    const checked = new URL(target);
+    checked.search = "";
+    return checked.href;
+  }
   const s3Bucket = (host: string) => /^(.+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.exec(host)?.[1];
   const sourceBucket = s3Bucket(initial.hostname);
   const sameBucket = sourceBucket !== undefined && sourceBucket === s3Bucket(target.hostname) &&
     initial.port === "" && target.port === "" && initial.pathname === target.pathname;
-  if ((!githubRelease && !sameBucket) ||
+  if (!sameBucket ||
     target.searchParams.get("X-Amz-Algorithm") !== "AWS4-HMAC-SHA256" ||
     !/^[0-9a-f]{64}$/.test(target.searchParams.get("X-Amz-Signature") ?? "")) return target.href;
 

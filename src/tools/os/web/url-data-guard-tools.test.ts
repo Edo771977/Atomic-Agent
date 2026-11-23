@@ -207,7 +207,6 @@ it("a chat grant for a strict visit leaves a subsequent POST body subject to app
 });
 
 it.each([
-  ["https://github.com/org/repo/releases/download/v1/file", "https://release-assets.githubusercontent.com/file"],
   ["https://bucket.s3.amazonaws.com/file", "https://bucket.s3.us-east-1.amazonaws.com/file"],
 ])("ignores signed parameters added in a trusted redirect from %s", async (initial, destination) => {
   const issued = new URL(destination);

@@ -139,3 +139,24 @@ it("normalizes a trailing DNS dot, tracks ports, and releases the session's visi
   sites.clearSession("s");
   expect(checkUrlSend("strict", "https://docs.example:8443", "s", sites)?.kind).toBe("new_site");
 });
+
+it("ignores the Azure SAS and JWT query supplied by GitHub release-assets", () => {
+  const initial = "https://github.com/cli/cli/releases/download/v2.65.0/asset";
+  const target = new URL("https://release-assets.githubusercontent.com/github-production-release-asset/12345/asset");
+  const time = "2026-11-23T19:30:00Z";
+  const id = "00000000-0000-0000-0000-000000000000";
+  target.search = new URLSearchParams({
+    sp: "r", sv: "2018-11-09", sr: "b", spr: "https", se: time, skt: time, ske: time,
+    skoid: id, sktid: id, sks: "b", skv: "2018-11-09",
+    sig: "a".repeat(43) + "=", jwt: ["a".repeat(36), "b".repeat(222), "c".repeat(43)].join("."),
+    rscd: "attachment; filename=gh_2.65.0_linux_amd64.tar.gz",
+    rsct: "application/octet-stream",
+    "response-content-disposition": "attachment; filename=gh_2.65.0_linux_amd64.tar.gz",
+    "response-content-type": "application/octet-stream",
+  }).toString();
+  expect(checkUrlSend("data", target.href, "s", undefined, initial)).toBeNull();
+  expect(checkUrlSend("strict", target.href, "s", undefined, initial)?.kind).toBe("new_site");
+  expect(checkUrlSend("data", target.href, "s")?.kind).toBe("data");
+  expect(checkUrlSend("data", target.href, "s", undefined, initial + "?q=agent")?.kind).toBe("data");
+  expect(checkUrlSend("data", target.href, "s", undefined, "https://github.com.example/releases/download/v1/asset")?.kind).toBe("data");
+});
