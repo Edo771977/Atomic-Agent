@@ -34,6 +34,8 @@ const LITERAL_REFERENCE = /^\[(?:SECRET|IBAN|CARD|EMAIL|PHONE)_\d{1,6}\]$/;
 const MAX_DEPTH = 32;
 const MAX_CACHE_CHARS = 3 * 1024 * 1024;
 const MAX_CACHE_ENTRIES = 2048;
+const MAX_ARCHIVE_CHARS = 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 4096;
 
 export interface PrivacyVaultStats {
   /** Distinct values this vault has masked so far. */
@@ -57,6 +59,7 @@ export interface UnmaskOptions {
 
 export class PrivacyVault {
   readonly #byValue = new Map<string, string>();
+  #archiveChars = 0;
   readonly #byPlaceholder = new Map<string, string>();
   private readonly counters: Record<PrivateKind, number> = {
     SECRET: 0,
@@ -80,6 +83,10 @@ export class PrivacyVault {
   private placeholderFor(value: string, kind: PrivateKind): string {
     const existing = this.#byValue.get(value);
     if (existing !== undefined) return existing;
+    if (this.#byValue.size >= MAX_ARCHIVE_ENTRIES || this.#archiveChars + value.length > MAX_ARCHIVE_CHARS) {
+      throw new Error("Privacy Shield archive limit reached");
+    }
+    this.#archiveChars += value.length;
     this.counters[kind] += 1;
     const placeholder = `[${kind}_${this.counters[kind]}]`;
     this.#byValue.set(value, placeholder);

@@ -19,3 +19,5 @@ The detector reads the fork's current [known credentials](../runtime/runtime-kno
 Checks: `npx vitest run src/privacy`; `npm run lint`; `npm run docs:check`.
 
 For a gateway, proxy or SSH tunnel on a local-looking address that forwards to a cloud model, set `llm.providers[].privacy.shield` to `"on"` on that entry. The default `"auto"` uses the global setting and classifies by the gateway address. Use `"off"` to bypass the shield on a specific provider.
+
+Completed sessions and ephemeral worker turns release their archives. The process retains up to 128 recently used session archives. A session can grow to 4,096 values or 1 Mi UTF-16 code units of private values. Inference stops before sending a request that would exceed that archive limit.

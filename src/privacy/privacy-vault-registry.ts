@@ -8,6 +8,7 @@
 import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret-detector.js";
 import { PrivacyVault } from "./privacy-vault.js";
 
+const MAX_SESSION_VAULTS = 128;
 const vaults = new Map<string, PrivacyVault>();
 /** The agent's own keys (its `.env` is loaded into `process.env`). */
 let knownSecrets: () => readonly KnownSecret[] = () => knownSecretsFromEnv();
@@ -36,11 +37,12 @@ export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVa
   // Auxiliary calls have no session lifetime and must not share substitutions.
   if (!sessionId) return new PrivacyVault(() => knownSecrets());
   const key = sessionId;
-  let vault = vaults.get(key);
-  if (!vault) {
-    vault = new PrivacyVault(() => knownSecrets());
-    vaults.set(key, vault);
+  const vault = vaults.get(key) ?? new PrivacyVault(() => knownSecrets());
+  vaults.delete(key);
+  if (vaults.size >= MAX_SESSION_VAULTS) {
+    vaults.delete(vaults.keys().next().value!);
   }
+  vaults.set(key, vault);
   return vault;
 }
 

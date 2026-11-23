@@ -47,3 +47,13 @@ describe("privacy vault registry (ATO-599)", () => {
     expect(isPrivacyShieldEnabled()).toBe(true);
   });
 });
+
+it("bounds the registry and retains recently used sessions", () => {
+  const oldest = privacyVaultFor("oldest");
+  const recent = privacyVaultFor("recent");
+  for (let index = 0; index < 128; index += 1) {
+    privacyVaultFor(`session-${index}`);
+    expect(privacyVaultFor("recent")).toBe(recent);
+  }
+  expect(privacyVaultFor("oldest")).not.toBe(oldest);
+});

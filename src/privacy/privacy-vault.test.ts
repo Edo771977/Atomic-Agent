@@ -114,3 +114,9 @@ it("reuses a masked string and invalidates it when a new value is learned", () =
     scan.mockRestore();
   }
 });
+
+it("stops before sending data it cannot retain in the archive", () => {
+  const vault = new PrivacyVault();
+  const secret = "A9".repeat(1024 * 1024);
+  expect(() => vault.mask(secret, [{ label: "oversized", value: secret }])).toThrow(/Privacy Shield archive limit/);
+});
