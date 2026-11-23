@@ -171,10 +171,28 @@ export function findStateSecretReads(
   return dedupe([...hits]);
 }
 
-const PROC_SECRETS = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/(?:environ|cmdline))(?=$|[^\w/.-])/g;
+const PROC_SECRETS = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/([-\w.*?\[\]{}!,]+))(?=$|[^\w/.-])/g;
 
 function processSecretPaths(text: string): string[] {
-  return [...text.matchAll(PROC_SECRETS)].map(match => match[1]!);
+  return [...text.matchAll(PROC_SECRETS)]
+    .filter(match => namesProcSecret(match[2]!))
+    .map(match => match[1]!);
+}
+
+function namesProcSecret(name: string): boolean {
+  return ["environ", "cmdline"].some(file => matchesName(name, file, "linux"));
+}
+
+/** Match glob atoms and non-nested brace alternatives without enumerating combinations. */
+function matchesName(pattern: string, file: string, platform: NodeJS.Platform): boolean {
+  try {
+    const atom = (value: string) => globToRegExp(value, platform).source.slice(1, -1);
+    const parts = pattern.split(/(\{[^{}]+,[^{}]+\})/).map((part, index) =>
+      index % 2 === 0 ? atom(part) : "(?:" + part.slice(1, -1).split(",").map(atom).join("|") + ")");
+    return new RegExp("^" + parts.join("") + "$", platform === "win32" ? "i" : "").test(file);
+  } catch {
+    return false; // An invalid glob is not a match.
+  }
 }
 
 function psShowsProcessSecrets(line: string): boolean {
@@ -278,9 +296,28 @@ export function findShellStateSecrets(
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
   const hits = new Set(processSecretPaths(line));
-  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line)) {
+  const nameTokens = line.split(/[\s;|&<>()`]+/);
+  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line) || nameTokens.some(token => {
+    const name = token.split(/[\\/=]/).at(-1) ?? "";
+    return name !== "*" && matchesName(name, "serve-api.key", env.platform);
+  })) {
     for (const file of known.files) {
       if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
+    }
+  }
+  // Track literal procfs directories in simple command lists.
+  let procCwd: string | undefined;
+  for (const segment of line.split(/[;&|\n]+/)) {
+    const cd = /^\s*cd\s+([^\s]+)\s*$/.exec(segment);
+    if (cd) {
+      const directory = cd[1]!;
+      procCwd = directory === "/proc" || directory.startsWith("/proc/") ? directory : undefined;
+    }
+    else if (procCwd) {
+      for (const token of segment.trim().split(/\s+/)) {
+        const path = pathOfToken(token, procCwd, env.home);
+        if (path !== null) for (const resource of processSecretPaths(path)) hits.add(resource);
+      }
     }
   }
   if (psShowsProcessSecrets(line)) hits.add("process environment or arguments (ps)");

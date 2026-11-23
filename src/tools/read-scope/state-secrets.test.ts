@@ -529,3 +529,13 @@ it.each(["cat /proc/self/cmdline", "ps -o args", "/bin/ps aux"])("round2-3 recog
   const stateDir = "/home/operator/.atomic-agent";
   expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
 });
+
+it.each(["cat /proc/self/envir*", "cd /proc/self && cat environ", "find . -name serve-*.key", "cat serve-api.{key,txt}", "cat {serve-api,other}.key", "cat {serve,other}-{api,misc}.key", "cd /proc && cat self/environ"])("round2-4 recognizes %s", (cmd) => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).not.toEqual([]);
+});
+
+it("round2-4 does not classify a bare wildcard outside the state directory", () => {
+  const stateDir = "/home/operator/.atomic-agent";
+  expect(findShellStateSecrets({ cmd: "ls *" }, { workingDir: "/elsewhere" }, { stateDir, files: [stateDir + "/serve-api.key"] }, { home: "/home/operator", platform: "linux" })).toEqual([]);
+});
