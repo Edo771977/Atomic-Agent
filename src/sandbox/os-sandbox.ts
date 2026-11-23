@@ -5,7 +5,7 @@
  * Callers must refuse to spawn when a requested wrapper is unavailable.
  */
 import { randomUUID } from "node:crypto";
-import { accessSync, constants, existsSync, realpathSync, statSync } from "node:fs";
+import { accessSync, constants, existsSync, readdirSync, realpathSync, statSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -59,6 +59,7 @@ export interface OsSandboxPolicy {
   stateDir: string;
   protectedParents: readonly string[];
   home: string;
+  maskedHomes: readonly string[];
   toolchainRoots: readonly string[];
 }
 
@@ -147,8 +148,20 @@ export function buildOsSandboxPolicy(
     // `/tmp` is a link to `/private/tmp` on macOS; both spellings.
     ...(process.platform === "darwin" ? ["/tmp", real("/tmp")] : []),
   ]);
+  let maskedHomes: string[] = [];
   const secret = SECRET_HOME_PATHS.flatMap((p) => bothSpellings(join(home, p)));
   if (process.platform === "linux") {
+    const otherHomes = existsSync("/home") ? readdirSync("/home", { withFileTypes: true })
+      .filter(entry => entry.isDirectory() || entry.isSymbolicLink())
+      .map(entry => join("/home", entry.name)) : [];
+    const accountHomes = readFileSync("/etc/passwd", "utf8").split("\n").flatMap(row => {
+      const [, , uid, , , accountHome] = row.split(":");
+      return Number(uid) >= 1000 && Number(uid) < 65534 && accountHome && accountHome !== "/" && isAbsolute(accountHome)
+        ? [accountHome] : [];
+    });
+    maskedHomes = unique(["/root", ...otherHomes, ...accountHomes].map(real)).filter(path => path !== home && path !== "/");
+    secret.push(...["/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d", ...maskedHomes].flatMap(bothSpellings));
+    if (home === "/root") secret.push("/root");
     const runtime = process.env.XDG_RUNTIME_DIR;
     const sockets = [
       runtime,
@@ -187,7 +200,7 @@ export function buildOsSandboxPolicy(
   const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
     ? [dirname(node)] : [];
   const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
-  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, toolchainRoots };
+  return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -324,6 +337,8 @@ function bwrapArgs(
   if (policy.network && resolver.startsWith("/run/systemd/resolve/") && existsSync(resolver)) {
     out.push("--ro-bind", resolver, resolver);
   }
+  const homeMasks = unique([policy.home, ...policy.maskedHomes]);
+  for (const path of homeMasks) if (path !== policy.home && isDirectory(path)) out.push("--tmpfs", path);
   for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const dir of unique(policy.writableRoots.map(real))) {
     if (dir === "/tmp") continue;
@@ -333,7 +348,7 @@ function bwrapArgs(
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
   out.push("--proc", "/proc");
   for (const path of unique(policy.denyRead.map(real))) {
-    if (!existsSync(path)) continue;
+    if (homeMasks.includes(path) || !existsSync(path)) continue;
     if (isDirectory(path)) out.push("--tmpfs", path);
     else out.push("--ro-bind", "/dev/null", path);
   }
@@ -364,8 +379,7 @@ export function wrapWithOsSandbox(
 ): OsSandboxWrap {
   const platform = options.platform ?? process.platform;
   if (policy.writableRoots.some(root => {
-    const offset = relative(root, policy.home);
-    return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+    return [policy.home, ...policy.maskedHomes].some(home => contains(root, home));
   })) {
     return { ok: false, reason: "a writable workspace root would expose the full host home directory" };
   }

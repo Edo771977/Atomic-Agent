@@ -30,3 +30,5 @@ The host home directory is hidden. The trusted project and the running Node exec
 Each sandboxed command gets a distinct tool cache location. Linux removes its contents when the command’s private temporary filesystem is destroyed.
 
 Commands see existing workspace .git metadata as read-only, including config, hooks and info. For linked Git worktrees, the external metadata stays on the read-only host filesystem. The host Git helpers disable fsmonitor, hooks, credential helpers and configurable SSH/GPG programs in Safe Mode. This does not prevent project scripts or IDE configuration from being changed. Host IDEs and LSP servers can still execute code from projects under their own policies.
+
+On Linux, other conventional home directories, root's home and privileged account and sudo configuration under /etc are hidden. Ordinary system files remain readable to support the installed toolchain. Workspaces inside the agent state are refused. /run, /var/run, /run/lock and /var/tmp use private mounts. The host resolver target under /run/systemd/resolve is exposed read-only only with approved networking.

@@ -289,3 +289,7 @@ it("round 3 point 4: refuses a workspace inside state and passes an explicit chd
   });
   expect(wrapped.ok && wrapped.args.join(" ")).toContain("--chdir /home/op/project");
 });
+
+it("round 3 point 5: protects root home and privileged etc files", () => {
+  expect(policy().denyRead).toEqual(expect.arrayContaining(["/root", "/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d"]));
+});
