@@ -117,7 +117,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     deps.pending.add(abort);
     try {
       const targets = {
-        records: deps.skillRegistry.listAll().map((e) => e.record),
+        records: deps.skillRegistry.listAll().map((e) => e.record).filter(record => record.source === "global"),
         starterNames: await (deps.starterNames ?? listStarterSkillNames)(),
         globalSkillsDir: skillsDir,
         archiveDir: paths.archiveDir,

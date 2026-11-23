@@ -35,6 +35,8 @@ import type { TuiEventBus } from "../tui-app.js";
 import type { HubSkillRow } from "./skills-panel-state.js";
 import { toSkillSummaryRows } from "./skills-summary.js";
 import { runLearnCommand, type LearnCommand } from "../../skills/learning/learn-command.js";
+import { loadSkills } from "../../skills/skill-loader.js";
+import { join } from "node:path";
 import { takenSkillNames } from "../../skills/learning/learn-targets.js";
 import { skillCuratorPaths } from "../../skills/curator/skill-curator-config.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
@@ -385,12 +387,19 @@ export class SkillsOrchestrator {
         if (this.runtime.turnController.isBusy(session.id) || this.runtime.sessionStore.liveFolderTurn(scope.folder)) return "A turn is running in this folder. Wait for it to finish.";
         return undefined;
       },
-      takenNames: async () => takenSkillNames({
-        records: this.runtime.skillRegistry.listAll().map((e) => e.record),
-        starterNames: await listStarterSkillNames(),
-        globalSkillsDir: scope.skillsDir,
-        archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
-      }),
+      takenNames: async () => {
+        const { skills } = await loadSkills({
+          globalDir: paths.globalSkillsDir,
+          projectDir: join(scope.folder, paths.projectSkillsDirName),
+        });
+        const global = this.runtime.skillRegistry.listAll().map(e => e.record).filter(record => record.source === "global");
+        return takenSkillNames({
+          records: [...global, ...skills],
+          starterNames: await listStarterSkillNames(),
+          globalSkillsDir: scope.skillsDir,
+          archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
+        });
+      },
     });
     if (this.currentSession()?.id !== session.id) return;
     this.bus.emit({ type: "system_message", text: result.text });

@@ -93,6 +93,26 @@ describe("createExperienceReviewer", () => {
     expect(await journal()).toEqual([]);
   });
 
+  it("keeps names from the runtime's boot project out of a review in another folder", async () => {
+    const projectDir = join(root, "boot-project");
+    const name = "foreign-project-skill";
+    records = [{
+      manifest: { name, description: "Foreign skill.", version: "1", requiresTools: [], requiresScripts: [], dangerous: false },
+      rootDir: join(projectDir, name), manifestPath: join(projectDir, name, "SKILL.md"), source: "project",
+    }];
+    const prompts: string[] = [];
+    const { reviewer } = rig(undefined, {
+      llmComplete: async ({ prompt }) => {
+        prompts.push(prompt);
+        return completion('{"action":"none","reason":"routine"}');
+      },
+    });
+    expect(reviewer.maybeReview(session(10), { result: reply(10), origin: "tui" })).toBe(true);
+    await reviewer.whenIdle();
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).not.toContain(name);
+  });
+
   it("does not call the model for a short turn", async () => {
     const { reviewer, llmComplete } = rig();
     expect(reviewer.maybeReview(session(9), { result: reply(9), origin: "tui" })).toBe(false);

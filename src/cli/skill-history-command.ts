@@ -1,6 +1,7 @@
 import { learnedSkillScope, learnedTurnRunning, withLearnedDecision } from "../skills/learning/learn-scope.js";
 import { SessionStore } from "../session/session-store.js";
 import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
+import { listEnabledPluginSkills } from "../plugins/plugin-runtime.js";
 import { loadSkills } from "../skills/skill-loader.js";
 import { takenSkillNames } from "../skills/learning/learn-targets.js";
 import { existsSync } from "node:fs";
@@ -62,7 +63,9 @@ export async function handleSkillLearned(args: string[]): Promise<number> {
         finally { store.close(); }
       },
       takenNames: async () => takenSkillNames({
-        records: (await loadSkills({ globalDir: config.paths.globalSkillsDir, projectDir: join(scope.folder, config.paths.projectSkillsDirName) })).skills,
+        records: (await loadSkills({ globalDir: config.paths.globalSkillsDir, projectDir: join(scope.folder, config.paths.projectSkillsDirName),
+          pluginSkills: () => listEnabledPluginSkills(config.paths.stateDir),
+        })).skills,
         starterNames: await listStarterSkillNames(), globalSkillsDir: scope.skillsDir, archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
       }),
     },
