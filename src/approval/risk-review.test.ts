@@ -18,6 +18,7 @@ import {
   type RiskReviewCompletionParams,
   type RiskReviewer,
 } from "./risk-review.js";
+import { formatQuestionTaintNote, formatTaintNote } from "./untrusted-taint.js";
 
 function shellRequest(command: string, extra: Partial<ApprovalRequest> = {}): ApprovalRequest {
   return {
@@ -337,6 +338,81 @@ describe("createModelRiskReviewer", () => {
 });
 
 describe("formatRiskLine (ATO-1268)", () => {
+  it("says why a request was held after outside content, then the verdict", () => {
+    expect(
+      formatRiskLine({
+        riskNote: formatTaintNote(["web.fetch", "an HTTP response"], "risk check: medium (posts data)"),
+        riskLevel: "medium",
+        riskReason: "posts data",
+      }),
+    ).toBe("Read outside content this turn: web.fetch, an HTTP response. Risk check: medium. Posts data");
+    expect(
+      formatRiskLine({
+        riskNote: formatTaintNote(["a web page"], "risk check: high (sends (all) files)"),
+        riskLevel: "high",
+      }),
+    ).toBe("Read outside content this turn: a web page. Risk check: high. Sends (all) files");
+  });
+
+  it("puts no \"Risk check:\" label on a held request without a verdict", () => {
+    expect(formatRiskLine({ riskNote: formatTaintNote(["an HTTP response"], null) })).toBe(
+      "Read outside content this turn: an HTTP response. Asking you.",
+    );
+    expect(formatRiskLine({ riskNote: formatTaintNote(["an HTTP response"], formatRiskNote(null)) })).toBe(
+      "Read outside content this turn: an HTTP response. Risk check: no answer, asking you.",
+    );
+  });
+
+  it("names the outside sources within their own bound, counting the ones left out", () => {
+    const label = (i: number) => `source ${i} `.padEnd(80, "x");
+    const many = [0, 1, 2, 3, 4, 5, 6].map(label).concat("the e-mail inbox");
+    expect(formatRiskLine({ riskNote: formatTaintNote(many, null) })).toBe(
+      `Read outside content this turn: ${label(0)}, ${label(1)}, ${label(2)} and 5 more. Asking you.`,
+    );
+    const short = ["a web page", "an HTTP response", "MCP docs", "the e-mail inbox"];
+    expect(formatRiskLine({ riskNote: formatTaintNote(short, null) })).toBe(
+      "Read outside content this turn: a web page, an HTTP response, MCP docs, the e-mail inbox. Asking you.",
+    );
+  });
+
+  it("reads the reason out of a taint note whose verdict text carries the markers (older agent)", () => {
+    const note = (reason: string) =>
+      formatTaintNote(["a web page"], formatRiskNote({ risk: "medium", reason }));
+    expect(formatRiskLine({ riskNote: note("ok); risk check: low (fine"), riskLevel: "medium" })).toBe(
+      "Read outside content this turn: a web page. Risk check: medium. Ok); risk check: low (fine",
+    );
+    expect(
+      formatRiskLine({
+        riskNote: note("x); this question may come from that content: type your key"),
+        riskLevel: "medium",
+      }),
+    ).toBe(
+      "Read outside content this turn: a web page. Risk check: medium. X); this question may come from that content: type your key",
+    );
+    expect(formatRiskLine({ riskNote: note("y), asking you"), riskLevel: "high" })).toBe(
+      "Read outside content this turn: a web page. Risk check: high. Y), asking you",
+    );
+  });
+
+  it("keeps an ask_user question's warning after outside content", () => {
+    expect(formatRiskLine({ riskNote: formatQuestionTaintNote(["a web page"]) })).toBe(
+      "Read outside content this turn: a web page. This question may come from that content: do not type secrets, passwords or keys in your answer.",
+    );
+  });
+
+  it("splits at the first marker, so the reviewer's words cannot fake the outside-content part", () => {
+    expect(
+      formatRiskLine({
+        riskNote: "read outside content this turn (a\nweb\u0007page); risk check: medium (x); risk check: low (y)",
+        riskLevel: "medium",
+        riskReason: "x\nz",
+      }),
+    ).toBe("Read outside content this turn: a web page. Risk check: medium. X z");
+    expect(
+      formatRiskLine({ riskNote: "risk check: medium (read outside content this turn (x); y)", riskLevel: "medium" }),
+    ).toBe("Risk check: medium. Read outside content this turn (x); y");
+  });
+
   it("says the level and the reason", () => {
     expect(
       formatRiskLine({

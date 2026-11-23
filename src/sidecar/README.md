@@ -19,7 +19,7 @@ Approvals ([approval-payload.ts](approval-payload.ts)): `approval_request` carri
 
 `cancel` (`{sessionId}`) aborts the running `send_message` turn and the ones queued behind it, as the TUI's Esc drops its parked messages; the session stays usable, and a `send_message` sent after the cancel runs normally. It also cancels that session's compaction.
 
-`get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom}`) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
+`get_provider_restriction` (`{sessionId}`) answers the session's per-folder provider restriction (`{label, allowedProviders, folder, readFrom, channelsAllowed}`; `channelsAllowed`: its content may go to a chat channel or phone push) or `null` ([provider policy](../llm/docs/provider-policy.md#status)).
 
 A request's `sessionId` on `compact_session`, `get_compaction`, `get_session`, `get_provider_restriction`, `get_project` and `project_decision` must pass the shared session id check (no `/`, `\`, `..`, leading `.` or control characters, at most 256 characters; issue #74, [session-id.ts](../session/session-id.ts)); any other value fails with `invalid sessionId: …` before the handler looks at the active runtime.
 
