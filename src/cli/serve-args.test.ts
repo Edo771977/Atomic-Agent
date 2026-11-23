@@ -1,4 +1,4 @@
-import { linkSync, chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { readFileSync, linkSync, chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -234,4 +234,20 @@ it.each([
 ])("rejects conflicting --api-key-stdin sources (%j)", ({ flags, environment }) => {
   vi.stubEnv("ATOMIC_AGENT_API_KEY", environment);
   expect(parseError(["--api-key-stdin", ...flags])).toMatch(/cannot be combined/i);
+});
+
+it("refuses deletion without an explicit key file", () => {
+  expect(parseError(["--api-key-file-delete"])).toMatch(/requires --api-key-file/);
+});
+
+it.skipIf(process.platform === "win32")("keeps an invalid file even when deletion is requested", () => {
+  const dir = mkdtempSync(join(tmpdir(), "invalid-delete-key-"));
+  try {
+    const path = join(dir, "key");
+    writeFileSync(path, "short\n", { mode: 0o600 });
+    expect(parseError(["--api-key-file", path, "--api-key-file-delete"])).toMatch(/at least 16/i);
+    expect(readFileSync(path, "utf8")).toBe("short\n");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

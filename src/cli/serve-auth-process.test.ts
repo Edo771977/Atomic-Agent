@@ -7,7 +7,7 @@ import { expect, it } from "vitest";
 
 const key = "synthetic-serve-auth-process-key";
 
-it.skipIf(process.platform !== "linux").each(["environment", "file", "generated", "stdin"] as const)(
+it.skipIf(process.platform !== "linux").each(["environment", "file", "generated", "stdin", "file-delete"] as const)(
   "authenticates a real CLI server using a key from %s",
   async (source) => {
     const stateDir = await mkdtemp(join(tmpdir(), "atag-serve-auth-"));
@@ -21,9 +21,10 @@ it.skipIf(process.platform !== "linux").each(["environment", "file", "generated"
     const path = join(stateDir, "operator.key");
     if (source === "environment") env.ATOMIC_AGENT_API_KEY = key;
     if (source === "stdin") args.push("--api-key-stdin");
-    if (source === "file") {
+    if (source === "file" || source === "file-delete") {
       await writeFile(path, key + "\n", { mode: 0o600 });
       args.push("--api-key-file", path);
+      if (source === "file-delete") args.push("--api-key-file-delete");
     }
     const child = spawn(process.execPath, args, { env, stdio: [source === "stdin" ? "pipe" : "ignore", "ignore", "pipe"] });
     const closed = once(child, "close");
@@ -60,6 +61,7 @@ it.skipIf(process.platform !== "linux").each(["environment", "file", "generated"
         });
         expect(currentInput).not.toBe(originalInput);
       }
+      if (source === "file-delete") await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
       if (source === "file") expect(await readFile(path, "utf8")).toBe(key + "\n");
       expect((await fetch(baseUrl + "/health")).status).toBe(200);
       expect((await fetch(baseUrl + "/v1/models")).status).toBe(401);

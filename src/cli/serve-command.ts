@@ -69,6 +69,12 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 1;
   }
 
+  const keyFileError = parsed.deleteKeyFile?.();
+  if (keyFileError !== undefined) {
+    process.stderr.write("serve: " + keyFileError + "\n");
+    return 1;
+  }
+
   let explicitKey = parsed.apiKey;
   if (parsed.apiKeyFromStdin && !parsed.reapOnly) {
     const input = await readServeKeyFromStdin();

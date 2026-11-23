@@ -4,7 +4,7 @@
  * command file stays about running a server rather than describing one.
  */
 
-import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, unlinkSync, type Stats } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import { resolve } from "node:path";
@@ -27,6 +27,7 @@ export interface ServeArgs {
   apiKeyFromEnvironment: boolean;
   apiKeyFromArgument: boolean;
   apiKeyFromStdin: boolean;
+  deleteKeyFile?: () => string | undefined;
   noApproval: boolean;
   parentPid: number | null;
   noParentExit: boolean;
@@ -57,6 +58,7 @@ export const HELP =
     "                      The file itself cannot be a symlink. Its ancestor directories may be symlinks.",
     "                      Use a path whose directories you control.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
+    "  --api-key-file-delete  Remove the explicit key file after reading it, before runtime startup.",
     "  --api-key-stdin     Read one newline-terminated key from stdin before startup, then close stdin.",
     "                      Cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY.",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
@@ -108,7 +110,20 @@ export const HELP =
     "  POST /api/webhooks/{name}                Deliver a webhook (x-webhook-secret, or a signature per the binding's verify)",
   ].join("\n") + "\n";
 
-function readExplicitKey(path: string): { key: string } | { error: string } {
+function deleteReadKeyFile(path: string, opened: Stats): string | undefined {
+  try {
+    const current = lstatSync(path);
+    if (!current.isFile() || current.nlink !== 1 || current.dev !== opened.dev || current.ino !== opened.ino) {
+      return "--api-key-file-delete refused because the key file changed after reading";
+    }
+    unlinkSync(path);
+    return undefined;
+  } catch {
+    return "--api-key-file-delete could not remove the key file";
+  }
+}
+
+function readExplicitKey(path: string, deleteAfterRead: boolean): { key: string; remove?: () => string | undefined } | { error: string } {
   const permissions = { error: "--api-key-file must be an owner-only regular file (0600 or stricter on POSIX), without symlinks" };
   let fd: number | undefined;
   try {
@@ -122,7 +137,9 @@ function readExplicitKey(path: string): { key: string } | { error: string } {
     if (!opened.isFile() || entry.dev !== opened.dev || entry.ino !== opened.ino) return permissions;
     if (windows ? !hasOwnerOnlyWindowsAcl(path)
       : opened.uid !== process.getuid?.() || (opened.mode & 0o7177) !== 0) return permissions;
-    return validateExplicitKey(readFileSync(fd, "utf8"), "--api-key-file");
+    const result = validateExplicitKey(readFileSync(fd, "utf8"), "--api-key-file");
+    if ("error" in result || !deleteAfterRead) return result;
+    return { ...result, remove: () => deleteReadKeyFile(path, opened) };
   } catch {
     return { error: "could not open --api-key-file as an owner-only file" };
   } finally {
@@ -140,6 +157,7 @@ export function parseArgs(
   let apiKeyProvided = false;
   let apiKeyFromStdin = false;
   let apiKeyFile: string | null = null;
+  let deleteAfterRead = false;
   let noApproval = false;
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
@@ -183,6 +201,9 @@ export function parseArgs(
         apiKeyProvided = true;
         break;
       }
+      case "--api-key-file-delete":
+        deleteAfterRead = true;
+        break;
       case "--api-key-stdin":
         apiKeyFromStdin = true;
         break;
@@ -233,6 +254,10 @@ export function parseArgs(
         return { error: `unknown flag: ${flag}` };
     }
   }
+  if (deleteAfterRead && (apiKeyFile === null || reapOnly)) {
+    return { error: "--api-key-file-delete requires --api-key-file on server startup" };
+  }
+  let deleteKeyFile: ServeArgs["deleteKeyFile"];
   if (apiKeyFromStdin && (apiKeyProvided || apiKeyFile !== null || process.env.ATOMIC_AGENT_API_KEY !== undefined)) {
     return { error: "--api-key-stdin cannot be combined with --api-key, --api-key-file or ATOMIC_AGENT_API_KEY" };
   }
@@ -241,9 +266,10 @@ export function parseArgs(
     return { error: "use either --api-key or --api-key-file" };
   }
   if (apiKeyFile !== null && !reapOnly) {
-    const explicit = readExplicitKey(apiKeyFile);
+    const explicit = readExplicitKey(apiKeyFile, deleteAfterRead);
     if ("error" in explicit) return explicit;
     apiKey = explicit.key;
+    deleteKeyFile = explicit.remove;
   } else if (!apiKeyProvided) {
     const envKey = process.env.ATOMIC_AGENT_API_KEY;
     apiKey = envKey && envKey.length > 0 ? envKey : null;
@@ -289,6 +315,7 @@ export function parseArgs(
     apiKeyFromEnvironment,
     apiKeyFromArgument: apiKeyProvided,
     apiKeyFromStdin,
+    ...(deleteKeyFile === undefined ? {} : { deleteKeyFile }),
     noApproval,
     parentPid,
     noParentExit,
