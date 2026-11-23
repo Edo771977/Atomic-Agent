@@ -55,6 +55,7 @@ interface ImpeccableCheckEvidence {
   impeccableVersion?: string;
   impeccableFindings?: readonly string[];
   impeccableSuppressions?: readonly string[];
+  impeccableExceptions?: readonly string[];
 }
 
 export interface ContractCheckResult extends ImpeccableCheckEvidence {
@@ -534,6 +535,7 @@ function maskResult(
     ...(games === undefined ? {} : { games }),
     ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: maskSecrets(result.impeccableVersion, known) }),
     ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings.map(e => maskSecrets(e, known)) }),
+    ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: result.impeccableExceptions.map(e => maskSecrets(e, known)) }),
     ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions.map(e => maskSecrets(e, known)) }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
     ...(result.screenshotErrors === undefined ? {} : { screenshotErrors: result.screenshotErrors.map((e) => maskSecrets(e, known)) }),
@@ -675,16 +677,17 @@ export async function runContractChecks(
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
-    const findingsBudget = result.impeccableSuppressions?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
-    const suppressionsBudget = result.impeccableFindings?.length ? Math.floor(CHECK_OUTPUT_CHARS / 2) : CHECK_OUTPUT_CHARS;
+    const evidenceCount = [result.impeccableFindings, result.impeccableSuppressions, result.impeccableExceptions].filter(lines => lines?.length).length;
+    const evidenceBudget = Math.floor(CHECK_OUTPUT_CHARS / Math.max(1, evidenceCount));
     return {
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
       ...(run === undefined ? {} : { run }),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
-      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, findingsBudget) }),
-      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, suppressionsBudget) }),
+      ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),
+      ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, evidenceBudget) }),
+      ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: boundedImpeccableLines(result.impeccableExceptions, evidenceBudget) }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
       ...(result.screenshotErrors === undefined || result.screenshotErrors.length === 0 ? {} : { screenshotErrors: [...result.screenshotErrors] }),

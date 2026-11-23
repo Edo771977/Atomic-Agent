@@ -16,6 +16,7 @@ import {
   type ProjectVerdict,
 } from "./session-project.js";
 import { PROJECT_LIMITS } from "./project-limits.js";
+import { applyUiExceptionDecision, matchesUiException, MAX_PROJECT_UI_EXCEPTIONS, readProjectUiExceptions, type ProjectUiException, type ProjectUiExceptionDecision } from "./project-ui-exceptions.js";
 import { withFileLock } from "./project-lock.js";
 
 /**
@@ -76,6 +77,7 @@ export interface ProjectRecord {
   state: ProjectState;
   decisions: ProjectDecisionRecord[];
   lessonCalls?: Record<string, ProjectLessonCall>;
+  uiExceptions?: readonly ProjectUiException[];
 }
 
 const MAX_DECISIONS = 200;
@@ -299,7 +301,7 @@ export interface ProjectRecordStore {
    * the folder's project id: the record's own once it exists (another is
    * `conflict`), the file's when the first record is written.
    */
-  write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }, lessonDecision?: ProjectLessonDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
+  write(folder: string, id: string, baseSeq: number, next: ProjectState, decision?: ProjectDecisionInput & { hash: string }, lessonDecision?: ProjectLessonDecision, uiDecision?: ProjectUiExceptionDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem };
 }
 
 /** Whether `decisions` hold one for this gate at this version (any content). */
@@ -398,7 +400,7 @@ function readDecision(raw: unknown): ProjectDecisionRecord | null {
   };
 }
 
-function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number, lessonDecision?: ProjectLessonDecision): ProjectRecord {
+function nextRecord(current: ProjectRecord | null, folder: string, id: string, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, at: number, lessonDecision?: ProjectLessonDecision, uiDecision?: ProjectUiExceptionDecision): ProjectRecord {
   const seq = (current?.seq ?? 0) + 1;
   // The labels are the record's: only the person's decision at a gate
   // clears it; every other write (a director's redraft) carries them.
@@ -410,6 +412,7 @@ function nextRecord(current: ProjectRecord | null, folder: string, id: string, n
     if (lessonDecision.call === null) delete lessonCalls[lessonDecision.id];
     else lessonCalls[lessonDecision.id] = lessonDecision.call;
   }
+  const uiExceptions = applyUiExceptionDecision(current?.uiExceptions ?? [], uiDecision);
   return {
     version: 1,
     folder,
@@ -417,15 +420,20 @@ function nextRecord(current: ProjectRecord | null, folder: string, id: string, n
     seq,
     state: withChanged(next, kept),
     ...(Object.keys(lessonCalls).length === 0 ? {} : { lessonCalls }),
+    ...(uiExceptions.length === 0 ? {} : { uiExceptions }),
     decisions: decision === undefined ? decisions : [...decisions, { seq, at, ...decision }].slice(-MAX_DECISIONS),
   };
 }
 
-function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (ProjectDecisionInput & { hash: string }) | undefined): ProjectRecordProblem | null {
+function checkWrite(current: ProjectRecord | null, baseSeq: number, decision: (ProjectDecisionInput & { hash: string }) | undefined, uiDecision?: ProjectUiExceptionDecision): ProjectRecordProblem | null {
   if (decision !== undefined && (current?.decisions ?? []).some((d) => sameGate(d.gate, decision.gate) && d.version === decision.version && d.hash === decision.hash)) {
     return { code: "already-decided", message: "That gate was already decided (in another chat); reload the project." };
   }
   if ((current?.seq ?? 0) !== baseSeq) return { code: "conflict", message: "The project's record changed since it was read; reload it." };
+  const exceptions = current?.uiExceptions ?? [];
+  if (uiDecision?.allow && exceptions.length >= MAX_PROJECT_UI_EXCEPTIONS && !exceptions.some(entry => matchesUiException(entry, uiDecision))) {
+    return { code: "unsupported", message: `A project can have at most ${MAX_PROJECT_UI_EXCEPTIONS} approved UI exceptions.` };
+  }
   return null;
 }
 
@@ -471,11 +479,12 @@ function readRecordFile(file: string, stateDir: string): { ok: true; record: Pro
   }
   const state = readState(raw.state, stateDir);
   const lessonCalls = readLessonCalls(raw.lessonCalls);
+  const uiExceptions = readProjectUiExceptions(raw.uiExceptions);
   const decisions = Array.isArray(raw.decisions) ? raw.decisions.map(readDecision) : null;
-  if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || typeof raw.folder !== "string" || typeof raw.id !== "string" || !SAFE_ID.test(raw.id) || state === null || lessonCalls === null || decisions === null || decisions.some((d) => d === null)) {
+  if (!Number.isInteger(raw.seq) || (raw.seq as number) < 1 || typeof raw.folder !== "string" || typeof raw.id !== "string" || !SAFE_ID.test(raw.id) || state === null || lessonCalls === null || uiExceptions === null || decisions === null || decisions.some((d) => d === null)) {
     return { ok: false, problem: { code: "damaged", message: `the record ${file} is damaged` } };
   }
-  return { ok: true, record: { version: 1, folder: raw.folder, id: raw.id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[], ...(Object.keys(lessonCalls).length === 0 ? {} : { lessonCalls }) } };
+  return { ok: true, record: { version: 1, folder: raw.folder, id: raw.id, seq: raw.seq as number, state, decisions: decisions as ProjectDecisionRecord[], ...(Object.keys(lessonCalls).length === 0 ? {} : { lessonCalls }), ...(uiExceptions.length === 0 ? {} : { uiExceptions }) } };
 }
 
 /** The record store under the state dir; `now` for tests. */
@@ -514,18 +523,18 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       if (!r.ok) return r;
       return { ok: true, record: r.record, ...(r.ignored === undefined ? {} : { ignored: r.ignored }) };
     },
-    write(rawFolder, id, baseSeq, next, decision, lessonDecision) {
+    write(rawFolder, id, baseSeq, next, decision, lessonDecision, uiDecision) {
       if (!SAFE_ID.test(id)) throw new Error(`project id ${JSON.stringify(id)} is not a safe file name`);
       const folder = canonicalProjectFolder(rawFolder, platform);
       mkdirSync(dir, { recursive: true });
       // Read, compare and write under a lock beside the record, in the
       // trust-config dir: the folder's own lock serialises the folder's
       // files only, and a command in the folder can remove it.
-      const locked = withFileLock(`${fileOf(folder)}.lock`, () => writeLocked(folder, id, baseSeq, next, decision, lessonDecision), { now });
+      const locked = withFileLock(`${fileOf(folder)}.lock`, () => writeLocked(folder, id, baseSeq, next, decision, lessonDecision, uiDecision), { now });
       return locked.ok ? locked.value : { ok: false, problem: { code: "locked", message: "Another Atomic Agent is writing this project's record; try again." } };
     },
   };
-  function writeLocked(folder: string, id: string, baseSeq: number, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, lessonDecision?: ProjectLessonDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem } {
+  function writeLocked(folder: string, id: string, baseSeq: number, next: ProjectState, decision: (ProjectDecisionInput & { hash: string }) | undefined, lessonDecision?: ProjectLessonDecision, uiDecision?: ProjectUiExceptionDecision): { ok: true; seq: number } | { ok: false; problem: ProjectRecordProblem } {
     {
       const current = readAt(folder);
       if (!current.ok) return current;
@@ -535,9 +544,9 @@ export function stateDirProjectRecords(stateDir: string, now: () => number = Dat
       if (current.record !== null && current.record.id !== id) {
         return { ok: false, problem: { code: "conflict", message: `This folder's project is ${current.record.id}, not ${id}; reload it.` } };
       }
-      const refused = checkWrite(current.record, baseSeq, decision);
+      const refused = checkWrite(current.record, baseSeq, decision, uiDecision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current.record, folder, id, next, decision, now(), lessonDecision);
+      const out = nextRecord(current.record, folder, id, next, decision, now(), lessonDecision, uiDecision);
       const file = fileOf(folder);
       const temp = `${file}.${process.pid}.${randomUUID().slice(0, 8)}.tmp`;
       try {
@@ -559,12 +568,12 @@ export function memoryProjectRecords(now: () => number = Date.now): ProjectRecor
   return {
     records,
     read: (folder) => ({ ok: true, record: records.get(key(folder)) ?? null }),
-    write(folder, id, baseSeq, next, decision, lessonDecision) {
+    write(folder, id, baseSeq, next, decision, lessonDecision, uiDecision) {
       const current = records.get(key(folder)) ?? null;
       if (current !== null && current.id !== id) return { ok: false, problem: { code: "conflict", message: `This folder's project is ${current.id}, not ${id}; reload it.` } };
-      const refused = checkWrite(current, baseSeq, decision);
+      const refused = checkWrite(current, baseSeq, decision, uiDecision);
       if (refused !== null) return { ok: false, problem: refused };
-      const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now(), lessonDecision);
+      const out = nextRecord(current, canonicalProjectFolder(folder), id, next, decision, now(), lessonDecision, uiDecision);
       records.set(key(folder), out);
       return { ok: true, seq: out.seq };
     },

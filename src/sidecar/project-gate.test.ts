@@ -67,6 +67,21 @@ it("forwards project_gate for its session and takes project_decision", async () 
     send("get", "get_project", { sessionId: "chat" });
     expect((await response("get")).payload).toEqual({ sessionId: "chat", view: gate });
 
+    const milestone = fixtureProjectGateView({ kind: "milestone", id: "m1" });
+    const summary = { valid: 1, unsigned: 0, problems: 0 };
+    const evidence = vi.fn(() => summary);
+    Object.defineProperty(milestone.milestones[0], "evidenceReceipts", { get: evidence });
+    view = milestone;
+    send("plain", "get_project", { sessionId: "chat" });
+    expect(JSON.stringify((await response("plain")).payload)).not.toContain("evidenceReceipts");
+    expect(evidence).not.toHaveBeenCalled();
+    send("with-evidence", "get_project", { sessionId: "chat", evidence: true });
+    const serialized = JSON.parse(JSON.stringify((await response("with-evidence")).payload)) as { view: ProjectGateView };
+    expect(serialized.view.milestones[0]?.evidenceReceipts).toEqual(summary);
+    expect(serialized.view.milestones[1]).not.toHaveProperty("evidenceReceipts");
+    expect(evidence).toHaveBeenCalledTimes(1);
+    view = gate;
+
     send("stale", "project_decision", { sessionId: "chat", gate: { kind: "plan" }, version: 2, verdict: "approve" });
     expect(await response("stale")).toEqual({
       ok: true,

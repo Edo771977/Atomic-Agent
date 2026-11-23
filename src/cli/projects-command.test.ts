@@ -277,3 +277,82 @@ describe("project backlog (issue #111)", () => {
     expect(await projectCommand(["backlog", empty], io())).toBe(1);
   });
 });
+
+it("saves and revokes UI exceptions in the record without rewriting the project file", async () => {
+  const folder = folderWithProject("ui");
+  const before = readFileSync(projectFilePath(folder), "utf8");
+  const store = new SessionStore({ dbFile: join(stateDir, "sessions.db") });
+  try {
+    const deps = { ...io(), sessionStore: store };
+    const allow = ["ui-exceptions", folder, "--allow", "low-contrast:index.html", "--reason", "Brand logo"];
+    const chat = projects.prepareTurn(createEmptySessionState({ id: "busy", workingDir: folder }), true);
+    store.save(chat);
+    expect(store.beginTurn(chat.id)).toBe(true);
+    expect(await projectCommand(allow, deps)).toBe(1);
+    store.releaseTurn(chat.id, { status: "completed" });
+    expect(await projectCommand(allow, deps)).toBe(0);
+    expect(stateDirProjectRecords(stateDir).read(folder)).toMatchObject({
+      record: { uiExceptions: [{ rule: "low-contrast", file: "index.html", reason: "Brand logo" }] },
+    });
+    expect(await projectCommand(["ui-exceptions", folder, "--revoke", "low-contrast:index.html"], deps)).toBe(0);
+    expect(readFileSync(projectFilePath(folder), "utf8")).toBe(before);
+    const privateFolder = join(root, "private");
+    mkdirSync(privateFolder);
+    expect(projects.commit(createEmptySessionState({ id: "private", workingDir: privateFolder,
+      incognito: { since: Date.now(), owner: "test" } }), { gate: { kind: "none" }, milestones: [] }).ok).toBe(true);
+    expect(await projectCommand(["ui-exceptions", privateFolder, ...allow.slice(2)], deps)).toBe(1);
+  } finally {
+    store.close();
+  }
+});
+
+it.each([
+  ["ui-exceptions", "--allow", "low-contrast", "--reason", "Logo"],
+  ["ui-exceptions", "--revoke", "low-contrast"],
+  ["lessons", "--approve", "lesson@0123456789ab"],
+  ["lessons", "--retire", "lesson"],
+  ["lessons", "--reopen", "lesson"],
+  ["backlog", "--promote", "b1"],
+  ["backlog", "--drop", "b1"],
+  ["backlog", "--reopen", "b1"],
+])("refuses agent child CLI decisions for %s %s", async (sub, ...args) => {
+  const output = io();
+  const previous = process.env.ATOMIC_AGENT_TOOL_CHILD;
+  process.env.ATOMIC_AGENT_TOOL_CHILD = "";
+  try {
+    expect(await projectCommand([sub, join(root, "other-project"), ...args], output)).toBe(1);
+    expect(output.err()).toContain("operator's own terminal");
+  } finally {
+    if (previous === undefined) delete process.env.ATOMIC_AGENT_TOOL_CHILD;
+    else process.env.ATOMIC_AGENT_TOOL_CHILD = previous;
+  }
+});
+
+it("keeps the project record unchanged on a missing revoke and rejects a flag as a reason", async () => {
+  const folder = folderWithProject("missing-exception");
+  const records = stateDirProjectRecords(stateDir);
+  const before = records.read(folder);
+  const output = io();
+  expect(await projectCommand(["ui-exceptions", folder, "--revoke", "missing"], output)).toBe(0);
+  expect(output.out()).toContain("No matching approved UI exception");
+  expect(records.read(folder)).toEqual(before);
+  expect(await projectCommand(["ui-exceptions", folder, "--allow", "missing", "--reason", "--json"], output)).toBe(2);
+  expect(records.read(folder)).toEqual(before);
+});
+
+it("bounds new UI approvals and lets the operator update an existing one at the limit", async () => {
+  const { memoryProjectRecords } = await import("../session/project-decisions.js");
+  const records = memoryProjectRecords();
+  const state = { gate: { kind: "none" as const }, milestones: [] };
+  for (let index = 0; index < 200; index++) {
+    expect(records.write(root, "ui", index, state, undefined, undefined, {
+      allow: true, rule: "rule-" + index, reason: "Fixture",
+    }).ok).toBe(true);
+  }
+  expect(records.write(root, "ui", 200, state, undefined, undefined, {
+    allow: true, rule: "overflow", reason: "Fixture",
+  })).toMatchObject({ ok: false });
+  expect(records.write(root, "ui", 200, state, undefined, undefined, {
+    allow: true, rule: "rule-0", reason: "Updated",
+  }).ok).toBe(true);
+});

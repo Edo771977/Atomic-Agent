@@ -3,8 +3,7 @@
  * the TUI card and `/plan`, the CLI's printed gate, the HTTP route, the
  * sidecar's `project_gate` event (the desktop card) and the Telegram text
  * all render this one shape, so they cannot disagree about what is being
- * approved. Types only, here so every surface may import them; the
- * runtime builds the view with `projectGateView`
+ * approved. The runtime builds the view with `projectGateView`
  * (`tools/fusion/project-gate-view.ts`) from `SessionState.project`
  * ([session-project.ts](session-project.ts)) and the live estimates, and
  * announces it as the `project_gate` event.
@@ -233,4 +232,17 @@ export interface ProjectGateViolation {
   message: string;
   milestoneId?: string;
   taskId?: string;
+}
+
+/** Materialize the active milestone's lazy summary for an opt-in wire response. */
+export function withProjectGateEvidence(view: ProjectGateView): ProjectGateView {
+  if (view.gate.kind !== "milestone") return view;
+  const { id } = view.gate;
+  const milestone = view.milestones.find(m => m.id === id);
+  const evidenceReceipts = milestone?.evidenceReceipts;
+  if (evidenceReceipts === undefined) return view;
+  return {
+    ...view,
+    milestones: view.milestones.map(m => m === milestone ? { ...m, evidenceReceipts } : m),
+  };
 }

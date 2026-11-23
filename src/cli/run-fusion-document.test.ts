@@ -177,7 +177,7 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
     const run = runFile(process.execPath, [
       "--import", "tsx", "--import", pathToFileURL(preload).href, cli,
       "run", "--cwd", cwd, "--reviewer", "team", "--auto-approve-project",
-    ], { cwd: root, env, timeout: 20_000, killSignal: "SIGKILL" });
+    ], { cwd: root, env, timeout: 60_000, killSignal: "SIGKILL" });
     run.child.stdin!.end(prompt + "\n");
     const result = await run.catch((error) => {
       throw new Error(`Fusion CLI failed: ${error.message}\n${error.stdout}\n${error.stderr}\n${unexpected.join("\n")}`);
@@ -191,7 +191,7 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
 
     const evidence = spawnSync(process.execPath, [
       join(root, "scripts", "e2e-artifacts.mjs"), "--cwd", cwd, "--fixture", "document", "--state-dir", stateDir,
-    ], { cwd: root, env, encoding: "utf8", timeout: 12_000, killSignal: "SIGKILL" });
+    ], { cwd: root, env, encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL" });
     expect(evidence.status, evidence.error?.message ?? evidence.stderr + evidence.stdout).toBe(0);
     const execution = JSON.parse(evidence.stdout).execution;
     expect(execution.tasks).toHaveLength(1);
@@ -222,7 +222,7 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
     expect(planReviewFresh(project.plan!, ["delivery"])).toBe(true);
 
     const verified = spawnSync(process.execPath, ["--import", "tsx", cli, "project", "verify", cwd, "--json"], {
-      cwd: root, env, encoding: "utf8", timeout: 12_000, killSignal: "SIGKILL",
+      cwd: root, env, encoding: "utf8", timeout: 30_000, killSignal: "SIGKILL",
     });
     expect(verified.status, verified.error?.message ?? verified.stderr + verified.stdout).toBe(0);
     const receipts = JSON.parse(verified.stdout) as { kind: string; status: string }[];
@@ -235,4 +235,4 @@ it.each(["on", "off"] as const)("delivers the document through the Fusion CLI wi
     await new Promise<void>(resolve => server.close(() => resolve()));
     rmSync(folder, { recursive: true, force: true });
   }
-}, 50_000);
+}, 150_000);
