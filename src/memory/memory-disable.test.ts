@@ -123,6 +123,17 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(notes.recall("allergic").map((e) => e.id)).toEqual([off.id]);
   });
 
+  it("keeps room for active dedup candidates", () => {
+    const notes = notesStore({ dedup: { enabled: true } });
+    for (const topic of ["coffee", "cars", "trains", "boats", "houses", "bikes"]) {
+      const note = notes.store({ content: `the user collects vintage ${topic}`, tags: [topic] });
+      notes.setDisabled(note.id, true);
+    }
+    const active = notes.store({ content: "the user prefers paper notebooks" });
+    expect(notes.store({ content: "the user prefers paper notebooks!" }).id).toBe(active.id);
+    expect(notes.store({ content: "the user prefers paper notebooks." }).id).toBe(active.id);
+  });
+
   it("does not relearn a turned-off note", () => {
     const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.5 } });
     const off = notes.store({ content: "the user prefers dark roast coffee" });

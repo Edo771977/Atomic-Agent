@@ -500,9 +500,10 @@ export class MemoryStore {
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
+          AND (m.disabled_at IS NOT NULL) = ?
           AND (m.disabled_at IS NOT NULL OR (m.consolidated_into IS NULL AND NOT ${supersededSql("m.tags")}))
           AND memory_scope_same(m.constraint_scope)
-        ORDER BY (m.disabled_at IS NOT NULL) DESC, score ASC
+        ORDER BY score ASC
         LIMIT 5`,
     );
   }
@@ -659,7 +660,7 @@ export class MemoryStore {
     };
     let candidates: CandidateRow[];
     try {
-      candidates = this.dedupCandidateStmt.all(ftsQuery) as CandidateRow[];
+      candidates = [...this.dedupCandidateStmt.all(ftsQuery, 1), ...this.dedupCandidateStmt.all(ftsQuery, 0)] as CandidateRow[];
     } catch {
       // Malformed FTS query degrades to "no candidates"; the write
       // proceeds as a fresh INSERT rather than failing the call.
@@ -677,7 +678,10 @@ export class MemoryStore {
         tokens,
         tokeniseForSimilarity(row.content),
       );
-      if (row.disabled_at !== null && score >= this.dedupThreshold) return this.get(row.id);
+      if (row.disabled_at !== null) {
+        if (score >= this.dedupThreshold) return this.get(row.id);
+        continue;
+      }
       if (best === null || score > best.score) {
         best = { id: row.id, score, row };
       }
