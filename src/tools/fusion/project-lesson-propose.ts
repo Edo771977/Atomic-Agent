@@ -40,10 +40,10 @@ export function buildProjectLessonTool(options: FsDangerousToolOptions & { trust
     description: "Save a new project lesson proposal for the person to review.",
     readonly: false,
     async run(args, ctx) {
-      if (ctx.project === undefined || ctx.project.cancelledAt !== undefined || ctx.incognito) {
+      if (ctx.projectRef === undefined || ctx.project === undefined || ctx.project.cancelledAt !== undefined || ctx.incognito) {
         return error(new Error("Lesson proposals require an open, non-incognito project."));
       }
-      const folder = resolve(ctx.projectRef?.folder ?? ctx.workingDir);
+      const folder = resolve(ctx.projectRef.folder);
       if (isTooBroadScope(folder) || folder !== resolve(ctx.workingDir)) return error(new Error("Run this tool from the project folder."));
       let draft: ReturnType<typeof proposal>;
       let path: string;

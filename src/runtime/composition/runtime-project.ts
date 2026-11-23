@@ -371,7 +371,7 @@ export function createRuntimeProject(deps: RuntimeProjectDeps): RuntimeProject {
       const next = view(saved, decided);
       const hints: string[] = [];
       const gate = decision.gate;
-      if (gate.kind === "milestone" && !isIncognitoSession(saved)) {
+      if (gate.kind === "milestone" && saved.projectRef !== undefined && !isIncognitoSession(saved)) {
         const milestone = project?.milestones.find(m => m.id === gate.id);
         if (milestone !== undefined && actor === "person" && (decision.verdict === "edit" || decision.verdict === "approveOverReview")) {
           hints.push(lessonProposalHint("correction", milestone));

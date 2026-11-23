@@ -842,7 +842,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         [
           `Milestone ${report.id} reported ${report.state}.`,
           ...lines,
-          ...(report.state === "failed" && milestone !== undefined && !ctx.incognito ? [lessonProposalHint("milestone-failure", milestone)] : []),
+          ...(report.state === "failed" && milestone !== undefined && ctx.projectRef !== undefined && !ctx.incognito ? [lessonProposalHint("milestone-failure", milestone)] : []),
           "Now reply to the person with the result: they approve it (the next milestone starts), correct it or cancel. Do not start the next milestone yourself.",
         ].join(" "),
         { ...report, ...(reportNotes.length === 0 ? {} : { reportNotes }) },

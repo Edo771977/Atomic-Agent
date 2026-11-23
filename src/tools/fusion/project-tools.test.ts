@@ -465,7 +465,7 @@ it("reports matching changed paths as advisory notes without editing the directo
 
 it("invites a lesson proposal after a failed milestone report", async () => {
   const project = { milestones: [{ id: "m1", runIds: ["r1"] }] } as unknown as ProjectState;
-  const failed = await tools().milestone.run({ id: "m1", state: "failed", summary: "Could not finish" }, { ...ctx, project });
+  const failed = await tools().milestone.run({ id: "m1", state: "failed", summary: "Could not finish" }, { ...ctx, project, projectRef: { folder: ctx.workingDir, id: "p" } });
   expect(failed.summary).toMatch(/project\.lesson\.propose.*milestone-failure.*milestone m1, run r1/);
 });
 

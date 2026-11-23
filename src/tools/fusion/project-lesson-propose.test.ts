@@ -12,10 +12,11 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
     const request = vi.fn().mockResolvedValueOnce({ approved: false, reason: "denied" }).mockResolvedValue({ approved: true });
     const tool = buildProjectLessonTool({ approvalRequired: true, approvals: { request, fanoutScopes: { allows: () => false } } as never });
     expect(wouldRefuse(tool.name, { registry: { has: () => true, get: () => tool } })).toBe(false);
-    const ctx = { workingDir: folder, sessionId: "s1", project: { milestones: [] } } as never;
+    const ctx = { workingDir: folder, sessionId: "s1", projectRef: { folder, id: "p" }, project: { milestones: [{ id: "m1", runIds: ["r1"], corrections: [{ note: "Use existing dependencies.", at: 1 }] }] } } as never;
     const args = { id: "no-deps", title: "No new dependencies", source: "correction",
       from: "milestone m1, run r1", touches: ["package.json"], always: false,
       decided: "Use the existing dependencies.", triedAndRuledOut: "", watchOut: "" };
+    expect((await tool.run(args, { ...(ctx as object), projectRef: undefined } as never)).status).toBe("error");
     await expect(tool.run(args, ctx)).rejects.toThrow("denied");
     expect(readProjectLessons(folder).lessons).toEqual([]);
     const result = await tool.run(args, ctx);
