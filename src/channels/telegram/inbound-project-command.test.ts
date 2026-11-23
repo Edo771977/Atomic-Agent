@@ -366,6 +366,25 @@ describe("Telegram project gate", () => {
     expect(readFileSync(path, "utf8")).toBe("{bad json");
   });
 
+  it("bounds lesson listing and reports omitted touches and lessons", async () => {
+    await openLessons();
+    const folder = join(dir, ".atomic", "project", "lessons");
+    const original = readFileSync(join(folder, "storage.md"), "utf8");
+    const paths = ["first", "second", "third", "fourth", "fifth"].map((part) => "src/" + part + "/" + "x".repeat(750));
+    for (let i = 0; i < 30; i++) {
+      const id = "lesson-" + String(i).padStart(2, "0");
+      writeFileSync(join(folder, id + ".md"), original.replace("id: storage", "id: " + id).replace("src/storage", paths.join(", ")));
+    }
+    const start = sent.length;
+    await say("/lessons");
+    const chunks = sent.slice(start);
+    const list = chunks.join("\n");
+    expect(chunks.length).toBeLessThanOrEqual(3);
+    expect(list).toMatch(/src\/first.*src\/second.*src\/third.*\+2/);
+    expect(list).not.toContain("src/fourth");
+    expect(list).toMatch(/\+[1-9]\d* lessons: use the CLI/i);
+  });
+
   it("refuses a changed file and a proposed lesson", async () => {
     const record = await openLessons();
     const { confirm } = await previewLesson("/lesson_approve");

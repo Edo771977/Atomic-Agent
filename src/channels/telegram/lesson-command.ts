@@ -14,6 +14,10 @@ import { confirmationCode } from "./confirmation-code.js";
 // Every prompt projection includes at most 300 UTF-16 units per section.
 const MAX_APPROVAL_SECTION_CHARS = 600;
 
+const MAX_LIST_LESSONS = 8;
+const MAX_LIST_DIAGNOSTICS = 6;
+const MAX_LIST_TOUCHES = 3;
+
 const CALLS = { "/lesson_approve": "approved", "/lesson_retire": "retired", "/lesson_reopen": null } as const;
 type PlanLessonCommand = "/lesson_defer" | "/lesson_activate";
 export type LessonCommand = "/lessons" | keyof typeof CALLS | PlanLessonCommand;
@@ -25,23 +29,41 @@ interface LessonCommandDeps {
   busy: boolean;
 }
 
-function lessonLine(lesson: ProjectLesson, call?: ProjectLessonCall, recordAvailable = true): string {
+function listExcerpt(text: string, maxChars: number): string {
+  return excerptPreview(text, { maxLines: 1, maxChars }).lines[0] ?? "";
+}
+
+function lessonLine(lesson: ProjectLesson, call?: ProjectLessonCall, recordAvailable = true, compact = false): string {
   const status = projectLessonStatus(lesson, call);
   const effective = !recordAvailable ? "unknown" : status.effectiveStatus === "active" ? "approved" : status.effectiveStatus;
   const stale = status.stale ? " (stale choice)" : "";
-  return visiblePreviewLine(
-    `${lesson.id} — ${lesson.title} [declared: ${lesson.declaredStatus}, effective: ${effective}${stale}, always: ${lesson.always}, touches: ${JSON.stringify(lesson.touches)}]`,
-  );
+  const title = compact ? listExcerpt(lesson.title, 160) : visiblePreviewLine(lesson.title);
+  const shownTouches = compact ? lesson.touches.slice(0, MAX_LIST_TOUCHES) : lesson.touches;
+  const touches = shownTouches.map((path) => {
+    const quoted = JSON.stringify(path);
+    return compact ? listExcerpt(quoted, 120) : visiblePreviewLine(quoted);
+  }).join(", ");
+  const more = lesson.touches.length - shownTouches.length;
+  const omitted = more === 0 ? "" : `, +${more}`;
+  return `${lesson.id} — ${title} [declared: ${lesson.declaredStatus}, effective: ${effective}${stale}, always: ${lesson.always}, touches: [${touches}${omitted}]]`;
 }
 
 function renderLessons({ lessons, problems }: ProjectLessons, calls: Record<string, ProjectLessonCall>, recordAvailable = true): string {
   const missing = Object.entries(calls).filter(([id]) => !lessons.some((lesson) => lesson.id === id));
   if (lessons.length + problems.length + missing.length === 0) return "No project lessons found.";
+  const diagnostics = [
+    ...missing.map(([id, call]) => `Stale ${call.state} choice for ${id}. The file is missing or invalid.`),
+    ...problems.map(({ file, reason }) => `Skipped ${JSON.stringify(file)}: ${reason}`),
+  ];
+  const otherLessons = lessons.length - MAX_LIST_LESSONS;
+  const otherDiagnostics = diagnostics.length - MAX_LIST_DIAGNOSTICS;
   return [
     "Project lessons",
-    ...lessons.map((lesson) => lessonLine(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined, recordAvailable)),
-    ...missing.map(([id, call]) => `Stale ${call.state} choice for ${id}. The file is missing or invalid.`),
-    ...problems.map(({ file, reason }) => visiblePreviewLine(`Skipped ${JSON.stringify(file)}: ${reason}`)),
+    ...lessons.slice(0, MAX_LIST_LESSONS).map((lesson) =>
+      lessonLine(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined, recordAvailable, true)),
+    ...(otherLessons > 0 ? [`+${otherLessons} lessons: use the CLI for the full list.`] : []),
+    ...diagnostics.slice(0, MAX_LIST_DIAGNOSTICS).map((line) => listExcerpt(line, 240)),
+    ...(otherDiagnostics > 0 ? [`+${otherDiagnostics} diagnostics: use the CLI for the full list.`] : []),
     "Use /lesson_approve, /lesson_retire or /lesson_reopen with a lesson ID to preview a choice.",
   ].join("\n");
 }
