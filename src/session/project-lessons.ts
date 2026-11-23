@@ -375,8 +375,8 @@ export function projectLessonStatus(lesson: ProjectLesson, call?: ProjectLessonC
   return { personState, approvedByPerson, effectiveStatus, stale } as const;
 }
 
-export function projectLessonFingerprint(lesson: ProjectLesson): string {
-  return lesson.hash.slice(0, 12);
+export function projectLessonFingerprint({ hash }: Pick<ProjectLesson, "hash">): string {
+  return hash.slice(0, 12);
 }
 
 export function prepareProjectLessonDecision(

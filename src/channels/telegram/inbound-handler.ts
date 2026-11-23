@@ -1,5 +1,6 @@
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import { runBacklogCommand } from "./backlog-command.js";
+import { runLessonCommand } from "./lesson-command.js";
 import { PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 import { projectGateNotice, runDecisionStatusCommand, runProjectCommand } from "./project-command.js";
 import {
@@ -307,6 +308,8 @@ function helpText(ctx: InboundContext): string {
     "  /model — show the provider and model in use; /model <provider> [model-id] switches\n" +
     "  /plan — the fusion project gate waiting on you; /plan approve <version> or /plan cancel decides it\n" +
     "  /defer <id> or /reactivate <id> — review a status change for a decision at the project plan gate\n" +
+    "  /lessons — list project lessons; /lesson_approve, /lesson_retire or /lesson_reopen <id> previews a choice\n" +
+    "  /lesson_defer <id> or /lesson_activate <id> — preview a binding lesson's status change at the plan gate\n" +
     "  /backlog — list the project's backlog; /promote <id>, /drop <id> or /reopen <id> previews a change\n" +
     "  /defer <backlog-id> or /activate <backlog-id> — preview a promoted item's status change at the plan gate\n" +
     "  /cron — list scheduled tasks; /cron add <cron> <task>, /cron pause|resume|delete <id> (/cron help)\n" +
@@ -802,7 +805,13 @@ async function handleSlashCommand(
     case "/backlog":
     case "/promote":
     case "/drop":
-    case "/reopen": {
+    case "/reopen":
+    case "/lessons":
+    case "/lesson_approve":
+    case "/lesson_retire":
+    case "/lesson_reopen":
+    case "/lesson_defer":
+    case "/lesson_activate": {
       // Issue #39: the fusion project gate's text fallback.
       const sessionId = ctx.sessionPointer.get(ref.key).current;
       if (sessionId && channelSendWithheld(ctx.runtime, sessionId)()) {
@@ -814,6 +823,18 @@ async function handleSlashCommand(
         sessionId: sessionId ?? null,
         busy: ctx.inflight.has(ref.key),
       };
+      if (verb === "/lessons" || verb === "/lesson_approve" || verb === "/lesson_retire" ||
+          verb === "/lesson_reopen" || verb === "/lesson_defer" || verb === "/lesson_activate") {
+        const result = runLessonCommand(verb, rest, { ...deps, chatKey: ref.key });
+        if (typeof result === "string") {
+          await sendText(ctx, ref.target, result);
+        } else if (await sendText(ctx, ref.target, result.preview)) {
+          if (!sessionId || !channelSendWithheld(ctx.runtime, sessionId)()) {
+            await sendText(ctx, ref.target, result.confirmation);
+          }
+        }
+        return;
+      }
       const deferId = verb === "/defer" ? normalizeCriterionId(rest[0]) : null;
       const view = deferId !== null && sessionId ? ctx.runtime.projectState?.(sessionId) : undefined;
       const deferBacklog = deferId !== null && (
@@ -1350,7 +1371,7 @@ async function sendText(
   target: TelegramTarget,
   text: string,
   parseMode: TelegramParseMode = "plain",
-): Promise<void> {
+): Promise<boolean> {
   const result = await sendOutbound({
     api: ctx.api,
     chatId: target.chatId,
@@ -1362,4 +1383,5 @@ async function sendText(
   if (result.chunks > result.dropped) {
     ctx.onMessageSent?.(result.chunks - result.dropped);
   }
+  return result.dropped === 0;
 }
