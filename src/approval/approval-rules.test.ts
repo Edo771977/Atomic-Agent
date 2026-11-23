@@ -422,3 +422,11 @@ it.each(["deny", "ask"] as const)("applies a shell %s without a command prefix t
   const rule = { id: "shell-policy", decision, tool: "verify.run", category: "shell", source: "user", createdAt: "2026-11-22" } as const;
   expect(matchRules([rule], { tool: "verify.run", category: "verify_ui_detector" })?.decision).toBe(decision);
 });
+
+it.each(["url-data:", "url-visit:"])("keeps origin denies across the %s approval namespace", (prefix) => {
+  const origin = "https://example.com";
+  const request = { ...shell([]), tool: "os.http.request", category: "http_write" as const, grantKey: prefix + origin };
+  expect(matchRules([rule({ decision: "deny", category: "http_write", origin })], request)?.decision).toBe("deny");
+  expect(matchRules([rule({ decision: "allow", category: "http_write", origin })], request)).toBeNull();
+  expect(matchRules([rule({ decision: "deny", category: "http_write", origin: origin + ":8443" })], request)).toBeNull();
+});
