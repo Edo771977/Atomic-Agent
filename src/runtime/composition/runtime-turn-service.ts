@@ -269,7 +269,11 @@ export function createRuntimeTurnService(
    * active provider inside `resolveActiveLlmSlice` — for a fusion worker
    * that means silently running on the cloud leg.
    */
-  const assertKnownProvider = (providerId: string | undefined, model?: string, fusionWorker = false): void => {
+  const assertKnownProvider = (
+    providerId: string | undefined,
+    model: string | undefined,
+    worker: ReturnType<typeof readFusionWorkerMeta>,
+  ): void => {
     if (providerId === undefined) {
       if (model !== undefined) {
         throw new Error("a per-turn model needs the provider it runs on (providerId)");
@@ -284,7 +288,12 @@ export function createRuntimeTurnService(
     if (model === undefined) return;
     // Project pins are cloud-only. Internal Fusion workers can also
     // request a model from a local OpenAI-compatible server.
-    const refusal = perTurnModelRefusal(resolveLlmConfig(getConfig()), providerId, model, { fusionWorker });
+    // Validate before borrowing the team into the worker's own scope.
+    const teamChoice = worker === null ? undefined : deps.inference.sessionTeam?.get(worker.parentSessionId);
+    const refusal = perTurnModelRefusal(resolveLlmConfig(getConfig()), providerId, model, {
+      fusionWorker: worker !== null,
+      ...(teamChoice === undefined ? {} : { teamChoice }),
+    });
     if (refusal !== null) throw new Error(refusal);
   };
 
@@ -714,7 +723,7 @@ export function createRuntimeTurnService(
         };
       }
     }
-    assertKnownProvider(runOptions.providerId, runOptions.model, readFusionWorkerMeta(session.metadata) !== null);
+    assertKnownProvider(runOptions.providerId, runOptions.model, readFusionWorkerMeta(session.metadata));
     // A fusion worker session is throwaway: no recorder, no trace pin, no
     // memory, and — at the end — no save. The parent session's turn
     // owns the durable record of what the worker did.
@@ -1199,7 +1208,7 @@ export function createRuntimeTurnService(
     }
     // Before the queue, so a bad pin rejects now rather than after
     // waiting behind whatever is running on the session.
-    assertKnownProvider(runOptions.providerId, runOptions.model, readFusionWorkerMeta(session.metadata) !== null);
+    assertKnownProvider(runOptions.providerId, runOptions.model, readFusionWorkerMeta(session.metadata));
     const origin = runOptions.origin ?? "cli";
     // A remote chat sends the reply (and progress) off this machine: in a
     // constrained folder it needs "channels" in allowedEgress (issue #33).

@@ -92,3 +92,19 @@ it("allows a configured local OpenAI-compatible model for Fusion workers only", 
   expect(perTurnModelRefusal(local, "studio", "unknown", { fusionWorker: true })).toMatch(/not known/);
   expect(perTurnModelRefusal(local, "llama", "worker-model", { fusionWorker: true })).toMatch(/cloud providers only/);
 });
+
+it("validates a Fusion worker pin using its parent session's director", () => {
+  const config: ResolvedLlmConfig = {
+    ...resolved, activeTextProvider: "router",
+    providers: [...resolved.providers, {
+      id: "studio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", defaultChatModel: "base",
+    }],
+    runMode: { mode: "fusion", fusion: {
+      orchestratorProvider: "compat", workerProvider: "studio", workerModel: "session-worker",
+    } },
+  };
+  const teamChoice = { director: { providerId: "compat", model: "base-model", ref: "compat:base-model" } };
+  expect(perTurnModelRefusal(config, "studio", "session-worker", { fusionWorker: true })).toMatch(/not known/);
+  expect(perTurnModelRefusal(config, "studio", "session-worker", { fusionWorker: true, teamChoice })).toBeNull();
+  expect(perTurnModelRefusal(config, "studio", "other-unknown", { fusionWorker: true, teamChoice })).toMatch(/not known/);
+});

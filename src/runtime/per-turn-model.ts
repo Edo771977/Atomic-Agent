@@ -2,7 +2,7 @@ import { isLocalServerUrl } from "../llm/provider/openai/local-server-url.js";
 import { getCachedOpenAiCompatModelsForBaseUrl } from "../llm/provider/openai/fetch-openai-compat-models.js";
 import { getCachedGeminiModelsForPanel } from "../llm/provider/gemini/fetch-gemini-models.js";
 import type { LlmProviderConfigEntry, ResolvedLlmConfig } from "../llm/provider/registry/provider-types.js";
-import { resolveRunMode } from "../llm/run-mode/resolve-run-mode.js";
+import { resolveRunMode, type ResolveRunModeOptions } from "../llm/run-mode/resolve-run-mode.js";
 import { teamMembers } from "../llm/run-mode/fusion-team.js";
 import { resolveModelPricingFor } from "./resolve-model-pricing.js";
 
@@ -17,7 +17,7 @@ export function perTurnModelRefusal(
   resolved: ResolvedLlmConfig,
   providerId: string,
   model: string,
-  options: { fusionWorker?: boolean } = {},
+  options: { fusionWorker?: boolean; teamChoice?: ResolveRunModeOptions } = {},
 ): string | null {
   if (model.trim().length === 0 || /[\r\n\x00]/.test(model)) {
     return "a per-turn model must be a model id";
@@ -29,7 +29,7 @@ export function perTurnModelRefusal(
     return `"${providerId}" is a local model, which is shared by all projects; a per-turn model works on cloud providers only`;
   }
   if (options.fusionWorker) {
-    const mode = resolveRunMode(resolved);
+    const mode = resolveRunMode(resolved, options.teamChoice);
     if (mode.effective === "fusion" && (
       (mode.workerProviderId === providerId && mode.workerPinModel === model) ||
       (mode.orchestratorProviderId === providerId && mode.orchestratorPinModel === model) ||
