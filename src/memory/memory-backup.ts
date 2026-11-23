@@ -40,8 +40,9 @@ export function defaultBackupDir(stateDir: string, now = new Date()): string {
 export const MEMORY_RESTORE_INSTRUCTIONS = [
   "Atomic Agent memory backup.",
   "",
-  "Run this command from inside this backup directory:",
+  "Preview the restore from inside this backup directory:",
   "  atomic-agent memory restore --from .",
+  "Repeat with --yes to confirm.",
   "",
   "The command merges notes and active profile facts, keeping existing entries.",
   "It does not bring back lessons, procedures, votes or note links.",
@@ -219,8 +220,7 @@ class RestorePreview {
 }
 
 function archiveText(value: unknown): void {
-  if (typeof value === "string" && (!value.isWellFormed()
-    || /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/u.test(value)
+  if (typeof value === "string" && (/[\p{Cs}\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F\uFFFD]/u.test(value)
     || value.search(PROJECT_LESSON_INVISIBLE_CHARACTERS) !== -1)) {
     throw new MemoryBackupError("invalid text");
   }

@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, truncateSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -201,6 +201,25 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(db.prepare("SELECT source, tags FROM memories WHERE content = 'valid note'").get()).toEqual({ source: "agent", tags: '["topic"]' });
     expect(db.prepare("SELECT name_grounding FROM profile_facts WHERE key = 'name'").pluck().get()).toBeNull();
     db.close();
+  });
+
+  it("bounds the archive file size and row count before creating the live database", () => {
+    new MemoryStore({ dbFile, maxEntries: 10 }).close();
+    const target = { memoryDbFile: join(dir, "target.sqlite") };
+    const originalSize = statSync(dbFile).size;
+    truncateSync(dbFile, 128 * 1024 * 1024 + 1);
+    expect(() => restoreMemoryBackup(target, dir)).toThrow(/restore size limit/);
+    truncateSync(dbFile, originalSize);
+
+    const archive = new Database(dbFile);
+    archive.exec(`
+      WITH RECURSIVE i(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM i WHERE n < 50001)
+      INSERT INTO profile_facts (key, value, valid_from, created_at, updated_at)
+      SELECT 'city-' || n, 'Rome', 1, 1, 1 FROM i
+    `);
+    archive.close();
+    expect(() => restoreMemoryBackup(target, dir)).toThrow(/restore row limit/);
+    expect(existsSync(target.memoryDbFile)).toBe(false);
   });
 
   it("rejects malformed archive metadata without importing it", async () => {

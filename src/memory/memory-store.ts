@@ -1654,7 +1654,8 @@ export class MemoryValidationError extends Error {
       | "sessionId"
       | "workingDir"
       | "k"
-      | "limit",
+      | "limit"
+      | "offset",
     message: string,
   ) {
     super(message);
