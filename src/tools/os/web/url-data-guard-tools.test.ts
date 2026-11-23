@@ -205,3 +205,25 @@ it("a chat grant for a strict visit leaves a subsequent POST body subject to app
   await expect(tool.run({ url: PLAIN_URL, method: "POST", body: "{}" }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
   expect(asked.map((request) => request.grantKey)).toEqual(["url-visit:https://docs.example", "https://docs.example"]);
 });
+
+it.each([
+  ["https://github.com/org/repo/releases/download/v1/file", "https://release-assets.githubusercontent.com/file"],
+  ["https://bucket.s3.amazonaws.com/file", "https://bucket.s3.us-east-1.amazonaws.com/file"],
+])("ignores signed parameters added in a trusted redirect from %s", async (initial, destination) => {
+  const issued = new URL(destination);
+  issued.searchParams.set("X-Amz-Algorithm", "AWS4-HMAC-SHA256");
+  issued.searchParams.set("X-Amz-Signature", "a".repeat(64));
+  issued.searchParams.set("X-Amz-Security-Token", "A1".repeat(180));
+  const { gate, asked } = recordingGate(3, false);
+  const calls: string[][] = [];
+  const tool = tools[1]![1](gate, calls, httpConfig(), new UrlSendSites(), `\n__ATOMIC_WEBFETCH_META__302|text/plain|${issued.href}|0|{}`);
+  await tool.run({ url: initial }, ctx());
+  expect(asked).toHaveLength(0);
+  expect(calls).toHaveLength(2);
+
+  const direct = tools[1]![1](gate, [], httpConfig(), new UrlSendSites());
+  await expect(direct.run({ url: issued.href }, ctx("direct"))).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+  issued.searchParams.set("q", "first\nsecond");
+  const mixed = tools[1]![1](gate, [], httpConfig(), new UrlSendSites(), `\n__ATOMIC_WEBFETCH_META__302|text/plain|${issued.href}|0|{}`);
+  await expect(mixed.run({ url: initial }, ctx("mixed"))).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+});

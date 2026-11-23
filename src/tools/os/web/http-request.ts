@@ -173,6 +173,7 @@ export function buildOsHttpRequestTool(
                 mode: httpCfg.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
                 tool: "os.http.request",
                 url: target,
+                initialUrl: args.url,
                 sessionId: ctx.sessionId,
                 signal: ctx.signal,
                 ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),

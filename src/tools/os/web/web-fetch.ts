@@ -251,6 +251,7 @@ export function buildOsWebFetchTool(
                   mode: options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
                   tool: TOOL_NAME,
                   url: target,
+                  initialUrl: args.url,
                   sessionId: ctx.sessionId,
                   signal: ctx.signal,
                   ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),

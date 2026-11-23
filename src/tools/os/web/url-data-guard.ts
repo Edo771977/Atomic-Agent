@@ -266,6 +266,7 @@ export function checkUrlSend(
   url: string,
   sessionId: string,
   sites: UrlSendSites = SHARED_URL_SEND_SITES,
+  initialUrl?: string,
 ): UrlSendCheck | null {
   if (mode === "off") return null;
   let parsed: URL;
@@ -277,12 +278,40 @@ export function checkUrlSend(
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
   const host = parsed.hostname.toLowerCase().replace(/\.$/, "") + (parsed.port ? `:${parsed.port}` : "");
   const origin = parsed.origin;
-  const data = findUrlData(url);
+  const data = findUrlData(initialUrl ? withoutServerSignature(initialUrl, parsed) : url);
   if (data !== null) return { kind: "data", host, origin, reason: data.reason };
   if (mode === "strict" && !sites.has(sessionId, host)) {
     return { kind: "new_site", host, origin, reason: `first request to ${host} in this chat` };
   }
   return null;
+}
+
+const signedFields = new Set([
+  "X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Date", "X-Amz-Expires",
+  "X-Amz-Security-Token", "X-Amz-Signature", "X-Amz-SignedHeaders",
+]);
+
+function withoutServerSignature(initialUrl: string, target: URL): string {
+  const initial = new URL(initialUrl);
+  if (initial.protocol !== "https:" || target.protocol !== "https:" ||
+    initial.search || initial.hash || findUrlData(initialUrl) !== null) return target.href;
+  const githubRelease = initial.origin === "https://github.com" &&
+    initial.pathname.includes("/releases/download/") &&
+    target.origin === "https://release-assets.githubusercontent.com";
+  const s3Bucket = (host: string) => /^(.+)\.s3(?:[.-][a-z0-9-]+)?\.amazonaws\.com$/.exec(host)?.[1];
+  const sourceBucket = s3Bucket(initial.hostname);
+  const sameBucket = sourceBucket !== undefined && sourceBucket === s3Bucket(target.hostname) &&
+    initial.port === "" && target.port === "" && initial.pathname === target.pathname;
+  if ((!githubRelease && !sameBucket) ||
+    target.searchParams.get("X-Amz-Algorithm") !== "AWS4-HMAC-SHA256" ||
+    !/^[0-9a-f]{64}$/.test(target.searchParams.get("X-Amz-Signature") ?? "")) return target.href;
+
+  const checked = new URL(target);
+  for (const name of signedFields) {
+    if (checked.searchParams.getAll(name).length > 1) return target.href;
+    checked.searchParams.delete(name);
+  }
+  return checked.href;
 }
 
 /** Remember an answered `"strict"` site for the chat. */
@@ -311,10 +340,11 @@ export async function requireUrlSendApproval(
     signal: AbortSignal;
     sites?: UrlSendSites;
     sendsQueryData?: boolean;
+    initialUrl?: string;
   },
 ): Promise<boolean> {
   const sites = input.sites ?? SHARED_URL_SEND_SITES;
-  let check = checkUrlSend(input.mode, input.url, input.sessionId, sites);
+  let check = checkUrlSend(input.mode, input.url, input.sessionId, sites, input.initialUrl);
   if (input.sendsQueryData && input.mode !== "off") {
     const target = checkUrlSend("strict", input.url, input.sessionId, new UrlSendSites());
     if (target !== null) check = { ...target, kind: "data", reason: "request options add data to the URL" };
