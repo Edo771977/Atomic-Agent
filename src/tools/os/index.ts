@@ -167,6 +167,7 @@ export interface RegisterOsToolsOptions extends DangerousToolOptions {
    * surface lives. Omitted / empty disables the `trust_config` guard.
    */
   trustConfigPaths?: readonly string[];
+  sandboxProtectedPaths?: readonly string[];
   /**
    * Absolute state directory (`config.paths.stateDir`), resolved by the
    * bootstrap and threaded into `os.web.search` so its result cache and
@@ -273,7 +274,7 @@ export function registerOsTools(
       defaultTimeoutMs: options.config.tools.shell.defaultTimeoutMs,
       ...(options.config.http.urlDataGuard !== undefined ? { urlDataGuard: options.config.http.urlDataGuard } : {}),
       envPassthrough: options.config.tools.shell.envPassthrough,
-      protectedPaths: options.trustConfigPaths,
+      protectedPaths: options.sandboxProtectedPaths ?? options.trustConfigPaths,
       ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
       ...(options.shellPolicy === undefined
         ? {}
