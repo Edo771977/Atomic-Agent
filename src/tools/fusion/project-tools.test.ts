@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { parse, resolve } from "node:path";
 
 import { parseTeamMember, type TeamMember } from "../../llm/run-mode/fusion-team.js";
-import { applyProjectDecision, applyProjectUpdate, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
+import { applyProjectDecision, applyProjectUpdate, currentProjectLessons, gateVersion, type ProjectState, type ProjectUpdate } from "../../session/session-project.js";
 import type { ToolContext } from "../tool-registry.js";
 import type { OutcomeRecord } from "./outcome-log.js";
 import { PRESET_REASON, estimateRow } from "./project-estimate.js";
@@ -134,8 +134,8 @@ describe("schema v2 project tool fields", () => {
 describe("project tools: definitions", () => {
   it("are read-only, named and in catalog order", () => {
     const t = tools();
-    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add"]).toEqual([...PROJECT_TOOL_NAMES]);
-    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add"]);
+    expect([t.brief.name, t.plan.name, t.milestone.name, "project.backlog.add", "project.lesson.propose"]).toEqual([...PROJECT_TOOL_NAMES]);
+    expect(PROJECT_TOOL_NAMES).toEqual([PROJECT_BRIEF_TOOL, PROJECT_PLAN_TOOL, PROJECT_MILESTONE_TOOL, "project.backlog.add", "project.lesson.propose"]);
     for (const tool of [t.brief, t.plan, t.milestone]) {
       expect(tool.readonly).toBe(true);
       expect(tool.untrustedOutput).toBeUndefined();
@@ -445,4 +445,47 @@ describe("project.plan tells the person which verdicts a re-plan resets (issue #
     const editorial = await tools().plan.run(args("draw the  board"), { ...ctx, project });
     expect(editorial.summary).not.toContain("verdict reset");
   });
+});
+
+it("reports matching changed paths as advisory notes without editing the director summary", async () => {
+  const project = {
+    milestones: [{ id: "m1", runIds: ["r1"] }],
+    [currentProjectLessons]: { active: [{ id: "no-deps", touches: ["package.json"] }] },
+  } as unknown as ProjectState;
+  const { milestone } = tools({ evidence: () => ({
+    facts: [], attachments: [], uncovered: [], changedFiles: ["package.json", "README.md"],
+  }) });
+  const result = await milestone.run({ id: "m1", state: "done", summary: "Ready" }, { ...ctx, project });
+  expect(result.status).toBe("ok");
+  expect(result.details[PROJECT_UPDATE_DETAIL]).toMatchObject({
+    summary: "Ready", reportNotes: [expect.stringMatching(/package\.json.*no-deps/)],
+  });
+  expect(result.summary).not.toContain("README.md");
+});
+
+it("invites a lesson proposal after a failed milestone report", async () => {
+  const project = { milestones: [{ id: "m1", runIds: ["r1"] }] } as unknown as ProjectState;
+  const failed = await tools().milestone.run({ id: "m1", state: "failed", summary: "Could not finish" }, { ...ctx, project, projectRef: { folder: ctx.workingDir, id: "p" } });
+  expect(failed.summary).toMatch(/project\.lesson\.propose.*milestone-failure.*milestone m1, run r1/);
+});
+
+it("bounds large lesson reports and respects binding scope and deferrals", async () => {
+  const project = {
+    milestones: [{ id: "m1", runIds: ["r1"] }],
+    lessonDeferred: { deferred: "hash" },
+    [currentProjectLessons]: { active: [
+      { id: "binding", hash: "binding-hash", always: true, touches: [] },
+      { id: "deferred", hash: "hash", always: true, touches: ["src"] },
+    ] },
+  } as unknown as ProjectState;
+  const { milestone } = tools({ evidence: () => ({
+    facts: [], attachments: [], uncovered: [], changedFiles: Array.from({ length: 2000 }, (_, i) => `src/${i}.ts`), changedFilesIncomplete: true,
+  }) });
+  const result = await milestone.run({ id: "m1", state: "done", summary: "Ready" }, { ...ctx, project });
+  const notes = (result.details[PROJECT_UPDATE_DETAIL] as { reportNotes: string[] }).reportNotes;
+  expect(notes).toHaveLength(2);
+  expect(notes[0]).toMatch(/src\/0\.ts.*binding.*more/);
+  expect(notes[0]).not.toContain("deferred");
+  expect(notes[0]!.length).toBeLessThanOrEqual(2000);
+  expect(notes[1]).toMatch(/shell.*patch/);
 });

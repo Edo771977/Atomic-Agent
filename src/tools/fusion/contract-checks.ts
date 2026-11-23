@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { readFile, stat } from "node:fs/promises";
 import { isAbsolute as isAbsolutePath, relative as relativePath, resolve as resolvePath, sep as pathSep } from "node:path";
 
+import { receiptHash } from "../../session/receipt-signing.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import {
   describeProvide,
@@ -56,10 +57,14 @@ interface ImpeccableCheckEvidence {
   impeccableFindings?: readonly string[];
   impeccableSuppressions?: readonly string[];
   impeccableExceptions?: readonly string[];
+  impeccableExceptionCount?: number;
 }
 
 export interface ContractCheckResult extends ImpeccableCheckEvidence {
   ok: boolean;
+  warningCount?: number;
+  consoleWarnings?: readonly string[];
+  cleanupWarning?: string;
   summary?: string;
   error?: string;
   /**
@@ -129,6 +134,11 @@ export class ContractChecksHeldError extends Error {
 }
 
 export interface ContractCheckOutcome extends ImpeccableCheckEvidence {
+  warningCount?: number;
+  consoleWarningCount?: number;
+  cleanupWarning?: true;
+  /** Canonical fingerprint of the retained, masked UI output. */
+  outputHash?: string;
   /** The task the check was attributed to; absent for a call-level check. */
   task?: string;
   ok: boolean;
@@ -211,12 +221,21 @@ export function commandLineOf(check: ContractCheck): string {
   return [cmd, ...args].join(" ").trim();
 }
 
-/** The run record of a command check's result; undefined for a result that carries no command output. */
 /** Of {@link CHECK_RUN_OUTPUT_CHARS}, what stderr gets at most (issue #104 review): stdout, where TAP is, keeps the larger share. */
 export const CHECK_RUN_STDERR_CHARS = 2_000;
 
+/** Build the bounded record of command or detector output. */
 export function checkRunOf(check: ContractCheck, result: ContractCheckResult, files?: Array<{ path: string; sha256?: string }>): CheckRunRecord | undefined {
-  if ((check.kind ?? "command") !== "command") return undefined;
+  const kind = check.kind ?? check.type ?? "command";
+  if (kind === "ui" && result.stdoutTail !== undefined) {
+    // Round-trip UTF-8 before hashing so persisted bytes preserve the digest.
+    const output = Buffer.from(result.stdoutTail.slice(0, CHECK_RUN_OUTPUT_CHARS), "utf8").toString("utf8");
+    return {
+      command: "verify.run ui", exitCode: result.exitCode ?? null, output, tests: [],
+      ...(result.stdoutTail.length > output.length ? { clipped: true } : {}),
+    };
+  }
+  if (kind !== "command") return undefined;
   if (result.stdoutTail === undefined && result.stderrTail === undefined && result.exitCode === undefined) return undefined;
   // Separate budgets, so a long stderr never pushes the TAP out; a share one stream leaves goes to the other.
   const stdout = result.stdoutTail ?? "";
@@ -525,6 +544,7 @@ function maskResult(
   const games = result.games === undefined ? undefined : maskGames(result.games, known);
   return {
     ok: result.ok,
+    ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
     ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
     ...(summary === undefined ? {} : { summary }),
     ...(error === undefined ? {} : { error }),
@@ -535,6 +555,7 @@ function maskResult(
     ...(games === undefined ? {} : { games }),
     ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: maskSecrets(result.impeccableVersion, known) }),
     ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: result.impeccableFindings.map(e => maskSecrets(e, known)) }),
+    ...(result.impeccableExceptionCount === undefined ? {} : { impeccableExceptionCount: result.impeccableExceptionCount }),
     ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: result.impeccableExceptions.map(e => maskSecrets(e, known)) }),
     ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: result.impeccableSuppressions.map(e => maskSecrets(e, known)) }),
     ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),
@@ -676,17 +697,23 @@ export async function runContractChecks(
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
     if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
+    const ui = (check.kind ?? check.type) === "ui";
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
     const evidenceCount = [result.impeccableFindings, result.impeccableSuppressions, result.impeccableExceptions].filter(lines => lines?.length).length;
     const evidenceBudget = Math.floor(CHECK_OUTPUT_CHARS / Math.max(1, evidenceCount));
     return {
       ...task, ok: result.ok, detail: control.unreliable === undefined ? detail : head(`${detail} — unreliable: ${control.unreliable}`, CHECK_DETAIL_CHARS),
       ...(output === undefined ? {} : { output }), ...criteria, ...control,
-      ...(run === undefined ? {} : { run }),
+      ...(run === undefined || ui ? {} : { run }),
+      ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
+      ...(raw.consoleWarnings?.length ? { consoleWarningCount: raw.consoleWarnings.length } : {}),
+      ...(raw.cleanupWarning === undefined ? {} : { cleanupWarning: true }),
+      ...(ui && run !== undefined ? { outputHash: receiptHash(run.output) } : {}),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),
       ...(result.impeccableSuppressions === undefined ? {} : { impeccableSuppressions: boundedImpeccableLines(result.impeccableSuppressions, evidenceBudget) }),
+      ...(result.impeccableExceptionCount === undefined ? {} : { impeccableExceptionCount: result.impeccableExceptionCount }),
       ...(result.impeccableExceptions === undefined ? {} : { impeccableExceptions: boundedImpeccableLines(result.impeccableExceptions, evidenceBudget) }),
       ...(result.games === undefined ? {} : { games: result.games }),
       ...(result.screenshots === undefined ? {} : { screenshots: result.screenshots }),

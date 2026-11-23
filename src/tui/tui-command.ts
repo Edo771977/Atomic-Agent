@@ -886,6 +886,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
           orchestrator.issueReport.toggle(option),
         onIssueReportCloseRequested: () => orchestrator.issueReport.close(),
         onProjectDecision: (sessionId, decision) => void orchestrator.decideProject(sessionId, decision),
+        onProjectLessons: (sessionId, choice) => orchestrator.projectLessons(sessionId, choice),
         onProjectBacklogDecision: (sessionId, decision) => orchestrator.decideProjectBacklog(sessionId, decision),
         onProjectReviseBrief: () => orchestrator.reviseProjectBrief(),
         onLocalModelsAutoRefreshStart: () =>

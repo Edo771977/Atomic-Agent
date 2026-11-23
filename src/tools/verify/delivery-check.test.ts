@@ -46,6 +46,12 @@ describe("research", () => {
   it("fails on a citation without a source", async () => {
     expect(await verify("A statement [1].")).toMatchObject({ artifactStatus: "fail", stdoutTail: expect.stringContaining("[1]") });
   });
+  it("reports structured research warning totals at the parser and runner boundaries", async () => {
+    const { evaluateResearch } = await import("./research-check.js");
+    const text = "A statement [1].\n\n## Sources\n[1] Field notes\n[2] Other notes";
+    expect(await evaluateResearch(Buffer.from(text), ".md", false)).toMatchObject({ status: "pass", warningCount: 3 });
+    expect(await verify(text)).toMatchObject({ artifactStatus: "pass", warningCount: 3 });
+  });
   it("warns about missing dates and can require them", async () => {
     const text = "A statement [^1].\n\n[^1]: Field notes";
     expect(await verify(text)).toMatchObject({ artifactStatus: "pass", stdoutTail: expect.stringContaining("no date") });

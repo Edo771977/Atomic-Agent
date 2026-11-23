@@ -45,7 +45,17 @@ atomic-agent project lessons ./my-project --reopen local-storage
 
 Replace the example fingerprint with the one displayed for the lesson. Set `status: active` in the file before you approve it. When you edit the file, review the updated content and approve it again. Your choice is saved in the Atomic Agent data directory for this folder.
 
+In your paired Telegram chat, send `/lessons` to list that project's lessons and skipped files. Between turns in a regular chat, use `/lesson_approve <id>`, `/lesson_retire <id>` or `/lesson_reopen <id>` to preview a choice. Repeat the command with the displayed code to confirm it. If the file changes after previewing, read it again and request a new code.
+
 The director and plan reviewer use active lessons when drafting and reviewing the plan. A worker sees only lessons relevant to its declared files and check paths. Mark an active lesson `always: true` to make it binding. Every task whose declared files or checks match its `touches` must cite the lesson. A binding lesson with omitted or empty `touches`, or with `touches: ["."]`, applies to every task in a milestone that has yet to start. Existing approvals of unchanged `always: true` lessons with `touches: []` also apply to every such task. The existing approval remains valid because it covers the same file fingerprint. You can defer the lesson at the plan gate to set it aside for the current plan. Missing citations block approval, and assigned workers receive the cited lessons as binding project data. Folder provider restrictions also apply to lessons, and turns that share lessons from a restricted project keep personal memory read-only. See the [lesson file format](../../src/session/README.md#project-lesson-files).
+
+In the TUI, open the project card with `/plan` and press **v**. Select a lesson with the arrow keys and press **Enter** to read its text and fingerprint. Use **a** to approve an active lesson, **t** to retire it, or **r** to clear your choice. If the file changes while you are reading it, the panel reloads and asks you to review the new text. Press **f** to refresh after editing a file or when a running turn has finished. Use a regular chat between turns to make decisions.
+
+### Lessons proposed by the director
+
+The director can propose a reusable lesson after a correction, a failed milestone or the final review. Find the proposal and its origin in the TUI or with `atomic-agent project lessons`. After reviewing the Markdown, change `status: proposed` to `status: active`, list the lessons again and approve the new fingerprint.
+
+When a milestone is reported done, its runtime notes list known changed files covered by active lessons. Use these reminders during review to check that the changes follow the lessons.
 
 ## Read the plan checks
 
@@ -53,6 +63,7 @@ A plan can list checks for each task before work starts. Check that the tasks co
 
 - A clearly ineffective check can block the plan. For example, a command that prints `passed` and then checks for that same word proves little. An assertion that would also match `0 passed` can trigger a warning.
 - A **negative control** runs the same check with input that should fail. For a CSV validator, try a file with a required column missing. If the negative input passes, the check is unreliable and its criterion remains unverified. If the control could not run, an otherwise passing result may read **verified with reservations**.
+- A UI check records the Impeccable version and whether it scanned a file or a rendered page. A criterion can pass **with reservations** when only checks with warnings or other reservations support it. The criterion shows the warning count and the rule and shortened reason for any operator exception used by the UI check. Milestone summaries show a separate count, such as “5 measured, 1 measured with reservations”.
 - A **references** warning may identify a missing file, package script or code symbol the plan expects to find. Ask the director to fix the reference or say that the task will create it. A references warning alone allows approval.
 
 ## Defer a binding lesson for a plan
@@ -63,6 +74,8 @@ The plan card lists each binding lesson and the tasks that cite it. Press **l** 
 atomic-agent run --session <session-id> --defer-lesson <lesson-id>
 atomic-agent run --session <session-id> --activate-lesson <lesson-id>
 ```
+
+In Telegram, use `/lesson_defer <id>` or `/lesson_activate <id>` at the plan gate and repeat the command with the displayed confirmation code. If the plan version changes, request a fresh preview.
 
 The choice stays with the current plan and is saved with your approvals. The plan version changes and the earlier review becomes stale. Review the updated plan before approving it.
 

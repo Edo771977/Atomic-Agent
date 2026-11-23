@@ -120,10 +120,14 @@ it("signs milestone facts and attachment fingerprints without copying free text 
     kind: "milestone-report",
     payload: {
       projectId: "test-project", milestoneId: "m1", state: "done",
-      criteriaFacts: [{ id: "c1", state: "passed", basis: { kind: "check", checks: [{ index: 1, runId: "fr-1" }] }, whyHash: receiptHash("judge text"), reservationHash: receiptHash("weak check") }],
+      criteriaFacts: [{ id: "c1", state: "passed", basis: { kind: "check", checks: [{ index: 1, runId: "fr-1" }] }, whyHash: receiptHash("judge text"), reserved: true, reservationHash: receiptHash("weak check") }],
       attachments: [{ sha256: createHash("sha256").update("screenshot bytes").digest("hex"), criteria: ["c1"] }],
     },
   });
+  writer(dir, "milestone-report", {
+    state: "done", criteriaFacts: [{ id: "c1", state: "passed", reservationHash: receiptHash("legacy warning") }],
+  });
+  expect(verifyProjectReceipts(dir, dir)).toEqual(["valid", "valid"]);
   for (const privateText of ["director text", "judge text", "weak check", "screenshot bytes", "screenshot caption", "shot.png"]) {
     expect(text).not.toContain(privateText);
   }

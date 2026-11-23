@@ -249,6 +249,7 @@ export const deferredFiles = [
   'src/tools/fusion/project-plan-context.test.ts',
   'src/tools/fusion/project-surface.test.ts',
   'src/tools/fusion/project-tools.test.ts',
+  'src/tools/fusion/project-lesson-propose.test.ts',
   // Pure rules (issue #111): the director's backlog tool, its fold and who sees it.
   'src/tools/fusion/project-backlog-tool.test.ts',
   // Pure views (issue #111): the backlog on the gate view, digest, text and plan result.

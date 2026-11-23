@@ -53,7 +53,7 @@ describe("project lessons", () => {
       mkdirSync(dir, { recursive: true });
       writeFileSync(join(dir, `${id}.md`), [
         "---", `id: ${id}`, "title: Project decision", "source: person", "touches: [src/file.ts]",
-        "status: active", "always: false", "---", "## Decided", "## Tried and ruled out", "## Watch out",
+        "status: proposed", "from: milestone m1, run r1", "always: false", "---", "## Decided", "## Tried and ruled out", "## Watch out",
       ].join(EOL));
     }
     expect(resolveProjectConstraint(getConfig(), folder)?.allowedProviders).toEqual([]);
@@ -63,14 +63,27 @@ describe("project lessons", () => {
     expect(await projectCommand(["lessons", folder, "--json"], { stdout, stderr })).toBe(0);
     expect(JSON.parse(stdout.mock.calls[0]![0])).toEqual({
       lessons: [{
-        id: "private-lesson", fingerprint: expect.stringMatching(/^[a-f0-9]{12}$/), title: "Project decision", declaredStatus: "active",
-        approvedByPerson: false, effectiveStatus: "unapproved", personState: null, stale: false, always: false, touches: ["src/file.ts"],
+        id: "private-lesson", fingerprint: expect.stringMatching(/^[a-f0-9]{12}$/), title: "Project decision", declaredStatus: "proposed", source: "person", from: "milestone m1, run r1",
+        approvedByPerson: false, effectiveStatus: "proposed", personState: null, stale: false, always: false, touches: ["src/file.ts"],
       }],
       problems: [{ file: "broken.md", reason: expect.stringMatching(/front matter/i) }],
     });
     expect(stderr).not.toHaveBeenCalled();
     expect(readdirSync(state, { recursive: true }).sort()).toEqual(before);
     expect(readFileSync(configFile, "utf8")).toBe(configBefore);
+  });
+
+  it.each([["\u{E0061}", "E0061"], ["\u202E", "202E"]])("skips invisible text in CLI listings (%s)", async (character, code) => {
+    const dir = join(root, ".atomic", "project", "lessons");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "lesson.md"), [
+      "---", "id: lesson", "title: A lesson", "source: person", "touches: []", "status: active", "always: true",
+      "---", "## Decided", "Inert " + character + " text", "## Tried and ruled out", "## Watch out",
+    ].join(EOL));
+    expect(await projectCommand(["lessons", root, "--json"], { stdout, stderr, stateDir: () => join(root, "state") })).toBe(0);
+    expect(JSON.parse(stdout.mock.lastCall![0])).toMatchObject({
+      lessons: [], problems: [{ file: "lesson.md", reason: expect.stringContaining("U+" + code) }],
+    });
   });
 
   it("binds approval to the lesson contents and reopens stale choices", async () => {
