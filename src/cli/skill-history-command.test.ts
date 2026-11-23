@@ -216,7 +216,12 @@ describe("skill history / restore / curate", () => {
       expect(stderr).toContain("A turn is running");
     });
     expect(await approve(edited)).toBe(0);
-    expect(readFileSync(join(scope().skillsDir, "changelog-notes", "SKILL.md"), "utf8")).toBe(edited);
+    const installed = join(scope().skillsDir, "changelog-notes", "SKILL.md");
+    expect(readFileSync(installed, "utf8")).toBe(edited);
+    expect(await skillCommand(["learned", "undo", draft.id])).toBe(0);
+    expect(existsSync(installed)).toBe(false);
+    expect(await skillCommand(["restore", "changelog-notes", "--learned"])).toBe(0);
+    expect(readFileSync(installed, "utf8")).toBe(edited);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(0);
     expect(existsSync(join(globalSkillsDir, "other-notes"))).toBe(false);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(1);

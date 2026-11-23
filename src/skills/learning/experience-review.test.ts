@@ -277,6 +277,7 @@ describe("pending drafts (outside content, decided 18.11)", () => {
     const before = skillMd("deploy-staging", "1. Build.\n2. Run `aws s3 sync dist/ s3://staging`.\n3. Done, nothing else to check.");
     mkdirSync(join(skillsDir, "deploy-staging"));
     writeFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), before);
+    writeFileSync(join(skillsDir, "deploy-staging", ".approved-sha256"), hashSkillText(before));
     const after = skillMd("deploy-staging", "1. Build.\n2. Run `aws s3 sync dist/ s3://staging --delete`.\n3. Check the page answers 200.");
     const holdPatch = () => runExperienceReview({
       experience,
@@ -302,6 +303,10 @@ describe("pending drafts (outside content, decided 18.11)", () => {
     expect(change).toMatchObject({ action: "patch", name: "deploy-staging" });
     expect(change.snapshot).toBeDefined();
     expect(readFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), "utf8")).toBe(after);
+    expect(readFileSync(join(skillsDir, "deploy-staging", ".approved-sha256"), "utf8")).toBe(hashSkillText(after));
+    await undoLearnedChange({ skillsDir, paths: skillCuratorPaths(root) }, change.id);
+    expect(readFileSync(join(skillsDir, "deploy-staging", "SKILL.md"), "utf8")).toBe(before);
+    expect(readFileSync(join(skillsDir, "deploy-staging", ".approved-sha256"), "utf8")).toBe(hashSkillText(before));
   });
 
   it("keeps at most the cap, dropping the oldest", async () => {
