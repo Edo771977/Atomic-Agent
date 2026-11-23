@@ -535,6 +535,7 @@ export async function readPatchCandidates(
   skillsDir: string,
   names: readonly string[],
 ): Promise<PatchCandidate[]> {
+  if (await realpath(skillsDir).catch(() => null) !== skillsDir) return [];
   const out: PatchCandidate[] = [];
   for (const name of names.slice(0, EXPERIENCE_REVIEW_LIMITS.maxPatchCandidates)) {
     try {

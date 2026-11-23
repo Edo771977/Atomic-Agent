@@ -117,8 +117,9 @@ export async function listPendingDrafts(stateDir: string): Promise<PendingDraft[
 /** Delete one draft; false when there was none with that id. */
 export async function removePendingDraft(stateDir: string, id: string): Promise<boolean> {
   if (!PENDING_ID_PATTERN.test(id)) return false;
-  if ((await readPendingDraft(stateDir, id)) === null) return false;
-  await rm(join(pendingDraftsDir(stateDir), id), { recursive: true, force: true });
+  const dir = join(pendingDraftsDir(stateDir), id);
+  if (await realpath(dir).catch(() => null) !== dir || !(await lstat(dir)).isDirectory()) return false;
+  await rm(dir, { recursive: true, force: true });
   return true;
 }
 

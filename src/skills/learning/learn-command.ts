@@ -1,4 +1,4 @@
-import { lstat, readFile } from "node:fs/promises";
+import { lstat, readFile, realpath } from "node:fs/promises";
 import { join } from "node:path";
 import { createTwoFilesPatch, FILE_HEADERS_ONLY } from "diff";
 import { skillCuratorPaths } from "../curator/skill-curator-config.js";
@@ -264,6 +264,7 @@ export async function showPendingDraft(
   if (draft.kind === "patch") {
     try {
       const file = join(dirs.skillsDir, draft.name, "SKILL.md");
+      if (await realpath(file) !== file || !(await lstat(join(dirs.skillsDir, draft.name))).isDirectory()) throw new Error("Invalid skill path");
       const info = await lstat(file);
       if (info.isFile() && info.size <= LEARNED_SKILL_LIMITS.maxBytes) current = await readFile(file, "utf8");
       if (current !== null && (Buffer.byteLength(current) > LEARNED_SKILL_LIMITS.maxBytes || hasUnreviewableSkillText(current))) current = null;
@@ -302,7 +303,7 @@ function formatDraftView(v: PendingDraftView, prefix: string): string {
   if (v.kind === "patch") {
     lines.push("");
     if (v.diff === null) {
-      lines.push(`${v.skill} is no longer installed, so there is nothing to compare with; approving it will fail, discard it.`);
+      lines.push(`The current ${v.skill} could not be read for comparison. A patch cannot overwrite a changed or unavailable target.`);
     } else {
       lines.push(`Changes to the live ${v.skill}/SKILL.md:`, v.diff.replace(/\n$/, ""));
     }
