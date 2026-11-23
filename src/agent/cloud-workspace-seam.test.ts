@@ -74,6 +74,9 @@ describe("cloud session workspace integration", () => {
       const d = { ...deps(), modelMode: { ...cloud, mode } };
       return prepareStepInference(ctx, d).prompt;
     };
+    const native = join(a, ".atomic-agent", "skills", "native");
+    mkdirSync(native, { recursive: true });
+    writeFileSync(join(native, "SKILL.md"), "---\nname: native\ndescription: Native project guide.\n---\nUse the project checklist when reviewing reports.\n");
     const disabledBefore = render(a);
     configure(true);
     const reviewState = context(a).session;
@@ -108,6 +111,11 @@ describe("cloud session workspace integration", () => {
     expect(preview.skillMd).toBe(skillMd);
     expect(await runLearnCommand({ kind: "approve", id: draft!.id, fingerprint: preview.fingerprint }, scope)).toMatchObject({ ok: true });
     expect(render(a).text).toContain(draftDescription);
+    if (mode === "local") {
+      expect(enabledBefore.stablePrefix).not.toContain("Native project guide.");
+      expect(render(a).stablePrefix).toContain("Native project guide.");
+      expect(render(a).text).not.toContain("ALPHA RULE");
+    }
     expect(render(a).text).not.toContain(draftBody);
     expect(render(b).text).not.toContain("FIXTURE MARKER");
     expect(createWorkspaceLoader(getConfig())({ workingDir: a, inheritedWorkspace: true }, true).skills.entries.some(e => e.record.learned)).toBe(false);

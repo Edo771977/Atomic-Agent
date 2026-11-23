@@ -141,6 +141,9 @@ The linter limits a learned skill to 16 KiB, 500 body lines and a one-line descr
 
 The learned list retains the approval ID and history. Use `/learn undo <id>` or `atomic-agent skill learned undo <id>` to archive a creation or restore the previous version of an update. Only the newest live change of a skill can be undone. From the same folder, use `atomic-agent skill history <name> --learned` to inspect snapshots or `atomic-agent skill restore <name> --learned` to restore an approved version. To share a skill globally, explicitly install its approved folder with `atomic-agent skill install <path>` from the local CLI. HTTP and sidecar installs refuse to promote a project-scoped learned skill.
 
+When a local session has an approved learned skill available, it also uses the workspace skill catalog for its working folder. This includes its trusted native project skills and the usual global, plugin and shared entries. The local path still leaves project instruction files and cloud compatibility skill directories out of the prompt.
+
+
 ## Prompt and KV-cache
 
 The stable prompt prefix contains only `name: description` of installed skills (see `src/prompt/stable-prefix.ts`). A skill body enters the prompt **only** after `skill.view` and stays there until the end of the session as a stable part of the tail. This means one KV-cache invalidation per session, not per step.
