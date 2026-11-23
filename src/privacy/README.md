@@ -29,3 +29,7 @@ Separate image and audio descriptions bypass the shield. Web search and remote M
 A value learned later can invalidate the provider's cached prefix once. If the detector could not recognize that value when it first occurred in the prefix, that earlier request may already have sent it verbatim. Later requests use the learned reference at every matching occurrence. Enable protection and configure known secrets before sending sensitive context.
 
 The vault registry deliberately has process scope. Bootstrap sets the default switch from configuration and supplies the live known-secrets reader. Main turns and auxiliary completions share the same provider registry and session boundary. Provider-specific overrides are explicit options. The default switch is read at startup.
+
+## Trust model
+
+References are predictable within an archive. If a model writes a known reference such as `[EMAIL_1]`, including by decoding percent-encoded text or HTML entities read from a file, the agent resolves it to the original value. This is intentional. Privacy Shield replaces detectable values on the protected provider's request, while the model can still refer to the same values the tools would receive without the shield. Existing approval, read-scope and output policies continue to apply after resolution.
