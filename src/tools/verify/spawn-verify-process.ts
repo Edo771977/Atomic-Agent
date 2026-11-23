@@ -159,7 +159,7 @@ export function spawnVerifyProcess(
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,
-    }))
+    }), { cwd })
     : { ok: true as const, command: invocation.command, args: invocation.args };
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
   const env = withEnvOverrides({

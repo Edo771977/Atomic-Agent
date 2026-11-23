@@ -281,3 +281,11 @@ it("round 3 point 3: rejects a missing protected model file below a writable roo
   });
   expect(wrapWithOsSandbox("true", [], scoped, { platform: "linux", bwrap: "/usr/bin/bwrap" }).ok).toBe(false);
 });
+
+it("round 3 point 4: refuses a workspace inside state and passes an explicit chdir", () => {
+  expect(wrapWithOsSandbox("true", [], policy(false, "/home/op"), { platform: "linux", bwrap: "/usr/bin/bwrap" }).ok).toBe(false);
+  const wrapped = wrapWithOsSandbox("true", [], policy(), {
+    platform: "linux", bwrap: "/usr/bin/bwrap", cwd: "/home/op/project",
+  });
+  expect(wrapped.ok && wrapped.args.join(" ")).toContain("--chdir /home/op/project");
+});

@@ -314,6 +314,7 @@ function bwrapArgs(
   policy: OsSandboxPolicy,
   command: string,
   args: readonly string[],
+  cwd?: string,
 ): string[] {
   const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
   out.push("--tmpfs", policy.home, "--tmpfs", "/tmp", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/var/tmp");
@@ -337,6 +338,7 @@ function bwrapArgs(
     else out.push("--ro-bind", "/dev/null", path);
   }
   if (!policy.network) out.push("--unshare-net");
+  if (cwd !== undefined) out.push("--chdir", cwd);
   out.push("--die-with-parent", "--new-session", "--", command, ...args);
   return out;
 }
@@ -347,6 +349,7 @@ export interface WrapOptions {
   bwrap?: string | null;
   /** Whether `sandbox-exec` exists; checked when omitted. */
   seatbeltAvailable?: boolean;
+  cwd?: string;
 }
 
 /**
@@ -367,8 +370,7 @@ export function wrapWithOsSandbox(
     return { ok: false, reason: "a writable workspace root would expose the full host home directory" };
   }
   if (policy.writableRoots.some(root => {
-    const offset = relative(root, policy.stateDir);
-    return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+    return contains(root, policy.stateDir) || contains(policy.stateDir, root);
   })) {
     return { ok: false, reason: "the protected agent state overlaps a writable workspace root" };
   }
@@ -390,7 +392,7 @@ export function wrapWithOsSandbox(
         reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
     }
-    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args) };
+    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, options.cwd) };
   }
   return {
     ok: false,

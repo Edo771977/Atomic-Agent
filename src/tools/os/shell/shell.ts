@@ -483,6 +483,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           protectedPaths: options.protectedPaths,
           network,
         }),
+        { cwd: pinned?.cwd ?? cwd },
       );
       if (!wrapped.ok) {
         return compressToolResult({
