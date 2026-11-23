@@ -37,12 +37,13 @@ export type LearnCommand =
   | { kind: "list" }
   | { kind: "undo"; id: string }
   | { kind: "approve"; id: string; fingerprint: string }
+  | { kind: "confirm"; confirmation: string }
   | { kind: "discard"; id: string }
   | { kind: "show"; id: string; json: boolean }
   | { kind: "error"; message: string };
 
 export const LEARN_USAGE =
-  "usage: /learn | /learn show <id> | /learn undo <id> | /learn approve <id>@<fingerprint> | /learn discard <id>";
+  "usage: /learn | /learn show <id> | /learn undo <id> | /learn approve <id>@<fingerprint> | /learn confirm <code> | /learn discard <id>";
 
 const ID_VERBS = new Set(["undo", "discard"]);
 
@@ -52,6 +53,9 @@ export function parseLearnCommand(args: string): LearnCommand {
   const verb = words[0]?.toLowerCase();
   if (verb === "show" && (words.length === 2 || (words.length === 3 && words[2] === "--json")) && PENDING_ID_PATTERN.test(words[1]!.toLowerCase())) {
     return { kind: "show", id: words[1]!.toLowerCase(), json: words.length === 3 };
+  }
+  if (verb === "confirm" && words.length === 2 && /^[a-f0-9]{16}$/i.test(words[1] ?? "")) {
+    return { kind: "confirm", confirmation: words[1]!.toLowerCase() };
   }
   const approval = words[1]?.match(/^([0-9a-f]{4,16})@([0-9a-f]{64})$/i);
   if (verb === "approve" && words.length === 2 && approval) {
@@ -178,6 +182,8 @@ export async function runLearnCommand(
   const paths = skillCuratorPaths(dirs.stateDir);
   try {
     switch (command.kind) {
+      case "confirm":
+        return { text: "Confirm learned skill approval from the TUI review.", skillsChanged: false, ok: false };
       case "error":
         return { text: command.message, skillsChanged: false, ok: false };
       case "list": {
@@ -297,7 +303,7 @@ export async function showPendingDraft(
   };
 }
 
-function formatDraftView(v: PendingDraftView, prefix: string): string {
+export function formatDraftView(v: PendingDraftView, prefix: string): string {
   const lines = [
     `Draft ${v.id} (Pending review, not used until you approve it)`,
     `  kind:    ${v.kind === "create" ? "new skill" : "patch of an existing skill"}`,

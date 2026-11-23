@@ -899,7 +899,7 @@ export const MENU: readonly MenuNode[] = [
     slash: {
       name: "learn",
       description:
-        "review learned skills: `/learn` lists drafts and changes · `/learn show <id>` displays the draft and fingerprint · `/learn approve <id>@<fingerprint>` activates it · `/learn undo <id>` takes back a change",
+        "review learned skills: `/learn` lists drafts and changes · `/learn show <id>` displays the draft and fingerprint · `/learn approve <id>@<fingerprint>` opens confirmation · `/learn undo <id>` takes back a change",
       // ATO-67: right after /skill.
       rank: 22.5,
     },

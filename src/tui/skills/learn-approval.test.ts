@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
-import { hashSkillText, listPendingDrafts, savePendingDraft } from "../../skills/learning/pending-drafts.js";
+import { draftFingerprint, listPendingDrafts, savePendingDraft } from "../../skills/learning/pending-drafts.js";
 import { SkillsOrchestrator } from "./skills-orchestrator.js";
 import { makeTuiEventBus } from "../tui-app.js";
 
@@ -20,7 +20,7 @@ describe("/learn draft approval", () => {
       bus.subscribe(emit);
       const isBusy = vi.fn(() => true);
       const runtime = {
-        config: { paths: { stateDir } }, turnController: { isBusy },
+        config: { paths: { stateDir, globalSkillsDir: join(stateDir, "global"), projectSkillsDirName: ".atomic-agent/skills" } }, turnController: { isBusy },
         sessionStore: { liveFolderTurn: () => false },
         skillRegistry: { listAll: () => [] }, refreshSkills: vi.fn(async () => {}),
       } as unknown as AgentRuntime;
@@ -29,10 +29,11 @@ describe("/learn draft approval", () => {
       });
       const scope = learnedSkillScope(stateDir, stateDir);
       const content = "---\nname: review-report\ndescription: Review a release report.\n---\nOpen the report and compare each heading with the expected checklist.\n";
-      const { id } = await savePendingDraft(scope.stateDir, {
+      const draft = await savePendingDraft(scope.stateDir, {
         kind: "create", name: "review-report", reason: "release checklist", sources: [], content,
       });
-      const fingerprint = hashSkillText(content);
+      const { id } = draft;
+      const fingerprint = draftFingerprint(draft, content);
       const approval = { kind: "approve", id, fingerprint } as const;
       await orchestrator.runLearnCommand(approval);
       expect(emit).toHaveBeenLastCalledWith({ type: "system_message", text: expect.stringContaining("regular chat") });
@@ -43,6 +44,17 @@ describe("/learn draft approval", () => {
       await orchestrator.runLearnCommand(approval);
       expect(emit).toHaveBeenLastCalledWith({ type: "system_message", text: expect.stringContaining("A turn is running") });
       expect(await listPendingDrafts(scope.stateDir)).toHaveLength(1);
+      isBusy.mockReturnValue(false);
+      await orchestrator.runLearnCommand(approval);
+      expect(emit).toHaveBeenLastCalledWith({ type: "system_message", text: expect.stringContaining("confirm") });
+      expect(await listPendingDrafts(scope.stateDir)).toHaveLength(1);
+      const preview = emit.mock.lastCall?.[0] as { text: string };
+      expect(preview.text).toContain(content.trimEnd());
+      const confirmation = preview.text.match(/\/learn confirm ([a-f0-9]{16})/)?.[1];
+      expect(confirmation).toBeTruthy();
+      if (!confirmation) throw new Error("Missing confirmation");
+      await orchestrator.runLearnCommand({ kind: "confirm", confirmation });
+      expect(await listPendingDrafts(scope.stateDir)).toHaveLength(0);
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }

@@ -152,7 +152,7 @@ const V0_2_2_SLASH_COMMANDS = [
   {
     name: "learn",
     description:
-      "review learned skills: `/learn` lists drafts and changes · `/learn show <id>` displays the draft and fingerprint · `/learn approve <id>@<fingerprint>` activates it · `/learn undo <id>` takes back a change",
+      "review learned skills: `/learn` lists drafts and changes · `/learn show <id>` displays the draft and fingerprint · `/learn approve <id>@<fingerprint>` opens confirmation · `/learn undo <id>` takes back a change",
   },
   {
     name: "memory",
