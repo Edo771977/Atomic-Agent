@@ -271,7 +271,7 @@ function loadChannelRows(
       if (q.length > 0) {
         // As the prompt does, a search leaves out notes the reconciler
         // marked stale; the unfiltered list still shows them.
-        const hits = runtime.notesStore.recall(q, {
+        const hits = runtime.notesStore.searchForOperator(q, {
           k: 50,
           ...(cfg.notes.reconcile ? { excludeSuperseded: true } : {}),
         });

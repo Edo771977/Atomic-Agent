@@ -55,7 +55,8 @@ describe("MemoryOrchestrator notes search", () => {
     orchestrator.refresh({ channel: "notes" });
     const row = emitted.find((action) => action.type === "memory_rows_loaded")?.rows?.[0];
     expect(row?.meta).toContain("disabled");
-    expect(searchIds(true)).not.toContain(note.id);
+    expect(searchIds(true)).toContain(note.id);
+    expect(store.get(note.id)?.recallCount).toBe(0);
     orchestrator.toggleDisabled(row!);
     expect(store.get(note.id)?.disabledAt).toBeUndefined();
   });

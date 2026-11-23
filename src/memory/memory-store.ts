@@ -748,6 +748,16 @@ export class MemoryStore {
    * returns an empty array without a database round-trip.
    */
   recall(query: string, opts: MemoryRecallOptions = {}): MemoryEntry[] {
+    const entries = this.searchNotes(query, opts, false);
+    if (entries.length > 0) this.touchOnRecall(entries);
+    return entries;
+  }
+
+  searchForOperator(query: string, opts: MemoryRecallOptions = {}): MemoryEntry[] {
+    return this.searchNotes(query, opts, true);
+  }
+
+  private searchNotes(query: string, opts: MemoryRecallOptions, includeDisabled: boolean): MemoryEntry[] {
     const normalizedQuery = validateQuery(query);
     const ftsQuery = buildFtsQuery(normalizedQuery);
     if (ftsQuery.length === 0) return [];
@@ -759,7 +769,8 @@ export class MemoryStore {
     );
     const scope = opts.scope ?? "all";
     const requiredTags = validateTags(opts.tags);
-    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`, `m.disabled_at IS NULL`];
+    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`];
+    if (!includeDisabled) where.push("m.disabled_at IS NULL");
     const params: unknown[] = [ftsQuery];
     if (scope === "project") {
       const dir = validateOptionalString(opts.workingDir, "workingDir");
@@ -771,7 +782,7 @@ export class MemoryStore {
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,
-             m.recall_count, m.last_recalled_at
+             m.recall_count, m.last_recalled_at, m.disabled_at
         FROM memories_fts
         JOIN memories m ON m.id = memories_fts.rowid
        WHERE ${where.join(" AND ")}
@@ -784,9 +795,7 @@ export class MemoryStore {
       requiredTags.length === 0
         ? mapped
         : mapped.filter((e) => requiredTags.every((t) => e.tags.includes(t)));
-    const sliced = filtered.slice(0, k);
-    if (sliced.length > 0) this.touchOnRecall(sliced);
-    return sliced;
+    return filtered.slice(0, k);
   }
 
   /**
