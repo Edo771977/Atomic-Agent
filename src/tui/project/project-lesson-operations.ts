@@ -48,10 +48,10 @@ export function projectLessonPanel(
   const record = read.record;
   if (record?.id !== ref.id) return unavailable("This chat has no matching project decision record.");
 
-  const { lessons, problems } = readProjectLessons(record.folder);
+  const { lessons, problems } = readProjectLessons(ref.folder);
   const calls = { ...record.lessonCalls };
   const blocked = projectDecisionOriginRefusal() ??
-    (isBusy(record.folder, record.id) ? PROJECT_LESSON_TURN_RUNNING : undefined);
+    (isBusy(ref.folder, ref.id) ? PROJECT_LESSON_TURN_RUNNING : undefined);
   const current = new Map(lessons.map(lesson => [lesson.id, lesson]));
   const result = (notice?: string) => {
     const rows: ProjectLessonRow[] = lessons.map(lesson => {

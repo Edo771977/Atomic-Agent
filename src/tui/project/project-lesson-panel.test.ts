@@ -1,5 +1,5 @@
 import { displayWidth } from "../render/display-width.js";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Key } from "ink";
@@ -23,9 +23,11 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true } = {}) {
+function fixture({ incognito = false, busy = false, otherChatBusy = false, autoRead = true, symlink = false } = {}) {
   const folder = mkdtempSync(join(tmpdir(), "aa-lessons-tui-"));
   roots.push(folder);
+  const refFolder = symlink ? join(folder, "alias") : folder;
+  if (symlink) symlinkSync(folder, refFolder, "junction");
   const stateDir = join(folder, "state");
   const records = stateDirProjectRecords(stateDir);
   expect(records.write(folder, "project", 0, { milestones: [], gate: { kind: "none" } }).ok).toBe(true);
@@ -50,7 +52,7 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
   const liveProjectTurn = vi.fn(() => otherChatBusy ? "s2" : null);
   const app = Object.assign(Object.create(ChatOrchestrator.prototype), {
     currentController: busy ? {} : null,
-    session: { id: "s1", projectRef: { folder, id: "project" }, ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
+    session: { id: "s1", projectRef: { folder: refFolder, id: "project" }, ...(incognito ? { incognito: { since: 1, owner: "test" } } : {}) },
     runtime: { config: { paths: { stateDir } }, sessionStore: { liveProjectTurn } },
     bus: { emit: dispatch },
     sendMessage,
@@ -72,10 +74,19 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
   const lines = (width = 90) => projectCardLines(card!, width).map(line => line.segments.map(s => s.text).join(""));
   const text = (width?: number) => lines(width).join("\n");
   const detail = () => { press("v"); press("", { return: true }); };
-  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn, seen };
+  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn, seen, refFolder };
 }
 
 describe("project lessons in the TUI", () => {
+  it("uses the exact bound folder for lesson reads and live-turn checks", () => {
+    const f = fixture({ symlink: true });
+    f.write("storage");
+    f.press("v");
+    expect(f.liveProjectTurn).toHaveBeenCalledWith(f.refFolder, "project");
+    expect(f.text()).toMatch(/Skipped lessons.*Symbolic link/i);
+    expect(f.text()).not.toContain("Local storage");
+  });
+
   it("lists declared and effective states, origin, scope, and skipped files", () => {
     const f = fixture();
     f.write("a-approved");
