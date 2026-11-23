@@ -71,6 +71,31 @@ describe("native tool schemas in the local step budget (ATO-1678)", () => {
     expect(prompt.tokens.toolSchema).toBe(expected);
   });
 
+  it("keeps the stable prefix byte-identical across a regular and restricted terminal step", () => {
+    const { ctx, deps } = fixture("native_tools");
+    const first = prepareStepInference(ctx, deps).prompt;
+    const terminal = prepareStepInference({
+      ...ctx,
+      stepIndex: ctx.stepIndex + 1,
+      terminalOnly: true,
+      toolSet: { names: ["reply"], reason: "Final report" },
+    }, deps).prompt;
+    expect(terminal.tokens.toolSchema).toBeGreaterThan(0);
+    expect(terminal.tokens.toolSchema!).toBeLessThan(first.tokens.toolSchema!);
+    expect(Buffer.from(terminal.stablePrefix)).toEqual(Buffer.from(first.stablePrefix));
+  });
+
+  it("preserves prompt bytes when a native link has no tools to send", () => {
+    const { ctx, deps } = fixture("native_tools");
+    ctx.toolSet = { names: [], reason: "No tools are available" };
+    const { promptInput } = prepareStepPrompt(ctx, deps);
+    const actual = buildPrompt(promptInput);
+    const { toolSchemaTokens: _omitted, ...reference } = promptInput;
+    expect(actual.tokens.toolSchema).toBeUndefined();
+    expect(actual.conversationCapEffective).toBe(buildPrompt(reference).conversationCapEffective);
+    expect(Buffer.from(actual.text)).toEqual(Buffer.from(buildPrompt(reference).text));
+  });
+
   it("leaves a grammar link's budget without it", () => {
     const { ctx, deps } = fixture("grammar");
     const { prompt } = prepareStepInference(ctx, deps);

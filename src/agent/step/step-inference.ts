@@ -222,11 +222,8 @@ export function nativeToolSchemaTokens(
   deps: Pick<StepDependencies, "toolCallAdapter" | "strictTools">,
 ): number {
   const adapter = deps.toolCallAdapter ?? openAiToolCallAdapter;
-  return estimateTokens(
-    JSON.stringify(
-      adapter.descriptorsToTools(descriptors, { strict: deps.strictTools === true }),
-    ),
-  );
+  const tools = adapter.descriptorsToTools(descriptors, { strict: deps.strictTools === true });
+  return tools.length > 0 ? estimateTokens(JSON.stringify(tools)) : 0;
 }
 
 export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {

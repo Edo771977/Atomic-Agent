@@ -677,7 +677,8 @@ export async function createAgentRuntime(
     resolveToolTransport: (id?: string) => resolveActiveLlmSlice(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined).transport,
     resolveToolSchemaTokens: (id: string, descriptors: readonly ToolDescriptor[]) => {
       const slice = resolveActiveLlmSlice(fallbackChain.standingOverrideFor(id) ?? undefined);
-      return estimateTokens(JSON.stringify(slice.adapter?.descriptorsToTools(descriptors, { strict: slice.strictTools }) ?? []));
+      const tools = slice.adapter?.descriptorsToTools(descriptors, { strict: slice.strictTools });
+      return tools && tools.length > 0 ? estimateTokens(JSON.stringify(tools)) : 0;
     },
     profileWindowApplies: (id?: string) => resolveActiveLlmSlice(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined).isLlamaServer,
     resolveCatalogContextWindow: (id?: string) => resolveCatalogContextWindow(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined),
