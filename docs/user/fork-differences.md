@@ -139,6 +139,7 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 ## Folder constraints for confidential data
 
 - **Per-folder rules.** `projects.constraints` lists the providers and egress classes each folder allows ([#34](https://github.com/Edo771977/atomic-agent/pull/34)). Settings: [settings reference](settings-reference.md).
+- **Agent proxy.** Upstream ATO-87 remains deferred. Routing through a proxy must preserve the folder's egress decision and the destination IP checks across HTTP transports. [November upstream triage](upstream-2026-11-triage.md)
 - **MCP servers and "local" providers.** A stdio MCP server that uses the network needs `mcp:<server>` or `"local": true`. A "local" provider pointed at another machine needs `allowedProviderHosts` ([#63](https://github.com/Edo771977/atomic-agent/pull/63)).
 - **The restriction follows the chat.** A chat keeps it when it moves, is retried or is handed off. Read taint is persisted ([#69](https://github.com/Edo771977/atomic-agent/pull/69), [#75](https://github.com/Edo771977/atomic-agent/pull/75)).
 - **In the desktop.** A "restricted to: …" chip, the refusal in plain words, and the chat's own folder ([#70](https://github.com/Edo771977/atomic-agent/pull/70)).
