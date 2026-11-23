@@ -33,6 +33,8 @@ import {
 } from "../approval/dangerous-tool.js";
 import { compressToolResult } from "../compressor/result-compressor.js";
 import type { CompressedToolResult } from "../compressor/result-compressor.js";
+import { offlineRefusal } from "../llm/offline-network.js";
+import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../tools/os/web/url-data-guard.js";
 import type { ToolDefinition } from "../tools/tool-registry.js";
 
 import { mcpToolPrompts, modeSkipsDefaultPrompt } from "./mcp-approval-mode.js";
@@ -89,6 +91,7 @@ export interface McpToolGateOptions {
    * being `false`.
    */
   dangerous?: DangerousToolOptions;
+  urlDataGuard?: UrlDataGuardMode;
   /**
    * True when this tool's own `readOnlyHint` may skip the prompt. The
    * manager sets it for tools of a stdio server, the transport where the
@@ -137,6 +140,22 @@ export function trustsReadOnlyHintFor(
  */
 export function mcpGrantKey(server: string, rawName: string): string {
   return `MCP tool ${server}/${rawName}`;
+}
+
+function literalWebUrls(args: Record<string, unknown>): Set<string> {
+  const urls = new Set<string>();
+  const visited = new Set<object>();
+  const pending: unknown[] = [args];
+  while (pending.length > 0) {
+    const value = pending.pop();
+    if (typeof value === "string" && /^https?:\/\//i.test(value.trim())) {
+      urls.add(value.trim());
+    } else if (value !== null && typeof value === "object" && !visited.has(value)) {
+      visited.add(value);
+      for (const nested of Object.values(value)) pending.push(nested);
+    }
+  }
+  return urls;
 }
 
 export function createMcpToolDefinition(
@@ -188,6 +207,11 @@ export function createMcpToolDefinition(
       meta.annotations?.destructiveHint === false,
     run: async (args, ctx): Promise<CompressedToolResult> => {
       try {
+        const urls = literalWebUrls(args);
+        for (const url of urls) {
+          const refused = offlineRefusal(url, meta.qualifiedName);
+          if (refused) throw refused;
+        }
         const ruleCheck = {
           sessionId: ctx.sessionId,
           tool: meta.qualifiedName,
@@ -214,6 +238,17 @@ export function createMcpToolDefinition(
             },
             ctx.signal,
           );
+        }
+        if (dangerous) {
+          for (const url of urls) {
+            await requireUrlSendApproval(dangerous, {
+              mode: gate?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+              tool: meta.qualifiedName,
+              url,
+              sessionId: ctx.sessionId,
+              signal: ctx.signal,
+            });
+          }
         }
         const res = await client.callTool(meta.rawName, args, ctx.signal);
         return compressToolResult(

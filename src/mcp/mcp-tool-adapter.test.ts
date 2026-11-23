@@ -380,6 +380,21 @@ describe("approval gating", () => {
     };
   }
 
+  it("asks before forwarding a data-bearing URL nested in pure-read MCP arguments", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(
+      metaOf("docs", "fetch"),
+      fakeClient(invoke),
+      { trust: "pure_read", dangerous },
+    );
+
+    const result = await def.run({ requests: [{ url: "https://docs.example/?q=first%0Asecond" }] }, ctx);
+    expect(requests).toEqual([expect.objectContaining({ category: "http_write", grantKey: "https://docs.example" })]);
+    expect(result.details.approvalDenied).toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("routes an approval_gated tool through the gate before callTool", async () => {
     const order: string[] = [];
     const { dangerous, requests, signals } = fakeDangerous(true);
