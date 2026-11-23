@@ -22,6 +22,8 @@ Earlier upstream PRs came in as batches:
 
 Anything upstream published after 17 November is not here until it is imported.
 
+The fork imports mandatory `serve` authentication from upstream commit `8e2e65b7c3650d249ec782e8b2fbadf9a3635ffa`. The fork authenticates model discovery and its own project routes, excludes the serve key from agent subprocesses, and accepts an explicit key from a file. Signed tunnel deliveries without the serve key use `/webhooks/{name}`. See the [HTTP guide](../../src/http/README.md), [upstream triage](upstream-2026-11-triage.md), and [#187](https://github.com/Edo771977/Atomic-Agent/issues/187).
+
 The official installer (`curl … atomicagent.io/install`) and upstream's release packages install upstream's code, without any of the changes below. To use this fork:
 
 - Build it from source with `npm ci && npm run build && npm link`.
