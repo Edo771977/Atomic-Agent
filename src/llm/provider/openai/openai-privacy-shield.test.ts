@@ -331,3 +331,22 @@ describe("Privacy Shield in the fork", () => {
     expect(sentBody(fetchImpl, 1)).not.toBe(sentBody(fetchImpl, 0));
   });
 });
+
+it("forces protection for a cloud gateway and can opt out a remote provider", async () => {
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn(async () =>
+    json({ model: "m", choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }),
+  );
+  for (const [baseUrl, shield, expected] of [
+    ["http://localhost:4000", "auto", EMAIL],
+    ["http://localhost:4000", "on", "[EMAIL_1]"],
+    ["https://gateway.example.test", "off", EMAIL],
+  ] as const) {
+    const p = new OpenAiProvider({
+      id: "gateway", baseUrl, apiKey: "", defaultChatModel: "m",
+      privacy: { shield }, fetchImpl: replies as unknown as typeof fetch,
+    });
+    await p.complete({ prompt: `Mail ${EMAIL}`, sessionId: "gateway" });
+    expect(sentBody(replies, replies.mock.calls.length - 1)).toContain(expected);
+  }
+});

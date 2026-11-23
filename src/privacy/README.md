@@ -17,3 +17,5 @@ The archive lives in process memory. Chat deletion, including incognito close, d
 The detector reads the fork's current [known credentials](../runtime/runtime-known-secrets.ts) and uses the shared credential masker to detect them. Existing tool-output and error-report scrubbing continue to run independently. Values already redacted from tool output remain redacted.
 
 Checks: `npx vitest run src/privacy`; `npm run lint`; `npm run docs:check`.
+
+For a gateway, proxy or SSH tunnel on a local-looking address that forwards to a cloud model, set `llm.providers[].privacy.shield` to `"on"` on that entry. The default `"auto"` uses the global setting and classifies by the gateway address. Use `"off"` to bypass the shield on a specific provider.

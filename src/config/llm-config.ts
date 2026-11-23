@@ -43,9 +43,16 @@ export type UserSubscriptionCliOptions = {
   maxBudgetUsd?: number;
 };
 
+export type ProviderPrivacyConfig = {
+  /** Privacy Shield routing. Use on for a loopback or private gateway forwarding to a cloud model. Auto follows the global setting and skips local-looking endpoints. Off bypasses protection. */
+  shield?: "on" | "off" | "auto";
+};
+
 export type UserLlmProviderEntry = {
   id: string;
   kind: string;
+  /** Privacy Shield override for this provider. */
+  privacy?: ProviderPrivacyConfig;
   /** Context/agent policy. Absent preserves legacy behavior (local). */
   modelMode?: ModelMode;
   /** Per-model policy overrides, independent of catalog metadata. */
@@ -462,9 +469,14 @@ export function parseLlmProviderEntry(
       `required when kind is ${SUBSCRIPTION_CLI_KIND}`,
     );
   }
+  const privacy = parseOptionalPlainObject(obj.privacy, `${field}.privacy`);
+  const shield = parseOptionalEnum<NonNullable<ProviderPrivacyConfig["shield"]>>(
+    privacy?.shield, `${field}.privacy.shield`, new Set(["on", "off", "auto"]),
+  );
   return {
     id,
     kind,
+    ...(shield === undefined ? {} : { privacy: { shield } }),
     ...modelModeField(obj.modelMode, `${field}.modelMode`, fromFile),
     ...(obj.modelModes == null ? {} : { modelModes: parseModelModes(obj.modelModes, `${field}.modelModes`, fromFile) }),
     url: parseOptionalString(obj.url, `${field}.url`),

@@ -13,7 +13,7 @@ export interface PrivacyShieldConfig {
    * Privacy Shield (ATO-599): when `true`, emails, phone numbers, card
    * numbers, IBANs and keys in a request to a supported cloud model are replaced
    * with placeholders such as `[EMAIL_1]` and put back in the reply on
-   * this machine. Off by default. Covers remote OpenAI-compatible providers and native Anthropic Messages. Local models always get the real text.
+   * this machine. Off by default. Covers remote OpenAI-compatible providers and native Anthropic Messages. Local-looking addresses are skipped by default. Set the provider entry’s privacy.shield to on for a gateway that forwards to the cloud.
    */
   enabled: boolean;
 }

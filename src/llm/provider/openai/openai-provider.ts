@@ -1,3 +1,4 @@
+import type { ProviderPrivacyConfig } from "../../../config/llm-config.js";
 import {
   AudioUnsupportedError,
   ModelCannotSeeError,
@@ -97,6 +98,7 @@ import {
 } from "../model-vision-rejections.js";
 
 export interface OpenAiProviderOptions {
+  privacy?: ProviderPrivacyConfig | undefined;
   id: string;
   baseUrl: string;
   apiKey: string;
@@ -273,6 +275,7 @@ export class OpenAiProvider implements LlmProvider {
    * Whether the base URL is this machine or the local network. Privacy
    * Shield (ATO-1081) never masks for such a server: it is not a cloud.
    */
+  private readonly privacyShield: ProviderPrivacyConfig["shield"];
   private readonly localServer: boolean;
   /**
    * Sessions whose requests go out flat after the service rejected the
@@ -343,6 +346,7 @@ export class OpenAiProvider implements LlmProvider {
     this.providerPreferences = options.providerPreferences;
     this.messageShape = options.messageShape ?? "native";
     this.wire = options.wire;
+    this.privacyShield = options.privacy?.shield;
     this.localServer = isLocalServerUrl(options.baseUrl);
     this.bodyOptions = {
       nameEscape: (name) => this.toolCallAdapter.nameEscape(name),
@@ -466,7 +470,7 @@ export class OpenAiProvider implements LlmProvider {
     // The body the response actually came from; see `OnOpenAiRequestBody`.
     let sentBody: Record<string, unknown> | undefined;
     // Privacy Shield (ATO-1081): one vault for the body and the reply.
-    const vault = shieldVaultFor(request.sessionId, this.localServer);
+    const vault = shieldVaultFor(request.sessionId, this.localServer, this.privacyShield);
     const post = (body: Record<string, unknown>) =>
       openAiPostJson(
         this.http,
@@ -886,7 +890,7 @@ export class OpenAiProvider implements LlmProvider {
     let activeRequest = known.request;
     // Privacy Shield (ATO-1081): one vault for every attempt of this
     // completion, so a reopen masks the same way and the reply unmasks.
-    const vault = shieldVaultFor(request.sessionId, this.localServer);
+    const vault = shieldVaultFor(request.sessionId, this.localServer, this.privacyShield);
     let body = this.buildBody(activeRequest, true, shape, vault);
     const path = this.chatPath();
     let accumulated = "";

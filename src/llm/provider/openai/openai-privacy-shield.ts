@@ -29,8 +29,9 @@ import {
 export function shieldVaultFor(
   sessionId: string | undefined,
   local: boolean,
+  mode: "on" | "off" | "auto" | undefined,
 ): PrivacyVault | null {
-  if (local || !isPrivacyShieldEnabled()) return null;
+  if (mode === "off" || (mode !== "on" && (local || !isPrivacyShieldEnabled()))) return null;
   return privacyVaultFor(sessionId);
 }
 
