@@ -1,7 +1,13 @@
+import { scrubError } from "../error-reporting/error-scrubber.js";
+import { ApprovalGate } from "../approval/index.js";
+import { OpenAiProvider } from "../llm/provider/openai/openai-provider.js";
+import { openAiToolCallAdapter } from "../llm/provider/openai/openai-tool-call-adapter.js";
+import { privacyVaultFor, resetPrivacyVaults, setPrivacyShieldEnabled } from "../privacy/index.js";
+import { confineReads } from "../tools/read-scope/index.js";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { ToolRegistry } from "../tools/tool-registry.js";
 import {
   compressToolResult,
@@ -2129,4 +2135,84 @@ describe("executeBatch under a step tool set", () => {
     expect(out.loopSignals).toEqual([]);
     expect(tracker.check("os.fs.read", { path: "a" }).count).toBe(0);
   });
+});
+
+it("applies the real read scope to a protected path restored before dispatch", async () => {
+  const workingDir = await mkdtemp(join(tmpdir(), "shield-work-"));
+  const privateDir = join(parse(workingDir).root, "shield-private");
+  const path = join(privateDir, "private@example.test");
+  const read = vi.fn(async () => okResult("os.fs.read"));
+  const registry = buildRegistry({ "os.fs.read": read });
+  const approval = vi.fn();
+  const gate = new ApprovalGate({
+    level: 3,
+    emit(request) {
+      approval(request);
+      queueMicrotask(() => gate.resolve({ approvalId: request.approvalId, approved: false }));
+    },
+  });
+  confineReads(registry, {
+    grantedDirs: () => [],
+    readScope: () => "working-dir",
+    approvals: { approvals: gate, approvalRequired: true },
+  });
+  const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+    expect(String(init?.body)).toContain("[EMAIL_1]");
+    expect(String(init?.body)).not.toContain("private@example.test");
+    return Response.json({
+      model: "m",
+      choices: [{ finish_reason: "tool_calls", message: { tool_calls: [{
+        id: "read", type: "function", function: {
+          name: "os__fs__read",
+          arguments: JSON.stringify({ path: join(privateDir, "[EMAIL_1]") }),
+        },
+      }] } }],
+    });
+  });
+  const p = new OpenAiProvider({
+    id: "cloud", baseUrl: "https://api.example.invalid", apiKey: "",
+    defaultChatModel: "m", fetchImpl,
+  });
+  setPrivacyShieldEnabled(true);
+  try {
+    const context = { ...ctx(new AbortController().signal), workingDir };
+    const completion = await p.complete({ prompt: `Inspect ${path}`, sessionId: context.sessionId });
+    const parsed = openAiToolCallAdapter.toolCallsToBatch(completion.toolCalls!);
+    expect(parsed.calls[0]?.args).toEqual({ path });
+    const archiveOnly = "archive-only@example.test";
+    const vault = privacyVaultFor(context.sessionId);
+    vault.mask(archiveOnly);
+    const events: TraceEvent[] = [];
+    const recorder = createTraceRecorder({
+      sessionId: context.sessionId, emit: event => events.push(event), now: () => 0,
+    });
+    recorder.onAgentEvent({ type: "turn_started", turnIndex: 0 });
+    recorder.onAgentEvent({ type: "step_started", stepIndex: 0 });
+    recorder.onAgentEvent({ type: "llm_event", event: {
+      type: "tool_call_parsed", call: parsed.calls[0]!, batchIndex: 0, batchSize: 1,
+    } });
+
+    const result = await executeBatch(toBatchInputs(parsed.calls), registry, {
+      ...context,
+      onCallFinished: ({ result, batchIndex, batchSize }) =>
+        recorder.onAgentEvent({
+          type: "llm_event",
+          event: { type: "tool_call_executed", result, batchIndex, batchSize },
+        }),
+    });
+    expect(events.some(event => event.type === "tool_invocation")).toBe(true);
+    const report = scrubError(new Error("dispatch failed", { cause: vault }), { source: "llm_failure" });
+    for (const artifact of [completion, events, report]) {
+      const serialized = JSON.stringify(artifact);
+      expect(serialized).not.toContain(archiveOnly);
+      expect(serialized).not.toContain("[EMAIL_2]");
+    }
+    expect(result.results[0]?.compressed?.status).toBe("error");
+    expect(approval).toHaveBeenCalledOnce();
+    expect(JSON.stringify(approval.mock.calls)).toContain(path.replaceAll("\\", "\\\\"));
+    expect(read).not.toHaveBeenCalled();
+  } finally {
+    resetPrivacyVaults();
+    await rm(workingDir, { recursive: true, force: true });
+  }
 });

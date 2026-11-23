@@ -1,3 +1,4 @@
+import { PrivacyArchiveLimitError } from "../../privacy/privacy-vault.js";
 import { classifyFailure } from "../reliability/classify-failure.js";
 import { OpenAiHttpError } from "../provider/openai/openai-http.js";
 import { LlamaServerError } from "../llama-server-client.js";
@@ -63,6 +64,12 @@ const NO: AdvanceDecision = { advance: false, immediate: false };
  * only counts toward the threshold).
  */
 export function shouldAdvance(err: unknown): AdvanceDecision {
+  // A provider without protection must not receive a window rejected by the shield.
+  const seen = new Set<Error>();
+  for (let cause = err; cause instanceof Error && !seen.has(cause); cause = cause.cause) {
+    if (cause instanceof PrivacyArchiveLimitError) return NO;
+    seen.add(cause);
+  }
   // A request bound that does not fit a positive daily allowance can
   // still fit on a cheaper configured link. Actual exhaustion obeys
   // onDailyLimit: stop; every candidate still runs its own admission.
