@@ -11,7 +11,7 @@ import type { Readable } from "node:stream";
 import { LineSplitter, lineLevel } from "./agent-output.js";
 // r5 item 9 — the supervised `atag serve` child gets the desktop state dir.
 import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
-import { cleanStaleServeKeys, createServeKeyFile, removeServeKeyFile } from "./serve-key-file.js";
+import { cleanStaleServeKeys } from "./legacy-serve-keys.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
 import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
@@ -649,7 +649,7 @@ export interface AgentClientOptions {
   binary?: () => string | null;
   /** The record the next launch's reaper reads (default: `<state dir>/serve.json`). */
   serveRecordPath?: string;
-  /** Private directory for per-launch bearer files. */
+  /** Directory used by previous Desktop builds, for cleanup only. */
   serveKeyDirectory?: string;
   /** How long a fresh agent gets to answer /health (default: by route, healthBudgetMs). */
   healthBudgetMs?: number;
@@ -738,8 +738,6 @@ export class AgentClient extends EventEmitter {
   private readonly spawnedAt = new WeakMap<ChildProcess, number>();
   private readonly opts: AgentClientOptions;
   private readonly recordPath: string;
-  private readonly serveKeyDirectory: string;
-  private pendingServeKey: (() => void) | null = null;
 
   /** Issue #74: the remote agent's /api/events refused the token (401/403); cleared by an accepted stream. */
   private authRefused = false;
@@ -758,11 +756,11 @@ export class AgentClient extends EventEmitter {
     this.status.workingDir = workingDir;
     this.opts = opts;
     this.recordPath = opts.serveRecordPath ?? serveRecordPath();
-    this.serveKeyDirectory = opts.serveKeyDirectory ?? join(dirname(this.recordPath), "serve-keys");
+    const legacyKeyDirectory = opts.serveKeyDirectory ?? join(dirname(this.recordPath), "serve-keys");
     try {
-      cleanStaleServeKeys(this.serveKeyDirectory);
+      cleanStaleServeKeys(legacyKeyDirectory);
     } catch {
-      this.say("[desktop] Could not clean up leftover serve key files.");
+      this.say(`[desktop] Could not clean up leftover serve key files in ${legacyKeyDirectory}.`);
     }
   }
 
@@ -1010,26 +1008,6 @@ export class AgentClient extends EventEmitter {
        is spawned behind its back. */
     if (superseded()) return gaveWay();
 
-    let keyPath: string;
-    try {
-      keyPath = createServeKeyFile(this.serveKeyDirectory, token);
-    } catch {
-      this.port = null;
-      this.setStatus({ state: "error", port: null, error: "Could not create a private API key file for the local agent." });
-      return this.status;
-    }
-    let removed = false;
-    const removeKey = () => {
-      if (removed) return;
-      try {
-        removeServeKeyFile(keyPath);
-        removed = true;
-        if (this.pendingServeKey === removeKey) this.pendingServeKey = null;
-      } catch {
-        this.say("[desktop] Could not remove the temporary serve key file.");
-      }
-    };
-    this.pendingServeKey = removeKey;
     const env = agentEnv();
     for (const name of Object.keys(env)) {
       // Windows environment variable names are case-insensitive.
@@ -1047,15 +1025,14 @@ export class AgentClient extends EventEmitter {
           "127.0.0.1",
           "--port",
           String(port),
-          "--api-key-file",
-          keyPath,
+          "--api-key-stdin",
           ...serveWatchArgs(process.platform, sentinel?.pid),
         ],
         {
           cwd: this.status.workingDir,
           // r5 item 9: `atag serve` runs on the desktop's own state directory.
           env,
-          stdio: ["ignore", "pipe", "pipe"],
+          stdio: ["pipe", "pipe", "pipe"],
           // Windows: a console child of a GUI app otherwise opens a console window.
           windowsHide: true,
         },
@@ -1063,7 +1040,6 @@ export class AgentClient extends EventEmitter {
     } catch (err) {
       // Nothing was started for the stand-in to stand in for.
       sentinel?.kill();
-      removeKey();
       throw err;
     }
     this.child = child;
@@ -1075,10 +1051,15 @@ export class AgentClient extends EventEmitter {
        (serve's own `[atomic-agent] …` lifecycle lines, ATO-121; agent-output.ts).
        What is left when a stream closes is let out too: an agent that died
        mid-line. */
+    let oldCore = false;
+    const oldCoreError = "The installed agent core is too old for this Desktop version. It does not support --api-key-stdin. Update the agent core and restart it.";
+    let startupError: string | undefined;
     const relay = (stream: "stdout" | "stderr", from: Readable | null) => {
       if (!from) return;
       const lines = new LineSplitter((line) => {
         if (!line.trim()) return;
+        if (stream === "stderr" && this.status.state === "starting" &&
+          /unknown flag:\s*--api-key-stdin(?:\s|$)/i.test(line)) oldCore = true;
         const level = lineLevel(line);
         this.emit("log", { stream, line, ...(level ? { level } : {}) });
       });
@@ -1087,34 +1068,58 @@ export class AgentClient extends EventEmitter {
     };
     relay("stdout", child.stdout);
     relay("stderr", child.stderr);
+    const stderr = child.stderr;
+    const stderrClosed = stderr && new Promise<void>((resolve) => stderr.once("close", resolve));
     /* r6: write down who we just started, so the next launch can clean up
        after this one however this one ends. */
     if (child.pid) rememberServeRecord(this.recordPath, child.pid, port);
 
     // Backlog 41: registered per child, and acting only for the child it was registered on.
-    child.on("exit", (code, signal) => {
-      removeKey();
+    const reportExit = async (code: number | null, signal: NodeJS.Signals | null) => {
       // A child a stop let go of is gone at last: nothing waits for it any more, and its record goes.
       if (this.lingering.delete(child) && child.pid !== undefined) forgetServeRecord(this.recordPath, child.pid);
       // ATO-763: read before the stand-in is ended below, or it would always read as gone.
       const sentinelAlive = this.sentinelAlive(child);
       this.endSentinel(child);
-      this.childExited(child, code, signal, sentinelAlive);
-    });
+      // A CLI parser error can arrive after the process exit event.
+      if (code && this.status.state === "starting" && !this.stopped.has(child) && stderrClosed) {
+        await settlesWithin(stderrClosed, 200);
+      }
+      this.childExited(child, code, signal, sentinelAlive, oldCore ? oldCoreError : startupError);
+    };
+    let exitReport: Promise<void> | undefined;
+    child.on("exit", (code, signal) => { exitReport = reportExit(code, signal); });
     /* A child that could not be spawned at all (not executable, say) emits
        `error` and has no pid. Unheard, that event is an uncaught exception in
        main. A failed kill emits `error` too, on a child that has a pid: that
        one says nothing about how the agent is doing, and its exit still comes. */
     child.on("error", (err) => {
       if (child.pid === undefined) {
-        removeKey();
         this.endSentinel(child);
         this.childFailedToSpawn(child, err);
       }
     });
 
+    const stdin = child.stdin;
+    if (stdin && child.pid !== undefined) {
+      const written = await new Promise<boolean>((resolve) => {
+        stdin.on("error", () => resolve(false));
+        stdin.end(token + "\n", (error?: Error | null) => resolve(!error));
+      });
+      if (superseded()) return gaveWay();
+      if (!written) {
+        startupError = "Desktop could not send the API key to the local agent through stdin. Restart the agent to try again.";
+        if (exitReport) await exitReport;
+        if (this.child === child) await this.endChild(child);
+        if (superseded()) return gaveWay();
+        this.port = null;
+        this.setStatus({ state: "error", port: null, llama: null, error: oldCore ? oldCoreError : startupError });
+        return this.status;
+      }
+    }
+
     const budget = this.opts.healthBudgetMs ?? this.healthBudgetMs();
-    const verdict = await this.waitForHealth(child, port, budget, superseded, removeKey).finally(removeKey);
+    const verdict = await this.waitForHealth(child, port, budget, superseded);
     if (verdict === "healthy") this.openApprovalStream(() => this.child === child);
     /* Backlog 41: "did not become healthy" is said only when the budget really
        ran out with this agent still running. An agent that exited while it
@@ -1137,7 +1142,7 @@ export class AgentClient extends EventEmitter {
    * client's child at all, ended as it was asked to, and the record, the
    * approval stream and the status now belong to the agent after it.
    */
-  private childExited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null, sentinelAlive: boolean | null = null): void {
+  private childExited(child: ChildProcess, code: number | null, signal: NodeJS.Signals | null, sentinelAlive: boolean | null, startupError?: string): void {
     if (this.child !== child) return;
     this.child = null;
     this.port = null;
@@ -1163,7 +1168,7 @@ export class AgentClient extends EventEmitter {
       state: "error",
       port: null,
       llama: null,
-      error: `The agent exited (code ${code ?? "null"}, signal ${signal ?? "none"}).`,
+      error: startupError ?? `The agent exited (code ${code ?? "null"}, signal ${signal ?? "none"}).`,
     });
   }
 
@@ -1211,7 +1216,6 @@ export class AgentClient extends EventEmitter {
     port: number,
     budgetMs: number,
     superseded: () => boolean,
-    removeKey: () => void,
   ): Promise<HealthVerdict> {
     const ended = (): HealthVerdict | null => {
       if (superseded() || this.stopped.has(child)) return "superseded";
@@ -1234,7 +1238,6 @@ export class AgentClient extends EventEmitter {
           // A stop may have come while it answered.
           const goneMeanwhile = ended();
           if (goneMeanwhile) return goneMeanwhile;
-          removeKey();
           this.setStatus({
             state: "connected",
             error: null,
@@ -2892,15 +2895,9 @@ export class AgentClient extends EventEmitter {
     return this.stop();
   }
 
-  /** Synchronous cleanup for immediate Electron exits that skip before-quit. */
-  discardPendingServeKey(): void {
-    this.pendingServeKey?.();
-  }
-
   private async stopNow(): Promise<boolean> {
     this.stopping = true;
     this.stopEpoch++;
-    this.discardPendingServeKey();
     // Issue #39: the next agent (an update, another build) says again whether it runs the project flow.
     this.projectFlow = null;
     for (const controller of this.turns.values()) controller.abort();

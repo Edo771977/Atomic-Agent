@@ -1,17 +1,15 @@
 const { createServer } = require('node:http');
-const { lstatSync, readFileSync, writeFileSync } = require('node:fs');
+const { readFileSync, writeFileSync } = require('node:fs');
 const [output, behavior, ...args] = process.argv.slice(2);
-const path = args[args.indexOf('--api-key-file') + 1];
-const stat = lstatSync(path);
-const token = readFileSync(path, 'utf8');
-writeFileSync(output, JSON.stringify({
-  args, path, mode: stat.mode & 0o777, regular: stat.isFile(), token,
-  envKey: process.env.ATOMIC_AGENT_API_KEY ?? null,
-}));
-if (behavior === 'fail') process.exit(3);
-if (behavior === 'hang') {
-  setInterval(() => {}, 1000);
+if (behavior === 'old') {
+  process.stderr.write('serve: unknown flag: --api-key-stdin');
+  process.exitCode = 2;
 } else {
+  const input = args.includes('--api-key-stdin') ? readFileSync(0, 'utf8') : '';
+  const token = input.trimEnd();
+  writeFileSync(output, JSON.stringify({
+    args, input, token, envKey: process.env.ATOMIC_AGENT_API_KEY ?? null,
+  }));
   createServer((req, res) => {
     if (req.url === '/health') return res.end('{}');
     if (req.headers.authorization !== 'Bearer ' + token) {
