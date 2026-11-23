@@ -68,7 +68,10 @@ export function restoreMemoryChange(
     }
     applied = { note };
   } else {
-    applied = { fact: setProfileValue(deps.profile, change.before as ProfileSnapshot) };
+    const before = change.before as ProfileSnapshot;
+    const fact = setProfileValue(deps.profile, before);
+    applied = { fact: before.disabledAt === undefined ? fact
+      : deps.profile.changeDisabledAt(fact.key, before.disabledAt, now) ?? fact };
   }
   log.markRestored(changeId, now);
   return { ok: true, change: { ...change, restoredAt: now }, ...applied };

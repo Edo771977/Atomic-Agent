@@ -62,6 +62,23 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(profile.history(fact.key)).toHaveLength(1);
   });
 
+  it("keeps recovered entries disabled after undoing a deletion", () => {
+    const notes = notesStore();
+    const profile = profileStore();
+    const note = notes.store({ content: "Meet on Tuesday" });
+    const fact = profile.set("city", "Lisbon");
+    notes.setDisabled(note.id, true);
+    profile.setDisabled(fact.key, true);
+    notes.remove(note.id);
+    profile.remove(fact.key);
+    const changes = notes.getChangeLog().list().filter((change) => change.op === "remove");
+    for (const change of changes) expect(restoreMemoryChange(change.id, { notes, profile }).ok).toBe(true);
+    expect(notes.get(note.id)?.disabledAt).toEqual(expect.any(Number));
+    expect(profile.get(fact.key)?.disabledAt).toEqual(expect.any(Number));
+    expect(notes.recall("Tuesday")).toHaveLength(0);
+    expect(profile.listForPrompt()).toHaveLength(0);
+  });
+
   it("adds disabled_at in place, without a schema version bump", () => {
     const db = new DatabaseCtor(dbFile);
     try {

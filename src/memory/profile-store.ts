@@ -487,6 +487,7 @@ export class ProfileStore {
 
         return {
           id: newId,
+          disabledAt: sameKeyActive?.disabled_at ?? null,
           supersedes: directParent ? directParent.id : null,
           // Same transaction as the insert: the cap is never observed
           // exceeded, and a write that rolls back evicts nothing.
@@ -495,7 +496,7 @@ export class ProfileStore {
       },
     );
 
-    const { id, supersedes, eviction } = txn();
+    const { id, supersedes, eviction, disabledAt } = txn();
     if (eviction !== null) {
       try {
         this.onEvicted?.(eviction);
@@ -524,6 +525,7 @@ export class ProfileStore {
       supersededBy: null,
       voteScore: 0,
       nameGrounding,
+      ...(disabledAt === null ? {} : { disabledAt }),
     };
   }
 
@@ -542,7 +544,8 @@ export class ProfileStore {
   remove(key: string, by: MemoryChangeActor = "agent"): boolean {
     const normalisedKey = validateKey(key);
     return this.db.transaction((): boolean => {
-      const before = this.get(normalisedKey);
+      const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as ProfileRow | undefined;
+      const before = row ? rowToFact(row) : null;
       const hadActive = before !== null;
       // A fact this session cannot see (another constraint scope) is not
       // its to forget.
@@ -559,6 +562,8 @@ export class ProfileStore {
             value: before.value,
             pinned: before.pinned,
             keywords: before.keywords,
+            constraintScope: row?.constraint_scope ?? null,
+            ...(before.disabledAt === undefined ? {} : { disabledAt: before.disabledAt }),
           },
         });
       }

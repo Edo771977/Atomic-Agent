@@ -423,10 +423,10 @@ export class MemoryStore {
     this.restoreStmt = this.db.prepare(
       `INSERT INTO memories
          (id, content, created_at, updated_at, source, session_id, working_dir, tags,
-          recall_count, last_recalled_at, consolidating_at, constraint_scope)
+          recall_count, last_recalled_at, consolidating_at, constraint_scope, disabled_at)
        VALUES
          (@id, @content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags,
-          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END)`,
+          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END, @disabled_at)`,
     );
     this.rawScopeStmt = this.db.prepare(`SELECT constraint_scope AS scope FROM memories WHERE id = ?`);
     this.insertStmt = this.db.prepare(
@@ -950,6 +950,7 @@ export class MemoryStore {
       working_dir: snapshot.workingDir,
       tags: tags.length > 0 ? JSON.stringify(tags) : null,
       scope_known: scopeKnown ? 1 : 0,
+      disabled_at: snapshot.disabledAt ?? null,
       constraint_scope: scopeKnown ? snapshot.constraintScope ?? null : null,
     }) as { lastInsertRowid: number | bigint };
     const id = Number(result.lastInsertRowid);
