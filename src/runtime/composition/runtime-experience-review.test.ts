@@ -1,3 +1,4 @@
+import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -39,7 +40,7 @@ describe("createExperienceReviewer", () => {
     root = mkdtempSync(join(tmpdir(), "atomic-runtime-learn-"));
     skillsDir = join(root, "skills");
     mkdirSync(skillsDir, { recursive: true });
-    selfLearning = undefined;
+    selfLearning = { enabled: true, minSteps: 10 };
     records = [];
   });
   afterEach(() => rmSync(root, { recursive: true, force: true }));
@@ -62,14 +63,12 @@ describe("createExperienceReviewer", () => {
 
   function rig(answer = JSON.stringify({ action: "create", name: "sync-with-delete", reason: "stale files stayed", skill_md: NEW_SKILL }), overrides: Partial<ExperienceReviewerDeps> = {}) {
     const llmComplete = vi.fn(async () => completion(answer));
-    const refreshSkills = vi.fn(async () => {});
     const deps: ExperienceReviewerDeps = {
       getConfig: cfg,
       llmComplete,
       slotManager: { sideCallSlotId: () => 3 },
       resolveTransport: () => "grammar",
       skillRegistry: { listAll: () => records.map((record) => ({ record, disabled: false })) },
-      refreshSkills,
       pending: new Set(),
       isShutdown: () => false,
       logger: new StructuredLogger({ level: "debug", sinks: [] }),
@@ -77,20 +76,21 @@ describe("createExperienceReviewer", () => {
       outsideContentSources: () => [],
       ...overrides,
     };
-    return { deps, llmComplete, refreshSkills, reviewer: createExperienceReviewer(deps) };
+    return { deps, llmComplete, reviewer: createExperienceReviewer(deps) };
   }
 
   const reply = (stepCount: number) => ({ reason: "reply" as const, stepCount });
-  const journal = () => readLearnedChanges(learnedJournalFile(skillCuratorPaths(root)));
+  const scope = () => learnedSkillScope(root, root);
+  const journal = () => readLearnedChanges(learnedJournalFile(skillCuratorPaths(scope().stateDir)));
 
-  it("reviews a turn of at least 10 steps by default and saves the skill it learned", async () => {
-    const { reviewer, llmComplete, refreshSkills } = rig();
+  it("proposes a draft after a long turn when enabled", async () => {
+    const { reviewer, llmComplete } = rig();
     expect(reviewer.maybeReview(session(10), { result: reply(10), origin: "tui" })).toBe(true);
     await reviewer.whenIdle();
     expect(llmComplete).toHaveBeenCalledTimes(1);
-    expect(readFileSync(join(skillsDir, "sync-with-delete", "SKILL.md"), "utf8")).toBe(NEW_SKILL);
-    expect((await journal()).map((e) => [e.name, e.action])).toEqual([["sync-with-delete", "create"]]);
-    expect(refreshSkills).toHaveBeenCalledTimes(1);
+    expect(await listPendingDrafts(scope().stateDir)).toHaveLength(1);
+    expect(existsSync(join(scope().skillsDir, "sync-with-delete"))).toBe(false);
+    expect(await journal()).toEqual([]);
   });
 
   it("does not call the model for a short turn", async () => {
@@ -101,7 +101,7 @@ describe("createExperienceReviewer", () => {
   });
 
   it("follows skills.selfLearning: off, or a higher step count", async () => {
-    selfLearning = { enabled: false, minSteps: 10 };
+    selfLearning = undefined;
     const off = rig();
     expect(off.reviewer.maybeReview(session(30), { result: reply(30), origin: "tui" })).toBe(false);
     selfLearning = { enabled: true, minSteps: 20 };
@@ -126,7 +126,7 @@ describe("createExperienceReviewer", () => {
 
   it("holds what a turn that read outside content learned as a pending draft (the approval gate's taint)", async () => {
     const asked: string[] = [];
-    const { reviewer, llmComplete, refreshSkills } = rig(undefined, {
+    const { reviewer, llmComplete } = rig(undefined, {
       outsideContentSources: (sessionId) => {
         asked.push(sessionId);
         return ["os.web.fetch"];
@@ -138,13 +138,12 @@ describe("createExperienceReviewer", () => {
     expect(llmComplete).toHaveBeenCalledTimes(1);
     expect(existsSync(join(skillsDir, "sync-with-delete"))).toBe(false);
     expect(await journal()).toEqual([]);
-    expect(refreshSkills).not.toHaveBeenCalled();
-    const drafts = await listPendingDrafts(root);
+    const drafts = await listPendingDrafts(scope().stateDir);
     expect(drafts).toHaveLength(1);
     expect(drafts[0]).toMatchObject({ kind: "create", name: "sync-with-delete", sources: ["os.web.fetch"], origin: "tui", sessionId: "s-1" });
   });
 
-  it("chat channels and plain HTTP callers draft, the desktop app over HTTP and the sidecar save live", async () => {
+  it("chat channels and plain HTTP callers draft, and the desktop and sidecar can only draft", async () => {
     for (const origin of ["telegram", "discord", "slack", "signal", "imessage", "matrix", "googlechat", "msteams", "http"] as const) {
       const { reviewer, llmComplete } = rig();
       expect(reviewer.maybeReview(session(12), { result: reply(12), origin })).toBe(true);
@@ -152,7 +151,7 @@ describe("createExperienceReviewer", () => {
       expect(llmComplete).toHaveBeenCalledTimes(1);
       expect(existsSync(join(skillsDir, "sync-with-delete"))).toBe(false);
     }
-    expect((await listPendingDrafts(root)).map((d) => d.origin).sort()).toEqual(
+    expect((await listPendingDrafts(scope().stateDir)).map((d) => d.origin).sort()).toEqual(
       ["telegram", "discord", "slack", "signal", "imessage", "matrix", "googlechat", "msteams", "http"].sort(),
     );
     const desktop = rig('{"action":"none","reason":"routine"}');
@@ -161,15 +160,15 @@ describe("createExperienceReviewer", () => {
     const sidecar = rig();
     expect(sidecar.reviewer.maybeReview(session(12), { result: reply(12), origin: "sidecar" })).toBe(true);
     await sidecar.reviewer.whenIdle();
-    expect(existsSync(join(skillsDir, "sync-with-delete", "SKILL.md"))).toBe(true);
+    expect(existsSync(join(scope().skillsDir, "sync-with-delete", "SKILL.md"))).toBe(false);
   });
 
-  it("reviewModeForOrigin: auto for the owner's surfaces, skip for scheduler and fusion, draft for the rest", () => {
-    expect(reviewModeForOrigin("cli")).toBe("auto");
-    expect(reviewModeForOrigin("tui")).toBe("auto");
-    expect(reviewModeForOrigin("sidecar")).toBe("auto");
-    expect(reviewModeForOrigin(undefined)).toBe("auto");
-    expect(reviewModeForOrigin("http", "desktop")).toBe("auto");
+  it("reviewModeForOrigin: skips scheduler and fusion, drafts for everyone else", () => {
+    expect(reviewModeForOrigin("cli")).toBe("draft");
+    expect(reviewModeForOrigin("tui")).toBe("draft");
+    expect(reviewModeForOrigin("sidecar")).toBe("draft");
+    expect(reviewModeForOrigin(undefined)).toBe("draft");
+    expect(reviewModeForOrigin("http", "desktop")).toBe("draft");
     expect(reviewModeForOrigin("http")).toBe("draft");
     expect(reviewModeForOrigin("http", "telegram")).toBe("draft");
     expect(reviewModeForOrigin("telegram", "desktop")).toBe("draft");

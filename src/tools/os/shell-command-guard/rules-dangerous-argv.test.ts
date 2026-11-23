@@ -352,6 +352,7 @@ describe("dangerous.plugin_code_consent", () => {
 
 describe("dangerous.skill_draft_consent (ATO-67)", () => {
   it.each([
+    `atomic-agent skill learned approve a1b2c3@${"a".repeat(64)}`,
     "atomic-agent skill learned approve a1b2c3",
     "atag skill learned approve a1b2c3",
     "npx atomic-agent skill learned approve a1b2c3",

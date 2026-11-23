@@ -1,3 +1,5 @@
+import { learnedSkillScope, withLearnedTurn } from "../skills/learning/learn-scope.js";
+import { hashSkillText } from "../skills/learning/pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -40,6 +42,7 @@ function desktopSkillList(out: string): { ok: boolean; names: string[] } {
 describe("skill history / restore / curate", () => {
   let stateDir: string;
   let globalSkillsDir: string;
+  const scope = () => learnedSkillScope(stateDir, process.cwd());
   let stdout = "";
   let stderr = "";
 
@@ -126,8 +129,8 @@ describe("skill history / restore / curate", () => {
     expect(await skillCommand(["learned"])).toBe(0);
     expect(stdout).toMatch(/Nothing learned yet/);
 
-    writeSkill(globalSkillsDir, "sync-with-delete");
-    await appendLearnedChange(learnedJournalFile(skillCuratorPaths(stateDir)), {
+    writeSkill(scope().skillsDir, "sync-with-delete");
+    await appendLearnedChange(learnedJournalFile(skillCuratorPaths(scope().stateDir)), {
       id: "c0ffee", at: Date.now(), name: "sync-with-delete", action: "create", reason: "stale files stayed",
     });
     stdout = "";
@@ -136,7 +139,7 @@ describe("skill history / restore / curate", () => {
     expect(stdout).toContain("atomic-agent skill learned undo <id>");
 
     expect(await skillCommand(["learned", "undo", "c0ffee"])).toBe(0);
-    expect(existsSync(join(globalSkillsDir, "sync-with-delete"))).toBe(false);
+    expect(existsSync(join(scope().skillsDir, "sync-with-delete"))).toBe(false);
     expect(await skillCommand(["learned", "undo", "c0ffee"])).toBe(1);
     expect(stderr).toMatch(/already undone/);
     expect(await skillCommand(["learned", "forget"])).toBe(2);
@@ -145,7 +148,7 @@ describe("skill history / restore / curate", () => {
   it("plain skill list with installed skills keeps stdout to installed rows when drafts wait (ATO-67)", async () => {
     writeSkill(globalSkillsDir, "alpha");
     const content = "---\nname: changelog-notes\ndescription: Collect release notes.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n";
-    const draft = await savePendingDraft(stateDir, { kind: "create", name: "changelog-notes", reason: "notes \u001b[2J", content, sources: [] });
+    const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changelog-notes", reason: "notes \u001b[2J", content, sources: [] });
     stdout = "";
     stderr = "";
     expect(await skillCommand(["list"])).toBe(0);
@@ -161,8 +164,8 @@ describe("skill history / restore / curate", () => {
 
   it("skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)", async () => {
     const content = "---\nname: changelog-notes\ndescription: Collect release notes from the changelog.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n2. Copy the newest section.\n";
-    const draft = await savePendingDraft(stateDir, { kind: "create", name: "changelog-notes", reason: "changelog steps", content, sources: ["os.web.fetch"], origin: "discord" });
-    const other = await savePendingDraft(stateDir, { kind: "create", name: "other-notes", reason: "other", content: content.replaceAll("changelog-notes", "other-notes"), sources: [] });
+    const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changelog-notes", reason: "changelog steps", content, sources: ["os.web.fetch"], origin: "discord" });
+    const other = await savePendingDraft(scope().stateDir, { kind: "create", name: "other-notes", reason: "other", content: content.replaceAll("changelog-notes", "other-notes"), sources: [] });
 
     stdout = "";
     expect(await skillCommand(["learned"])).toBe(0);
@@ -191,12 +194,29 @@ describe("skill history / restore / curate", () => {
     expect(JSON.parse(stdout)).toMatchObject({ id: draft.id, kind: "create", skill: "changelog-notes", skillMd: content, diff: null });
     stdout = "";
     expect(await skillCommand(["learned", "show", draft.id])).toBe(0);
-    expect(stdout).toContain(join(stateDir, "skills-pending", draft.id, "SKILL.md"));
+    expect(stdout).toContain(join(scope().stateDir, "skills-pending", draft.id, "SKILL.md"));
     expect(stdout).toContain("2. Copy the newest section.");
     expect(await skillCommand(["learned", "show", "abcdef"])).toBe(1);
 
-    expect(await skillCommand(["learned", "approve", draft.id])).toBe(0);
-    expect(readFileSync(join(globalSkillsDir, "changelog-notes", "SKILL.md"), "utf8")).toBe(content);
+    const approve = (text: string) => skillCommand(["learned", "approve", `${draft.id}@${hashSkillText(text)}`]);
+    expect(await skillCommand(["learned", "approve", draft.id])).toBe(2);
+    const file = join(scope().stateDir, "skills-pending", draft.id, "SKILL.md");
+    const edited = content.replace("newest section", "first three entries");
+    writeFileSync(file, edited);
+    stderr = "";
+    expect(await approve(content)).toBe(1);
+    expect(stderr).toContain(edited.trimEnd());
+    expect(stderr).toContain(hashSkillText(edited));
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    expect(await approve(edited)).toBe(1);
+    expect(stderr).toContain("outside an agent tool process");
+    vi.unstubAllEnvs();
+    await withLearnedTurn(stateDir, scope().folder, async () => {
+      expect(await approve(edited)).toBe(1);
+      expect(stderr).toContain("A turn is running");
+    });
+    expect(await approve(edited)).toBe(0);
+    expect(readFileSync(join(scope().skillsDir, "changelog-notes", "SKILL.md"), "utf8")).toBe(edited);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(0);
     expect(existsSync(join(globalSkillsDir, "other-notes"))).toBe(false);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(1);

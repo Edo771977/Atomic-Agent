@@ -1,3 +1,4 @@
+import { hashSkillText } from "./pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { appendFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -117,7 +118,7 @@ describe("learned journal and undo", () => {
     expect(listed.text).toContain(`${keep.id}  2026-11-18 09:00  new skill fetch-release-notes (Pending review): changelog steps [read: telegram, os.web.fetch]`);
     expect(listed.text).toContain("/learn approve <id>");
 
-    const approved = await runLearnCommand({ kind: "approve", id: keep.id }, { stateDir: root, skillsDir, takenNames: async () => new Set() });
+    const approved = await runLearnCommand({ kind: "approve", id: keep.id, fingerprint: hashSkillText(content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() });
     expect(approved).toMatchObject({ ok: true, skillsChanged: true });
     expect(read("fetch-release-notes")).toBe(content);
     expect((await readLearnedChanges(journal)).map((e) => e.id)).toEqual([keep.id]);
@@ -127,7 +128,7 @@ describe("learned journal and undo", () => {
     expect(existsSync(join(skillsDir, "other-steps"))).toBe(false);
     expect(await listPendingDrafts(root)).toEqual([]);
     expect((await runLearnCommand({ kind: "discard", id: drop.id }, { stateDir: root, skillsDir })).ok).toBe(false);
-    expect((await runLearnCommand({ kind: "approve", id: drop.id }, { stateDir: root, skillsDir, takenNames: async () => new Set() })).ok).toBe(false);
+    expect((await runLearnCommand({ kind: "approve", id: drop.id, fingerprint: hashSkillText(content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() })).ok).toBe(false);
   });
 
   it("/learn lists each draft with its path and strips control characters (ATO-67 review2)", async () => {
@@ -145,7 +146,7 @@ describe("learned journal and undo", () => {
   });
 
   it("/learn show prints a new skill draft in full and --json keeps the desktop contract", async () => {
-    const content = "---\nname: tidy-notes\ndescription: Tidy the notes folder.\nversion: 1.0.0\n---\n\n1. Sort.\n\t2. Indented \u001b[31mred\u001b[0m.\n";
+    const content = "---\nname: tidy-notes\ndescription: Tidy the notes folder.\nversion: 1.0.0\n---\n\n1. Sort.\n\t2. Indented red.\n";
     const d = await savePendingDraft(root, {
       kind: "create", name: "tidy-notes", reason: "tidy \u001b[31msteps", content, sources: ["os.web.fetch"], origin: "telegram",
       now: () => Date.UTC(2026, 10, 18, 9, 0),
@@ -156,14 +157,14 @@ describe("learned journal and undo", () => {
     expect(shown.text).toContain("kind:    new skill");
     expect(shown.text).toContain("origin:  telegram");
     expect(shown.text).toContain("sources: os.web.fetch");
-    expect(shown.text).toContain("1. Sort.\n\t2. Indented [31mred[0m.");
+    expect(shown.text).toContain("1. Sort.\n\t2. Indented red.");
     expect(shown.text).not.toContain("\u001b");
     expect(shown.text).toContain(`/learn approve ${d.id}`);
 
     const json = await runLearnCommand({ kind: "show", id: d.id, json: true }, { stateDir: root, skillsDir });
     const view = JSON.parse(json.text) as Record<string, unknown>;
     expect(Object.keys(view).sort()).toEqual(
-      ["id", "kind", "skill", "path", "origin", "sources", "reason", "createdAt", "skillMd", "currentSkillMd", "diff"].sort(),
+      ["id", "kind", "skill", "path", "origin", "sources", "reason", "createdAt", "fingerprint", "skillMd", "currentSkillMd", "diff"].sort(),
     );
     expect(view).toMatchObject({
       id: d.id, kind: "create", skill: "tidy-notes", path: join(root, "skills-pending", d.id, "SKILL.md"), origin: "telegram",
@@ -210,7 +211,8 @@ describe("parseLearnCommand", () => {
     expect(parseLearnCommand("undo").kind).toBe("error");
     expect(parseLearnCommand("undo ../x").kind).toBe("error");
     expect(parseLearnCommand("forget everything").kind).toBe("error");
-    expect(parseLearnCommand("approve A1B2C3")).toEqual({ kind: "approve", id: "a1b2c3" });
+    expect(parseLearnCommand("approve A1B2C3").kind).toBe("error");
+    expect(parseLearnCommand(`approve A1B2C3@${"A".repeat(64)}`)).toEqual({ kind: "approve", id: "a1b2c3", fingerprint: "a".repeat(64) });
     expect(parseLearnCommand("discard a1b2c3")).toEqual({ kind: "discard", id: "a1b2c3" });
     expect(parseLearnCommand("approve ../x").kind).toBe("error");
     expect(parseLearnCommand("discard").kind).toBe("error");
