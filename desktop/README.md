@@ -80,6 +80,11 @@ card. It checks the session's privacy mark first and skips the request for
 incognito chats. The opt-in keeps signature verification out of ordinary
 project reads and redraws. If the agent omits the summary, the Evidence
 line is absent.
+A passing fact with a reservation has a `~` mark and shows the reason for
+the reservation beside the criterion. The summary splits each evidence basis
+into its ordinary count and its count **with reservations**. Both count
+toward the total number of criteria.
+
 Below the milestones, the gate milestone's report reads "Director report:
 …"; the runtime's `reportNotes` follow as lines of their own, never inside
 the report, then a warning for each sentence in `directorReportWarnings`
@@ -137,6 +142,23 @@ against the displayed version and are disabled during a turn. In **Plan
 checks**, expand `lesson-coverage` for missing citations and warnings about
 approved lessons that changed or were removed. Lesson titles appear as plain
 text.
+
+**Project lessons.** Open **Fusion project lessons** in the chat toolbar of a saved
+Fusion project, including between gates. The panel shows each lesson's origin,
+declared and effective status, `always` flag, and `touches` paths. Open a
+lesson to read the full text. Inline markers show where the standard prompt
+limit and the shared planning budget cut the text. Author content is displayed
+as plain text, with invisible characters shown as printable `\u{…}` escapes.
+
+Read to the end of a lesson that declares `status: active` to enable
+**Approve**. **Retire** sets the lesson aside, and **Reopen** clears your
+recorded choice. For a missing or invalid file with a recorded choice, only
+**Reopen** is available. Choices are disabled during a turn and in incognito
+chats. The Desktop sends the displayed fingerprint to the agent. If the file
+has changed, the panel reloads the current text and asks you to review it
+again. Use **Refresh** after editing a file or after a turn in another chat on
+the same project. This panel requires an agent with the
+[project lessons HTTP routes](../src/http/README.md).
 
 **Backlog (issue #146).** The card's Backlog section lists the view's
 `backlog.items` with their id, title and note (author content, drawn as
