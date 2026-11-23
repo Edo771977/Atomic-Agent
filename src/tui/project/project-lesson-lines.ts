@@ -1,3 +1,4 @@
+import { bindingProjectLessonEntry, PROJECT_LESSON_SECTION_LIMIT } from "../../session/project-lesson-projection.js";
 import { PROJECT_LESSON_INVISIBLE_CHARACTERS, projectLessonFingerprint } from "../../session/project-lessons.js";
 import { displayWidth, truncateToWidth } from "../render/display-width.js";
 import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-operations.js";
@@ -65,13 +66,32 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
     if (lesson.declaredStatus === "proposed") {
       text(`Set status: active in .atomic/project/lessons/${lesson.id}.md and refresh. Approval applies to the final text.`, "warn");
     }
-    for (const [label, section] of [
-      ["Decided", lesson.sections.decided],
-      ["Tried and ruled out", lesson.sections.triedAndRuledOut],
-      ["Watch out", lesson.sections.watchOut],
+    const bindingCount = 1 + (panel?.rows.filter(row =>
+      row.id !== lesson.id && row.lesson?.always && row.status.approvedByPerson &&
+      !card.view.lessonCoverage?.some(item => item.id === row.id && item.deferred),
+    ).length ?? 0);
+    const binding = lesson.always ? bindingProjectLessonEntry(lesson, bindingCount, true).sections : undefined;
+    for (const [label, key] of [
+      ["Decided", "decided"],
+      ["Tried and ruled out", "triedAndRuledOut"],
+      ["Watch out", "watchOut"],
     ] as const) {
       text(label, "title");
-      text(section);
+      const section = lesson.sections[key];
+      const standardEnd = section.length > PROJECT_LESSON_SECTION_LIMIT ? PROJECT_LESSON_SECTION_LIMIT - 1 : section.length;
+      const projected = binding?.[key];
+      const bindingEnd = projected !== undefined && projected !== section ? projected.length - 1 : standardEnd;
+      if (bindingEnd < standardEnd) {
+        text(section.slice(0, bindingEnd));
+        text("Model sees only up to here (shared planning budget).", "warn");
+      }
+      text(section.slice(bindingEnd < standardEnd ? bindingEnd : 0, standardEnd));
+      if (standardEnd < section.length) {
+        text(bindingEnd < standardEnd
+          ? `Standard ${PROJECT_LESSON_SECTION_LIMIT}-character limit ends here.`
+          : `Model sees only up to here (${PROJECT_LESSON_SECTION_LIMIT}-character limit).`, "warn");
+        text(section.slice(standardEnd));
+      }
     }
   } else {
     for (const row of panel?.rows ?? []) {

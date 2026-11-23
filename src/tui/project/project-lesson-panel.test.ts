@@ -1,5 +1,5 @@
 import { displayWidth } from "../render/display-width.js";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Key } from "ink";
@@ -107,6 +107,31 @@ describe("project lessons in the TUI", () => {
     expect(f.text(40).replace(/\s/g, "")).toContain(body);
     expect(f.text()).toContain("Remote database");
     expect(f.text()).toContain("Test migrations");
+  });
+
+  it("marks the 300-character prompt boundary and still shows the unprojected section", () => {
+    const f = fixture();
+    f.write("storage", "active", "x".repeat(299) + "BEYOND THE PROMPT");
+    f.detail();
+    expect(f.text()).toMatch(/Model sees only up to here.*300-character limit[\s\S]*BEYOND THE PROMPT/);
+  });
+
+  it("marks additional binding truncation from shared prompt space", () => {
+    const f = fixture();
+    for (let index = 5; index > 0; index--) {
+      f.write("approved-" + index);
+      f.detail();
+      f.press("a");
+      f.press("", { escape: true });
+      f.press("", { escape: true });
+    }
+    f.write("a-binding", "active", "x".repeat(299) + "END");
+    const file = join(f.directory, "a-binding.md");
+    const paths = Array.from({ length: 14 }, (_, index) => "src/" + "x".repeat(1015) + index);
+    writeFileSync(file, readFileSync(file, "utf8").replace("src/storage", paths.join(", ")));
+    f.detail();
+    expect(f.text()).toMatch(/Model sees only up to here.*shared planning budget/);
+    expect(f.text()).toContain("300-character limit");
   });
 
   it("blocks approval until the current detail end has been visible", () => {
