@@ -49,7 +49,7 @@ export interface UserHttpConfig {
   /** Timeout of one `os.http.request` call that sets none, in ms. */
   defaultTimeoutMs: number;
   /**
-   * Ask before `os.web.fetch`, a GET `os.http.request` or the browser opens an address that carries data out (ATO-1377). `"data"` (default) asks only when the address carries a lot of data (a long value after `?`, an encoded blob, text with line breaks); `"strict"` also asks once per site per chat; `"off"` never asks.
+   * Ask before an address sends data in web fetch, the initial crawl URL, HTTP GET, browser navigation, supported shell clients, and literal MCP URL arguments (ATO-1377). `"data"` (default) checks for substantial or encoded data. `"strict"` also asks on the first visit per site per chat. `"off"` disables these URL prompts. HTTP `approvalMode: "never"` skips this guard for `os.http.request` and its redirects only. Offline, egress, and HTTP destination restrictions still apply.
    */
   urlDataGuard: UrlDataGuardMode;
 }
