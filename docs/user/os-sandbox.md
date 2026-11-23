@@ -18,3 +18,5 @@ On Linux, install Bubblewrap through the system package manager and use a host t
 The sandbox covers command processes on these entry points. Project rules, approvals and read scope continue to govern dispatch. Browser, HTTP, Git tools, skill scripts, hooks and stdio MCP have their own execution paths.
 
 Linux requires a user namespace and removal of all capabilities, including when the agent runs as root. If Bubblewrap cannot apply either restriction, the command fails.
+
+On a real Mac, validate profile compilation and exercise synthetic Apple Events, pasteboard reads, Mach lookups and Unix sockets with networking both off and approved. Confirm local service verification and npm and Git still work.

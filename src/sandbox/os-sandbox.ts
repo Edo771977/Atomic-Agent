@@ -197,6 +197,9 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
     const denied = policy.denyRead.map((_, i) => `(subpath (param "R${i}"))`);
     lines.push(`(deny file-read* file-write* ${denied.join(" ")})`);
   }
+  lines.push('(deny appleevent-send)',
+    '(deny mach-lookup (global-name "com.apple.launchd") (global-name "com.apple.securityd") (global-name "com.apple.pasteboard.1") (global-name "com.apple.coreservices.launchservicesd") (global-name "com.apple.lsd.mapdb") (global-name "com.apple.lsd.modifydb"))',
+    '(deny network-outbound (remote unix-socket))');
   if (!policy.network) {
     lines.push('(deny network-outbound (remote ip "*:*") (remote unix-socket))');
     lines.push('(allow network-outbound (remote ip "localhost:*"))');

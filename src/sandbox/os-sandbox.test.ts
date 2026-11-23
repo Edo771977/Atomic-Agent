@@ -232,3 +232,10 @@ it("review 4: drop all Linux capabilities", () => {
   const w = wrapWithOsSandbox("true", [], policy(), { platform: "linux", bwrap: "/usr/bin/bwrap" });
   expect(w.ok && w.args).toEqual(expect.arrayContaining(["--cap-drop", "ALL", "--unshare-user"]));
 });
+
+it("review 7: restrict macOS IPC even with network approval", () => {
+  const profile = buildSeatbeltProfile(policy(true));
+  expect(profile).toContain("(deny appleevent-send)");
+  expect(profile).toContain("com.apple.securityd");
+  expect(profile).toContain("(deny network-outbound (remote unix-socket))");
+});
