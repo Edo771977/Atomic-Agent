@@ -77,6 +77,7 @@ describe("turning one memory entry off (ATO-1124)", () => {
     expect(profile.get(fact.key)?.disabledAt).toEqual(expect.any(Number));
     expect(notes.recall("Tuesday")).toHaveLength(0);
     expect(profile.listForPrompt()).toHaveLength(0);
+    expect(notes.getChangeLog().list().filter((change) => change.op === "set_disabled")).toHaveLength(2);
   });
 
   it("adds disabled_at in place, without a schema version bump", () => {

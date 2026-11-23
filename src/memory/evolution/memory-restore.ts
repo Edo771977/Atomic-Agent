@@ -69,9 +69,7 @@ export function restoreMemoryChange(
     applied = { note };
   } else {
     const before = change.before as ProfileSnapshot;
-    const fact = setProfileValue(deps.profile, before);
-    applied = { fact: before.disabledAt === undefined ? fact
-      : deps.profile.changeDisabledAt(fact.key, before.disabledAt, now) ?? fact };
+    applied = { fact: setProfileValue(deps.profile, before, before.disabledAt) };
   }
   log.markRestored(changeId, now);
   return { ok: true, change: { ...change, restoredAt: now }, ...applied };
@@ -96,10 +94,12 @@ export function restoreProfileVersion(
 function setProfileValue(
   profile: ProfileStore,
   snapshot: Pick<ProfileSnapshot, "key" | "value" | "pinned" | "keywords">,
+  restoredDisabledAt?: number,
 ): ProfileFact {
   return profile.set(snapshot.key, snapshot.value, {
     pinned: snapshot.pinned,
     keywords: snapshot.keywords,
+    ...(restoredDisabledAt === undefined ? {} : { restoredDisabledAt }),
     ...(isNameProfileKey(snapshot.key) ? { nameGrounding: "grounded" as const } : {}),
   });
 }

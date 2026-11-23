@@ -141,6 +141,8 @@ export interface ProfileStoreOptions {
 }
 
 export interface ProfileSetOptions {
+  /** Original disabled timestamp from the operator’s journal. */
+  restoredDisabledAt?: number;
   pinned?: boolean;
   keywords?: string[];
   /**
@@ -466,7 +468,7 @@ export class ProfileStore {
           name_checked_at: nameGrounding !== null ? now : null,
           // ATO-1124: the person turned this key off; a new value for it
           // (an edit, or the agent learning it again) stays off.
-          disabled_at: sameKeyActive?.disabled_at ?? null,
+          disabled_at: options.restoredDisabledAt ?? sameKeyActive?.disabled_at ?? null,
         }) as { lastInsertRowid: number | bigint };
         const newId = Number(insertResult.lastInsertRowid);
 
@@ -488,7 +490,7 @@ export class ProfileStore {
 
         return {
           id: newId,
-          disabledAt: sameKeyActive?.disabled_at ?? null,
+          disabledAt: options.restoredDisabledAt ?? sameKeyActive?.disabled_at ?? null,
           supersedes: directParent ? directParent.id : null,
           // Same transaction as the insert: the cap is never observed
           // exceeded, and a write that rolls back evicts nothing.
