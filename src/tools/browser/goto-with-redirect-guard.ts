@@ -25,6 +25,23 @@ export async function gotoWithRedirectGuard(
   const controller = new AbortController();
   const signal = AbortSignal.any([guard.signal, controller.signal]);
   let refusal: unknown;
+  const timeout = options?.timeout ?? 30_000;
+  let timeLeft = timeout;
+  let startedAt = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let decisions = 0;
+  const stopTimer = () => {
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    timer = undefined;
+    timeLeft -= performance.now() - startedAt;
+  };
+  const startTimer = () => {
+    if (timeout === 0 || signal.aborted) return;
+    startedAt = performance.now();
+    timer = setTimeout(() => controller.abort(new Error(`Browser navigation timed out after ${timeout} ms`)), Math.max(0, timeLeft));
+  };
+  let navigationAborted: (() => void) | undefined;
   const pending = new Set<string>();
   const fail = (requestId: string) => session.send("Fetch.failRequest", {
     requestId,
@@ -35,7 +52,12 @@ export async function gotoWithRedirectGuard(
     void (async () => {
       try {
         if (event.redirectedRequestId !== undefined) {
-          await guard.authorize(event.request.url, signal);
+          if (decisions++ === 0) stopTimer();
+          try {
+            await guard.authorize(event.request.url, signal);
+          } finally {
+            if (--decisions === 0 && navigationAborted) startTimer();
+          }
           signal.throwIfAborted();
         }
         await session.send("Fetch.continueRequest", { requestId: event.requestId });
@@ -52,12 +74,24 @@ export async function gotoWithRedirectGuard(
     signal.throwIfAborted();
     await session.send("Fetch.enable", { patterns: [{ resourceType: "Document", requestStage: "Request" }] });
     try {
-      await page.goto(url, options);
+      const aborted = new Promise<never>((_resolve, reject) => {
+        navigationAborted = () => reject(signal.reason);
+        signal.addEventListener("abort", navigationAborted, { once: true });
+      });
+      signal.throwIfAborted();
+      startTimer();
+      await Promise.race([page.goto(url, { ...options, timeout: 0 }), aborted]);
     } catch (error) {
       if (refusal !== undefined || !ignoreNavigationError) throw refusal ?? error;
     }
     if (refusal !== undefined) throw refusal;
   } finally {
+    stopTimer();
+    if (navigationAborted) {
+      signal.removeEventListener("abort", navigationAborted);
+      navigationAborted = undefined;
+    }
+    if (signal.aborted) await session.send("Page.stopLoading").catch(() => undefined);
     controller.abort();
     await Promise.all([...pending].map(fail));
     await session.send("Fetch.disable").catch(() => undefined);

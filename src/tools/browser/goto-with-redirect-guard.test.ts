@@ -63,3 +63,35 @@ it("keeps the listener until Chrome disables Fetch and releases a queued navigat
   });
   expect(commands).toEqual(["Fetch.enable", "Fetch.disable", "Fetch.continueRequest", "off", "detach"]);
 });
+
+it("allows a redirect decision received after the navigation budget", async () => {
+  let onPaused: ((event: { requestId: string; redirectedRequestId: string; request: { url: string } }) => void) | undefined;
+  let continued: (() => void) | undefined;
+  const session = {
+    on: (_event: string, listener: typeof onPaused) => { onPaused = listener; },
+    off: vi.fn(),
+    detach: async () => undefined,
+    send: async (method: string) => { if (method === "Fetch.continueRequest") continued?.(); },
+  };
+  const page = {
+    context: () => ({ newCDPSession: async () => session }),
+    goto: async (_url: string, options?: { timeout?: number }) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await new Promise<void>((resolve, reject) => {
+          continued = resolve;
+          if (options?.timeout) timer = setTimeout(() => reject(new Error("navigation timed out")), options.timeout);
+          onPaused?.({ requestId: "redirect", redirectedRequestId: "first", request: { url: "https://next.example/" } });
+        });
+      } finally {
+        clearTimeout(timer);
+      }
+    },
+  } as unknown as Page;
+  const authorize = vi.fn(async () => { await new Promise((resolve) => setTimeout(resolve, 90)); });
+  await gotoWithRedirectGuard(page, "https://first.example/", { timeout: 50 }, {
+    signal: new AbortController().signal,
+    authorize,
+  });
+  expect(authorize).toHaveBeenCalledOnce();
+});
