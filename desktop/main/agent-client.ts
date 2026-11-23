@@ -11,6 +11,7 @@ import type { Readable } from "node:stream";
 import { LineSplitter, lineLevel } from "./agent-output.js";
 // r5 item 9 — the supervised `atag serve` child gets the desktop state dir.
 import { agentEnv, DESKTOP_STATE_DIR } from "./state-dir.js";
+import { createServeKeyFile } from "./serve-key-file.js";
 import { localLlamaKeyFor } from "./local-llama-key.js";
 import { chatSessionIdFor } from "./chat-session.js";
 import { readProjectGateFrame, routeEventsFrame } from "./project-gate.js";
@@ -648,6 +649,8 @@ export interface AgentClientOptions {
   binary?: () => string | null;
   /** The record the next launch's reaper reads (default: `<state dir>/serve.json`). */
   serveRecordPath?: string;
+  /** Private directory for per-launch bearer files. */
+  serveKeyDirectory?: string;
   /** How long a fresh agent gets to answer /health (default: by route, healthBudgetMs). */
   healthBudgetMs?: number;
   /** How long an events stream must live to count as healthy when it delivered no frame (default EVENTS_HEALTHY_MS). */
@@ -735,6 +738,7 @@ export class AgentClient extends EventEmitter {
   private readonly spawnedAt = new WeakMap<ChildProcess, number>();
   private readonly opts: AgentClientOptions;
   private readonly recordPath: string;
+  private readonly serveKeyDirectory: string;
 
   /** Issue #74: the remote agent's /api/events refused the token (401/403); cleared by an accepted stream. */
   private eventsRefused = false;
@@ -753,6 +757,7 @@ export class AgentClient extends EventEmitter {
     this.status.workingDir = workingDir;
     this.opts = opts;
     this.recordPath = opts.serveRecordPath ?? serveRecordPath();
+    this.serveKeyDirectory = opts.serveKeyDirectory ?? join(dirname(this.recordPath), "serve-keys");
   }
 
   /** The pid of the agent this client runs, or null (diagnostics and the T41 smoke). */
@@ -972,6 +977,19 @@ export class AgentClient extends EventEmitter {
        is spawned behind its back. */
     if (superseded()) return gaveWay();
 
+    let keyPath: string;
+    try {
+      keyPath = createServeKeyFile(this.serveKeyDirectory, token);
+    } catch {
+      this.port = null;
+      this.setStatus({ state: "error", port: null, error: "Could not create a private API key file for the local agent." });
+      return this.status;
+    }
+    const env = agentEnv();
+    for (const name of Object.keys(env)) {
+      // Windows environment variable names are case-insensitive.
+      if (name.toUpperCase() === "ATOMIC_AGENT_API_KEY") delete env[name];
+    }
     // ATO-177: on Windows the agent watches a stand-in for the app, whose end asks it to close.
     const sentinel = process.platform === "win32" ? spawnWatchSentinel() : null;
     let child: ChildProcess;
@@ -984,18 +1002,14 @@ export class AgentClient extends EventEmitter {
           "127.0.0.1",
           "--port",
           String(port),
+          "--api-key-file",
+          keyPath,
           ...serveWatchArgs(process.platform, sentinel?.pid),
         ],
         {
           cwd: this.status.workingDir,
           // r5 item 9: `atag serve` runs on the desktop's own state directory.
-          /* Issue #74: the per-launch key goes in the environment, not as
-             `--api-key` on the command line `ps` shows every user. Every agent
-             the desktop can pick (bundled or user-installed) reads it there:
-             serve-args.ts has fallen back to it since before the desktop app
-             existed, so no flag fallback is kept. A current agent also deletes
-             it from its own environment once read. */
-          env: { ...agentEnv(), ATOMIC_AGENT_API_KEY: token },
+          env,
           stdio: ["ignore", "pipe", "pipe"],
           // Windows: a console child of a GUI app otherwise opens a console window.
           windowsHide: true,
@@ -1004,6 +1018,7 @@ export class AgentClient extends EventEmitter {
     } catch (err) {
       // Nothing was started for the stand-in to stand in for.
       sentinel?.kill();
+      unlinkSync(keyPath);
       throw err;
     }
     this.child = child;
@@ -1052,7 +1067,7 @@ export class AgentClient extends EventEmitter {
     });
 
     const budget = this.opts.healthBudgetMs ?? this.healthBudgetMs();
-    const verdict = await this.waitForHealth(child, port, budget, superseded);
+    const verdict = await this.waitForHealth(child, port, budget, superseded).finally(() => unlinkSync(keyPath));
     if (verdict === "healthy") this.openApprovalStream(() => this.child === child);
     /* Backlog 41: "did not become healthy" is said only when the budget really
        ran out with this agent still running. An agent that exited while it

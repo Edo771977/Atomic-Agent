@@ -11223,7 +11223,7 @@ void app.whenReady().then(async () => {
     SMOKE ? null : readWorkspace(app.getPath("userData")),
     homedir(),
   );
-  agent = new AgentClient(workspace);
+  agent = new AgentClient(workspace, { serveKeyDirectory: join(app.getPath("userData"), "serve-keys") });
   // ATO-1127: an agent on another computer, when one was saved (remote-agent.ts).
   if (!SMOKE && !FIRST_RUN_PROBE) agent.setRemote(readRemoteAgent(app.getPath("userData"), keyBox()));
   win = createWindow();
