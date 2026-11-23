@@ -179,7 +179,7 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
     expect(harness!.runtime.taskStore.list().length).toBe(0);
   });
 
-  it("requires the serve bearer on the API webhook path even with a valid signature", async () => {
+  it("round2-7 does not mount the old API webhook path", async () => {
     const { gateway } = await boot(new FakeChild());
     const body = JSON.stringify({ ref: "refs/heads/main" });
     const headers = githubHeaders(body, "delivery-api-auth");
@@ -187,8 +187,8 @@ describe("startWebhookTunnel gateway (ATO-625)", () => {
       method: "POST", body,
       headers: { ...headers, ...(authorization ? { authorization } : {}) },
     });
-    expect((await send()).status).toBe(401);
-    expect((await send("Bearer serve-key-0123456789abcdef")).status).toBe(202);
+    expect((await send()).status).toBe(404);
+    expect((await send("Bearer serve-key-0123456789abcdef")).status).toBe(404);
   });
 
   it("accepts a GitHub-signed delivery and makes a task", async () => {
