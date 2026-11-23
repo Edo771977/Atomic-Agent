@@ -495,7 +495,7 @@ describe("ApprovalBridge.handleCallback", () => {
 
     await h.bridge.dispatch(req("new"), 7);
     await h.bridge.handleCallback(callback("new", "y"));
-    expect(h.approvals.decisions).toEqual([{ approvalId: "new", approved: true }]);
+    expect(h.approvals.decisions).toEqual([{ approvalId: "new", approved: true, reason: "telegram" }]);
   });
 
   it("still says Already resolved for a prompt this run posted and closed", async () => {
