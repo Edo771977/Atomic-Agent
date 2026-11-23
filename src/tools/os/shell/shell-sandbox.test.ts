@@ -155,13 +155,14 @@ describe.skipIf(unavailable !== undefined)(
       expect(git.summary).toContain("?? package.json");
     });
 
-    it("keeps state hidden when it is under a writable project", async () => {
+    it("refuses a writable project containing state", async () => {
       const nestedState = join(work, "state");
       await mkdir(nestedState);
       await writeFile(join(nestedState, "serve-api.key"), "synthetic-nested-marker");
       const result = await tool(on, nestedState).run({ cmd: "cat state/serve-api.key; echo end" }, ctx());
-      expect(result.summary).toContain("end");
-      expect(result.summary).not.toContain("synthetic-nested-marker");
+      expect(result.status).toBe("error");
+      expect(result.summary).toContain("protected agent state");
+      expect(await readFile(join(nestedState, "serve-api.key"), "utf8")).toBe("synthetic-nested-marker");
     });
 
     it("keeps a detached shell job confined", async () => {

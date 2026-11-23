@@ -251,3 +251,9 @@ it("review 1: Linux uses a private temporary mount and strips desktop IPC variab
   expect(wrapper.ok && wrapper.args.join(" ")).toContain("--tmpfs /tmp");
   expect(buildOsSandboxEnv({ DISPLAY: ":9", DBUS_SESSION_BUS_ADDRESS: "fixture", TMUX: "fixture" })).not.toHaveProperty("DISPLAY");
 });
+
+it("review 5: rejects protected state beneath a writable root", () => {
+  const p = policy(false, "/home/op/project/parent/state");
+  const result = wrapWithOsSandbox("true", [], p, { platform: "linux", bwrap: "/usr/bin/bwrap" });
+  expect(result).toMatchObject({ ok: false });
+});

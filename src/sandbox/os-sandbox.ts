@@ -54,6 +54,7 @@ export interface OsSandboxPolicy {
    */
   denyRead: readonly string[];
   network: boolean;
+  stateDir: string;
 }
 
 export interface OsSandboxPolicyInput {
@@ -160,7 +161,7 @@ export function buildOsSandboxPolicy(
     }
   }
   const denyRead = unique(secret);
-  return { writableRoots, denyRead, network: input.network };
+  return { writableRoots, denyRead, network: input.network, stateDir: canonicalState };
 }
 
 export type OsSandboxWrap =
@@ -314,6 +315,12 @@ export function wrapWithOsSandbox(
   options: WrapOptions = {},
 ): OsSandboxWrap {
   const platform = options.platform ?? process.platform;
+  if (policy.writableRoots.some(root => {
+    const offset = relative(root, policy.stateDir);
+    return !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+  })) {
+    return { ok: false, reason: "the protected agent state overlaps a writable workspace root" };
+  }
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);
     if (!available) {
