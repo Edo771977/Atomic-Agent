@@ -89,18 +89,8 @@ describe("loopback without a given key parses, for serve's own generated key", (
   it("the help says a key is always required and where serve keeps its own", () => {
     expect(HELP).toContain("serve-api.key");
     expect(HELP).toContain("always required");
-    expect(HELP).toContain("--print-api-key");
+    expect(HELP).not.toContain("--print-api-key");
     expect(HELP).not.toContain("ATOMIC_AGENT_ALLOWED_ORIGINS");
-  });
-});
-
-describe("--print-api-key", () => {
-  it("is off unless asked for", () => {
-    expect(parsedOk([]).printApiKey).toBe(false);
-  });
-  it("parses, and on a network host does not ask for a key it only prints", () => {
-    expect(parsedOk(["--print-api-key"]).printApiKey).toBe(true);
-    expect(parsedOk(["--host", "0.0.0.0", "--print-api-key"]).printApiKey).toBe(true);
   });
 });
 

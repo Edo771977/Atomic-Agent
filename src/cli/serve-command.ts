@@ -79,11 +79,6 @@ export async function serveCommand(args: string[]): Promise<number> {
     process.stderr.write(`serve: ${apiKey.error}\n`);
     return 1;
   }
-  if (parsed.printApiKey) {
-    process.stdout.write(`${apiKey.key}\n`);
-    return 0;
-  }
-
   // ATO-625: refuse the tunnel before anything boots, so a missing
   // cloudflared or a webhook set with no secret never opens a public address.
   let tunnelCheck: Extract<TunnelPreflight, { ok: true }> | null = null;
@@ -172,7 +167,7 @@ export async function serveCommand(args: string[]): Promise<number> {
     process.stderr.write(
       `[atomic-agent] serve listening on ${baseUrl} (auth=bearer, cwd=${parsed.workingDir})\n`,
     );
-    process.stderr.write(serveApiKeyNotice(apiKey, baseUrl, process.stderr.isTTY === true));
+    process.stderr.write(serveApiKeyNotice(apiKey, baseUrl));
     // Issue #33: on a network address, constrained folders without
     // "serve" in allowedEgress are refused over HTTP (serve-egress.ts).
     const constraintNote = serveConstraintNote(handle.host, getConfig().projects.constraints);

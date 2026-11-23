@@ -2,7 +2,7 @@
  * ATO-1128: the phone panel's page and script, served by `route-panel.ts`.
  * Kept as strings because `atag` ships as one binary with no files beside it.
  * The page holds no data: it asks for the agent's API key (or takes it from
- * a `#key=…` fragment, the address serve prints) and keeps it in the
+ * a `#key=…` fragment supplied by a client) and keeps it in the
  * browser (localStorage), and every call carries it as a bearer token.
  */
 
@@ -50,7 +50,7 @@ const api = async (path, init) => {
 function forget() { key = ''; try { localStorage.removeItem('atomic.panel.key'); } catch (e) {} login('The key was not accepted. Type it again.'); }
 function login(note) {
   clearInterval(timer); open = null; $('back').hidden = true; $('new').hidden = true; $('composer').hidden = true; $('title').textContent = 'Atomic Agent';
-  $('main').innerHTML = '<p>Type the API key this agent runs with (the --api-key of atag serve, or what atag serve --print-api-key prints).</p><input id="key" type="password" autocomplete="off"><p class="err">' + esc(note || '') + '</p><button id="go" class="p">Open</button>';
+  $('main').innerHTML = '<p>Type the API key this agent runs with (the configured key or the contents of serve-api.key).</p><input id="key" type="password" autocomplete="off"><p class="err">' + esc(note || '') + '</p><button id="go" class="p">Open</button>';
   $('go').onclick = () => { key = $('key').value.trim(); try { localStorage.setItem('atomic.panel.key', key); } catch (e) {} list(); };
 }
 async function list() {

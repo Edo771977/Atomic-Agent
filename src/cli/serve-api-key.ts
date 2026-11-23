@@ -70,26 +70,9 @@ export function resolveServeApiKey(
   return { key, source: "file", path, created: !existed };
 }
 
-/**
- * What serve prints about its key once it listens. A key the operator
- * gave is theirs and is not repeated. For the persisted key: where it is
- * and how to send it, and, only when `interactive` (stderr is a terminal,
- * not a log file), the panel address with the key in its fragment, the
- * way Jupyter prints its token URL. A URL fragment is never sent to the
- * server, so the key does not land in any request log.
- */
-export function serveApiKeyNotice(
-  key: ServeApiKey,
-  baseUrl: string,
-  interactive: boolean,
-): string {
+/** Report where the operator can find the generated credential. */
+export function serveApiKeyNotice(key: ServeApiKey, baseUrl: string): string {
   if (key.source === "given") return "";
-  const lines = [
-    `[atomic-agent] serve API key ${key.created ? "generated" : "read"} from ${key.path}; ` +
-      "send it as 'Authorization: Bearer <key>' (print it with: atomic-agent serve --print-api-key)\n",
-  ];
-  if (interactive) {
-    lines.push(`[atomic-agent] panel: ${baseUrl}/panel#key=${encodeURIComponent(key.key)}\n`);
-  }
-  return lines.join("");
+  return "[atomic-agent] serve API key " + (key.created ? "generated" : "read") +
+    " from " + key.path + "; use it as 'Authorization: Bearer <key>' or enter it at " + baseUrl + "/panel\n";
 }

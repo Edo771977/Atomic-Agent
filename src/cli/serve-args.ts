@@ -26,8 +26,6 @@ export interface ServeArgs {
   parentPid: number | null;
   noParentExit: boolean;
   reapOnly: boolean;
-  /** `--print-api-key`: print the key serve would run with, and exit. */
-  printApiKey: boolean;
   /** ATO-625: open a Cloudflare tunnel to the webhook routes, or `null`. */
   tunnel: TunnelRequest | null;
 }
@@ -52,8 +50,6 @@ export const HELP =
     "                      that sends 10 wrong keys in a minute waits a minute",
     "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
-    "  --print-api-key     Print the key serve runs with (generating it if needed) and exit,",
-    "                      e.g. curl -H \"Authorization: Bearer $(atomic-agent serve --print-api-key)\"",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
     "  --no-parent-exit    Keep running after the parent exits — the way to daemonise from a shell,",
@@ -116,7 +112,6 @@ export function parseArgs(
   let parentPid: number | null = null;
   let noParentExit = process.env.ATOMIC_AGENT_SERVE_NO_PARENT_EXIT === "1";
   let reapOnly = false;
-  let printApiKey = false;
   let quickTunnel = false;
   let tunnelName: string | null = null;
   let tunnelHostname: string | null = null;
@@ -182,9 +177,6 @@ export function parseArgs(
       case "--reap":
         reapOnly = true;
         break;
-      case "--print-api-key":
-        printApiKey = true;
-        break;
       case "--tunnel":
         quickTunnel = true;
         break;
@@ -221,18 +213,17 @@ export function parseArgs(
   // A bearer header is trimmed before it is compared, so a key of only
   // whitespace could never be sent back: serve would start and refuse
   // every request.
-  const servesNothing = reapOnly || printApiKey;
-  if (!servesNothing && apiKey !== null && apiKey.trim().length === 0) {
+  if (!reapOnly && apiKey !== null && apiKey.trim().length === 0) {
     return {
       error:
         "the API key is only whitespace (--api-key or ATOMIC_AGENT_API_KEY); set a real token",
     };
   }
-  if (!servesNothing && apiKey === null && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey === null && !isLoopbackListenHost(host)) {
     return { error: missingKeyOnNetworkError(host) };
   }
   // ATO-1126: on the network the key is all that stands between a stranger and the agent's tools.
-  if (!servesNothing && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
+  if (!reapOnly && apiKey !== null && apiKey.length < MIN_NETWORK_KEY_LENGTH && !isLoopbackListenHost(host)) {
     return {
       error:
         `--host ${host} accepts connections from other machines, and an API key of ${apiKey.length} characters can be guessed. ` +
@@ -260,7 +251,6 @@ export function parseArgs(
     parentPid,
     noParentExit,
     reapOnly,
-    printApiKey,
     tunnel,
   };
 }

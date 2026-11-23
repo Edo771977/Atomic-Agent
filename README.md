@@ -577,12 +577,7 @@ atomic-agent serve \
 
 Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials get HTTP 401 on loopback. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders that use the tunnel’s old `/api/webhooks/{name}` path must send the serve key as well, or switch to the new URL shown at startup.
 
-On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Run `atomic-agent serve --print-api-key` from your own terminal to retrieve it. The command refuses when `ATOMIC_AGENT_TOOL_CHILD` is present. The local panel also accepts the key from the `#key=…` link printed at interactive startup. Scripts and HTTP clients should use the same state directory and send the key as `Authorization: Bearer <key>` or `x-api-key`.
-
-```bash
-curl -H "Authorization: Bearer $(atomic-agent serve --print-api-key)" \
-  http://127.0.0.1:8787/api/sessions
-```
+On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Read the file from your own account and enter its contents in the local panel, or send them as `Authorization: Bearer <key>` or `x-api-key`. The generated file uses mode `0600` on POSIX and an owner-only ACL on Windows.
 
 To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. On a LAN listen address, supply an explicit key of at least 16 characters.
 

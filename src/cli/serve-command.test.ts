@@ -1,13 +1,9 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
 import type { CreateAgentRuntimeOptions } from "../runtime/bootstrap.js";
 import { StructuredLogger } from "../tracing/structured-logger.js";
 
-import { getConfig } from "../config/index.js";
-import { serveApiKeyPath } from "./serve-api-key.js";
 import { serveCommand } from "./serve-command.js";
 
 /** What `serveCommand` handed `createAgentRuntime`, the last time it ran. */
@@ -179,59 +175,15 @@ describe("the API key from the environment", () => {
   });
 });
 
-// A key always, on loopback too: with none given, serve uses the one in
-// the state dir, generated on the first run.
-describe("serve's own API key", () => {
-  it("--print-api-key prints the persisted key, the same on every run, and boots nothing", async () => {
-    vi.stubEnv("ATOMIC_AGENT_API_KEY", "");
-    boot.options = null;
-    const stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
-    try {
-      expect(await serveCommand(["--print-api-key"])).toBe(0);
-      expect(await serveCommand(["--print-api-key"])).toBe(0);
-      const printed = stdout.mock.calls.map((c) => String(c[0]));
-      expect(printed).toHaveLength(2);
-      expect(printed[0]).toMatch(/^[0-9a-f]{64}\n$/);
-      expect(printed[1]).toBe(printed[0]);
-      const onDisk = readFileSync(
-        serveApiKeyPath(getConfig().paths.stateDir),
-        "utf-8",
-      );
-      expect(`${onDisk.trim()}\n`).toBe(printed[0]);
-    } finally {
-      stdout.mockRestore();
-      vi.unstubAllEnvs();
-    }
-    expect(boot.options).toBeNull();
-  });
-
-  it("--print-api-key prints a given key instead", async () => {
-    vi.stubEnv("ATOMIC_AGENT_API_KEY", "given-key-0123456789");
-    const stdout = vi
-      .spyOn(process.stdout, "write")
-      .mockImplementation(() => true);
-    try {
-      expect(await serveCommand(["--print-api-key"])).toBe(0);
-      expect(stdout.mock.calls.map((c) => String(c[0])).join("")).toBe(
-        "given-key-0123456789\n",
-      );
-    } finally {
-      stdout.mockRestore();
-      vi.unstubAllEnvs();
-    }
-  });
-});
-
-it("refuses to print the serve key from an agent tool child", async () => {
-  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "");
-  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-key");
+it("rejects the old key printing flag even from an unmarked process", async () => {
+  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", undefined);
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-no-print-key");
   const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
   const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
   try {
     expect(await serveCommand(["--print-api-key"])).toBe(1);
     expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.flat().join("")).not.toContain("synthetic-serve-no-print-key");
   } finally {
     stdout.mockRestore();
     stderr.mockRestore();

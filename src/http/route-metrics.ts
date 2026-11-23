@@ -23,7 +23,7 @@ import { sendJson, type HandlerContext, type HttpHandler } from "./request-conte
  * Never open without a key: the table's bearer check runs first, and
  * on a server built with no key at all (`unauthenticated: true`, never
  * `serve`) this handler answers 401 itself. Prometheus sends serve's key
- * (`--api-key`, or `atomic-agent serve --print-api-key`) through
+ * (`--api-key`, or the contents of the generated key file) through
  * `authorization: { credentials: … }`.
  * No label carries a session id, a path or message text.
  */

@@ -79,19 +79,20 @@ describe("serveApiKeyNotice", () => {
   const fileKey: ServeApiKey = { key: "abc123", source: "file", path: "/s/serve-api.key", created: true };
 
   it("says nothing about a key the operator gave", () => {
-    expect(serveApiKeyNotice({ key: "k", source: "given" }, "http://127.0.0.1:8787", true)).toBe("");
+    expect(serveApiKeyNotice({ key: "k", source: "given" }, "http://127.0.0.1:8787")).toBe("");
   });
 
   it("says where the generated key is and how to print it, without the key itself", () => {
-    const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787", false);
+    const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787");
     expect(notice).toContain("/s/serve-api.key");
     expect(notice).toContain("generated");
-    expect(notice).toContain("--print-api-key");
+    expect(notice).not.toContain("--print-api-key");
     expect(notice).not.toContain("abc123");
   });
 
-  it("in a terminal, adds the panel address with the key in its fragment", () => {
-    const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787", true);
-    expect(notice).toContain("http://127.0.0.1:8787/panel#key=abc123");
+  it("prints the panel address without the key", () => {
+    const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787");
+    expect(notice).toContain("http://127.0.0.1:8787/panel");
+    expect(notice).not.toContain("abc123");
   });
 });
