@@ -349,6 +349,16 @@ export async function requireUrlSendApproval(
     initialUrl?: string;
   },
 ): Promise<boolean> {
+  if (input.url === "" && input.sendsQueryData && input.mode !== "off") {
+    await requireApproval(dangerous, {
+      sessionId: input.sessionId,
+      tool: input.tool,
+      category: "http_write",
+      reason: "curl may obtain a network destination from configuration or shell expansion",
+      affectedResources: ["unknown curl destination"],
+    }, input.signal, true);
+    return true;
+  }
   const sites = input.sites ?? SHARED_URL_SEND_SITES;
   let check = checkUrlSend(input.mode, input.url, input.sessionId, sites, input.initialUrl);
   if (input.sendsQueryData && input.mode !== "off") {

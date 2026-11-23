@@ -261,7 +261,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         : commandLine;
     const urls = shellNetworkUrls(cmd, execArgs, useShell ? subshellCommandLine : undefined);
     for (const url of urls.keys()) {
-      const refused = offlineRefusal(url, "os.shell.run");
+      const refused = offlineRefusal(url || "unknown curl destination", "os.shell.run");
       if (refused) throw refused;
     }
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shellNetworkUse } from "./network-clients.js";
+import { shellNetworkUse, shellNetworkUrls } from "./network-clients.js";
 
 const line = (cmd: string) => shellNetworkUse({ cmd });
 
@@ -45,3 +45,27 @@ describe("shellNetworkUse (best-effort network client detection)", () => {
     expect(shellNetworkUse({ cmd: "sh", args: ["-c", "wget https://x"] })?.program).toBe("wget");
   });
 });
+
+const target = "https://docs.example/";
+it.each([
+  ["-sGd", "q=fixture", target],
+  ["-sGdq=fixture", target],
+  [target + "?q=$value"],
+  [target + "?q=`fixture`"],
+  [target + "?q=$__computed__"],
+])("classifies curl URL data in %j", (...args) => {
+  expect([...shellNetworkUrls("curl", args).values()]).toEqual([true]);
+});
+it("classifies an inert curl substitution from shell syntax", () => {
+  expect([...shellNetworkUrls("curl", [], 'curl "https://docs.example/?q=$(printf fixture)"').values()]).toEqual([true]);
+});
+it.each([["-K", "example.conf"], ["--config=example.conf"], ["-Kexample.conf"]])("flags opaque curl configuration %j", (...args) => {
+  expect([...shellNetworkUrls("curl", args)]).toEqual([["", true]]);
+});
+
+it.each(["https://$host/path", "https://docs.example:$port/path", "$__computed__"])(
+  "requires unscoped consent for a curl destination whose origin is computed in %s",
+  (operand) => {
+    expect([...shellNetworkUrls("curl", [operand])]).toEqual([["", true]]);
+  },
+);

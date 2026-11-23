@@ -64,6 +64,49 @@ function unwrap(words: readonly string[], shellSyntax: boolean): readonly string
   return words.slice(i);
 }
 
+const curlShortOperands = new Set("AbcCdDeEFHKmoPQrTtUuwxXyYz".split(""));
+
+function curlUrlOptions(args: readonly string[]): { sendsData: boolean; hasConfig: boolean; operands: string[] } {
+  let get = false;
+  let data = false;
+  let query = false;
+  let hasConfig = false;
+  let options = true;
+  const operands: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    const word = args[index]!;
+    if (options && word === "--") {
+      options = false;
+    } else if (options && word.startsWith("--")) {
+      const equals = word.indexOf("=");
+      const flag = equals < 0 ? word : word.slice(0, equals);
+      if (flag === "--get") get = true;
+      if (flag === "--url-query") query = true;
+      if (flag === "--config") hasConfig = true;
+      const isData = /^(?:--data(?:-[a-z]+)?|--json)$/.test(flag);
+      data ||= isData;
+      if (flag === "--url" || flag === "--url-query" || flag === "--config" || isData) {
+        const value = equals < 0 ? args[++index] : word.slice(equals + 1);
+        if (flag === "--url" && value !== undefined) operands.push(value);
+      }
+    } else if (options && /^-[^-]/.test(word)) {
+      for (let offset = 1; offset < word.length; offset++) {
+        const short = word[offset]!;
+        if (short === "G") get = true;
+        if (short === "d") data = true;
+        if (short === "K") hasConfig = true;
+        if (curlShortOperands.has(short)) {
+          if (offset === word.length - 1) index++;
+          break;
+        }
+      }
+    } else {
+      operands.push(word);
+    }
+  }
+  return { sendsData: query || (get && data), hasConfig, operands };
+}
+
 function inSegment(words: readonly string[], depth: number, urls?: Map<string, boolean>, shellSyntax = false): ShellNetworkUse | null {
   const command = unwrap(words, shellSyntax);
   const first = command[0];
@@ -72,19 +115,20 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
   const rest = command.slice(1);
   if (HTTP_CLIENTS.has(program)) {
     if (urls && URL_CLIENTS.has(program)) {
-      const getWithData = program === "curl" && (
-        rest.some((word) => /^--url-query(?:=|$)/.test(word)) ||
-        (rest.some((word) => word === "--get" || /^-[^-]*G/.test(word)) &&
-          rest.some((word) => /^(?:-d|--data(?:-[a-z]+)?(?:=|$)|--json(?:=|$))/.test(word)))
-      );
-      for (const word of rest) {
+      const curl = program === "curl" ? curlUrlOptions(rest) : undefined;
+      if (curl?.hasConfig) urls.set("", true);
+      for (const word of curl?.operands ?? rest) {
         const operand = word.replace(/^(?:--url=|-uri[:=])/i, "");
+        if (program === "curl" && /^(?:https?:\/\/)?[^/?#]*[$`]/i.test(operand)) {
+          urls.set("", true);
+          continue;
+        }
         const url = /^https?:\/\//i.test(operand)
           ? operand
           : (program === "curl" || program.startsWith("wget")) && /^(?:localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d+)?(?:[/?#]|$)/i.test(operand)
             ? `http://${operand}`
             : null;
-        if (url !== null) urls.set(url, getWithData || urls.get(url) === true);
+        if (url !== null) urls.set(url, curl?.sendsData === true || (program === "curl" && /[$`]/.test(operand)) || urls.get(url) === true);
       }
     }
     return { program, cls: "http" };

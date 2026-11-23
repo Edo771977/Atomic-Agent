@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   checkUrlSend,
   findUrlData,
+  requireUrlSendApproval,
   MAX_URL_TAIL_CHARS,
   MAX_URL_VALUE_CHARS,
   UrlSendSites,
@@ -164,4 +165,14 @@ it("ignores the Azure SAS and JWT query supplied by GitHub release-assets", () =
 it("keeps data detection when the initial redirect URL is unreadable", () => {
   const target = "https://release-assets.githubusercontent.com/file?q=" + "a".repeat(500);
   expect(checkUrlSend("data", target, "s", undefined, "unreadable")?.kind).toBe("data");
+});
+
+it("keeps an opaque curl configuration out of reusable origin grants", async () => {
+  const request = vi.fn(async () => ({ approved: true, approvalId: "fixture" }));
+  await requireUrlSendApproval({ approvals: { request } as never, approvalRequired: true }, {
+    mode: "strict", tool: "os.shell.run", url: "", sendsQueryData: true, sessionId: "s",
+    signal: new AbortController().signal,
+  });
+  expect(request).toHaveBeenCalledWith(expect.objectContaining({ category: "http_write" }),
+    expect.objectContaining({ requireExplicitDecision: true }));
 });

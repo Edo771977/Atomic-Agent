@@ -281,7 +281,7 @@ export async function authorizeVerifyBatch(
       return [...shellNetworkUrls(command.cmd, command.args, shellLine)];
     });
     for (const [url] of urls) {
-      const refused = offlineRefusal(url, "verify.run");
+      const refused = offlineRefusal(url || "unknown curl destination", "verify.run");
       if (refused) throw refused;
     }
     plans.push({ prompt, logical, cwd, spec, commands, detector, serviceUrl, urls });
