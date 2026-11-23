@@ -43,6 +43,7 @@ describe("worker tool policy", () => {
         "plan.update",
         "project.backlog.add",
         "project.brief",
+        "project.lesson.propose",
         "project.milestone",
         "project.plan",
         "tasks.cancel",

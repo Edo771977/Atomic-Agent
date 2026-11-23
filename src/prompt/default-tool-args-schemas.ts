@@ -1,3 +1,4 @@
+import { PROJECT_LIMITS } from "../session/project-limits.js";
 import { MILESTONE_KINDS } from "../session/session-project.js";
 import { OS_FS_READ_CONTRACT } from "../tools/os/fs/fs-read-contract.js";
 import { OS_FS_LIST_CONTRACT } from "../tools/os/fs/fs-list-contract.js";
@@ -944,6 +945,21 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
       },
       ["title", "source"],
     ),
+  ],
+
+  [
+    "project.lesson.propose",
+    obj({
+      id: { type: "string", maxLength: PROJECT_LIMITS.id },
+      title: { type: "string", maxLength: PROJECT_LIMITS.title },
+      source: { type: "string", enum: ["correction", "milestone-failure", "director"] },
+      from: { type: "string", maxLength: PROJECT_LIMITS.shortText },
+      touches: { type: "array", maxItems: PROJECT_LIMITS.lessonTouches, items: { type: "string", maxLength: PROJECT_LIMITS.lessonTouchPath } },
+      always: { type: "boolean" },
+      decided: { type: "string", maxLength: PROJECT_LIMITS.text },
+      triedAndRuledOut: { type: "string", maxLength: PROJECT_LIMITS.text },
+      watchOut: { type: "string", maxLength: PROJECT_LIMITS.text },
+    }, ["id", "title", "source", "from", "touches", "always", "decided", "triedAndRuledOut", "watchOut"]),
   ],
 
   // ── fusion fan-out ───────────────────────────────────────────────────────
