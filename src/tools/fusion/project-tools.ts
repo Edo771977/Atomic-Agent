@@ -798,12 +798,25 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           lines.push(warning);
         }
         const activeLessons = ctx.incognito ? [] : ctx.project?.[currentProjectLessons]?.active ?? [];
+        const listed: string[] = [];
+        let length = 0;
+        let count = 0;
         for (const file of activeLessons.length === 0 ? [] : evidence.changedFiles ?? []) {
           const ids = activeLessons.filter((lesson) =>
-            lessonTouchesTask(lesson.touches, [file], process.platform)).map((lesson) => lesson.id);
-          if (ids.length > 0) {
-            reportNotes.push(`Changed ${JSON.stringify(file)}; covered by active lesson(s) ${ids.join(", ")}. Check that the changes follow them.`);
+            lessonTouchesTask(lesson.touches, [file], process.platform))
+            .map((lesson) => lesson.id);
+          if (ids.length === 0) continue;
+          count += 1;
+          const entry = `${JSON.stringify(file)} (${ids.join(", ")})`;
+          if (listed.length < 12 && length + entry.length + 2 <= PROJECT_LIMITS.text - 180) {
+            listed.push(entry);
+            length += entry.length + 2;
           }
+        }
+        if (count > 0) {
+          const more = count - listed.length;
+          const entries = [...listed, ...(more === 0 ? [] : [`${more} more`])].join(", ");
+          reportNotes.push(`Changed files covered by active lessons: ${entries}. Check that the changes follow them.`);
         }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };

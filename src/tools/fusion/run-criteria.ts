@@ -153,7 +153,7 @@ interface StoredRun {
 }
 
 const CHANGED_FILES_NAME = "changed-files.json";
-const MAX_CHANGED_FILES_BYTES = 64 * 1024 * 1024;
+const MAX_CHANGED_FILES_BYTES = 256 * 1024;
 
 function runChangedFiles(runsDir: string, runId: string): string[] {
   if (!FusionRunStore.isValidRunId(runId)) return [];

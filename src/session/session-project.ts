@@ -866,8 +866,8 @@ function clipText(raw: string, max: number): string {
 
 function reportNotesOf(raw: unknown): { reportNotes?: string[] } {
   if (!Array.isArray(raw)) return {};
-  const notes = raw.flatMap((value: unknown) => {
-    const note = typeof value === "string" ? clipText(value, PROJECT_LIMITS.text + PROJECT_LIMITS.lessonFiles * (PROJECT_LIMITS.id + 2)) : "";
+  const notes = raw.slice(0, 8).flatMap((value: unknown) => {
+    const note = typeof value === "string" ? clipText(value, PROJECT_LIMITS.text) : "";
     return note.length === 0 ? [] : [note];
   });
   return notes.length === 0 ? {} : { reportNotes: notes };
@@ -2693,7 +2693,7 @@ function decideProject(
         return {
           ...rest,
           state: "done" as const,
-          ...reportNotesOf([...(rest.reportNotes ?? []), line]),
+          ...reportNotesOf([...(rest.reportNotes ?? []).slice(0, 7), line]),
           reviewOverride: { note, at: now, blocks },
         };
       }),
