@@ -25,7 +25,7 @@ export function buildProfileRemoveTool(
       const key = rawArgs.key;
       try {
         const removed = options.store.remove(
-          typeof key === "string" ? key : "",
+          typeof key === "string" ? key : "", "agent", true,
         );
         return compressToolResult({
           tool: "memory.profile.remove",

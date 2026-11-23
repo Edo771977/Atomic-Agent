@@ -71,7 +71,7 @@ export function buildProfileSetTool(
             ? options.store.get(key)
             : null;
         const repeat =
-          existing !== null && sameFact(existing, value as string, setOptions);
+          existing !== null && existing.disabledAt === undefined && sameFact(existing, value as string, setOptions);
         const isName =
           typeof key === "string" &&
           typeof value === "string" &&

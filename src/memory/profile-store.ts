@@ -542,11 +542,12 @@ export class ProfileStore {
    * The active value goes into the change journal (ATO-1059); `by` says
    * who asked.
    */
-  remove(key: string, by: MemoryChangeActor = "agent"): boolean {
+  remove(key: string, by: MemoryChangeActor = "agent", excludeDisabled = false): boolean {
     const normalisedKey = validateKey(key);
     return this.db.transaction((): boolean => {
       const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as ProfileRow | undefined;
       const before = row ? rowToFact(row) : null;
+      if (excludeDisabled && before?.disabledAt !== undefined) return false;
       const hadActive = before !== null;
       // A fact this session cannot see (another constraint scope) is not
       // its to forget.

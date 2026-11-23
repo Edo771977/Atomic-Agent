@@ -915,11 +915,11 @@ export class MemoryStore {
    * Delete a note. The note as it was goes into the change journal
    * first (ATO-1059), so the deletion can be undone; `by` says who asked.
    */
-  remove(id: number, by: MemoryChangeActor = "agent"): boolean {
+  remove(id: number, by: MemoryChangeActor = "agent", excludeDisabled = false): boolean {
     const normalizedId = validateId(id);
     return this.db.transaction((): boolean => {
       const before = this.get(normalizedId);
-      if (before === null) return false;
+      if (before === null || (excludeDisabled && before.disabledAt !== undefined)) return false;
       const scope = this.rawScope(normalizedId);
       const result = this.deleteStmt.run(normalizedId) as { changes: number };
       if (result.changes === 0) return false;
