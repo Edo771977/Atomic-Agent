@@ -4,7 +4,7 @@ import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import {
@@ -236,6 +236,7 @@ describe.skipIf(unavailable !== undefined)(
     });
 
     it.skipIf(process.platform !== "linux")("probes a verify service within its private Linux network", async () => {
+      vi.stubEnv("HOME", dirname(process.cwd()));
       vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
       vi.stubEnv("ATOMIC_AGENT_STATE_DIR", state);
       try {

@@ -85,6 +85,7 @@ export function networkBlockEnv(): Record<string, string> {
 export interface SpawnVerifyOptions {
   cwd: string;
   relayDir?: string;
+  trustedSupervisorPath?: string;
   workspaceRoot: string;
   env?: Readonly<Record<string, string>>;
   network: boolean;
@@ -158,6 +159,7 @@ export function spawnVerifyProcess(
       workspaceRoots: [options.workspaceRoot, ...(options.relayDir === undefined ? [] : [options.relayDir])],
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
+      trustedReadOnlyPaths: options.trustedSupervisorPath === undefined ? [] : [options.trustedSupervisorPath],
       network: false,
     }))
     : { ok: true as const, command: invocation.command, args: invocation.args };

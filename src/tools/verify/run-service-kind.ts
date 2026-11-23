@@ -9,7 +9,7 @@ import net from "node:net";
 import { dirname, join } from "node:path";
 
 import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
-import { linuxServiceInvocation, probeLinuxService } from "./linux-service-probe.js";
+import { linuxServiceInvocation, linuxServiceSupervisorPath, probeLinuxService } from "./linux-service-probe.js";
 
 import { resolveInvocation, spawnVerifyProcess, type VerifyProcess } from "./spawn-verify-process.js";
 import type { VerifyRequestSpec, VerifyRunArgs } from "./verify-run-args.js";
@@ -194,6 +194,7 @@ async function runServiceProcess(
     signal: ctx.signal,
     ...(socketPath === undefined ? {} : {
       relayDir: dirname(socketPath),
+      trustedSupervisorPath: linuxServiceSupervisorPath(),
       invocation: linuxServiceInvocation(resolveInvocation(start.cmd, start.args ?? []), socketPath),
     }),
   });

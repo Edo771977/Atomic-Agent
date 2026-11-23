@@ -1,5 +1,6 @@
 import net from "node:net";
 import { isSea } from "node:sea";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import type { resolveInvocation } from "./spawn-verify-process.js";
 
 interface ProbeRequest {
@@ -17,13 +18,20 @@ interface ProbeResult {
 
 const MAX_PROBE_BYTES = 2 * 1024 * 1024;
 
+/** A trusted launcher file needed when the source checkout sits under the hidden home. */
+export function linuxServiceSupervisorPath(): string | undefined {
+  if (isSea()) return undefined;
+  return fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./linux-service-supervisor.ts" : "./linux-service-supervisor.js", import.meta.url));
+}
+
 export function linuxServiceInvocation(
   invocation: ReturnType<typeof resolveInvocation>,
   socketPath: string,
 ): ReturnType<typeof resolveInvocation> {
   const args = [socketPath, invocation.command, ...invocation.args];
-  if (isSea()) return { ...invocation, command: process.execPath, args: ["--internal-verify-service", ...args] };
-  const entry = new URL(import.meta.url.endsWith(".ts") ? "./linux-service-supervisor.ts" : "./linux-service-supervisor.js", import.meta.url).href;
+  const supervisor = linuxServiceSupervisorPath();
+  if (supervisor === undefined) return { ...invocation, command: process.execPath, args: ["--internal-verify-service", ...args] };
+  const entry = pathToFileURL(supervisor).href;
   return {
     ...invocation,
     command: process.execPath,
