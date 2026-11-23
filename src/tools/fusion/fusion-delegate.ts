@@ -2278,7 +2278,7 @@ export function buildFusionDelegateTool(
         const visionUsd = vision?.costUsd ?? null;
         return visionUsd === null ? judged : { ...judged, costUsd: (judged.costUsd ?? 0) + visionUsd };
       };
-      // The watch on running workers (issue #43), team runs only: every
+      // The watch on running workers (issue #43): every
       // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.
       // The judge is the task's reviewer (the same pick, policy and model
       // pin as its review; none with `team.review: "off"`), else the
@@ -2294,10 +2294,10 @@ export function buildFusionDelegateTool(
       // together pass a cap each alone would respect.
       let watchReservedUsd = 0;
       const watchFor =
-        teamContext === undefined || sideComplete === undefined
+        sideComplete === undefined
           ? undefined
           : (taskId: string): WorkerWatchPlan | undefined => {
-              const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
+              const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext?.team);
               if (minutes <= 0) return undefined;
               // The task's reviewer (`taskReviewerOf`: the approved plan
               // row's, else the default; `team.review: "off"` turns
@@ -2314,13 +2314,16 @@ export function buildFusionDelegateTool(
                       ref: `${mode.orchestratorProviderId}:${mode.orchestratorModel ?? mode.orchestratorProviderId}`,
                     });
               if (lead === null) return undefined;
+              const pinModel = team?.pinsModel(lead.providerId) === true ? lead.model
+                : reviewer === null && lead.providerId === mode.orchestratorProviderId ? mode.orchestratorPinModel
+                : undefined;
               const target: JudgeTarget = {
                 providerId: lead.providerId,
-                model: lead.model,
-                ...(team?.pinsModel(lead.providerId) === true ? { pinModel: lead.model } : {}),
+                model: pinModel ?? lead.model,
+                ...(pinModel === undefined ? {} : { pinModel }),
               };
               const label = target.model ?? target.providerId;
-              const cap = watchMaxChecksOf(teamContext.team);
+              const cap = watchMaxChecksOf(teamContext?.team);
               return {
                 intervalMs: minutes * 60_000,
                 firstTickJitterMs: watchFirstTickJitterMs(minutes * 60_000, deps.watchRandom),
