@@ -2,6 +2,7 @@ import { excerptPreview, hiddenLinesNote, previewLines, visiblePreviewLine } fro
 import type { AgentRuntime } from "../../runtime/runtime-contract.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { stateDirProjectRecords, validProjectLessonId, type ProjectLessonCall } from "../../session/project-decisions.js";
+import { projectFolderOf, sameProjectFolder } from "../../session/project-folder.js";
 import { lessonCoverageLine } from "../../session/project-gate-text.js";
 import {
   prepareProjectLessonDecision, projectLessonFingerprint, projectLessonStatus, readProjectLessons, writeProjectLessonDecision,
@@ -24,21 +25,21 @@ interface LessonCommandDeps {
   busy: boolean;
 }
 
-function lessonLine(lesson: ProjectLesson, call?: ProjectLessonCall): string {
+function lessonLine(lesson: ProjectLesson, call?: ProjectLessonCall, recordAvailable = true): string {
   const status = projectLessonStatus(lesson, call);
-  const effective = status.effectiveStatus === "active" ? "approved" : status.effectiveStatus;
+  const effective = !recordAvailable ? "unknown" : status.effectiveStatus === "active" ? "approved" : status.effectiveStatus;
   const stale = status.stale ? " (stale choice)" : "";
   return visiblePreviewLine(
     `${lesson.id} — ${lesson.title} [declared: ${lesson.declaredStatus}, effective: ${effective}${stale}, always: ${lesson.always}, touches: ${JSON.stringify(lesson.touches)}]`,
   );
 }
 
-function renderLessons({ lessons, problems }: ProjectLessons, calls: Record<string, ProjectLessonCall>): string {
+function renderLessons({ lessons, problems }: ProjectLessons, calls: Record<string, ProjectLessonCall>, recordAvailable = true): string {
   const missing = Object.entries(calls).filter(([id]) => !lessons.some((lesson) => lesson.id === id));
   if (lessons.length + problems.length + missing.length === 0) return "No project lessons found.";
   return [
     "Project lessons",
-    ...lessons.map((lesson) => lessonLine(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined)),
+    ...lessons.map((lesson) => lessonLine(lesson, Object.hasOwn(calls, lesson.id) ? calls[lesson.id] : undefined, recordAvailable)),
     ...missing.map(([id, call]) => `Stale ${call.state} choice for ${id}. The file is missing or invalid.`),
     ...problems.map(({ file, reason }) => visiblePreviewLine(`Skipped ${JSON.stringify(file)}: ${reason}`)),
     "Use /lesson_approve, /lesson_retire or /lesson_reopen with a lesson ID to preview a choice.",
@@ -96,7 +97,9 @@ function runPlanLessonCommand(
     gate: view.gate, version: view.version, verdict: "edit", edits: { lessonStatus: { [id]: status } },
   });
   return result.ok ? `Lesson ${id} is now ${status} for this plan. Reply /plan to review it.`
-    : `Lesson unchanged. ${visiblePreviewLine(result.error.message)}`;
+    : result.error.code === "project-store"
+      ? "Lesson unchanged. The project record is unavailable. Check it from the CLI."
+      : `Lesson unchanged. ${visiblePreviewLine(result.error.message)}`;
 }
 
 /** The inbound handler enforces owner, chat and egress rules before calling this. */
@@ -109,12 +112,19 @@ export function runLessonCommand(
   if (command === "/lessons" && args.length !== 0) return "Usage: /lessons";
   const session = sessionId === null ? null : runtime.sessionStore.load(sessionId);
   if (isIncognitoSession(session)) return "Project lessons are unavailable in incognito chats.";
-  if (session?.projectProblem !== undefined) return visiblePreviewLine(session.projectProblem);
   const ref = session === null ? null : readProjectRef(session);
-  if (sessionId === null || ref === null) return "This chat has no project record.";
+  if (sessionId === null || session === null || ref === null ||
+      !sameProjectFolder(ref.folder, projectFolderOf(session))) return "This chat has no project record.";
   const records = stateDirProjectRecords(runtime.config.paths.stateDir);
   const found = records.read(ref.folder);
-  if (!found.ok) return visiblePreviewLine(found.problem.message);
+  if (!found.ok) {
+    if (command === "/lessons") {
+      return ["Warning: the project record is unavailable. Approval status is unknown.",
+        renderLessons(readProjectLessons(ref.folder), {}, false)].join("\n");
+    }
+    return "The project record is unavailable. Use the CLI to check it before deciding.";
+  }
+  if (session.projectProblem !== undefined) return "This chat's project is unavailable.";
   const record = found.record;
   if (record?.id !== ref.id) return "This chat has no project record.";
   if (command !== "/lessons" && (busy || runtime.turnController.isBusy(sessionId) ||
@@ -158,5 +168,5 @@ export function runLessonCommand(
   }
   const written = writeProjectLessonDecision(records, record, prepared.decision);
   return written.ok ? `Lesson ${id} is now ${state ?? "reopened"}.`
-    : `Lesson unchanged. ${visiblePreviewLine(written.problem.message)}`;
+    : "Lesson unchanged. The project record could not be updated. Request a fresh preview or check the record from the CLI.";
 }

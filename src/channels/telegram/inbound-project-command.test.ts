@@ -6,7 +6,7 @@ import { join } from "node:path";
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { createEmptySessionState, type SessionState } from "../../session/index.js";
-import { stateDirProjectRecords } from "../../session/project-decisions.js";
+import { projectFolderKey, projectRecordsDir, stateDirProjectRecords } from "../../session/project-decisions.js";
 import { readProjectLessons } from "../../session/project-lessons.js";
 import type { ProjectBacklogDecision } from "../../session/project-backlog.js";
 import { fixtureProjectGateView } from "../../session/project-gate-view-fixtures.js";
@@ -334,6 +334,36 @@ describe("Telegram project gate", () => {
     expect(sent.join("\n")).toContain("/lesson_approve");
     const { preview } = await previewLesson("/lesson_approve");
     expect(preview).toContain("reply /lesson_approve storage");
+  });
+
+  it("lists files on a damaged record without disclosing its path or allowing writes", async () => {
+    await openLessons();
+    const path = join(projectRecordsDir(join(dir, "state")), projectFolderKey(dir) + ".json");
+    writeFileSync(path, "{bad json");
+    projectSession = { ...projectSession!, projectProblem: "Cannot open " + path };
+    await say("/lessons");
+    expect(sent.at(-1)).toMatch(/warning.*record/i);
+    expect(sent.at(-1)).toContain("Local storage");
+    expect(sent.at(-1)).toContain("invalid.md");
+    expect(sent.at(-1)).not.toContain(path);
+    await say("/lesson_retire storage");
+    expect(sent.at(-1)).toMatch(/record.*unavailable/i);
+    expect(sent.at(-1)).not.toContain(path);
+    expect(readFileSync(path, "utf8")).toBe("{bad json");
+  });
+
+  it("does not disclose the record path if the record breaks during confirmation", async () => {
+    await openLessons();
+    const { confirm } = await previewLesson("/lesson_approve");
+    const path = join(projectRecordsDir(join(dir, "state")), projectFolderKey(dir) + ".json");
+    vi.spyOn(ctx.runtime.sessionStore, "liveProjectTurn").mockImplementationOnce(() => {
+      writeFileSync(path, "{bad json");
+      return null;
+    });
+    await say(confirm);
+    expect(sent.at(-1)).toMatch(/lesson unchanged/i);
+    expect(sent.at(-1)).not.toContain(path);
+    expect(readFileSync(path, "utf8")).toBe("{bad json");
   });
 
   it("refuses a changed file and a proposed lesson", async () => {
