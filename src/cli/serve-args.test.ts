@@ -222,3 +222,7 @@ it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked explicit
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+it("round2-6 documents ancestor symlinks", () => {
+  expect(HELP).toContain("ancestor directories may be symlinks");
+});

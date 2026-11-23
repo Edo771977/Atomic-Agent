@@ -52,6 +52,8 @@ export const HELP =
     "                      Explicit keys must be at least 16 characters. On a network host, an address",
     "                      that sends 10 wrong keys in a minute waits a minute",
     "  --api-key-file <path>  Read an explicit token from an owner-only file. The file is kept.",
+    "                      The file itself cannot be a symlink. Its ancestor directories may be symlinks.",
+    "                      Use a path whose directories you control.",
     "                      Leave ATOMIC_AGENT_API_KEY unset for a launch without the key in the environment.",
     "  --no-approval       Force approval level 5: auto-approve every dangerous tool call (dev / trusted use only)",
     "  --parent-pid <p>    Watch this pid instead of the actual parent (for spawners that double-fork)",
