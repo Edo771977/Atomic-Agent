@@ -86,8 +86,6 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
       let start: URL;
       try {
         start = parseHttpUrl(args.url);
-        // Fail on a private address here, not later as "robots.txt unreachable".
-        await assertHostAllowed(start, { lookup: options.lookup });
       } catch (err) {
         return errorResult(args, (err as Error).message, err instanceof SsrfBlockedError);
       }
@@ -101,6 +99,13 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
           signal: ctx.signal,
           ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
         });
+      }
+
+      try {
+        // Fail on a private address here, not later as "robots.txt unreachable".
+        await assertHostAllowed(start, { lookup: options.lookup });
+      } catch (err) {
+        return errorResult(args, (err as Error).message, err instanceof SsrfBlockedError);
       }
 
       // Each crawl counts its own throttle strikes: a 429 streak from an

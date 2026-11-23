@@ -177,17 +177,19 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
 it.each([["data", DATA_URL], ["strict", PLAIN_URL]] as const)("crawl asks about its initial URL in %s mode before curl", async (urlDataGuard, url) => {
   const { gate, asked } = recordingGate(3, false);
   const calls: string[][] = [];
+  let lookups = 0;
   const tool = buildOsWebCrawlTool({
     dangerous: { approvals: gate, approvalRequired: true },
     config: { web: {} as AtomicAgentConfig["web"], ...httpConfig({ urlDataGuard }) },
     urlSendSites: new UrlSendSites(),
-    lookup: publicLookup,
+    lookup: async () => { lookups++; return [{ address: "93.184.216.34", family: 4 }]; },
     runCommand: recordingRun(calls),
     sleep: async () => {},
   });
   await expect(tool.run({ url }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
   expect(asked).toHaveLength(1);
   expect(calls).toHaveLength(0);
+  expect(lookups).toBe(0);
 });
 
 it("a chat grant for a strict visit leaves a subsequent POST body subject to approval", async () => {
