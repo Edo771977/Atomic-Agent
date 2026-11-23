@@ -292,7 +292,8 @@ const signedFields = new Set([
 ]);
 
 function withoutServerSignature(initialUrl: string, target: URL): string {
-  const initial = new URL(initialUrl);
+  const initial = URL.parse(initialUrl);
+  if (initial === null) return target.href;
   if (initial.protocol !== "https:" || target.protocol !== "https:" ||
     initial.search || initial.hash || findUrlData(initialUrl) !== null) return target.href;
   const githubRelease = initial.origin === "https://github.com" &&

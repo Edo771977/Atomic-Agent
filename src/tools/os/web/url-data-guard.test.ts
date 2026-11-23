@@ -160,3 +160,8 @@ it("ignores the Azure SAS and JWT query supplied by GitHub release-assets", () =
   expect(checkUrlSend("data", target.href, "s", undefined, initial + "?q=agent")?.kind).toBe("data");
   expect(checkUrlSend("data", target.href, "s", undefined, "https://github.com.example/releases/download/v1/asset")?.kind).toBe("data");
 });
+
+it("keeps data detection when the initial redirect URL is unreadable", () => {
+  const target = "https://release-assets.githubusercontent.com/file?q=" + "a".repeat(500);
+  expect(checkUrlSend("data", target, "s", undefined, "unreadable")?.kind).toBe("data");
+});
