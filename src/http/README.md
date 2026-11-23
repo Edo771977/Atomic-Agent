@@ -169,3 +169,125 @@ Goal mode (ATO-1040, [route-session-goal.ts](route-session-goal.ts), [chat-goal.
 [Metrics route](route-metrics.ts) (ATO-646): `GET /metrics` answers the Prometheus text format for a Prometheus or Grafana scrape of `atag serve`: turns (count and duration by origin and outcome), steps, provider failures by category and provider link, tool calls by tool, task and scheduler counters, plus turns running and durable tasks per status read at scrape time. Serve folds the runtime's metric samples in a [PrometheusRegistry](../tracing/prometheus-registry.ts); no label carries a session id. The route is never open without a key: the scrape config sends serve's key (`--api-key`, or the contents of the generated key file) as a bearer token, and a server built with no key at all (`unauthenticated: true`, never `serve`) answers 401 (`metrics_need_api_key`).
 
 Managing bindings (ATO-445): each `GET /api/webhooks` item also carries `verify` (`secret` when unset), `events` (when set), `userMessageTemplate` and `live` (false for a binding saved in `config.json` by hand since start, listed from the file), and the reply adds `presets` (the `verify` values). `POST /api/webhooks` `{ name, verify?, userMessageTemplate, secret?, events?, sessionMode? }` adds a binding ([admin routes](route-webhooks-admin.ts)): the secret is generated unless given (`whsec_<base64>` for `standard-webhooks`, hex otherwise; `stripe` needs the pasted `whsec_` value), the whole file is revalidated and written atomically, the running agent picks it up without a restart, and the reply `201 { webhook, secret }` is the only time the secret is returned. `DELETE /api/webhooks/{name}` removes a binding and its persistent session mapping. Both sit on the main API behind its bearer key; the tunnel listener never serves them.
+
+## Named HTTP token route matrix
+
+The table records the per-route authorization policy. The owner key retains full access on the main listener. The dedicated tunnel uses webhook binding authentication.
+
+| Metodo e rotta | Classe |
+| --- | --- |
+| `GET /health` | Lettura pubblica |
+| `GET /v1/models` | Lettura (read) |
+| `GET /panel` | Lettura pubblica |
+| `GET /panel/app.js` | Lettura pubblica |
+| `GET /metrics` | Amministrazione (admin) |
+| `POST /v1/chat/completions` | Azione ordinaria (chat) |
+| `POST /v1/chat/completions/{completion_id}/cancel` | Azione ordinaria (chat) |
+| `POST /v1/messages` | Azione ordinaria (chat) |
+| `POST /v1/messages/count_tokens` | Azione ordinaria (chat) |
+| `POST /v1/responses` | Azione ordinaria (chat) |
+| `POST /api/ag-ui` | Azione ordinaria (chat) |
+| `GET /api/capabilities` | Lettura (read) |
+| `GET /api/model-tiers` | Lettura (read) |
+| `POST /api/sessions/{id}/compact` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/compaction` | Lettura (read) |
+| `GET /api/config` | Amministrazione (admin) |
+| `PATCH /api/config` | Amministrazione (admin) |
+| `PUT /api/config` | Amministrazione (admin) |
+| `GET /api/skills` | Lettura (read) |
+| `GET /api/skills/{name}` | Lettura (read) |
+| `POST /api/skills/install` | Amministrazione (admin) |
+| `POST /api/skills/uninstall` | Amministrazione (admin) |
+| `GET /api/project-trust` | Lettura (read) |
+| `POST /api/project-trust` | Scelta della persona (decide) |
+| `POST /api/mcp/servers/{name}/restart` | Amministrazione (admin) |
+| `POST /api/mcp/servers/{name}/enable` | Amministrazione (admin) |
+| `POST /api/mcp/servers/{name}/disable` | Amministrazione (admin) |
+| `POST /api/mcp/servers/{name}/auth/start` | Amministrazione (admin) |
+| `GET /api/mcp/servers/{name}/auth` | Lettura (read) |
+| `POST /api/mcp/servers/{name}/auth/signout` | Amministrazione (admin) |
+| `GET /api/sessions` | Lettura (read) |
+| `GET /api/sessions/search` | Lettura (read) |
+| `GET /api/sessions/{id}` | Lettura (read) |
+| `DELETE /api/sessions/{id}` | Amministrazione (admin) |
+| `PATCH /api/sessions/{id}` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/provider-restriction` | Lettura (read) |
+| `GET /api/sessions/{id}/export` | Lettura (read) |
+| `POST /api/sessions/{id}/working-dir` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/goal` | Lettura (read) |
+| `POST /api/sessions/{id}/goal` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/next-step` | Lettura (read) |
+| `POST /api/sessions/{id}/archived` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/rollback-last-turn` | Amministrazione (admin) |
+| `GET /api/sessions/{id}/rewind-points` | Lettura (read) |
+| `POST /api/sessions/{id}/rewind/preview` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/rewind` | Amministrazione (admin) |
+| `POST /api/sessions/{id}/fork` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/fs/restore` | Amministrazione (admin) |
+| `POST /api/sessions/{id}/resume` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/steer` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/steer` | Lettura (read) |
+| `DELETE /api/sessions/{id}/steer` | Azione ordinaria (chat) |
+| `GET /api/sessions/{id}/fusion/workers` | Lettura (read) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/stop` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/steer` | Azione ordinaria (chat) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/escalate` | Azione ordinaria (chat) |
+| `POST /api/approval/resolve` | Scelta della persona (decide) |
+| `GET /api/events` | Lettura (read) |
+| `POST /api/question/answer` | Scelta della persona (decide) |
+| `GET /api/project` | Lettura (read) |
+| `POST /api/project/decision` | Scelta della persona (decide) |
+| `GET /api/project/lessons` | Lettura (read) |
+| `POST /api/project/lessons` | Scelta della persona (decide) |
+| `POST /api/project/backlog` | Scelta della persona (decide) |
+| `GET /api/projects` | Lettura (read) |
+| `POST /api/projects/forget` | Amministrazione (admin) |
+| `POST /api/projects/resume` | Azione ordinaria (chat) |
+| `GET /api/fusion/team` | Lettura (read) |
+| `GET /api/approval-rules` | Amministrazione (admin) |
+| `DELETE /api/approval-rules/{id}` | Amministrazione (admin) |
+| `GET /api/coding-mode` | Lettura (read) |
+| `POST /api/coding-mode` | Amministrazione (admin) |
+| `GET /api/offline-mode` | Lettura (read) |
+| `POST /api/offline-mode` | Amministrazione (admin) |
+| `POST /api/context-preview` | Azione ordinaria (chat) |
+| `POST /api/complete` | Azione ordinaria (chat) |
+| `POST /api/local-model/recheck` | Amministrazione (admin) |
+| `POST /api/llm/active` | Amministrazione (admin) |
+| `GET /api/local-models/list` | Lettura (read) |
+| `GET /api/local-models/status` | Lettura (read) |
+| `GET /api/local-models/list-embeddings` | Lettura (read) |
+| `POST /api/memory/embeddings/reconnect` | Amministrazione (admin) |
+| `GET /api/memory/notes` | Lettura (read) |
+| `PATCH /api/memory/notes/{id}` | Amministrazione (admin) |
+| `DELETE /api/memory/notes/{id}` | Amministrazione (admin) |
+| `GET /api/memory/profile` | Lettura (read) |
+| `GET /api/memory/profile/{key}/history` | Lettura (read) |
+| `PATCH /api/memory/profile/{key}` | Amministrazione (admin) |
+| `DELETE /api/memory/profile/{key}` | Amministrazione (admin) |
+| `GET /api/memory/changes` | Lettura (read) |
+| `POST /api/memory/changes/{id}/restore` | Amministrazione (admin) |
+| `POST /api/memory/profile/{key}/restore` | Amministrazione (admin) |
+| `POST /api/telegram/pairing` | Amministrazione (admin) |
+| `GET /api/telegram/pairing` | Amministrazione (admin) |
+| `DELETE /api/telegram/pairing` | Amministrazione (admin) |
+| `GET /api/telegram/channel` | Lettura (read) |
+| `POST /api/tasks` | Amministrazione (admin) |
+| `GET /api/tasks` | Lettura (read) |
+| `GET /api/tasks/{id}` | Lettura (read) |
+| `DELETE /api/tasks/{id}` | Amministrazione (admin) |
+| `POST /api/tasks/{id}/run` | Amministrazione (admin) |
+| `POST /api/tasks/{id}/pause` | Amministrazione (admin) |
+| `POST /api/tasks/{id}/resume` | Amministrazione (admin) |
+| `GET /api/tasks/{id}/runs` | Lettura (read) |
+| `POST /api/tasks/drain` | Amministrazione (admin) |
+| `GET /api/ideas` | Lettura (read) |
+| `POST /api/ideas/refresh` | Azione ordinaria (chat) |
+| `POST /api/ideas/{id}/accept` | Azione ordinaria (chat) |
+| `POST /api/ideas/{id}/dismiss` | Azione ordinaria (chat) |
+| `GET /api/webhooks` | Amministrazione (admin) |
+| `POST /api/tasks/wake` | Amministrazione (admin) |
+| `POST /api/webhooks/{name}` | Azione ordinaria (chat) |
+| `POST /api/webhooks` | Amministrazione (admin) |
+| `DELETE /api/webhooks/{name}` | Amministrazione (admin) |
+| `POST /webhooks/{name}` (listener tunnel) | Azione ordinaria (firma o segreto del binding) |
