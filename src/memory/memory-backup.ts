@@ -194,6 +194,8 @@ export interface MemoryRestoreContext extends MemoryBackupContext {
   maxEntries?: number;
   profileMaxEntries?: number;
   preview?: boolean;
+  takeNotes?: number;
+  takeFacts?: number;
 }
 
 export interface MemoryRestoreResult {
@@ -311,18 +313,23 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
             reasons[reason] = (reasons[reason] ?? 0) + 1;
             return true;
           }
+          let selectedNotes = 0;
           for (const row of notes.iterate() as Iterable<ArchiveRow>) {
+            if (selectedNotes >= (context.takeNotes ?? Infinity)) break;
             try {
               checkArchiveRow(row);
               const content = validateContent(row.content);
               const tags = withoutReservedTags(validateTags(archiveArray(row.tags)));
               if (row.constraint_scope === null && noteScope.get(content)) throw new MemoryBackupError("scope mismatch");
+              selectedNotes += 1;
               result.notes += insertNote.run({ ...row, content, source: "agent", tags: JSON.stringify(tags) }).changes;
             } catch (error) {
               if (!rejected(error, "note")) throw error;
             }
           }
+          let selectedFacts = 0;
           for (const row of facts.iterate() as Iterable<ArchiveRow>) {
+            if (selectedFacts >= (context.takeFacts ?? Infinity)) break;
             try {
               checkArchiveRow(row);
               const key = validateKey(row.key);
@@ -330,6 +337,7 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
               if (isSecretKey(key) || containsSecretPair(key, value)) throw new MemoryBackupError("profile credential");
               const keywords = validateKeywords(archiveArray(row.keywords));
               if (row.constraint_scope === null && factScope.get(key)) throw new MemoryBackupError("scope mismatch");
+              selectedFacts += 1;
               result.facts += insertFact.run({ ...row, key, value, keywords: JSON.stringify(keywords), name_grounding: null, name_checked_at: null }).changes;
             } catch (error) {
               if (!rejected(error, "profile")) throw error;
@@ -340,7 +348,7 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
           const factOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 0") - (context.profileMaxEntries ?? Infinity));
           if ((result.notes > 0 && noteOverflow > 0) || (result.facts > 0 && factOverflow > 0)) {
             throw new MemoryBackupError(
-              `Restore would add ${result.notes} notes and ${result.facts} profile facts and evict ${noteOverflow} notes and ${factOverflow} profile facts. Increase the configured limits or restore a smaller subset.`,
+              `Restore would add ${result.notes} notes and ${result.facts} profile facts and evict ${noteOverflow} notes and ${factOverflow} profile facts. Increase the configured limits or restore a subset with --max-notes N and --max-facts N.`,
             );
           }
           if (context.preview) throw new RestorePreview(result);

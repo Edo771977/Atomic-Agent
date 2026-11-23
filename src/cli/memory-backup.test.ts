@@ -149,6 +149,20 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     }
   });
 
+  it("can preview and restore a bounded subset without evicting live entries", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "first backup note" });
+    notes.store({ content: "second backup note" });
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const target = { memoryDbFile: join(dir, "target.sqlite"), maxEntries: 1, takeNotes: 1, takeFacts: 0 };
+    expect(restoreMemoryBackup({ ...target, preview: true }, out)).toEqual({ notes: 1, facts: 0 });
+    expect(existsSync(target.memoryDbFile)).toBe(false);
+    expect(restoreMemoryBackup(target, out)).toEqual({ notes: 1, facts: 0 });
+    expect(restoreMemoryBackup(target, out)).toEqual({ notes: 0, facts: 0 });
+  });
+
   it("validates edited archives, reports reasons and resets untrusted provenance", async () => {
     const notes = new MemoryStore({ dbFile, maxEntries: 20 });
     for (const content of ["valid note", "oversize", "invisible", "malformed scope", "scoped overlap", "invalid unicode"]) notes.store({ content });

@@ -54,17 +54,24 @@ export async function handleBackup(args: string[], readOption: (args: string[], 
   }
 }
 
-export function handleRestore(directory: string | undefined, confirmed = false): number {
+export function handleRestore(directory: string | undefined, confirmed = false, maxNotes?: string, maxFacts?: string): number {
   if (!directory) {
     process.stderr.write("usage: atomic-agent memory restore --from <dir> [--yes]\n");
     return 2;
   }
   try {
     assertMemoryBackupAllowed();
+    const limit = (raw: string | undefined, option: string) => {
+      if (raw === undefined) return {};
+      const count = Number(raw);
+      if (!/^\d+$/.test(raw) || !Number.isSafeInteger(count)) throw new Error(`${option} requires a nonnegative integer`);
+      return option === "--max-notes" ? { takeNotes: count } : { takeFacts: count };
+    };
+    const selection = { ...limit(maxNotes, "--max-notes"), ...limit(maxFacts, "--max-facts") };
     const config = getConfig();
     const result = restoreMemoryBackup({
       ...config.paths, maxEntries: config.memory.notes.maxEntries,
-      profileMaxEntries: config.memory.profile.maxEntries, preview: !confirmed,
+      profileMaxEntries: config.memory.profile.maxEntries, preview: !confirmed, ...selection,
     }, directory);
     process.stdout.write(`${confirmed ? "Restored" : "Restore preview"}: ${formatMemoryRestoreResult(result)}\n`);
     if (!confirmed) process.stdout.write("Repeat with --yes to confirm.\n");
