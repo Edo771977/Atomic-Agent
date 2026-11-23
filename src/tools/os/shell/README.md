@@ -29,3 +29,5 @@ The network command classifier also reads explicit HTTP(S) URLs passed to recogn
 ## Validation
 
 Run `npx vitest run src/tools/os/shell src/tools/os/shell-command-guard` and affected runtime lifecycle seams for job ownership changes. Adjacent suites cover command policy, detach, jobs, result formatting, timeouts, argv glob expansion and node-check notices. Use disposable directories and fixtures. Run `npm run lint`, `npm run typecheck:tests` and `npm run imports:check`; preserve catalog/resource-class coverage when changing registration. Moving modules does not authorize changing tool descriptions, approval rules or process lifecycle.
+
+A shell command may require both command approval and URL approval. They have separate consent scopes. The URL scan recognizes explicit HTTP(S) operands for curl, wget, wget2, Invoke-WebRequest and Invoke-RestMethod and their PowerShell aliases, including `--url=VALUE` and `-Uri:VALUE`. Schemeless operands and request data supplied as separate options or read from files remain outside the URL scan. The project egress classifier recognizes a wider set of clients and also applies to verify.run.

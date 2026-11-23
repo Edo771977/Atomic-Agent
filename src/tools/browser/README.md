@@ -151,3 +151,5 @@ One honest, fixed identity for the browser the agent launches and for the curl t
 - Cookies, saved passwords and storage are never read. Values of password, one-time-code and card fields are masked in every snapshot, in both modes (`redact-secret-fields.ts`); a code field is also recognised by its name or label ("Verification code", "Код из SMS"), and typing into one asks as `browser_secret` with only the length in the preview.
 
 Read [tool instructions](../AGENTS.md) and the adjacent tests before changing the classifier or the gate order.
+
+A navigation outside the configured allowed domains can require both site approval and URL approval. Each decision retains its own grant scope.
