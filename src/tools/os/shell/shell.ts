@@ -260,7 +260,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         ? [cmd, ...execArgs.map(quoteCmdArg)].join(" ")
         : commandLine;
     const urls = shellNetworkUrls(cmd, execArgs, useShell ? subshellCommandLine : undefined);
-    for (const url of urls) {
+    for (const url of urls.keys()) {
       const refused = offlineRefusal(url, "os.shell.run");
       if (refused) throw refused;
     }
@@ -395,11 +395,12 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // A host pin already consents to the exact argv and working directory.
     // No saved or interactive shell grant substitutes for URL consent.
     if (pinned === undefined) {
-      for (const url of urls) {
+      for (const [url, sendsQueryData] of urls) {
         await requireUrlSendApproval(options, {
           mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
           tool: "os.shell.run",
           url,
+          sendsQueryData,
           sessionId: ctx.sessionId,
           signal: ctx.signal,
         });

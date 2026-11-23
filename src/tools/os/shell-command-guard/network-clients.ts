@@ -36,38 +36,55 @@ const RAW_CLIENTS = new Set(["ssh", "scp", "sftp", "nc", "ncat", "netcat", "teln
 const GIT_NETWORK_VERBS = new Set(["push", "fetch", "pull", "clone", "ls-remote"]);
 const PUBLISHERS = new Set(["npm", "pnpm", "yarn", "bun"]);
 const POWERSHELLS = new Set(["powershell", "pwsh"]);
+const SHELL_PREFIX_WORDS = new Set(["{", "then", "do", "else", "elif", "if", "while", "until", "!"]);
 const NESTED = new Set(NESTED_SHELL_PROGRAMS);
 
 /** The command words after wrappers and `NAME=value` assignments. */
-function unwrap(words: readonly string[]): readonly string[] {
+function unwrap(words: readonly string[], shellSyntax: boolean): readonly string[] {
   let i = 0;
   for (let guard = 0; guard < 16 && i < words.length; guard += 1) {
     const word = words[i]!;
-    if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
+    if ((shellSyntax && SHELL_PREFIX_WORDS.has(word)) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
       i += 1;
       continue;
     }
-    const valueFlags = PREFIX_COMMANDS[programName(word)];
+    const program = programName(word);
+    const valueFlags = PREFIX_COMMANDS[program];
     if (valueFlags === undefined) break;
     i += 1;
     while (i < words.length && words[i]!.startsWith("-")) {
+      if (words[i] === "--") {
+        i += 1;
+        break;
+      }
       i += valueFlags.includes(words[i]!) ? 2 : 1;
     }
+    if (program === "timeout" || program === "gtimeout") i += 1;
   }
   return words.slice(i);
 }
 
-function inSegment(words: readonly string[], depth: number, urls?: Set<string>): ShellNetworkUse | null {
-  const command = unwrap(words);
+function inSegment(words: readonly string[], depth: number, urls?: Map<string, boolean>, shellSyntax = false): ShellNetworkUse | null {
+  const command = unwrap(words, shellSyntax);
   const first = command[0];
   if (first === undefined) return null;
   const program = programName(first);
   const rest = command.slice(1);
   if (HTTP_CLIENTS.has(program)) {
     if (urls && URL_CLIENTS.has(program)) {
+      const getWithData = program === "curl" && (
+        rest.some((word) => /^--url-query(?:=|$)/.test(word)) ||
+        (rest.some((word) => word === "--get" || /^-[^-]*G/.test(word)) &&
+          rest.some((word) => /^(?:-d|--data(?:-[a-z]+)?(?:=|$)|--json(?:=|$))/.test(word)))
+      );
       for (const word of rest) {
-        const url = word.replace(/^(?:--url=|-uri[:=])/i, "");
-        if (/^https?:\/\//i.test(url)) urls.add(url);
+        const operand = word.replace(/^(?:--url=|-uri[:=])/i, "");
+        const url = /^https?:\/\//i.test(operand)
+          ? operand
+          : (program === "curl" || program.startsWith("wget")) && /^(?:localhost|[a-z0-9-]+(?:\.[a-z0-9-]+)+)(?::\d+)?(?:[/?#]|$)/i.test(operand)
+            ? `http://${operand}`
+            : null;
+        if (url !== null) urls.set(url, getWithData || urls.get(url) === true);
       }
     }
     return { program, cls: "http" };
@@ -109,10 +126,10 @@ function inSegment(words: readonly string[], depth: number, urls?: Set<string>):
   return null;
 }
 
-function inLine(line: string, depth: number, urls?: Set<string>): ShellNetworkUse | null {
+function inLine(line: string, depth: number, urls?: Map<string, boolean>): ShellNetworkUse | null {
   let firstUse: ShellNetworkUse | null = null;
   for (const segment of splitCommandSegments(line)) {
-    const found = inSegment(segment, depth, urls);
+    const found = inSegment(segment, depth, urls, true);
     firstUse ??= found;
     if (!urls && firstUse !== null) break;
   }
@@ -141,8 +158,8 @@ export function shellNetworkUse(call: Record<string, unknown>): ShellNetworkUse 
 }
 
 /** Explicit HTTP URLs passed to classified shell HTTP clients. */
-export function shellNetworkUrls(cmd: string, args: readonly string[], shellLine?: string): Set<string> {
-  const urls = new Set<string>();
+export function shellNetworkUrls(cmd: string, args: readonly string[], shellLine?: string): Map<string, boolean> {
+  const urls = new Map<string, boolean>();
   if (shellLine === undefined) inSegment([cmd, ...args], 0, urls);
   else inLine(shellLine, 0, urls);
   return urls;

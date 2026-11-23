@@ -8,7 +8,9 @@ import { execWriteTargets, shellWriteTargets, type ShellGuardPolicy } from "../o
 import { shellCommandArgv, shellRuleSegments, shellRunsUnreadableScript } from "../os/shell/shell-command-argv.js";
 import { formatShellPreview, needsShellInterpretation, shellGrantShape } from "../os/shell/shell-interpretation.js";
 import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
-import { isOfflineNetwork } from "../../llm/offline-network.js";
+import { shellNetworkUrls } from "../os/shell-command-guard/network-clients.js";
+import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../os/web/url-data-guard.js";
+import { isOfflineNetwork, offlineRefusal } from "../../llm/offline-network.js";
 import type { ResearchApproval } from "./research-links.js";
 import type { ToolContext } from "../tool-registry.js";
 import { rebaseVerifyWorkspaceValue } from "./rebase-verify-workspace.js";
@@ -53,6 +55,7 @@ export interface VerifyAuthorizationOptions extends DangerousToolOptions {
   /** Final Fusion pass. Service declarations were already authorized in preflight. */
   onlyUi?: boolean;
   researchNetworkRefusal?: string;
+  urlDataGuard?: UrlDataGuardMode;
   uiExceptionStateDir?: string;
   shellPolicy?: ShellGuardPolicy;
   checkCommandReads?: CommandReadCheck;
@@ -273,7 +276,15 @@ export async function authorizeVerifyBatch(
         (logical.stdin === undefined || logical.stdin === "")
         ? { verifyPlainCommand: true as const } : {}),
     };
-    plans.push({ prompt, logical, cwd, spec, commands, detector, serviceUrl });
+    const urls = commands.flatMap(command => {
+      const shellLine = needsShellInterpretation(command.cmd, command.args) ? [command.cmd, ...command.args].join(" ") : undefined;
+      return [...shellNetworkUrls(command.cmd, command.args, shellLine)];
+    });
+    for (const [url] of urls) {
+      const refused = offlineRefusal(url, "verify.run");
+      if (refused) throw refused;
+    }
+    plans.push({ prompt, logical, cwd, spec, commands, detector, serviceUrl, urls });
   }
   // A deny for a later command wins before asking about an earlier command.
   for (const { prompt, logical, spec } of plans) {
@@ -327,13 +338,23 @@ export async function authorizeVerifyBatch(
       if (refusal !== undefined && refusal !== null) throw new Error(maskSecrets(refusal.summary, known));
     }
   }
-  for (const { prompt, cwd, logical, spec, detector, serviceUrl } of plans) {
+  for (const { prompt, cwd, logical, spec, detector, serviceUrl, urls } of plans) {
     ctx.signal.throwIfAborted();
     if (uiVerificationUnavailable(spec) !== undefined) continue;
     if (logical.kind === "ui" && options.continueOnUiApprovalDenial && options.approvalRequired &&
         typeof options.approvals.request !== "function") {
       markUiUnavailable(spec, "impeccable approval gate is unavailable");
       continue;
+    }
+    for (const [url, sendsQueryData] of urls) {
+      await requireUrlSendApproval(options, {
+        mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+        tool: "verify.run",
+        url,
+        sendsQueryData,
+        sessionId: ctx.sessionId,
+        signal: ctx.signal,
+      });
     }
     const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&

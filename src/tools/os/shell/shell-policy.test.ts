@@ -69,6 +69,28 @@ describe("os.shell.run honours the git remote-sync policy", () => {
     expect(result.details.guardRule).toBe("policy.git_remote_sync_off");
   });
 
+  it.each([
+    ["--url=docs.example/?q=first%0Asecond"],
+    ["--get", "--data", "q=short", "docs.example"],
+    ["-G", "--data-urlencode", "q@payload.txt", "https://docs.example/"],
+    ["--url-query=q@payload.txt", "https://docs.example/"],
+  ])("holds curl URL arguments %j without reading a data file", async (...args) => {
+    const categories: string[] = [];
+    const gate = new ApprovalGate({
+      emit: (request) => {
+        categories.push(request.category);
+        if (request.category === "http_write") gate.reject(request.approvalId, "fixture refuses the URL");
+        else gate.resolve({ approvalId: request.approvalId, approved: true });
+      },
+    });
+    const tool = buildOsShellTool({ approvals: gate, approvalRequired: true });
+    // The executable is never used on the red path either.
+    const emptyPath = await mkdtemp(join(dir, "no-bin-"));
+    const command = join(emptyPath, "curl");
+    await expect(tool.run({ cmd: command, args }, makeCtx(dir))).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+    expect(categories.at(-1)).toBe("http_write");
+  });
+
   it.each(["curl", "wget", "Invoke-WebRequest"])("holds a data-bearing URL in %s before spawn", async (cmd) => {
     const categories: ApprovalCategory[] = [];
     const gate = new ApprovalGate({

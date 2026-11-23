@@ -293,6 +293,7 @@ export function registerRuntimeCoreTools(input: {
   // the review half of what they build.
   registerVerifyTools(toolRegistry, {
     ...dangerous,
+    ...(config.http.urlDataGuard === undefined ? {} : { urlDataGuard: config.http.urlDataGuard }),
     uiExceptionStateDir: config.paths.stateDir,
     config: { browser: config.browser, tools: { verify: config.tools.verify } },
     checkCommandReads: createCommandReadCheck(runtimeReadConfinement(config, dangerous)),

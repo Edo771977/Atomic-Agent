@@ -205,3 +205,16 @@ describe("real network tools behind the guard", () => {
     expect(emit).not.toHaveBeenCalled();
   });
 });
+
+it("classifies HTTP clients below timeout and shell grammar in verify.run", () => {
+  const guard = createEgressGuard({ policyForSession: () => constrained(["git"]), mcpEgress });
+  for (const cmd of [
+    "timeout -k 2 5s curl --url=https://docs.example/",
+    "{ curl https://docs.example/; }",
+    "if true; then curl https://docs.example/; fi",
+    "while true; do curl https://docs.example/; done",
+  ]) {
+    expect(shellNetworkUseOf("verify.run", { kind: "command", cmd })?.cls).toBe("http");
+    expect(guard("verify.run", { kind: "command", cmd }, { sessionId: "s1" })?.message).toContain('add "http"');
+  }
+});

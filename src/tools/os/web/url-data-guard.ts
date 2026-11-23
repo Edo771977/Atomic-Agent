@@ -310,10 +310,15 @@ export async function requireUrlSendApproval(
     sessionId: string;
     signal: AbortSignal;
     sites?: UrlSendSites;
+    sendsQueryData?: boolean;
   },
 ): Promise<boolean> {
   const sites = input.sites ?? SHARED_URL_SEND_SITES;
-  const check = checkUrlSend(input.mode, input.url, input.sessionId, sites);
+  let check = checkUrlSend(input.mode, input.url, input.sessionId, sites);
+  if (input.sendsQueryData && input.mode !== "off") {
+    const target = checkUrlSend("strict", input.url, input.sessionId, new UrlSendSites());
+    if (target !== null) check = { ...target, kind: "data", reason: "request options add data to the URL" };
+  }
   if (check === null) return false;
   const shown = maskUrlSecrets(input.url);
   await requireApproval(

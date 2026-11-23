@@ -108,3 +108,20 @@ describe("a pinned verify.run check run in a private copy (issue #95)", () => {
     expect(approved).toMatchObject({ cmd: process.execPath, args: ["--test", `${copy}/a.test.js`] });
   });
 });
+
+it("holds curl query data in a verification command before execution", async () => {
+  const { authorizeVerifyBatch } = await import("./verify-authorization.js");
+  const categories: string[] = [];
+  const approvals = {
+    request: async (request: { category: string }) => {
+      categories.push(request.category);
+      return { approvalId: "fixture", approved: request.category !== "http_write" };
+    },
+  };
+  await expect(authorizeVerifyBatch(
+    [{ kind: "command", cmd: "curl", args: ["-G", "--data", "@query.txt", "docs.example"] }],
+    { approvals: approvals as never, approvalRequired: true },
+    { sessionId: "s", workingDir, stepIndex: 0, signal: new AbortController().signal },
+  )).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+  expect(categories).toContain("http_write");
+});
