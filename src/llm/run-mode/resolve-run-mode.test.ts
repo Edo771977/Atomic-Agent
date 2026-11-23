@@ -84,6 +84,24 @@ describe("resolveRunMode", () => {
     expect(rm.primaryProviderId).toBe("openrouter");
   });
 
+  it("pins the legacy orchestrator, worker, role and side calls to the configured models", () => {
+    const rm = resolveRunMode(llm("openrouter", {
+      mode: "fusion",
+      fusion: {
+        orchestratorProvider: "openrouter", orchestratorModel: "director-model",
+        workerProvider: "groq", workerModel: "worker-model",
+        judge: "on", roles: { review: "openrouter" },
+      },
+    }));
+    expect(rm).toMatchObject({
+      orchestratorPinModel: "director-model",
+      workerPinModel: "worker-model",
+      roles: { byRole: { review: { pinModel: "director-model" } } },
+      judge: { model: "director-model", pinModel: "director-model" },
+      escalation: { model: "director-model", pinModel: "director-model" },
+    });
+  });
+
   it("drops to the derived mode when the operator switched provider by hand", () => {
     const rm = resolveRunMode(
       llm("groq", {

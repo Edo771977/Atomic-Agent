@@ -43,10 +43,12 @@ export type ResolvedRunMode = {
   orchestratorProviderId: string | null;
   /** Display/pricing label for the orchestrator model; the provider's default chat model unless pinned. */
   orchestratorModel: string | null;
+  orchestratorPinModel?: string;
   /** The local leg (fusion's workers), or `null` when none is configured. */
   workerProviderId: string | null;
   /** Display label for the worker model; the managed daemon's model unless pinned. */
   workerModel: string | null;
+  workerPinModel?: string;
   /**
    * Default fan-out width for a `fusion.delegate` call that names no
    * `maxWorkers`. Not a ceiling — see `UserLlmFusionConfig.workers`.
@@ -170,6 +172,7 @@ export type FusionRoleModel = {
   model: string | null;
   /** A `llama-server` entry: a local model that needs room on this machine. */
   local: boolean;
+  pinModel?: string;
 };
 
 export type FusionRoleModels = {
@@ -209,6 +212,15 @@ function sameMember(
 
 function isLocalKind(entry: LlmProviderConfigEntry | undefined): boolean {
   return entry?.kind === LOCAL_PROVIDER_KIND;
+}
+
+function pinModelFor(
+  entry: LlmProviderConfigEntry | undefined,
+  model: string | null | undefined,
+): string | undefined {
+  if (entry === undefined || isLocalKind(entry) || !model?.trim() ||
+      model === (entry.defaultChatModel ?? entry.model)) return undefined;
+  return model;
 }
 
 /**
@@ -262,13 +274,6 @@ export function resolveRunMode(
     stored === "fusion" && opts.director != null ? byId(opts.director.providerId) : undefined;
   const director = directorEntry === undefined ? undefined : opts.director!;
   const orchestratorModelPin = director?.model ?? fusion?.orchestratorModel;
-  // A side call (judge, escalation) on the director's own model must ask
-  // the provider for that model; a local server serves one model.
-  const directorPinFor = (entryId: string, model: string | null): { pinModel: string } | Record<string, never> =>
-    director !== undefined && directorEntry !== undefined && !isLocalKind(directorEntry) &&
-    entryId === directorEntry.id && model === director.model
-      ? { pinModel: director.model }
-      : {};
   const orchestrator =
     directorEntry ??
     byId(fusion?.orchestratorProvider) ??
@@ -331,24 +336,21 @@ export function resolveRunMode(
     (worker !== undefined && isLocalKind(worker)
       ? (opts.managedModelId ?? worker.model ?? null)
       : (worker?.defaultChatModel ?? worker?.model ?? null));
+  const orchestratorPinModel = pinModelFor(orchestrator, orchestratorModelPin);
+  const workerPinModel = pinModelFor(worker, workerModelLabel);
   const byRole: Partial<Record<FusionRole, FusionRoleModel>> = {};
   for (const role of FUSION_ROLES) {
     const entry = byId(fusion?.roles?.[role]);
     if (entry === undefined) continue;
-    byRole[role] = {
-      providerId: entry.id,
-      model:
-        entry.id === worker?.id
-          ? workerModelLabel
-          : entry.id === orchestrator?.id
-            ? (orchestratorModelPin ??
-              entry.defaultChatModel ??
-              entry.model ??
-              null)
-            : isLocalKind(entry)
-              ? (entry.model ?? entry.defaultChatModel ?? null)
-              : (entry.defaultChatModel ?? entry.model ?? null),
-      local: isLocalKind(entry),
+    const defaultModel = entry.defaultChatModel ?? entry.model ?? null;
+    const model = entry.id === worker?.id
+      ? workerModelLabel
+      : entry.id === orchestrator?.id
+        ? orchestratorModelPin ?? defaultModel
+        : isLocalKind(entry) ? entry.model ?? defaultModel : defaultModel;
+    const pinModel = pinModelFor(entry, model);
+    byRole[role] = { providerId: entry.id, model, local: isLocalKind(entry),
+      ...(pinModel === undefined ? {} : { pinModel }),
     };
   }
   const roles: FusionRoleModels | undefined =
@@ -379,10 +381,11 @@ export function resolveRunMode(
         judgeEntry.defaultChatModel ??
         judgeEntry.model ??
         null);
+  const judgePinModel = pinModelFor(judgeEntry, judgeModel);
   const judge =
     fusion?.judge !== "on" || judgeEntry === undefined
       ? null
-      : { providerId: judgeEntry.id, model: judgeModel, ...directorPinFor(judgeEntry.id, judgeModel) };
+      : { providerId: judgeEntry.id, model: judgeModel, ...(judgePinModel === undefined ? {} : { pinModel: judgePinModel }) };
 
   // Escalation only ever goes to a provider the operator configured, and
   // never to the worker leg itself (nothing would be gained). The
@@ -401,6 +404,7 @@ export function resolveRunMode(
   // With a director, legs are members: a director and a worker on one
   // provider (two models of one CLI) are different legs, so escalating
   // from that worker to the director gains something.
+  const escalationPinModel = pinModelFor(escalationEntry, escalationModel);
   const escalationIsWorker =
     escalationEntry !== undefined &&
     (director === undefined
@@ -415,7 +419,7 @@ export function resolveRunMode(
           auto: fusion?.escalation === "advisor",
           replace: fusion?.escalationReplace === true,
           maxUsd: fusion?.escalationMaxUsd ?? DEFAULT_FUSION_ESCALATION_MAX_USD,
-          ...directorPinFor(escalationEntry.id, escalationModel),
+          ...(escalationPinModel === undefined ? {} : { pinModel: escalationPinModel }),
         };
 
   return {
@@ -427,6 +431,7 @@ export function resolveRunMode(
       orchestrator?.defaultChatModel ??
       orchestrator?.model ??
       null,
+    ...(orchestratorPinModel === undefined ? {} : { orchestratorPinModel }),
     workerProviderId,
     // `managedModelId` is the model the LOCAL daemon serves, so it only
     // describes the worker leg while that leg is the local one. With the
@@ -434,6 +439,7 @@ export function resolveRunMode(
     // every surface that shows it — the composer strip, the LLM pane —
     // would be naming a model that runs nothing.
     workerModel: workerModelLabel,
+    ...(workerPinModel === undefined ? {} : { workerPinModel }),
     workers: fusion?.workers ?? DEFAULT_FUSION_WORKERS,
     cloudWorkers: fusion?.cloudWorkers ?? DEFAULT_FUSION_CLOUD_WORKERS,
     ...(fusion?.workerReasoning === undefined

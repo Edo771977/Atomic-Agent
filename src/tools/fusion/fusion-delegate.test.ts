@@ -55,6 +55,28 @@ function fusionMode(over: Partial<ResolvedRunMode> = {}): ResolvedRunMode {
   };
 }
 
+it("passes legacy worker and role model overrides to the worker turns", async () => {
+  const ran: Array<[string | undefined, string | undefined]> = [];
+  const tool = buildFusionDelegateTool(deps({
+    resolveRunMode: () => fusionMode({
+      workerProviderId: "base", workerModel: "worker-model", workerPinModel: "worker-model",
+      roles: {
+        byRole: { review: { providerId: "openrouter", model: "director-model", pinModel: "director-model", local: false } },
+        mixLocalModels: false, localLegProviderIds: [],
+      },
+    }),
+    runTurn: async (_session, _request, options) => {
+      ran.push([options.providerId, options.model]);
+      return turnResult();
+    },
+  }));
+  const result = await tool.run({ tasks: [
+    { id: "base", instructions: "draft" }, { id: "role", role: "review", instructions: "review" },
+  ] }, ctx());
+  expect(result.status).toBe("ok");
+  expect(ran).toEqual(expect.arrayContaining([["base", "worker-model"], ["openrouter", "director-model"]]));
+});
+
 function ctx(over: Partial<ToolContext> = {}): ToolContext {
   return {
     workingDir: REPO,

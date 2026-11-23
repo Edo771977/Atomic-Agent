@@ -647,7 +647,10 @@ export function buildFusionDelegateTool(
       // before anything starts. A model name outside the allowed list
       // refuses the call; without `roles` every task is on the worker
       // leg, as before.
-      const workerLegRef = { providerId: workerProviderId, model: workerModel };
+      const workerLegRef = {
+        providerId: workerProviderId, model: workerModel,
+        ...(mode.workerPinModel === undefined ? {} : { pinModel: mode.workerPinModel }),
+      };
       // The fusion team (issue #37): its workers are the models a task
       // may name, keyed by member; the director is the session's.
       const teamContext = deps.resolveFusionTeam === undefined ? teamContextFromConfig() : deps.resolveFusionTeam();
@@ -751,6 +754,7 @@ export function buildFusionDelegateTool(
               : {
                   providerId: mode.orchestratorProviderId,
                   model: mode.orchestratorModel ?? mode.orchestratorProviderId,
+                  ...(mode.orchestratorPinModel === undefined ? {} : { pinModel: mode.orchestratorPinModel }),
                 };
       const modelProblem = unknownModels(
         parsed.tasks,

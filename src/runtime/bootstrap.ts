@@ -636,10 +636,14 @@ export async function createAgentRuntime(
     turnBudget: fusionTurnBudget, budgetNotices,
     providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
     providerRegistry,
-    // A session director's model on its link (issue #37).
+    // Only the director's link receives its model override.
     turnModel: (sessionId, providerId) => {
       const director = sessionTeam.get(sessionId)?.director;
-      return director?.providerId === providerId ? director.model : undefined;
+      if (director != null) return director.providerId === providerId ? director.model : undefined;
+      const mode = resolveCurrentRunMode();
+      return mode.effective === "fusion" && mode.orchestratorProviderId === providerId
+        ? mode.orchestratorPinModel
+        : undefined;
     },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
