@@ -12,6 +12,7 @@ import {
 } from "../../../sandbox/os-sandbox.js";
 import type { ToolContext } from "../../tool-registry.js";
 import { runVerify } from "../../verify/run-verify.js";
+import { spawnVerifyProcess } from "../../verify/spawn-verify-process.js";
 import { buildOsShellTool } from "./shell.js";
 
 const fixturePolicy = buildOsSandboxPolicy({ workspaceRoots: [], network: false });
@@ -120,6 +121,20 @@ describe.skipIf(unavailable !== undefined)(
       expect(result.status).toBe("ok");
       expect(result.summary).toMatch(/CapEff:\s+0{16}/);
       expect(existsSync(marker)).toBe(false);
+    });
+
+    it("goal integration: reports unavailable external network without blocking local checks", async () => {
+      vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+      try {
+        const proc = spawnVerifyProcess(process.execPath, ["-e", "console.log('local fixture')"], {
+          cwd: work, workspaceRoot: work, network: true, timeoutMs: 1000,
+        });
+        expect((await proc.exited).exitCode).toBe(0);
+        expect(proc.stdout.all()).toContain("local fixture");
+        expect(proc.sandboxNotice).toContain("external network access is disabled");
+      } finally {
+        vi.unstubAllEnvs();
+      }
     });
 
     it("writes inside the working folder", async () => {

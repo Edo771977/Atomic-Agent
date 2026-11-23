@@ -108,6 +108,7 @@ export interface VerifyProcessExit {
 export interface VerifyProcess {
   readonly child: ChildProcess;
   readonly commandLine: string;
+  readonly sandboxNotice?: string;
   readonly stdout: TailBuffer;
   readonly stderr: TailBuffer;
   readonly exited: Promise<VerifyProcessExit>;
@@ -231,5 +232,8 @@ export function spawnVerifyProcess(
     });
   });
 
-  return { child, commandLine: invocation.commandLine, stdout, stderr, exited, killGroup };
+  return {
+    child, commandLine: invocation.commandLine, stdout, stderr, exited, killGroup,
+    ...(sandboxed && options.network ? { sandboxNotice: "Safe Mode: external network access is disabled for this check." } : {}),
+  };
 }
