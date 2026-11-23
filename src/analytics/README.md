@@ -13,6 +13,8 @@ Checks: `npx vitest run src/analytics` when tests are present; `npm run lint`; `
 
 Offline mode (`network.offline` or `ATOMIC_AGENT_OFFLINE=1`, ATO-1084) counts as a kill switch in `isAnalyticsKilledByEnv`: no PostHog or Sentry client is built while it is on, and a client built before it was switched on at run time drops every event while it is on (ATO-1085). See [offline mode](../llm/docs/offline-network.md).
 
+The one-time model and first-message events are marked sent after delivery is confirmed. If offline, they can be retried on the next verified model setup or eligible message. Ordinary message events are dropped while offline.
+
 ## Install events and the shared state folder
 
 Desktop (0.0.3 and later) and the terminal share one state folder, `~/.atomic-agent`, so they share `analytics.json` and one install id. `app_installed` is still counted per surface: the file keeps one "sent" flag for the terminal (`appInstalledSent`, used by `tui` and `cli`) and one for the desktop (`appInstalledSentDesktop`), picked by the `surface` passed to `captureAppInstalled` (ATO-1227). Each surface therefore reports `app_installed` once. `other_surface_installed` on that event is `true` when the other surface's flag is already set, or when a legacy separate state dir (`~/.atomic-agent-desktop`) holds an `analytics.json`.

@@ -208,6 +208,29 @@ export function captureOnboardingStep(
   });
 }
 
+type OneTimeEvent = typeof ANALYTICS_EVENTS.modelConfigured | typeof ANALYTICS_EVENTS.firstMessageSent;
+const pendingOneTimeEvents = new WeakMap<AnalyticsStateStore, Set<OneTimeEvent>>();
+
+async function captureOneTime(
+  client: AnalyticsClient,
+  store: AnalyticsStateStore,
+  event: OneTimeEvent,
+  properties: Record<string, unknown>,
+  markSent: () => void,
+): Promise<void> {
+  const pending = pendingOneTimeEvents.get(store) ?? new Set<OneTimeEvent>();
+  if (pending.has(event)) return;
+  pending.add(event);
+  pendingOneTimeEvents.set(store, pending);
+  try {
+    if (await client.captureConfirmed(event, properties)) markSent();
+  } catch {
+    // Analytics is best effort. An unconfirmed event remains eligible.
+  } finally {
+    pending.delete(event);
+  }
+}
+
 /**
  * Emit the one-time `model_configured` event: this install has a
  * working LLM backend for the first time.
@@ -223,18 +246,17 @@ export function captureOnboardingStep(
  * the operator's private infrastructure, so only the shape of the
  * choice leaves the machine.
  */
-export function captureModelConfigured(
+export async function captureModelConfigured(
   client: AnalyticsClient | null,
   store: AnalyticsStateStore,
   context: { provider: string; kind: "local" | "cloud" },
-): void {
+): Promise<void> {
   if (!client) return;
   if (store.isModelConfiguredSent()) return;
-  client.capture(ANALYTICS_EVENTS.modelConfigured, {
+  await captureOneTime(client, store, ANALYTICS_EVENTS.modelConfigured, {
     provider: context.provider,
     kind: context.kind,
-  });
-  store.markModelConfiguredSent();
+  }, () => store.markModelConfiguredSent());
 }
 
 /**
@@ -245,17 +267,15 @@ export function captureModelConfigured(
  * token counts and estimated spend when the provider reported usage.
  * No-ops when analytics is disabled.
  */
-export function captureMessageSent(
+export async function captureMessageSent(
   client: AnalyticsClient | null,
   store: AnalyticsStateStore,
   context: MessageEventContext,
-): void {
+): Promise<void> {
   if (!client) return;
   const base = { provider: context.provider, model: context.model };
-  if (!store.isFirstMessageSent()) {
-    client.capture(ANALYTICS_EVENTS.firstMessageSent, base);
-    store.markFirstMessageSent();
-  }
+  const first = store.isFirstMessageSent() ? undefined :
+    captureOneTime(client, store, ANALYTICS_EVENTS.firstMessageSent, base, () => store.markFirstMessageSent());
   client.capture(ANALYTICS_EVENTS.messageSent, {
     ...base,
     ...(context.latencyMs !== undefined
@@ -289,6 +309,7 @@ export function captureMessageSent(
       ? { gen_tokens_per_s: context.genTokensPerS }
       : {}),
   });
+  await first;
 }
 
 /**
