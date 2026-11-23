@@ -583,7 +583,7 @@ To rotate a generated key, stop the servers sharing that state directory, remove
 
 Start with `--api-key-file <path>` and leave `ATOMIC_AGENT_API_KEY` unset to keep an explicit key out of the startup environment and command line. Use a file that only your account can read. Serve keeps that file, so its creator manages cleanup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`.
 
-The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated.
+The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent.
 
 `POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` with `ANTHROPIC_API_KEY` set to the serve key) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
 

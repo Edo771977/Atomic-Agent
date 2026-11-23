@@ -19,7 +19,7 @@ import { ensureSecretKeyFile } from "../local-llm/server/managed-api-key.js";
  * the same code that keeps the managed llama-server key
  * (`ensureSecretKeyFile`), and it is one of the agent's state secrets
  * (`getStateSecretPaths`), so an agent tool that reads it, or a shell
- * command that names it, asks every time.
+ * command that names it, is classified as state_secret. Full trust\n * (level 5) auto-approves that category.
  */
 
 export const SERVE_API_KEY_FILE = "serve-api.key";
