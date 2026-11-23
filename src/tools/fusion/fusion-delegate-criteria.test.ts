@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
@@ -13,6 +13,7 @@ import {
   type ProjectState,
   type ProjectUpdate,
 } from "../../session/session-project.js";
+import { receiptHash } from "../../session/receipt-signing.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { buildFusionDelegateTool, type FusionDelegateDeps } from "./fusion-delegate.js";
@@ -134,6 +135,31 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     expect(evidence.facts[0]).toMatchObject({ id: "board-looks-right", state: "failed" });
     rmSync(dir, { recursive: true, force: true });
     rmSync(state, { recursive: true, force: true });
+  });
+
+  it("keeps the UI fingerprint reproducible from the milestone run directory", async () => {
+    const state = mkdtempSync(join(tmpdir(), "fusion-ui-evidence-"));
+    const runsDir = join(state, "fusion-runs");
+    const { dir, run } = setup({
+      runCheckpoints: new FusionRunStore({ dir: runsDir }),
+      runChecks: async () => ({ ok: true, results: [{ ok: true, stdoutTail: "detector evidence", impeccableVersion: "4.10.0" }] }),
+    });
+    try {
+      const bin = join(dir, "node_modules", ".bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, process.platform === "win32" ? "impeccable.cmd" : "impeccable"), "", { mode: 0o700 });
+      const id = "board-looks-right";
+      const result = await run(true, [{ task: "t", criteria: [id], type: "ui", path: "index.html" }]);
+      const { runId } = result.details.projectUpdate as { runId: string };
+      const { facts } = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: [id] });
+      const basis = facts[0]?.basis;
+      const hash = receiptHash("detector evidence");
+      expect(basis).toMatchObject({ kind: "check", checks: [{ kind: "ui", runId, outputHash: hash }] });
+      expect(receiptHash(readFileSync(join(runsDir, runId, `ui-${hash}.txt`), "utf8"))).toBe(hash);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+      rmSync(state, { recursive: true, force: true });
+    }
   });
 
   it("a candidate run keeps its facts and shots under a real run id, with no resumable checkpoint (issue #74)", async () => {

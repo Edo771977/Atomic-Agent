@@ -10,6 +10,7 @@ import {
   type ProjectCriterionFact,
   type ProjectMilestoneAttachment,
 } from "../../session/session-project.js";
+import { receiptHash } from "../../session/receipt-signing.js";
 import { readCriterionBasis, weakestCriterionBasis } from "../../session/project-criterion-basis.js";
 import { FusionRunStore, fusionRunShotTarget } from "./run-checkpoint.js";
 
@@ -24,6 +25,17 @@ import { FusionRunStore, fusionRunShotTarget } from "./run-checkpoint.js";
  * #87): a fact stands for a criterion only while that text is still the
  * brief's, so an earlier result cannot pass a revised or reused id.
  */
+
+/** Keep the exact masked detector text behind a criterion's output hash. */
+export function writeRunUiOutput(runsDir: string, run: { runId: string; sessionId: string }, output: string): void {
+  const target = fusionRunShotTarget(runsDir, run, undefined);
+  if (target === undefined) return;
+  try {
+    writeFileSync(join(dirname(target.dir), `ui-${receiptHash(output)}.txt`), output, { mode: 0o600, flag: "wx" });
+  } catch {
+    // Best effort, like criteria.json. An identical output already has the same name.
+  }
+}
 
 const FILE_NAME = "criteria.json";
 const MAX_FILE_BYTES = 256 * 1024;

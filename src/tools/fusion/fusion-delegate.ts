@@ -200,7 +200,7 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { CHECK_LINT_PREFIX, checksWithoutCriteriaHint, describeCheckLintForApproval } from "./contract-check-lint.js";
-import { readRunCriteria, writeRunCriteriaFacts, type RunTaskReview } from "./run-criteria.js";
+import { readRunCriteria, writeRunCriteriaFacts, writeRunUiOutput, type RunTaskReview } from "./run-criteria.js";
 import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
@@ -1343,6 +1343,8 @@ export function buildFusionDelegateTool(
         );
       }
 
+      // A run's screenshots and detector evidence share its retention.
+      let checkRun: ContractCheckRun | undefined;
       const candidateOriginalDir = ctx.workingDir;
       const receiptWriter = ctx.incognito ? undefined : deps.writeProjectReceipt;
       const writeReceipt = (kind: "check-run-record" | "artifact-manifest", payload: () => Record<string, unknown>): void => {
@@ -1357,10 +1359,16 @@ export function buildFusionDelegateTool(
           ...(admitted.runId === undefined ? {} : { runId: admitted.runId }),
         }));
       };
-      const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined
+      const evidenceRunsDir = ctx.incognito ? undefined : deps.runCheckpoints?.runsDir;
+      const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined && evidenceRunsDir === undefined
         ? undefined
-        : (check, record, ok) => writeReceipt("check-run-record", () => ({
-            kind: check.kind ?? check.type ?? "command",
+        : (check, record, ok) => {
+          const kind = check.kind ?? check.type ?? "command";
+          if (kind === "ui" && evidenceRunsDir !== undefined && checkRun !== undefined) {
+            writeRunUiOutput(evidenceRunsDir, checkRun, record.output);
+          }
+          writeReceipt("check-run-record", () => ({
+            kind,
             ...(check.task === undefined ? {} : { task: check.task }),
             definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
             recordHash: receiptHash(record),
@@ -1368,6 +1376,7 @@ export function buildFusionDelegateTool(
             exitCode: record.exitCode,
             ok,
           }));
+        };
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();
       const candidateWorkerRuns = new Map<string, number>();
@@ -1631,9 +1640,6 @@ export function buildFusionDelegateTool(
         checkInputs: parsed.contract?.checkInputs ?? [],
         ...(ctx.project?.plan?.status === "approved" ? { turnGrantFolder: candidateOriginalDir } : {}),
       });
-      // The run the checks belong to, once its checkpoint exists: a page
-      // check's screenshots are kept with it (issue #40). Read per call.
-      let checkRun: ContractCheckRun | undefined;
       // How many times the gate ran each check spec in this call (issue #106 review): a reused outcome is said to be reused.
       const gateRunCounts = new Map<string, number>();
       const withCheckDependencies = (runner: ContractCheckRunner | undefined, declarations: readonly Record<string, unknown>[] = parsed.contract?.checks ?? []) =>

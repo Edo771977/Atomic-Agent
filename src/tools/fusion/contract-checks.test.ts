@@ -237,6 +237,18 @@ describe("runContractChecks", () => {
     expect(outcomes[1]).toMatchObject({ ok: true, warningCount: 1 });
   });
 
+  it.each([true, false])("records the exact bounded UI output (pass=%s)", async ok => {
+    const recordCheckRun = vi.fn();
+    const check = { kind: "ui", path: "index.html" };
+    const output = "UI output ".repeat(3000);
+    const runner: ContractCheckRunner = async () => ({ ok, results: [{ ok, stdoutTail: output }] });
+    const { outcomes: [outcome] } = await runContractChecks([check], runner, { ...ctx, recordCheckRun });
+    expect(recordCheckRun).toHaveBeenCalledExactlyOnceWith(check, expect.objectContaining({ output: expect.any(String), tests: [] }), ok);
+    const recorded = recordCheckRun.mock.calls[0]![1].output;
+    expect(recorded.length).toBeLessThan(output.length);
+    expect(outcome?.outputHash).toBe(receiptHash(recorded));
+  });
+
   it("does nothing for an empty list", async () => {
     const runner = vi.fn<ContractCheckRunner>();
     expect(await runContractChecks([], runner, ctx)).toEqual({ outcomes: [] });
