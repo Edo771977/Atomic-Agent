@@ -17,7 +17,7 @@ import {
   workerRefusalFor,
 } from "../fusion/worker-tool-policy.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import type { ReadScope } from "../../config/index.js";
+import { getStateSecretPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
@@ -257,7 +257,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: s.secrets,
+      stateSecrets: { stateDir: s.stateDir, files: [
+        ...s.secrets.files,
+        ...getStateSecretPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }),
+      ] },
     });
   }
 
@@ -269,6 +274,16 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     innerShells = 0;
     readScope = "unrestricted";
     install(4);
+  });
+
+  it.each(["os.fs.read", "cat", "type", "Get-Content"])("requires approval for %s on the persisted serve key", async (reader) => {
+    const path = join(s.stateDir, "serve-api.key");
+    writeFileSync(path, "synthetic-serve-key");
+    answer = { approved: false };
+    await expect(reader === "os.fs.read" ? read(path) : shell({ cmd: reader, args: [path] }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["state_secret"]);
+    expect(innerReads + innerShells).toBe(0);
   });
 
   afterEach(() => {
@@ -311,7 +326,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: s.secrets,
+      stateSecrets: { stateDir: s.stateDir, files: [
+        ...s.secrets.files,
+        ...getStateSecretPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }),
+      ] },
     });
     answer = { approved: false };
     await expect(

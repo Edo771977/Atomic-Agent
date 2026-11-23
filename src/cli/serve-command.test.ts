@@ -223,3 +223,18 @@ describe("serve's own API key", () => {
     }
   });
 });
+
+it("refuses to print the serve key from an agent tool child", async () => {
+  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "");
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-key");
+  const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    expect(await serveCommand(["--print-api-key"])).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+  } finally {
+    stdout.mockRestore();
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});

@@ -1,5 +1,6 @@
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
 import { getConfig } from "../config/index.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { createAgentRuntime } from "../runtime/bootstrap.js";
 import { createStderrSink } from "../tracing/structured-logger.js";
 import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
@@ -57,6 +58,11 @@ export async function serveCommand(args: string[]): Promise<number> {
   if ("error" in parsed) {
     process.stderr.write(`serve: ${parsed.error}\n`);
     process.stderr.write(HELP);
+    return 1;
+  }
+
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    process.stderr.write("serve: run this command from the operator's terminal, outside an agent tool process.\n");
     return 1;
   }
 
