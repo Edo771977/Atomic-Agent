@@ -1578,6 +1578,13 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
+      const isEscalationLeg = (leg: { providerId: string; model: string }): boolean =>
+        escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
+        (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
+          `${leg.providerId}:${leg.model}`,
+          `${escalationTarget.providerId}:${escalationTarget.model ?? "default"}`,
+          deps.resolveDefaultModel,
+        ));
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;
       const escalationPricing =
         escalationTarget === null || escalationModel === undefined
@@ -2503,7 +2510,7 @@ export function buildFusionDelegateTool(
             writeScope,
             signal: runSignal,
             ...guardOptionsFor(workerProviderId, workerPricing, workerModel, tasks),
-            ...escalationOptions,
+            ...(isEscalationLeg(workerLegRef) ? {} : escalationOptions),
             ...(watchFor === undefined ? {} : { watch: watchFor }),
             ...(briefSuffix === undefined ? {} : { briefSuffix }),
             ...(workerPricing === undefined ? {} : { workerPricing }),
@@ -2516,7 +2523,7 @@ export function buildFusionDelegateTool(
       // A role model's leg (ATO-943): its own provider, label, price and
       // width. A cloud leg takes the cloud cap; a second local server is
       // one at a time, since its slots are nobody's measurement. The
-      // escalation target is dropped where it is this very provider.
+      // escalation target is dropped where it is this very model.
       const rolePricing = new Map(
         [...roleLegs.values()].map((leg) => [
           legKey(leg),
@@ -2579,10 +2586,7 @@ export function buildFusionDelegateTool(
             // An orchestrator task already runs on the strongest model
             // the session holds: whichever escalation provider is
             // configured, it can only be the same or a weaker one.
-            ...(escalationTarget?.providerId === leg.providerId ||
-            leg.orchestrator === true
-              ? {}
-              : escalationOptions),
+            ...(leg.orchestrator === true || isEscalationLeg(leg) ? {} : escalationOptions),
             ...(briefSuffix === undefined ? {} : { briefSuffix }),
             ...(pricing === undefined ? {} : { workerPricing: pricing }),
             ...(taskWorkspace === undefined ? {} : { taskWorkspace }),

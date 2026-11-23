@@ -401,15 +401,14 @@ export function resolveRunMode(
         escalationEntry.defaultChatModel ??
         escalationEntry.model ??
         null);
-  // With a director, legs are members: a director and a worker on one
-  // provider (two models of one CLI) are different legs, so escalating
-  // from that worker to the director gains something.
   const escalationPinModel = pinModelFor(escalationEntry, escalationModel);
+  // A managed llama-server serves a single model. Other providers can
+  // escalate between two models even when both legs use the same entry.
   const escalationIsWorker =
     escalationEntry !== undefined &&
-    (director === undefined
-      ? escalationEntry.id === workerProviderId
-      : sameMember(escalationEntry.id, escalationModel, workerProviderId ?? undefined, workerModelLabel));
+    escalationEntry.id === workerProviderId &&
+    (isLocalKind(escalationEntry) ||
+      sameMember(escalationEntry.id, escalationModel, workerProviderId, workerModelLabel));
   const escalation: FusionEscalationTarget | null =
     escalationEntry === undefined || escalationIsWorker
       ? null

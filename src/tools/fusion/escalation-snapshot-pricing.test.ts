@@ -30,11 +30,15 @@ function mode(): ResolvedRunMode {
  * spends is still estimated and counted.
  */
 describe("a snapshot-priced escalation target (models.dev estimate only)", () => {
-  it("gets neither the worst-case refusal nor the re-run, and its usage is still estimated", async () => {
+  it.each([
+    { roleLeg: false, target: "other", expected: true },
+    { roleLeg: true, target: "other", expected: true },
+    { roleLeg: true, target: "role-model", expected: false },
+  ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target", async ({ roleLeg, target, expected }) => {
     const budget = new FusionTurnBudget();
     budget.begin("s-parent");
     const providers: Array<string | undefined> = [];
-    const asked: string[] = [];
+    const asked: Array<[string, string | undefined]> = [];
     let minted = 0;
     const d: FusionDelegateDeps = {
       runTurn: (async (_session, _message, options) => {
@@ -59,7 +63,13 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
       emitEvent: () => {},
       workingDir: "/repo",
       slotManager: { poolSize: () => 4 },
-      resolveRunMode: () => mode(),
+      resolveRunMode: () => ({
+        ...mode(),
+        escalation: { ...mode().escalation!, model: target, pinModel: target },
+        ...(roleLeg ? { roles: { byRole: {
+          review: { providerId: "third", model: "role-model", pinModel: "role-model", local: false },
+        }, mixLocalModels: false, localLegProviderIds: [] } } : {}),
+      }),
       workerSupportsSlotAffinity: () => false,
       warmWorkerBackend: async () => {},
       outputCharCap: 4000,
@@ -68,24 +78,24 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
       // Every model has an estimate; only the target's is snapshot-only.
       resolveWorkerPricing: () => PRICING,
       resolveWorkerAdmissionPricing: (providerId) => (providerId === "third" ? undefined : PRICING),
-      escalationComplete: async ({ providerId }) => {
-        asked.push(providerId);
+      escalationComplete: async ({ providerId, model }) => {
+        asked.push([providerId, model]);
         return { content: "write the file", usage: { promptTokens: 1_000, completionTokens: 200, totalTokens: 1_200 } };
       },
       steerWorker: () => true,
     };
     const result = await buildFusionDelegateTool(d).run(
-      { tasks: [{ id: "w", instructions: "write a.txt" }] },
+      { tasks: [{ id: "w", instructions: "write a.txt", ...(roleLeg ? { role: "review" } : {}) }] },
       { workingDir: "/repo", sessionId: "s-parent", stepIndex: 0, signal: new AbortController().signal },
     );
-    expect(asked).toEqual(["third"]);
+    expect(asked).toEqual(expected ? [["third", target]] : []);
     // No re-run on the escalation model.
-    expect(providers).toEqual(["cloud-worker"]);
+    expect(providers).toEqual([roleLeg ? "third" : "cloud-worker"]);
     const rows = result.details.tasks as Array<{ notes?: string[] }>;
     const notes = rows[0]!.notes?.join("\n") ?? "";
     expect(notes).not.toMatch(/over the escalation cap/);
     // 1000 in at $1/M + 200 out at $4/M, estimated from the snapshot.
-    expect(notes).toMatch(/escalated to other as advisor .*\$0\.0018/);
-    expect(budget.workerSpend("s-parent")).toBeCloseTo(0.0018);
+    if (expected) expect(notes).toMatch(/escalated to other as advisor .*\$0\.0018/);
+    expect(budget.workerSpend("s-parent")).toBeCloseTo(expected ? 0.0018 : 0);
   });
 });

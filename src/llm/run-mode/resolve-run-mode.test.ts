@@ -102,6 +102,19 @@ describe("resolveRunMode", () => {
     });
   });
 
+  it("keeps escalation between distinct models of a shared legacy provider", () => {
+    const config: UserLlmRunModeConfig = {
+      mode: "fusion", fusion: {
+        orchestratorProvider: "groq", orchestratorModel: "large",
+        workerProvider: "groq", workerModel: "small", escalation: "advisor",
+        escalationProvider: "missing",
+      },
+    };
+    const rm = resolveRunMode(llm("groq", config));
+    expect(rm.escalation).toMatchObject({ providerId: "groq", model: "large", pinModel: "large", auto: true });
+    expect(resolveRunMode(llm("groq", { ...config, fusion: { ...config.fusion, workerModel: "large" } })).escalation).toBeNull();
+  });
+
   it("drops to the derived mode when the operator switched provider by hand", () => {
     const rm = resolveRunMode(
       llm("groq", {
