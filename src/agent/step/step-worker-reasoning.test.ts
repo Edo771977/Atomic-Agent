@@ -57,7 +57,7 @@ async function runStep(
     profile?: ModelProfile;
     toolTransport?: "grammar" | "native_tools";
     /** Stamped on the completion, as the fallback seam does for the link that served. */
-    served?: Pick<CompletionResult, "servedTransport">;
+    served?: Pick<CompletionResult, "servedTransport" | "grammarSkipped">;
     content?: string;
   } = {},
 ): Promise<StepRun> {
@@ -119,6 +119,19 @@ function bodyHead(grammar: string): string | undefined {
 }
 
 describe("a local fusion worker's reasoning bound on the per-request grammar", () => {
+  it.each([
+    ["the optional format check is disabled", 0],
+    ["available slots prevented the probe", 0],
+    ["the probe had a cached pass", 0],
+    ["an earlier worker call already passed", 1],
+  ] as const)("rejects an unconstrained worker tool call when %s", async (_condition, stepIndex) => {
+    await expect(runStep({ toolRole: "builder", stepIndex }, 0, {
+      served: { grammarSkipped: true },
+      profile: PLAIN_INSTRUCT_PROFILE,
+      content: '[{"tool":"reply","args":{"text":"done"}}]',
+    })).rejects.toThrow(/tool protocol mismatch.*without.*grammar/i);
+  });
+
   it("bounds a worker step that the base grammar leaves unbounded", async () => {
     const plain = await runStep({});
     expect(bodyHead(plain.params.grammar)).toBe("think-body ::= think-fragment*");

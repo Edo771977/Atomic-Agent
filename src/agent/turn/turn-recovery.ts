@@ -1,3 +1,4 @@
+import { WorkerGrammarSkippedError } from "../step/step-errors.js";
 import { isSubscriptionCliSetupError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { isDailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
 import { findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
@@ -305,7 +306,8 @@ export function recoverTurnStep(
     finalizationStep &&
     !cancelled &&
     !repeatedEmptyAfterAnnouncedRetry &&
-    !dailyLimitRefusedReport
+    !dailyLimitRefusedReport &&
+    !(err instanceof WorkerGrammarSkippedError)
   ) {
     // A failed finalization must not execute more work or turn a
     // bounded run into an unbounded retry. Preserve the established

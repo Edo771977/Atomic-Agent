@@ -21,6 +21,7 @@
  * inference reproduces it exactly.
  */
 
+import { WorkerGrammarSkippedError } from "../step/step-errors.js";
 import {
   GrammarError,
   LlamaServerError,
@@ -55,7 +56,7 @@ export function isRecoverableParseFailure(err: unknown): boolean {
   // too: the server is telling us THIS request was malformed or too
   // large. Re-prompting cannot change that, and the turn should fail
   // with the diagnosis instead of burning two more steps.
-  return !(err.cause instanceof LlamaServerError);
+  return !(err.cause instanceof LlamaServerError || err instanceof WorkerGrammarSkippedError);
 }
 
 /**

@@ -15,7 +15,7 @@ export { formatFabricatedTranscriptNotice } from "./step/step-evidence.js";
 export { readReplyAttachments } from "./step/step-commit.js";
 import type { StepDependencies, StepContext, StepOutcome } from "./step/step-contract.js";
 export type { LlmStreamParams, LlmCompleteStream, StepDependencies, StepApprovalPostureSource, StepContext, StepTerminal, StepOutcome } from "./step/step-contract.js";
-import { toLlmFailure } from "./step/step-errors.js";
+import { requireWorkerGrammar, toLlmFailure } from "./step/step-errors.js";
 export { BatchValidationError } from "./step/step-errors.js";
 import { completionAssumesOpenReasoning, resolveReasoning } from "./step/step-reasoning.js";
 import { runInitialCompletion } from "./step/step-inference.js";
@@ -88,6 +88,7 @@ async function executeStepInner(
     thinkingOff,
     reasoningBoundFor,
   });
+  requireWorkerGrammar(ctx, firstAttempt.completion);
   // The server named the slot it put a pending session's prompt in: pin
   // it so every later request of the session — the repair retry below
   // included — lands on the cache instead of asking again.
@@ -229,6 +230,7 @@ async function executeStepInner(
     const repairArgs = { ctx, deps, ...prepared, parsed, assumesOpenReasoning, onRetryReasoning: (retryReasoning: string) => { reasoning = retryReasoning; } };
     const repair = prepareStepRepair(repairArgs);
     completion = await deps.llmComplete(repair.buildRequest());
+    requireWorkerGrammar(ctx, completion);
     const retryParseDeps = finishStepRepair(repairArgs, repair, completion);
     parsed = finishStepBatchRepair(parsingArgs, completion, retryParseDeps);
   }

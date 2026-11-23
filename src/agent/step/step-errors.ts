@@ -1,3 +1,4 @@
+import type { CompletionResult } from "../../llm/provider/completion-types.js";
 import type { StepContext } from "./step-contract.js";
 import { LlmFailure, classifyFailure, CancelledError, LlamaServerError, TransportError, GrammarError, OpenAiHttpError, isRequestSizeRejection, humanizeOpenAiHttpError, ToolExecutionError } from "../../llm/index.js";
 import { ToolCallParseError } from "../../llm/grammar/tool-call-grammar.js";
@@ -146,4 +147,18 @@ export function isAbortError(err: unknown): boolean {
   if (!err || typeof err !== "object") return false;
   const name = (err as { name?: unknown }).name;
   return name === "AbortError";
+}
+
+
+export class WorkerGrammarSkippedError extends GrammarError {
+  constructor() {
+    super("Worker tool protocol mismatch: the server completed the step without the required grammar", "");
+    this.name = "WorkerGrammarSkippedError";
+  }
+}
+
+export function requireWorkerGrammar(ctx: StepContext, completion: CompletionResult): void {
+  if (ctx.toolRole === "builder" && completion.grammarSkipped === true) {
+    throw new WorkerGrammarSkippedError();
+  }
 }
