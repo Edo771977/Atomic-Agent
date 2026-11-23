@@ -558,3 +558,21 @@ it.each([
   expect(classifyReviewCommand(cmd)).not.toEqual([]);
 });
 
+
+it.each([
+  "ps -C node -o pid=", "ps -L -o pid=", "ps ax -o pid=", "ps -C node xyz -o args",
+  "docker ps --filter status=exited", "podman ps --filter name=serve",
+  'git commit -m "mention ps -o args"', 'echo "ps -o args"',
+])("third round leaves benign command alone: %s", (cmd) => {
+  expect(classifyReviewCommand(cmd)).toEqual([]);
+});
+
+it.each(["sudo -u operator /usr/bin/ps -o args", "env -i ps axww", "top -bcn1"])(
+  "recognizes bundled options or a process display behind a launcher: %s", (cmd) => {
+    expect(classifyReviewCommand(cmd)).not.toEqual([]);
+  },
+);
+
+it("keeps ps after the executable of a launcher as an operand", () => {
+  expect(classifyReviewCommand("sudo -u operator git commit -m 'ps -o args'")).toEqual([]);
+});
