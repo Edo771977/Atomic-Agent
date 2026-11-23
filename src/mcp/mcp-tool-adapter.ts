@@ -148,7 +148,7 @@ function literalWebUrls(args: Record<string, unknown>): Set<string> {
   const pending: unknown[] = [args];
   while (pending.length > 0) {
     const value = pending.pop();
-    if (typeof value === "string" && /^https?:\/\//i.test(value.trim())) {
+    if (typeof value === "string" && /^https?:\/\/[^\s]+$/i.test(value.trim())) {
       urls.add(value.trim());
     } else if (value !== null && typeof value === "object" && !visited.has(value)) {
       visited.add(value);

@@ -380,6 +380,18 @@ describe("approval gating", () => {
     };
   }
 
+  it("passes URL-prefixed multiline prose as text in strict mode", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(metaOf("docs", "save"), fakeClient(invoke), {
+      trust: "pure_read", dangerous, urlDataGuard: "strict",
+    });
+    const args = { text: "https://docs.example/\nThis is the source for the note." };
+    await def.run(args, ctx);
+    expect(requests).toHaveLength(0);
+    expect(invoke).toHaveBeenCalled();
+  });
+
   it("asks before forwarding a data-bearing URL nested in pure-read MCP arguments", async () => {
     const { dangerous, requests } = fakeDangerous(false);
     const invoke = vi.fn(async () => ({ content: [] }));
