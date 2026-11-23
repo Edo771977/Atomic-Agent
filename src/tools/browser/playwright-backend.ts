@@ -7,6 +7,7 @@ import { describeElementInPage, toRefDescription } from "./describe-element.js";
 import { searchUrlFor } from "./search-engines.js";
 import { planShot, type CssRect } from "./screenshot-geometry.js";
 import { capturePlannedJpeg, readViewportMetricsInPage } from "./page-capture.js";
+import { gotoWithRedirectGuard } from "./goto-with-redirect-guard.js";
 import { runPageAction } from "./playwright-page-actions.js";
 import { buildChromeLaunchArgs } from "./build-chrome-launch-args.js";
 import { pinWebIdentityToBrowser } from "./web-identity.js";
@@ -323,10 +324,10 @@ export class PlaywrightBackend implements BrowserBackend {
     input: NavigateInput,
   ): Promise<{ url: string; title: string }> {
     const page = await this.requireActivePage();
-    await page.goto(input.url, {
+    await gotoWithRedirectGuard(page, input.url, {
       waitUntil: input.waitUntil ?? "domcontentloaded",
       timeout: input.timeoutMs ?? 30_000,
-    });
+    }, input.redirectGuard);
     return { url: page.url(), title: await page.title().catch(() => "") };
   }
 
@@ -355,7 +356,7 @@ export class PlaywrightBackend implements BrowserBackend {
 
   async search(input: SearchInput): Promise<{ url: string }> {
     const url = searchUrlFor(input.engine ?? "google", input.query);
-    await this.navigate({ url });
+    await this.navigate({ url, ...(input.redirectGuard ? { redirectGuard: input.redirectGuard } : {}) });
     return { url };
   }
 
@@ -521,7 +522,7 @@ export class PlaywrightBackend implements BrowserBackend {
       case "new": {
         const page = await this.openTab(context);
         if (input.url) {
-          await page.goto(input.url).catch(() => undefined);
+          await gotoWithRedirectGuard(page, input.url, undefined, input.redirectGuard, true);
         }
         return { tabs: await enumerateTabs(this.visiblePages(context)) };
       }

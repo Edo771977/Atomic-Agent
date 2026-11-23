@@ -149,6 +149,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 ## Folder constraints for confidential data
 
 - **Per-folder rules.** `projects.constraints` lists the providers and egress classes each folder allows ([#34](https://github.com/Edo771977/atomic-agent/pull/34)). Settings: [settings reference](settings-reference.md).
+- **Web URL approvals.** The ATO-1377 port checks data-bearing URLs in the guarded HTTP and web fetch paths, including redirects, and in explicit browser navigation. Literal URL arguments in MCP calls and classified shell commands are also checked. The URL check uses origin-scoped HTTP write approval alongside the browser's domain policy. [November upstream triage](upstream-2026-11-triage.md)
+- **Agent proxy.** Upstream ATO-87 remains deferred. Routing through a proxy must preserve the folder's egress decision and the destination IP checks across HTTP transports. [November upstream triage](upstream-2026-11-triage.md)
 - **MCP servers and "local" providers.** A stdio MCP server that uses the network needs `mcp:<server>` or `"local": true`. A "local" provider pointed at another machine needs `allowedProviderHosts` ([#63](https://github.com/Edo771977/atomic-agent/pull/63)).
 - **The restriction follows the chat.** A chat keeps it when it moves, is retried or is handed off. Read taint is persisted ([#69](https://github.com/Edo771977/atomic-agent/pull/69), [#75](https://github.com/Edo771977/atomic-agent/pull/75)).
 - **In the desktop.** A "restricted to: …" chip, the refusal in plain words, and the chat's own folder ([#70](https://github.com/Edo771977/atomic-agent/pull/70)).
