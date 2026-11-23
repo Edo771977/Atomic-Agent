@@ -1,6 +1,7 @@
-import { cp, mkdtemp, rm } from "node:fs/promises";
+import { cp, mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import {
   enforceScanGate,
   scanIdOf,
@@ -50,12 +51,25 @@ export async function installLocalSkill(
   // scan: never ask anyone to confirm findings for an install that would
   // fail anyway. `installSkill` repeats these checks right before copying.
   const { sourceDir } = await prepareSkillInstall(options);
+  const canonical = await realpath(sourceDir);
+  for (let dir = canonical; dirname(dir) !== dir; dir = dirname(dir)) {
+    const parent = dirname(dir);
+    const project = dirname(parent);
+    if (basename(dirname(project)) !== "learned-projects" || !/^[0-9a-f]{64}$/.test(basename(project))) continue;
+    if (basename(parent) === "skills-pending") {
+      throw new Error("Review and approve this draft with the learned skills command before installing it.");
+    }
+    if (basename(parent) === "skills") {
+      const refusal = projectDecisionOriginRefusal();
+      if (refusal) throw new Error(refusal);
+    }
+  }
   const stagingRoot = await mkdtemp(
     join(options.tmpRoot ?? tmpdir(), "atomic-local-skill-"),
   );
   try {
     const staged = join(stagingRoot, "skill");
-    await cp(sourceDir, staged, {
+    await cp(canonical, staged, {
       recursive: true,
       dereference: false,
       verbatimSymlinks: true,

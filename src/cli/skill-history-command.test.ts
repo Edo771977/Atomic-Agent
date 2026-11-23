@@ -201,6 +201,8 @@ describe("skill history / restore / curate", () => {
     const approve = (text: string) => skillCommand(["learned", "approve", `${draft.id}@${hashSkillText(text)}`]);
     expect(await skillCommand(["learned", "approve", draft.id])).toBe(2);
     const file = join(scope().stateDir, "skills-pending", draft.id, "SKILL.md");
+    expect(await skillCommand(["install", join(scope().stateDir, "skills-pending", draft.id), "--yes"])).toBe(1);
+    expect(stderr).toContain("Review and approve this draft");
     const edited = content.replace("newest section", "first three entries");
     writeFileSync(file, edited);
     stderr = "";
