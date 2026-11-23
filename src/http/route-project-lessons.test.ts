@@ -106,3 +106,16 @@ it("accepts a valid bearer key and ignores the server process marker for HTTP", 
   expect((await decide("approve", row.hash, false, null)).status).toBe(401);
   expect((await decide("approve", row.hash)).status).toBe(200);
 });
+
+it.each(["folder mismatch", "failed project load"])("refuses a bound project after %s", async (reason) => {
+  const row = (await read(await list())).panel.rows[0];
+  assert.ok(row);
+  if (reason === "folder mismatch") session.workingDir = h.stateDir;
+  else session.projectProblem = "Could not load " + h.stateDir;
+  for (const response of [await list(), await decide("approve", row.hash)]) {
+    expect(response.status).toBe(404);
+    const body = await read(response);
+    expect(body.error.code).toBe("no-project");
+    expect(body.panel.rows).toEqual([]);
+  }
+});

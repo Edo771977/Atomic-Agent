@@ -8,6 +8,7 @@ import {
   type ProjectLesson,
   type ProjectLessonProblem,
 } from "./project-lessons.js";
+import { projectFolderOf, sameProjectFolder } from "./project-folder.js";
 import { PROJECT_LESSON_TURN_RUNNING } from "./project-lesson-text.js";
 import { readProjectRef } from "./session-project-store.js";
 import type { SessionState } from "./session-state.js";
@@ -43,6 +44,9 @@ export function projectLessonPanel(
   if (isIncognitoSession(session)) return unavailable("Project lessons are unavailable in incognito chats.", "incognito");
   const ref = readProjectRef(session);
   if (!ref) return unavailable("Lessons require a chat bound to a saved project.");
+  if (session.projectProblem !== undefined || !sameProjectFolder(ref.folder, projectFolderOf(session))) {
+    return unavailable("This chat's project is unavailable.");
+  }
   const records = stateDirProjectRecords(stateDir);
   const read = records.read(ref.folder);
   if (!read.ok) return unavailable(read.problem.message);
