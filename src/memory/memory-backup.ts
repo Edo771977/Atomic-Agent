@@ -9,7 +9,7 @@ import { syncDirectoryBestEffort } from "../config/durable-write.js";
 import { Database as DatabaseCtor } from "../native/load-better-sqlite3.js";
 import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../session/project-lesson-text.js";
 import { parseConstraintScope } from "./memory-constraint-scope.js";
-import { MemoryValidationError, validateContent, validateTags, withoutReservedTags } from "./memory-store.js";
+import { MemoryValidationError, supersededSql, validateContent, validateTags, withoutReservedTags } from "./memory-store.js";
 import { ProfileValidationError, validateKey, validateKeywords, validateValue } from "./profile-store.js";
 import { applyMigrations, MEMORY_SCHEMA_VERSION } from "./memory-schema.js";
 import { containsSecret, containsSecretPair, isSecretKey } from "./memory-secret-guard.js";
@@ -288,7 +288,7 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
       if (count > MAX_RESTORE_ROWS) throw new MemoryBackupError("backup exceeds the restore row limit");
       const notes = source.prepare(`
         SELECT id, content, created_at, updated_at, session_id, working_dir, tags, constraint_scope, disabled_at
-        FROM memories ORDER BY id
+        FROM memories WHERE consolidated_into IS NULL AND NOT ${supersededSql("tags")} ORDER BY id
       `);
       const facts = source.prepare(`
         SELECT key, value, pinned, keywords, valid_from, created_at, updated_at, constraint_scope, disabled_at

@@ -240,6 +240,19 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     });
   });
 
+  it("skips consolidated and superseded notes during restore", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    const old = notes.store({ content: "the user lives in Rome" });
+    const current = notes.store({ content: "the user lives in Milan" });
+    const archived = notes.store({ content: "an archived detail" });
+    notes.markSuperseded(old.id, current.id);
+    notes.archiveInto([archived.id], 1);
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite") }, out)).toEqual({ notes: 1, facts: 0 });
+  });
+
   it("migrates an older archive privately while keeping the original bytes", () => {
     const archive = new Database(dbFile);
     archive.exec(`

@@ -271,7 +271,7 @@ export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
 }
 
 /** SQL twin of {@link isSupersededNote} over a `tags` JSON column. */
-function supersededSql(tagsColumn: string): string {
+export function supersededSql(tagsColumn: string): string {
   return `(${tagsColumn} IS NOT NULL AND json_valid(${tagsColumn})
     AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}')
     AND EXISTS (SELECT 1 FROM json_each(${tagsColumn})
