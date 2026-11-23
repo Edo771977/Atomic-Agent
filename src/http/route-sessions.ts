@@ -340,7 +340,8 @@ export function createSteerSessionHandler(): HttpHandler {
       sendError(res, 400, openaiError("text must be a non-empty string"));
       return;
     }
-    if (!ctx.runtime.steer(id, text)) {
+    const actor = ctx.caller && ctx.caller.role !== "owner" ? ctx.caller.name : undefined;
+    if (!(actor ? ctx.runtime.steer(id, text, actor) : ctx.runtime.steer(id, text))) {
       // `steer()` is the only authority on whether the message landed,
       // and it already refused. The inbox read below only *names* the
       // refusal for the status code — it never gates the attempt, so a

@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 
+import { addHttpToken } from "../http/http-token-store.js";
+
 const key = "synthetic-serve-auth-process-key";
 
 it.skipIf(process.platform !== "linux").each(["environment", "file", "generated", "stdin", "file-delete"] as const)(
@@ -53,6 +55,18 @@ it.skipIf(process.platform !== "linux").each(["environment", "file", "generated"
       expect(launchEnv.includes("ATOMIC_AGENT_API_KEY=")).toBe(source === "environment");
       expect(launchEnv.includes(key)).toBe(source === "environment");
       if (source === "stdin") {
+        const viewer = addHttpToken(stateDir, "desktop-test-reader", "viewer");
+        if (!viewer.ok) throw new Error(viewer.error);
+        expect((await fetch(baseUrl + "/v1/models", {
+          headers: { Authorization: `Bearer ${viewer.token}` },
+        })).status).toBe(200);
+        const decision = await fetch(baseUrl + "/api/approval/resolve", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${viewer.token}`, "Content-Type": "application/json" },
+          body: "{}",
+        });
+        expect(decision.status).toBe(403);
+        expect(await decision.json()).toMatchObject({ error: { code: "insufficient_scope" } });
         const commandLine = await readFile("/proc/" + child.pid + "/cmdline", "utf8");
         expect(commandLine).not.toContain(key);
         const currentInput = await readlink(fdPath).catch((err: NodeJS.ErrnoException) => {

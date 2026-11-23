@@ -323,7 +323,7 @@ export function createAnthropicMessagesHandler(): HttpHandler {
           }
         },
         onStreamStart(headers) {
-          sse = beginSse(res, passThroughHeaders(headers), { heartbeatMs: SSE_HEARTBEAT_MS });
+          sse = beginSse(res, passThroughHeaders(headers), { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized } : {}) });
           write(translator.start());
         },
         onStreamData(data) {

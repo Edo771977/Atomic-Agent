@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
-import { programName, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
+import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -278,6 +278,24 @@ function pathOfToken(token: string, cwd: string, home: string): string | null {
   return isAbsolute(t) ? resolve(t) : resolve(cwd, t);
 }
 
+/** Recognize CLI invocations even with a wrapper in front of the binary. */
+function managesHttpTokens(line: string, depth = 0): boolean {
+  if (depth > 8) return false;
+  // Resolve common shell lookups lexically. Never invoke a shell or resolve a binary here.
+  const segments = splitCommandSegments(line.replace(
+    /(?:\$\(\s*(?:command\s+-v|which|type\s+-P)\s+((?:atomic-agent|atag)(?:\.exe)?)\s*\)|`\s*(?:command\s+-v|which|type\s+-P)\s+((?:atomic-agent|atag)(?:\.exe)?)\s*`)/gi,
+    (_, substitution, backticks) => substitution ?? backticks,
+  ));
+  const management = ([group, command]: readonly string[]) => group === "http" && command === "tokens";
+  if (["atag", "atag.cmd", "atomic-agent", "atomic-agent.cmd"].some(program =>
+    invocationsOf(segments, program).some(management))) return true;
+  if (invocationsOf(segments, "node").some(args =>
+    args.some((word, index) => /(?:^|[\\/])(?:src|dist)[\\/]cli[\\/]index\.(?:ts|js)$/.test(word)
+      && management(args.slice(index + 1))))) return true;
+  return NESTED_SHELL_PROGRAMS.some(program => invocationsOf(segments, program).some(args =>
+    scanNestedShellOptions(args, program).scripts.some(script => managesHttpTokens(script, depth + 1))));
+}
+
 /**
  * The secret files (or secret-holding folders of the state) a shell
  * call names, deduplicated; empty when it names none. Best-effort, see
@@ -305,13 +323,21 @@ export function findShellStateSecrets(
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
   const hits = new Set(processSecretPaths(line));
-  const nameTokens = line.split(/[\s;|&<>()`]+/);
-  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line) || nameTokens.some(token => {
-    const name = token.split(/[\\/=]/).at(-1) ?? "";
-    return name !== "*" && matchesName(name, "serve-api.key", env.platform);
-  })) {
+  if (managesHttpTokens(line)) {
     for (const file of known.files) {
-      if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
+      if (/(?:^|[\\/])http-tokens\.json$/i.test(file)) hits.add(file);
+    }
+  }
+  const nameTokens = line.split(/[\s;|&<>()`]+/);
+  for (const filename of ["serve-api.key", "http-tokens.json"]) {
+    const literal = new RegExp(`(^|[^\\w.-])${filename.replace(".", "\\.")}(?=$|[^\\w.-])`, "i");
+    if (literal.test(line) || nameTokens.some(token => {
+      const name = token.split(/[\\/=]/).at(-1) ?? "";
+      return name !== "*" && matchesName(name, filename, env.platform);
+    })) {
+      for (const file of known.files) {
+        if (file.split(/[\\/]/).at(-1)?.toLowerCase() === filename) hits.add(file);
+      }
     }
   }
   // Track simple directory changes and inspect paths after lifting shell substitutions.
@@ -366,9 +392,12 @@ export function shellServerKeyMutation(
   secrets: StateSecrets,
   env?: ShellScopeEnv,
 ): boolean {
-  const files = secrets.files.filter(path => /(?:^|[\\/])(?:serve-api|llama-server)\.key$/i.test(path));
+  const files = secrets.files.filter(path => /(?:^|[\\/])(?:(?:serve-api|llama-server)\.key|http-tokens\.json)$/i.test(path));
   if (files.length === 0) return false;
-  return shellCommandLine(args).split(/[;|&\n]+/).some(cmd => {
+  const line = shellCommandLine(args);
+  if (files.some(path => /(?:^|[\\/])http-tokens\.json$/i.test(path)) &&
+      managesHttpTokens(line)) return true;
+  return line.split(/[;|&\n]+/).some(cmd => {
     const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
     return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
       && findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
