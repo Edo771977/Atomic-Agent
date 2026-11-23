@@ -89,6 +89,11 @@ export function buildNotesStoreTool(
           workingDir: ctx.workingDir,
           source: "agent",
         });
+        if (entry.disabledAt !== undefined) {
+          return compressToolResult({
+            tool: "memory.notes.store", status: "ok", output: "no new note stored", details: { stored: false },
+          });
+        }
         return compressToolResult({
           tool: "memory.notes.store",
           status: "ok",

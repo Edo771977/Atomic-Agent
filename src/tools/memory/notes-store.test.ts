@@ -47,6 +47,16 @@ describe("memory.notes.store", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("does not send a relearned disabled note back to the agent", async () => {
+    const note = store.store({ content: "This note was disabled by the operator", tags: ["private"] });
+    store.setDisabled(note.id, true);
+    const result = await buildNotesStoreTool({ store, maxContentChars: 4_000 }).run({ content: note.content }, makeCtx());
+    expect(result.details).not.toHaveProperty("content");
+    expect(result.details).not.toHaveProperty("id");
+    expect(result.summary).not.toContain(`#${note.id}`);
+    expect(store.count()).toBe(1);
+  });
+
   it("persists a note and tags it with the runtime context", async () => {
     const tool = buildNotesStoreTool({ store, maxContentChars: 4_000 });
     const result = await tool.run(
