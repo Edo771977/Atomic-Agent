@@ -155,33 +155,50 @@ interface StoredRun {
 const CHANGED_FILES_NAME = "changed-files.json";
 const MAX_CHANGED_FILES_BYTES = 256 * 1024;
 
-function runChangedFiles(runsDir: string, runId: string): string[] {
-  if (!FusionRunStore.isValidRunId(runId)) return [];
+function runChangedFiles(runsDir: string, runId: string): { files: string[]; incomplete?: boolean } {
+  const empty = { files: [] };
+  if (!FusionRunStore.isValidRunId(runId)) return empty;
   try {
     const path = join(runsDir, runId, CHANGED_FILES_NAME);
     const info = lstatSync(path);
-    if (!info.isFile() || info.size > MAX_CHANGED_FILES_BYTES) return [];
+    if (!info.isFile() || info.size > MAX_CHANGED_FILES_BYTES) return empty;
     const raw: unknown = JSON.parse(readFileSync(path, "utf8"));
-    return Array.isArray(raw) ? raw.filter((file): file is string => typeof file === "string") : [];
+    const record = raw as { files?: unknown; incomplete?: unknown } | null;
+    const files = Array.isArray(raw) ? raw : record?.files;
+    return {
+      files: Array.isArray(files) ? files.filter((file): file is string => typeof file === "string") : [],
+      ...(record?.incomplete === true ? { incomplete: true } : {}),
+    };
   } catch {
-    return [];
+    return empty;
   }
 }
 
 /** Best-effort delivery evidence; it is stored apart from the evidence used to gate done reports. */
 export function writeRunChangedFiles(
-  runsDir: string, run: { runId: string; sessionId: string }, files: readonly string[],
+  runsDir: string, run: { runId: string; sessionId: string }, files: readonly string[], sharedWorkspace = false,
 ): void {
-  if (files.length === 0) return;
+  if (files.length === 0 && !sharedWorkspace) return;
   const target = fusionRunShotTarget(runsDir, run, undefined);
   if (target === undefined) return;
-  const changed = new Set(runChangedFiles(runsDir, run.runId));
+  const previous = runChangedFiles(runsDir, run.runId);
+  const changed = new Set(previous.files);
   for (const file of files) changed.add(file.replaceAll("\\", "/"));
   const path = join(dirname(target.dir), CHANGED_FILES_NAME);
   const temp = `${path}.${randomUUID()}.tmp`;
   try {
-    const text = JSON.stringify([...changed]);
-    if (Buffer.byteLength(text) > MAX_CHANGED_FILES_BYTES) return;
+    const retained: string[] = [];
+    let remaining = MAX_CHANGED_FILES_BYTES - 64;
+    let incomplete = sharedWorkspace || previous.incomplete === true;
+    for (const file of changed) {
+      remaining -= Buffer.byteLength(JSON.stringify(file)) + 1;
+      if (remaining < 0) {
+        incomplete = true;
+        break;
+      }
+      retained.push(file);
+    }
+    const text = JSON.stringify({ files: retained, incomplete });
     writeFileSync(temp, text, { flag: "wx", mode: 0o600 });
     renameSync(temp, path);
   } catch {
@@ -318,6 +335,7 @@ export interface MilestoneEvidence {
   /** Criteria of `criteriaOrder` no check of these runs names. */
   uncovered: string[];
   changedFiles?: string[];
+  changedFilesIncomplete?: boolean;
   /** Tasks whose newest run recorded no review verdict, with why (issue #95); absent when every reviewed task has one. */
   noReviewVerdict?: Array<{ taskId: string; reason: string }>;
   /**
@@ -389,9 +407,12 @@ export function readMilestoneEvidence(input: {
   // after it is a correction round, whatever its task ids (issue #100).
   let firstNeedsChanges: number | undefined;
   const changedFiles = new Set<string>();
+  let changedFilesIncomplete = false;
   for (const [at, runId] of input.runIds.entries()) {
     const run = readRunTasks(input.runsDir, runId);
-    for (const file of runChangedFiles(input.runsDir, runId)) changedFiles.add(file);
+    const changes = runChangedFiles(input.runsDir, runId);
+    for (const file of changes.files) changedFiles.add(file);
+    changedFilesIncomplete ||= changes.incomplete === true;
     if (firstNeedsChanges === undefined && run.reviews.some((r) => r.verdict === "needs-changes" && required.has(r.taskId))) firstNeedsChanges = at;
     for (const review of run.reviews) reviewOf.set(review.taskId, { review, at });
     const ranHere = run.ran ?? [...run.reviews.map((r) => r.taskId), ...run.tasks.map((t) => t.taskId)];
@@ -507,6 +528,7 @@ export function readMilestoneEvidence(input: {
     facts,
     attachments,
     uncovered,
+    ...(changedFilesIncomplete ? { changedFilesIncomplete: true } : {}),
     ...(changedFiles.size === 0 ? {} : { changedFiles: [...changedFiles].sort() }),
     ...(noReviewVerdict.length === 0 ? {} : { noReviewVerdict }),
     ...(reviewBlocks.length === 0 ? {} : { reviewBlocks }),

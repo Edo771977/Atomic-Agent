@@ -818,6 +818,9 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           const entries = [...listed, ...(more === 0 ? [] : [`${more} more`])].join(", ");
           reportNotes.push(`Changed files covered by active lessons: ${entries}. Check that the changes follow them.`);
         }
+        if (activeLessons.length > 0 && evidence.changedFilesIncomplete) {
+          reportNotes.push("Changed-file coverage may be incomplete. Shell, move, trash and some patch changes are not reliably tracked in shared workspaces.");
+        }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };
           lines.push(`${evidence.attachments.length} screenshot${evidence.attachments.length === 1 ? "" : "s"} of its runs attached.`);

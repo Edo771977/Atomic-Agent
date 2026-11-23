@@ -477,11 +477,12 @@ it("bounds large lesson reports", async () => {
     ] },
   } as unknown as ProjectState;
   const { milestone } = tools({ evidence: () => ({
-    facts: [], attachments: [], uncovered: [], changedFiles: Array.from({ length: 2000 }, (_, i) => `src/${i}.ts`),
+    facts: [], attachments: [], uncovered: [], changedFiles: Array.from({ length: 2000 }, (_, i) => `src/${i}.ts`), changedFilesIncomplete: true,
   }) });
   const result = await milestone.run({ id: "m1", state: "done", summary: "Ready" }, { ...ctx, project });
   const notes = (result.details[PROJECT_UPDATE_DETAIL] as { reportNotes: string[] }).reportNotes;
-  expect(notes).toHaveLength(1);
+  expect(notes).toHaveLength(2);
   expect(notes[0]).toMatch(/src\/0\.ts.*binding.*more/);
   expect(notes[0]!.length).toBeLessThanOrEqual(2000);
+  expect(notes[1]).toMatch(/shell.*patch/i);
 });

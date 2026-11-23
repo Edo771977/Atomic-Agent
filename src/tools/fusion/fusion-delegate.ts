@@ -3476,7 +3476,7 @@ export function buildFusionDelegateTool(
         runMeta = () => ({ ran: ranIds, judging, ...(passedChecks.length === 0 ? {} : { passedChecks }) });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
         if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, [...deliveredPaths]);
+          writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, [...deliveredPaths], mode.isolation !== "worktree");
           writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
         }
         // Workspaces kept for a retry are done with, retried or not.
