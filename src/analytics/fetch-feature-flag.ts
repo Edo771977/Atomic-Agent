@@ -62,8 +62,9 @@ export async function fetchFeatureFlag(options: FetchFeatureFlagOptions): Promis
 
 const sessionCache = new Map<string, Promise<boolean>>();
 
-/** {@link fetchFeatureFlag}, asked at most once per process for a key and id. */
+/** {@link fetchFeatureFlag}, asked at most once online per process for a key and id. */
 export function cachedFeatureFlag(options: FetchFeatureFlagOptions): Promise<boolean> {
+  if (isOfflineNetwork(options.env)) return Promise.resolve(false);
   const cacheKey = `${options.key}\u0000${options.distinctId}`;
   const hit = sessionCache.get(cacheKey);
   if (hit) return hit;
