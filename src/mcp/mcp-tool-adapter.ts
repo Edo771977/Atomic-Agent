@@ -34,7 +34,7 @@ import {
 import { compressToolResult } from "../compressor/result-compressor.js";
 import type { CompressedToolResult } from "../compressor/result-compressor.js";
 import { offlineRefusal } from "../llm/offline-network.js";
-import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../tools/os/web/url-data-guard.js";
+import { DEFAULT_URL_DATA_GUARD, findUrlData, requireUrlSendApproval, type UrlDataGuardMode } from "../tools/os/web/url-data-guard.js";
 import type { ToolDefinition } from "../tools/tool-registry.js";
 
 import { mcpToolPrompts, modeSkipsDefaultPrompt } from "./mcp-approval-mode.js";
@@ -142,14 +142,21 @@ export function mcpGrantKey(server: string, rawName: string): string {
   return `MCP tool ${server}/${rawName}`;
 }
 
-function literalWebUrls(args: Record<string, unknown>): Set<string> {
-  const urls = new Set<string>();
+function literalWebUrls(args: Record<string, unknown>): Map<string, boolean> {
+  const urls = new Map<string, boolean>();
   const visited = new Set<object>();
   const pending: unknown[] = [args];
   while (pending.length > 0) {
     const value = pending.pop();
-    if (typeof value === "string" && /^https?:\/\/[^\s]+$/i.test(value.trim())) {
-      urls.add(value.trim());
+    if (typeof value === "string" && /^https?:\/\//i.test(value.trim())) {
+      const input = value.trim();
+      const parsed = URL.parse(input);
+      if (parsed !== null) {
+        const literal = !/\s/.test(input);
+        if (literal || findUrlData(parsed.href) !== null) {
+          urls.set(parsed.href, literal || urls.get(parsed.href) === true);
+        }
+      }
     } else if (value !== null && typeof value === "object" && !visited.has(value)) {
       visited.add(value);
       for (const nested of Object.values(value)) pending.push(nested);
@@ -208,7 +215,7 @@ export function createMcpToolDefinition(
     run: async (args, ctx): Promise<CompressedToolResult> => {
       try {
         const urls = literalWebUrls(args);
-        for (const url of urls) {
+        for (const [url] of urls) {
           const refused = offlineRefusal(url, meta.qualifiedName);
           if (refused) throw refused;
         }
@@ -240,9 +247,9 @@ export function createMcpToolDefinition(
           );
         }
         if (dangerous) {
-          for (const url of urls) {
+          for (const [url, literal] of urls) {
             await requireUrlSendApproval(dangerous, {
-              mode: gate?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+              mode: gate?.urlDataGuard === "strict" && !literal ? "data" : gate?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
               tool: meta.qualifiedName,
               url,
               sessionId: ctx.sessionId,

@@ -380,6 +380,17 @@ describe("approval gating", () => {
     };
   }
 
+  it("checks URL data in a normalized MCP query containing literal spaces", async () => {
+    const { dangerous, requests } = fakeDangerous(false);
+    const invoke = vi.fn(async () => ({ content: [] }));
+    const def = createMcpToolDefinition(metaOf("docs", "fetch"), fakeClient(invoke), {
+      trust: "pure_read", dangerous, urlDataGuard: "strict",
+    });
+    await def.run({ url: "https://docs.example/?q=" + "long query text ".repeat(30) }, ctx);
+    expect(requests).toEqual([expect.objectContaining({ grantKey: "url-data:https://docs.example" })]);
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("passes URL-prefixed multiline prose as text in strict mode", async () => {
     const { dangerous, requests } = fakeDangerous(false);
     const invoke = vi.fn(async () => ({ content: [] }));
