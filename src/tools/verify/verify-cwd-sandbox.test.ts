@@ -18,3 +18,11 @@ it.skipIf(process.platform === "win32")("review 3: refuses a symlink leaving the
     rmSync(fixture, { recursive: true, force: true });
   }
 });
+
+it("CI regression: supervisor does not depend on reading its host checkout in Bubblewrap", async () => {
+  const { linuxServiceInvocation } = await import("./linux-service-probe.js");
+  const result = linuxServiceInvocation({
+    command: "/bin/true", args: [], commandLine: "true", windowsVerbatimArguments: false,
+  }, "/tmp/fixture.sock");
+  expect(result.args.some(arg => arg.startsWith("data:text/javascript;base64,"))).toBe(true);
+});

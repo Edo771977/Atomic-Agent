@@ -1,6 +1,8 @@
 import net from "node:net";
 import { isSea } from "node:sea";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { readFileSync } from "node:fs";
+import { stripTypeScriptTypes } from "node:module";
+import { fileURLToPath } from "node:url";
 import type { resolveInvocation } from "./spawn-verify-process.js";
 
 interface ProbeRequest {
@@ -19,7 +21,7 @@ interface ProbeResult {
 const MAX_PROBE_BYTES = 2 * 1024 * 1024;
 
 /** A trusted launcher file needed when the source checkout sits under the hidden home. */
-export function linuxServiceSupervisorPath(): string | undefined {
+function linuxServiceSupervisorPath(): string | undefined {
   if (isSea()) return undefined;
   return fileURLToPath(new URL(import.meta.url.endsWith(".ts") ? "./linux-service-supervisor.ts" : "./linux-service-supervisor.js", import.meta.url));
 }
@@ -31,7 +33,11 @@ export function linuxServiceInvocation(
   const args = [socketPath, invocation.command, ...invocation.args];
   const supervisor = linuxServiceSupervisorPath();
   if (supervisor === undefined) return { ...invocation, command: process.execPath, args: ["--internal-verify-service", ...args] };
-  const entry = pathToFileURL(supervisor).href;
+  // Read the fixed module before entering the namespace. A root launcher can
+  // lose traversal rights on the original checkout when Bubblewrap drops caps.
+  const source = readFileSync(supervisor, "utf8");
+  const javascript = supervisor.endsWith(".ts") ? stripTypeScriptTypes(source) : source;
+  const entry = `data:text/javascript;base64,${Buffer.from(javascript).toString("base64")}`;
   return {
     ...invocation,
     command: process.execPath,

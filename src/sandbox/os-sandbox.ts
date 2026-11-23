@@ -72,7 +72,6 @@ export interface OsSandboxPolicyInput {
   stateDir?: string;
   /** Configured state files stored outside the main state directory. */
   protectedPaths?: readonly string[];
-  trustedReadOnlyPaths?: readonly string[];
   network: boolean;
   home?: string;
   tmp?: string;
@@ -171,7 +170,6 @@ export function buildOsSandboxPolicy(
   const offset = relative(home, node);
   const toolchainRoots = !isAbsolute(offset) && !offset.startsWith(`..${sep}`)
     ? [dirname(node)] : [];
-  toolchainRoots.push(...(input.trustedReadOnlyPaths ?? []).map(real));
   const readOnlyGitRoots = work.map(root => join(root, ".git")).filter(path => existsSync(path) && real(path) === path);
   return { writableRoots, readOnlyGitRoots, denyRead, network: input.network, stateDir: canonicalState, home, toolchainRoots };
 }
