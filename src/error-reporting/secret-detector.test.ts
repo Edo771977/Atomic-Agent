@@ -29,6 +29,11 @@ const JWT =
   "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0" + ".dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
 const PEM_BODY = "MIIEpAIBAAKCAQEA1234567890abcdefABCDEF+/xyz\nQWERTYuiop0987654321asdfghjklZXCVBNM==";
 
+it("redacts a named HTTP token without needing its plaintext in the registry", () => {
+  const token = "atag_" + "Aa0_-".repeat(8) + "Bcd";
+  expect(maskSecrets(`the server returned x${token}`)).toBe("the server returned x[redacted:http-token]");
+});
+
 describe("maskSecrets: vendor key shapes", () => {
   it.each([
     ["OpenAI project key", OPENAI, "openai-key"],

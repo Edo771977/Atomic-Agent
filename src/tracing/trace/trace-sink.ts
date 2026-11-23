@@ -19,6 +19,7 @@ import { sessionFileName } from "../../session/session-id.js";
 import type { StructuredLogger } from "../structured-logger.js";
 
 import type { TraceEvent, TraceTruncated } from "./trace-event.js";
+import { maskNamedHttpTokens } from "../../error-reporting/secret-detector.js";
 import { serializeTraceEvent } from "./trace-event.js";
 import type { TraceSink } from "./trace-bus.js";
 
@@ -227,7 +228,7 @@ export function createNdjsonTraceSink(
     const state = resolveState(event.sessionId);
     if (state.disabled) return;
 
-    const line = serializeTraceEvent(event);
+    const line = maskNamedHttpTokens(serializeTraceEvent(event));
     const size = Buffer.byteLength(line, "utf8");
 
     if (state.bytesWritten + size > options.maxBytesPerSession) {

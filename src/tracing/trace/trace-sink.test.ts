@@ -33,7 +33,7 @@ function baseEvent(sessionId: string, seq: number, ts: number): TraceEvent {
 }
 
 /** A `step_finished` padded to a known size so caps are predictable. */
-function paddedEvent(sessionId: string, seq: number, pad: number): TraceEvent {
+function paddedEvent(sessionId: string, seq: number, pad: number): Extract<TraceEvent, { type: "step_finished" }> {
   return {
     type: "step_finished",
     sessionId,
@@ -62,6 +62,13 @@ describe("createNdjsonTraceSink", () => {
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("redacts named HTTP bearer tokens in persisted records", () => {
+    const sink = createNdjsonTraceSink({ dir, maxBytesPerSession: 1024 });
+    const token = "atag_" + "Aa0_-".repeat(8) + "Bcd";
+    sink({ ...paddedEvent("s-auth", 1, 0), summary: `returned ${token}` });
+    expect(readLines(dir, "s-auth")[0]?.summary).toBe("returned [redacted:http-token]");
   });
 
   it("appends one NDJSON line per event in session file", () => {
