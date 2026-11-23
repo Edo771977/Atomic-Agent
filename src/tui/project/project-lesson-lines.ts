@@ -119,6 +119,7 @@ export function projectLessonLines(card: ProjectCardState, inner: number, turnRu
   if (notice && displayWidth(notice) >= inner) text(notice, "warn");
   const status = notice === undefined ? controls : plainText(notice).replaceAll("\n", " ");
   line(truncateToWidth(" " + status, inner), notice ? "warn" : "muted");
-  line(notice && controls ? truncateToWidth(" " + controls + " · f refresh", inner) : " f refresh · esc back · PgUp/PgDn", "muted");
+  line(notice && !card.lessonDetail ? " ↑↓ enter · f refresh · esc back"
+    : notice && controls ? truncateToWidth(" " + controls + " · f refresh", inner) : " f refresh · esc back · PgUp/PgDn", "muted");
   return out;
 }

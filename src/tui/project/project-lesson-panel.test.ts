@@ -78,6 +78,13 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
 }
 
 describe("project lessons in the TUI", () => {
+  it("keeps escape in the narrow list footer while showing an alert", () => {
+    const f = fixture({ otherChatBusy: true });
+    f.write("storage");
+    f.press("v");
+    expect(f.lines(38).at(-1)).toContain("esc back");
+  });
+
   it("explains the bound-project requirement and restores the gate key help", () => {
     const f = fixture({ bound: false });
     expect(f.text()).toContain("enter or letter choose");
