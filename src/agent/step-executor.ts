@@ -227,7 +227,7 @@ async function executeStepInner(
       ? { ok: true, batch: continued.batch }
       : parseStepBatch(parsingArgs);
   if (!parsed.ok) {
-    const repairArgs = { ctx, deps, ...prepared, parsed, assumesOpenReasoning, onRetryReasoning: (retryReasoning: string) => { reasoning = retryReasoning; } };
+    const repairArgs = { ctx, deps, ...prepared, parsed, grammarSkipped: completion.grammarSkipped === true, assumesOpenReasoning, onRetryReasoning: (retryReasoning: string) => { reasoning = retryReasoning; } };
     const repair = prepareStepRepair(repairArgs);
     completion = await deps.llmComplete(repair.buildRequest());
     requireWorkerGrammar(ctx, completion);

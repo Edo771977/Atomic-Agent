@@ -351,6 +351,7 @@ export function prepareStepInference(ctx: StepContext, deps: StepDependencies) {
   const primaryBound = appliedReasoningBound(ctx, deps.grammar, thinkingOff);
   let grammarLinkBound: { tokens: number | undefined } | undefined;
   const reasoningBoundFor = (completion: CompletionResult): number | undefined => {
+    if (completion.grammarSkipped === true) return undefined;
     if ((completion.servedTransport ?? deps.toolTransport ?? "grammar") !== "grammar") return undefined;
     if ((completion.servedModelMode ?? deps.modelMode)?.mode === "cloud") return undefined;
     return grammarLinkBound ? grammarLinkBound.tokens : primaryBound;

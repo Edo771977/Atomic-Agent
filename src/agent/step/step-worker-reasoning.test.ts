@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { executeStep } from "../step-executor.js";
 import type { LlmStreamParams } from "./step-contract.js";
+import { REPAIR_MAX_TOKENS } from "./step-parsing.js";
 import { resolveStepGrammar } from "./step-inference.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
@@ -44,6 +45,7 @@ function registry(): ToolRegistry {
 
 interface StepRun {
   params: LlmStreamParams;
+  requests: LlmStreamParams[];
   baseGrammar: string;
   prompt: BuiltPrompt;
   /** `reasoningBoundTokens` on the step's `llm_completed`; `null` when absent. */
@@ -59,6 +61,7 @@ async function runStep(
     /** Stamped on the completion, as the fallback seam does for the link that served. */
     served?: Pick<CompletionResult, "servedTransport" | "grammarSkipped">;
     content?: string;
+    firstContent?: string;
   } = {},
 ): Promise<StepRun> {
   const profile = opts.profile ?? QWEN_THINK_PROFILE;
@@ -89,7 +92,7 @@ async function runStep(
         seen.push(params);
         return {
           ...opts.served,
-          content: opts.content ?? `</think>${JSON.stringify([{ tool: "reply", args: { text: "done" } }])}`,
+          content: (seen.length === 1 ? opts.firstContent : undefined) ?? opts.content ?? `</think>${JSON.stringify([{ tool: "reply", args: { text: "done" } }])}`,
           reasoningContent: "",
           stop: true,
           truncated: false,
@@ -110,7 +113,7 @@ async function runStep(
       supportsSlotAffinity: true,
     },
   );
-  return { params: seen[0]!, baseGrammar: grammar, prompt: prompt!, reportedBound: reportedBound ?? null };
+  return { params: seen[0]!, requests: seen, baseGrammar: grammar, prompt: prompt!, reportedBound: reportedBound ?? null };
 }
 
 /** The head line of the think body in a grammar. */
@@ -130,6 +133,16 @@ describe("a local fusion worker's reasoning bound on the per-request grammar", (
       profile: PLAIN_INSTRUCT_PROFILE,
       content: '[{"tool":"reply","args":{"text":"done"}}]',
     })).rejects.toThrow(/tool protocol mismatch.*without.*grammar/i);
+  });
+
+  it("drops the grammar reasoning bound from grammarless repair and telemetry", async () => {
+    const step = await runStep({ reasoningBudgetTokens: 1_536 }, 0, {
+      served: { grammarSkipped: true },
+      firstContent: '</think>{"tool":"os.fs.read","args":"invalid"}',
+    });
+    expect(step.requests).toHaveLength(2);
+    expect(step.requests[1]?.maxTokens).toBe(REPAIR_MAX_TOKENS);
+    expect(step.reportedBound).toBeNull();
   });
 
   it("bounds a worker step that the base grammar leaves unbounded", async () => {
