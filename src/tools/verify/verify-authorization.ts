@@ -98,12 +98,14 @@ function opensFileInside(args: VerifyRunArgs, folder: string): boolean {
 
 export function resolveVerifyCwd(root: string, cwd: string | undefined): string {
   const target = cwd === undefined ? resolve(root) : resolve(root, cwd);
+  // Windows may spell an existing directory with a drive-case or 8.3
+  // alias. Check its filesystem identity, including junctions.
+  if ((process.platform === "win32" || readOsSandboxSettings().mode === "workspace") && existsSync(target)) {
+    return canonicalVerifyCwd(root, target);
+  }
   const rel = relative(resolve(root), target);
   if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
     throw new Error("verify.run: `cwd` must stay inside the working directory");
-  }
-  if (readOsSandboxSettings().mode === "workspace" && existsSync(target)) {
-    return canonicalVerifyCwd(root, target);
   }
   return target;
 }
