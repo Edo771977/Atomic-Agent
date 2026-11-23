@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { wouldRefuse } from "../../agent/policies/fusion-orchestrator-mode.js";
 import { expect, it, vi } from "vitest";
 import { approvedProjectLessons, readProjectLessons } from "../../session/project-lessons.js";
-import { buildProjectLessonTool } from "./project-lesson-propose.js";
+import { sameLessonProjectFolder, buildProjectLessonTool } from "./project-lesson-propose.js";
 
 it("uses workspace write approval and creates only a new, inactive proposal", async () => {
   const folder = mkdtempSync(join(tmpdir(), "atomic-proposal-"));
@@ -33,4 +33,10 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
   } finally {
     rmSync(folder, { recursive: true, force: true });
   }
+});
+
+it("compares case according to the host's workspace platform", () => {
+  expect(sameLessonProjectFolder("/Projects/Example", "/projects/example", "win32")).toBe(true);
+  expect(sameLessonProjectFolder("/Projects/Example", "/projects/example", "darwin")).toBe(true);
+  expect(sameLessonProjectFolder("/Projects/Example", "/projects/example", "linux")).toBe(false);
 });

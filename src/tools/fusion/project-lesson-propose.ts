@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { PROJECT_LIMITS } from "../../session/project-limits.js";
@@ -32,6 +33,10 @@ function proposal(raw: Record<string, unknown>) {
   return { id, text };
 }
 
+export function sameLessonProjectFolder(a: string, b: string, platform = process.platform): boolean {
+  return platform === "win32" || platform === "darwin" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 export function buildProjectLessonTool(options: FsDangerousToolOptions & { trustConfigPaths?: readonly string[] }): ToolDefinition {
   const tool = PROJECT_LESSON_PROPOSE_TOOL;
   const error = (cause: unknown) => compressToolResult({ tool, status: "error", output: (cause as Error).message });
@@ -44,10 +49,14 @@ export function buildProjectLessonTool(options: FsDangerousToolOptions & { trust
         return error(new Error("Lesson proposals require an open, non-incognito project."));
       }
       const folder = resolve(ctx.projectRef.folder);
-      if (isTooBroadScope(folder) || folder !== resolve(ctx.workingDir)) return error(new Error("Run this tool from the project folder."));
+      const workingDir = resolve(ctx.workingDir);
       let draft: ReturnType<typeof proposal>;
       let path: string;
       try {
+        if (isTooBroadScope(folder) || !sameLessonProjectFolder(folder, workingDir) ||
+            (folder !== workingDir && realpathSync.native(folder) !== realpathSync.native(workingDir))) {
+          throw new Error("Run this tool from the project folder.");
+        }
         draft = proposal(args);
         path = projectLessonProposalPath(folder, draft.id);
       } catch (cause) {
