@@ -297,7 +297,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(innerReads + innerShells).toBe(0);
   });
 
-  it.each(["atag", "npx atomic-agent", "env -u ATOMIC_AGENT_TOOL_CHILD /usr/bin/atag"])(
+  it.each(["atag", "npx atomic-agent", "env -u ATOMIC_AGENT_TOOL_CHILD /usr/bin/atag", "node --import tsx src/cli/index.ts", "$(command -v atag)", "xargs -r atag"])(
     "asks for trust approval when shell invokes token management via %s", async (command) => {
       answer = { approved: false };
       await expect(shell({ cmd: `${command} http tokens add integration --role viewer` })).rejects.toThrow(ApprovalDeniedError);
@@ -305,6 +305,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       expect(innerShells).toBe(0);
     },
   );
+
+  it("classifies management inside a nested shell command", async () => {
+    answer = { approved: false };
+    await expect(shell({ cmd: "bash -lc 'atag http tokens list'" })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
+  });
 
   it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
     answer = { approved: false };

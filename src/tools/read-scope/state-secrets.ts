@@ -3,7 +3,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
-import { invocationsOf, programName, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
+import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -279,10 +279,21 @@ function pathOfToken(token: string, cwd: string, home: string): string | null {
 }
 
 /** Recognize CLI invocations even with a wrapper in front of the binary. */
-function managesHttpTokens(segments: readonly (readonly string[])[]): boolean {
-  return ["atag", "atag.cmd", "atomic-agent", "atomic-agent.cmd"].some(program =>
-    invocationsOf(segments, program).some(([group, command]) =>
-      group === "http" && command === "tokens"));
+function managesHttpTokens(line: string, depth = 0): boolean {
+  if (depth > 8) return false;
+  // Resolve common shell lookups lexically. Never invoke a shell or resolve a binary here.
+  const segments = splitCommandSegments(line.replace(
+    /(?:\$\(\s*(?:command\s+-v|which|type\s+-P)\s+((?:atomic-agent|atag)(?:\.exe)?)\s*\)|`\s*(?:command\s+-v|which|type\s+-P)\s+((?:atomic-agent|atag)(?:\.exe)?)\s*`)/gi,
+    (_, substitution, backticks) => substitution ?? backticks,
+  ));
+  const management = ([group, command]: readonly string[]) => group === "http" && command === "tokens";
+  if (["atag", "atag.cmd", "atomic-agent", "atomic-agent.cmd"].some(program =>
+    invocationsOf(segments, program).some(management))) return true;
+  if (invocationsOf(segments, "node").some(args =>
+    args.some((word, index) => /(?:^|[\\/])(?:src|dist)[\\/]cli[\\/]index\.(?:ts|js)$/.test(word)
+      && management(args.slice(index + 1))))) return true;
+  return NESTED_SHELL_PROGRAMS.some(program => invocationsOf(segments, program).some(args =>
+    scanNestedShellOptions(args, program).scripts.some(script => managesHttpTokens(script, depth + 1))));
 }
 
 /**
@@ -312,7 +323,7 @@ export function findShellStateSecrets(
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
   const hits = new Set(processSecretPaths(line));
-  if (managesHttpTokens(segments)) {
+  if (managesHttpTokens(line)) {
     for (const file of known.files) {
       if (/(?:^|[\\/])http-tokens\.json$/i.test(file)) hits.add(file);
     }
@@ -385,7 +396,7 @@ export function shellServerKeyMutation(
   if (files.length === 0) return false;
   const line = shellCommandLine(args);
   if (files.some(path => /(?:^|[\\/])http-tokens\.json$/i.test(path)) &&
-      managesHttpTokens(splitCommandSegments(line))) return true;
+      managesHttpTokens(line)) return true;
   return line.split(/[;|&\n]+/).some(cmd => {
     const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
     return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
