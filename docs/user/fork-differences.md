@@ -22,6 +22,11 @@ Earlier upstream PRs came in as batches:
 
 Anything upstream published after 17 November is not here until it is imported.
 
+Selective imports for provider and scheduler reliability:
+
+- `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.
+- `fix/issue-1735-scheduler-leader-overlap` (`50d34a2544e5eab09dd5b895a0118b2a07b2e6a9`): give the Telegram owner priority for scheduler leadership.
+
 The official installer (`curl … atomicagent.io/install`) and upstream's release packages install upstream's code, without any of the changes below. To use this fork:
 
 - Build it from source with `npm ci && npm run build && npm link`.
