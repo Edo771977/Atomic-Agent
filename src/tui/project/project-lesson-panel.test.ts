@@ -74,10 +74,30 @@ function fixture({ incognito = false, busy = false, otherChatBusy = false, autoR
   const lines = (width = 90) => projectCardLines(card!, width).map(line => line.segments.map(s => s.text).join(""));
   const text = (width?: number) => lines(width).join("\n");
   const detail = () => { press("v"); press("", { return: true }); };
-  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn, seen, refFolder };
+  return { write, directory, record, press, text, lines, detail, sendMessage, liveProjectTurn, seen, refFolder, dispatch };
 }
 
 describe("project lessons in the TUI", () => {
+  it("keeps a pending gate decision in the card when a lesson listing arrives", () => {
+    const f = fixture();
+    f.dispatch({ type: "project_card_pending" });
+    f.press("v");
+    f.dispatch({ type: "project_card_lessons_loaded", sessionId: "s1", panel: { rows: [], problems: [] } });
+    expect(f.text()).toContain("deciding…");
+    expect(f.text()).not.toContain("Project lessons");
+    f.dispatch({ type: "project_card_failed", error: "Gate changed" });
+    expect(f.text()).toContain("Gate changed");
+  });
+
+  it("returns from the lesson list to the card even if a gate decision is pending", () => {
+    const f = fixture();
+    f.press("v");
+    f.dispatch({ type: "project_card_pending" });
+    f.press("", { escape: true });
+    expect(f.text()).toContain("PROJECT PLAN");
+    expect(f.text()).toContain("deciding…");
+  });
+
   it("uses the exact bound folder for lesson reads and live-turn checks", () => {
     const f = fixture({ symlink: true });
     f.write("storage");

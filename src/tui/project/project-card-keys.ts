@@ -38,7 +38,7 @@ export function handleProjectCardKey(
   }
   if (key.escape) {
     if (card.mode === "lessons" && card.lessonDetail) dispatch({ type: "project_card_lesson_detail", open: false });
-    else if (card.mode !== "actions" && !card.pending) dispatch({ type: "project_card_mode_set", mode: "actions" });
+    else if (card.mode === "lessons" || (card.mode !== "actions" && !card.pending)) dispatch({ type: "project_card_mode_set", mode: "actions" });
     else dispatch({ type: "project_card_closed" });
     return;
   }

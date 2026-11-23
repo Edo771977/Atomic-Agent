@@ -285,7 +285,7 @@ export function reduceProjectCard(
   if (card === null) return null;
   switch (action.type) {
     case "project_card_lessons_loaded": {
-      if (card.sessionId !== action.sessionId) return card;
+      if (card.pending || card.sessionId !== action.sessionId) return card;
       const selected = action.panel.rows.find(row => row.id === card.lessonId);
       const previous = card.lessons?.rows.find(row => row.id === card.lessonId);
       const sameLesson = selected !== undefined && selected.hash === previous?.hash && Boolean(selected.lesson) === Boolean(previous.lesson);
