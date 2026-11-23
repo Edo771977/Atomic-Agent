@@ -362,6 +362,8 @@ New to this? [MEMORY_GUIDE.md](docs/user/memory.md) walks the whole loop end to 
 
 ## Ways to Use It
 
+For a client connecting to `atag serve`, issue its own credential with `atag http tokens add <name> --role viewer`. The token is printed once. Select the role for the client's operations and revoke it with `atag http tokens remove <name>`. The serve key remains the owner credential. [HTTP roles and route matrix](src/http/README.md#named-http-tokens)
+
 <details>
 <summary><b>TUI and CLI</b></summary>
 
@@ -802,6 +804,7 @@ Everything Atomic Agent does is inspectable and interruptible:
 
 > [!IMPORTANT]
 > Treat traces and `<stateDir>/.env` as sensitive local artifacts. Secret redaction and per-tool environment filtering are not complete isolation layers.
+
 
 ### Privacy and Egress
 
