@@ -199,7 +199,7 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
     const text = delivery ? maskVerificationSecrets(detail, known) : detail;
     const exitCode = out.status === "uncheckable" ? null : ok ? 0 : 1;
     const warningCount = ui === undefined
-      ? (out.detail.match(/^warning: /gm)?.length ?? 0)
+      ? (out.warningCount ?? 0)
       : (ui.findings?.filter(line => line.startsWith("warning: ")).length ?? 0);
     const evidenceCount = [ui?.findings, ui?.suppressions, ui?.usedExceptions].filter(lines => lines?.length).length;
     const evidenceBudget = Math.floor(8188 / Math.max(1, evidenceCount));

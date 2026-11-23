@@ -15,6 +15,7 @@ export interface ArtifactOutcome {
   status: "pass" | "fail" | "uncheckable";
   detail: string;
   timedOut?: boolean;
+  warningCount?: number;
   links?: readonly ResearchLink[];
   linkLimit?: boolean;
   researchLinks?: readonly ResearchLinkVerdict[];
