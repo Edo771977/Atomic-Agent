@@ -134,7 +134,10 @@ describe("tool roles", () => {
   });
 
   it("allows only the named proposal exception among director filesystem writes", () => {
-    const ctx = { registry: { has: () => true, get: () => ({ readonly: false }) } } as Parameters<typeof wouldRefuse>[1];
+    const ctx = { registry: {
+      has: () => true,
+      get: (name: string) => ({ name, description: "", readonly: false, run: async () => { throw new Error("Not executed"); } }),
+    } };
     expect(wouldRefuse(PROJECT_LESSON_PROPOSE_TOOL, ctx)).toBe(false);
     for (const name of ["os.fs.write", "os.fs.edit", "os.fs.patch", "os.fs.move", "os.fs.trash", "os.shell.run"]) {
       expect(wouldRefuse(name, ctx), name).toBe(true);

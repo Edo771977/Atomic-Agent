@@ -50,7 +50,7 @@ describe("Telegram project gate", () => {
       runTurn: async (session: SessionState, text: string, opts?: { eventHook?: (e: AgentLoopEvent) => void }) => {
         messages.push(text);
         if (text === "propose a lesson") {
-          opts?.eventHook?.({ type: "llm_event", stepIndex: 0, event: {
+          opts?.eventHook?.({ type: "llm_event", event: {
             type: "tool_call_executed", batchIndex: 0, batchSize: 1,
             result: { tool: "project.lesson.propose", status: "ok", details: {}, truncated: false,
               summary: "Saved director-authored lesson proposal storage (declared origin: correction, milestone m1, run r1)." },
