@@ -156,3 +156,21 @@ test('Defer and Reactivate send the shown plan version and update real lesson co
     edits: {lessonStatus: {'local-storage': 'active'}}});
   assert.equal(latest.model.checks.some((c) => c.dimension === 'lesson-coverage' && c.verdict === 'fail'), true);
 });
+
+test('the review panel draws all author fields as text and exposes invisible code points', () => {
+  const hash = '1'.repeat(64);
+  const hidden = '\u202E\u{E0061}\u0008';
+  const text = '<img src=x>' + hidden;
+  const row = {
+    id: 'storage', hash, hasChoice: false,
+    lesson: {title: text, source: 'director' + hidden, from: text, touches: [text], always: true,
+      declaredStatus: 'active', sections: {decided: text, triedAndRuledOut: '', watchOut: ''}},
+    status: {effectiveStatus: 'unapproved', personState: null},
+  };
+  for (const selected of [undefined, row]) {
+    const host = draw({kind: 'lesson-panel', lessonPanel: {panel: {rows: [row]}, row: selected}});
+    assert.match(host.textContent, /<img src=x>\\u\{202E\}\\u\{E0061\}\\u\{0008\}/);
+    assert.equal(host.textContent.includes(hidden[0]), false);
+    assert.equal(host.findAll((el) => el.tagName === 'IMG').length, 0);
+  }
+});

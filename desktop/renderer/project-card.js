@@ -939,7 +939,7 @@ function pcDrawLessons(doc, body, model, on) {
   const list = pcEl(doc, 'ul', 'pc-rows');
   for (const lesson of model.lessons) {
     const li = pcEl(doc, 'li', 'pc-row');
-    li.appendChild(pcEl(doc, 'div', 'pc-row-title', lesson.id + ' · ' + lesson.title));
+    li.appendChild(pcEl(doc, 'div', 'pc-row-title', pcLessonPlain(lesson.id + ' · ' + lesson.title)));
     const cited = lesson.citedBy.length ? 'Cited by: ' + lesson.citedBy.join(', ') : 'No citing tasks';
     li.appendChild(pcEl(doc, 'div', 'pc-meta', (lesson.deferred ? 'deferred' : 'active') + ' · ' + cited));
     if (!lesson.deferred && lesson.missingFrom.length) {
@@ -996,6 +996,12 @@ function pcDrawBacklog(doc, body, model, on) {
 
 const PC_LESSON_SECTIONS = {decided: 'Decided', triedAndRuledOut: 'Tried and ruled out', watchOut: 'Watch out'};
 
+// Keep author strings reviewable even when an older or remote agent supplies invisible characters.
+function pcLessonPlain(text) {
+  return pcStr(text).replace(/[\p{Cf}\p{Co}\p{Cn}\p{Cs}\p{Default_Ignorable_Code_Point}\u2028\u2029\uFFF9-\uFFFB\x00-\x09\x0B-\x1F\x7F-\x9F]/gu,
+    (char) => '\\u{' + char.codePointAt(0).toString(16).toUpperCase().padStart(4, '0') + '}');
+}
+
 function pcLessonSection(row, key, limit) {
   const text = pcStr(row.lesson.sections?.[key]);
   const ends = row.promptEnds?.[key];
@@ -1028,7 +1034,7 @@ function pcLessonMeta(row) {
   const {lesson, status} = row;
   const effective = status?.stale ? 'expired (file changed)' : status?.effectiveStatus === 'active' ? 'approved' : pcStr(status?.effectiveStatus);
   const source = lesson.source === 'person' ? 'person' : pcStr(lesson.source) + ' (declared by the director)';
-  return source + ' · declared: ' + pcStr(lesson.declaredStatus) + ' · effective: ' + effective;
+  return pcLessonPlain(source + ' · declared: ' + pcStr(lesson.declaredStatus) + ' · effective: ' + effective);
 }
 
 function pcDrawLessonPanel(doc, host, model, on, focusKey, previousBody) {
@@ -1056,40 +1062,40 @@ function pcDrawLessonPanel(doc, host, model, on, focusKey, previousBody) {
   if (error) body.appendChild(pcEl(doc, 'p', 'pc-error', error)).setAttribute('role', 'alert');
   if (busy) body.appendChild(pcEl(doc, 'p', 'pc-busy', 'Loading…')).setAttribute('role', 'status');
   if (row) {
-    body.appendChild(pcEl(doc, 'code', 'pc-lesson-text', row.id + '@' + row.hash));
+    body.appendChild(pcEl(doc, 'code', 'pc-lesson-text', pcLessonPlain(row.id + '@' + row.hash)));
     if (row.lesson) {
       const {lesson} = row;
-      body.appendChild(pcEl(doc, 'h3', 'pc-lesson-heading', lesson.title));
+      body.appendChild(pcEl(doc, 'h3', 'pc-lesson-heading', pcLessonPlain(lesson.title)));
       body.appendChild(pcEl(doc, 'div', 'pc-meta', pcLessonMeta(row)));
-      body.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + lesson.always + ' · touches: ' + (pcList(lesson.touches).join(', ') || '[]')));
-      if (lesson.from) body.appendChild(pcEl(doc, 'div', 'pc-meta', 'From: ' + lesson.from));
+      body.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + lesson.always + ' · touches: ' + (pcLessonPlain(pcList(lesson.touches).join(', ')) || '[]')));
+      if (lesson.from) body.appendChild(pcEl(doc, 'div', 'pc-meta', 'From: ' + pcLessonPlain(lesson.from)));
       if (lesson.declaredStatus === 'proposed') {
-        body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Set status: active in ' + '.atomic/project/lessons/' + row.id + '.md and refresh.'));
+        body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Set status: active in ' + '.atomic/project/lessons/' + pcLessonPlain(row.id) + '.md and refresh.'));
       }
       for (const [key, label] of Object.entries(PC_LESSON_SECTIONS)) {
         const section = body.appendChild(pcEl(doc, 'section', 'pc-lesson-section'));
         section.appendChild(pcEl(doc, 'h4', 'pc-lesson-heading', label));
         for (const part of pcLessonSection(row, key, panel.sectionLimit)) {
-          section.appendChild(part.mark ? pcEl(doc, 'p', 'pc-warn', part.mark) : pcEl(doc, 'div', 'pc-lesson-text', part.text));
+          section.appendChild(part.mark ? pcEl(doc, 'p', 'pc-warn', part.mark) : pcEl(doc, 'div', 'pc-lesson-text', pcLessonPlain(part.text)));
         }
       }
     } else {
-      body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Missing or invalid lesson · previous choice: ' + row.orphanedChoice));
+      body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Missing or invalid lesson · previous choice: ' + pcLessonPlain(row.orphanedChoice)));
     }
   } else {
     const list = body.appendChild(pcEl(doc, 'ul', 'pc-rows'));
     for (const item of pcList(panel?.rows)) {
       const entry = list.appendChild(pcEl(doc, 'li', 'pc-row'));
       const title = item.lesson ? item.id + ' · ' + item.lesson.title : item.id;
-      entry.appendChild(button(title, 'lesson-read', false, 'read:' + item.id, {id: item.id}));
-      const meta = item.lesson ? pcLessonMeta(item) : 'Missing or invalid · previous choice: ' + item.orphanedChoice;
+      entry.appendChild(button(pcLessonPlain(title), 'lesson-read', false, 'read:' + item.id, {id: item.id}));
+      const meta = item.lesson ? pcLessonMeta(item) : 'Missing or invalid · previous choice: ' + pcLessonPlain(item.orphanedChoice);
       entry.appendChild(pcEl(doc, 'div', 'pc-meta', meta));
       if (item.lesson) {
-        entry.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + item.lesson.always + ' · touches: ' + (pcList(item.lesson.touches).join(', ') || '[]')));
+        entry.appendChild(pcEl(doc, 'div', 'pc-meta', 'always: ' + item.lesson.always + ' · touches: ' + (pcLessonPlain(pcList(item.lesson.touches).join(', ')) || '[]')));
       }
     }
     for (const problem of pcList(panel?.problems)) {
-      body.appendChild(pcEl(doc, 'p', 'pc-warn', 'Skipped ' + problem.file + ': ' + problem.reason));
+      body.appendChild(pcEl(doc, 'p', 'pc-warn', pcLessonPlain('Skipped ' + problem.file + ': ' + problem.reason)));
     }
     if (panel && !panel.rows?.length && !panel.problems?.length && !blocked && !error) {
       body.appendChild(pcEl(doc, 'p', 'pc-meta', 'No project lessons found.'));
