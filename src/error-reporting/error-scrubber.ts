@@ -9,6 +9,7 @@
 
 import { classifyTransportHost } from "./classify-transport-host.js";
 import { sanitizeLlmFailureTags, type LlmFailureContext } from "./llm-failure-tags.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { maskSecrets } from "./secret-detector.js";
 import { extractAnswerFailureTags } from "./answer-failure-tag.js";
 import { extractSubscriptionCliFailureTags } from "./subscription-cli-failure-tag.js";
@@ -503,7 +504,7 @@ export function scrubError(
   if (causeType) event.causeType = causeType;
   if (category) event.category = category;
   if (STATIC_MESSAGE_ERRORS.has(errorType) && err.message) {
-    event.message = maskSecrets(err.message);
+    event.message = maskSecrets(err.message, runtimeKnownSecrets({}));
   }
   if (httpStatus !== undefined) event.httpStatus = httpStatus;
   if (code !== undefined) event.code = code;
