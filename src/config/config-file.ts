@@ -13,6 +13,7 @@ import {
   type UserConfigFile,
 } from "./config-schema.js";
 import { writeOwnerOnlyFileAtomicSync } from "./owner-only-file.js";
+import { sharedAgentSkillsDir } from "./shared-skills-dir.js";
 import { SECRETS_STORE_FILE } from "./secret-store.js";
 
 /** Resolve the absolute path to the user config file inside a state dir. */
@@ -52,6 +53,7 @@ export function getTrustConfigPaths(paths: {
   userConfigFile: string;
   stateDir: string;
   localModelsDataDir: string;
+  globalSkillsDir?: string;
 }): readonly string[] {
   return [
     paths.userConfigFile,
@@ -71,6 +73,9 @@ export function getTrustConfigPaths(paths: {
     // `session/project-decisions.ts`, `session/project-registry.ts`): a
     // write there could approve a gate or forge a run.
     join(paths.stateDir, "project-decisions") + sep,
+    // Skill bodies can become durable instructions in every project.
+    (paths.globalSkillsDir ?? join(paths.stateDir, "skills")) + sep,
+    sharedAgentSkillsDir()! + sep,
     // Drafts and activation records are operator-owned.
     join(paths.stateDir, "learned-projects") + sep,
     join(paths.stateDir, "receipts") + sep,
@@ -104,6 +109,7 @@ export function getStateSecretPaths(paths: {
   userConfigFile: string;
   stateDir: string;
   localModelsDataDir: string;
+  globalSkillsDir?: string;
 }): readonly string[] {
   return [
     ...getTrustConfigPaths(paths),

@@ -198,8 +198,6 @@ posix("which calls touch the agent's secret files", () => {
     for (const args of [
       { cmd: "ls -la" },
       { cmd: "cat .env" },
-      { cmd: "cat ~/.atomic-agent/skills/notes/SKILL.md" },
-      { cmd: "ls ~/.atomic-agent/skills" },
       { cmd: "cat ~/.atomic-agent/.env.example" },
       { cmd: "git", args: ["status"] },
       { cmd: "npm test -- --reporter=dot" },
@@ -378,6 +376,12 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     await shell({ cmd: "sed -i s/4/5/ ~/.atomic-agent/config.json" });
     expect(prompts.map((p) => p.category)).toEqual(["state_secret"]);
     expect(prompts[0]!.affectedResources).toEqual([s.config]);
+    expect(innerShells).toBe(1);
+  });
+
+  it("asks at level 4 for recognizable writes under the global skills directory", async () => {
+    await shell({ cmd: "sed -i s/a/b/ ~/.atomic-agent/skills/notes/SKILL.md" });
+    expect(prompts.map(p => p.category)).toEqual(["state_secret"]);
     expect(innerShells).toBe(1);
   });
 
