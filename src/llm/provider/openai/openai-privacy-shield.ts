@@ -1,3 +1,4 @@
+import { parseToolCalls } from "../../grammar/tool-call-grammar.js";
 import type { CompletionResult, OpenAiToolCall, StreamChunk } from "../completion-types.js";
 import {
   createStreamUnmasker,
@@ -64,11 +65,35 @@ function unmaskToolCalls(
   return changed ? out : calls;
 }
 
+/**
+ * Native providers can fall back to grammar-shaped tool calls in content.
+ * Keep the payload parseable when a restored value contains JSON syntax.
+ */
+function unmaskReply(
+  text: string,
+  vault: PrivacyVault,
+  jsonContent: boolean,
+  mayContainGrammar: boolean,
+): string {
+  if (jsonContent) return vault.unmask(text, { json: true });
+  const restored = vault.unmask(text);
+  if (!mayContainGrammar || restored === text) return restored;
+  try {
+    parseToolCalls(text);
+  } catch {
+    return restored;
+  }
+  return vault.unmask(text, { json: true });
+}
+
 /** `result` with the session's placeholders put back everywhere the model writes. */
 export function unmaskCompletion<T extends CompletionResult>(result: T, vault: PrivacyVault, jsonContent = false): T {
   if (vault.isEmpty) return result;
-  const content = vault.unmask(result.content, { json: jsonContent });
-  const reasoningContent = vault.unmask(result.reasoningContent);
+  const noNativeCalls = !result.toolCalls?.length;
+  const content = unmaskReply(result.content, vault, jsonContent, noNativeCalls);
+  const reasoningContent = unmaskReply(
+    result.reasoningContent, vault, false, noNativeCalls && result.content.trim().length === 0,
+  );
   const toolCalls = unmaskToolCalls(result.toolCalls, vault);
   if (
     content === result.content &&

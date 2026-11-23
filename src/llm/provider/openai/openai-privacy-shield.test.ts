@@ -1,3 +1,4 @@
+import { parseToolCalls } from "../../grammar/tool-call-grammar.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CompletionResult, StreamChunk } from "../completion-types.js";
@@ -265,6 +266,20 @@ describe("Privacy Shield in the fork", () => {
       expect(result.toolCalls?.[0]?.function.name).toBe("read");
       expect(JSON.parse(result.toolCalls![0]!.function.arguments)).toEqual({ path });
     }
+  });
+
+  it("keeps grammar-shaped fallback content parseable before dispatch", async () => {
+    const path = 'Case3/a"b.txt';
+    setPrivacyKnownSecrets(() => [{ label: "path", value: path }]);
+    setPrivacyShieldEnabled(true);
+    const content = '[{"tool":"os.fs.read","args":{"path":"[SECRET_1]"}}]';
+    const fetchImpl = vi.fn(async () =>
+      sse([contentFrame(content), stopFrames()]),
+    );
+    const { result } = await drain(provider(fetchImpl).completeStream({
+      prompt: `Read ${path}`, sessionId: "grammar-fallback",
+    }));
+    expect(parseToolCalls(result.content).calls[0]?.args).toEqual({ path });
   });
 
   it("masks private values in the JSON arguments replayed as chat history", () => {
