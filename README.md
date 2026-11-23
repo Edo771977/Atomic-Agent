@@ -583,7 +583,7 @@ On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (
 
 To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. Explicit keys must have at least 16 characters, including on loopback. A LAN listen address always requires an explicit key.
 
-Start with `--api-key-file <path>` and leave `ATOMIC_AGENT_API_KEY` unset to keep an explicit key out of the startup environment and command line. Use a file that only your account can read. Serve keeps that file, so its creator manages cleanup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`.
+Launchers can pipe one newline-terminated key into `--api-key-stdin` to keep the credential out of startup arguments, the environment and files. For an owner-only key file, use `--api-key-file <path>`. Serve keeps the file by default. Add `--api-key-file-delete` to remove it after validation and before runtime startup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`. See the [HTTP guide](src/http/README.md) for the startup input rules.
 
 The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent.
 
