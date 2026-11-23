@@ -420,6 +420,17 @@ describe("defaultBrowserLauncher — launch order", () => {
     expect(calls.map((c) => c.executablePath)).toEqual(["/opt/chrome"]);
   });
 
+  it("macOS honors an explicit Chrome environment override", async () => {
+    vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", "chrome");
+    try {
+      const { calls, loadPlaywright } = recorder();
+      await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+      expect(calls.map((call) => call.executablePath)).toEqual([findExecutable().path]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("macOS with a non-default channel keeps the host browser first", async () => {
     const { calls, loadPlaywright } = recorder();
     const config = { browser: { ...CONFIG.browser, channel: "msedge" as const } };

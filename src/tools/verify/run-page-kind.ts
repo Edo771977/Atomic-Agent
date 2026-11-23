@@ -96,7 +96,8 @@ export function defaultBrowserLauncher(
     const reasons: string[] = [];
     const env = markAgentToolChild(process.env);
     const args = config.browser.noSandbox ? ["--no-sandbox"] : [];
-    const explicit = config.browser.executablePath !== null || config.browser.channel !== "chrome";
+    const explicit = config.browser.executablePath !== null || config.browser.channel !== "chrome"
+      || process.env.ATOMIC_AGENT_BROWSER_CHANNEL?.toLowerCase() === "chrome";
     const bundledFirst = platform === "darwin" && !explicit;
     const tryBundled = async (): Promise<Browser | null> => {
       try {
