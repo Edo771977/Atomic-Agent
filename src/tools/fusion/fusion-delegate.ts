@@ -2037,10 +2037,10 @@ export function buildFusionDelegateTool(
               if (!(result.error ?? "").startsWith("not started:")) candidateWorkerRuns.set(result.id, Math.min(1_000_000, (candidateWorkerRuns.get(result.id) ?? 0) + 1));
             }
             breaker.observe(result);
-            // A finished worker that ran tools answers the format check.
+            // A finished worker that ran tools under the requested format answers the check.
             if (
               (result.status === "ok" || result.status === "no_changes") &&
-              result.tools.calls > 0
+              result.tools.calls > 0 && result.grammarSkipped !== true
             ) {
               formatCheck.noteWorkerSucceeded(ctx.sessionId, providerId);
             }

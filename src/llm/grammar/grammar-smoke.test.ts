@@ -85,6 +85,14 @@ async function stubServer(reply: Reply) {
 
 const OK_CALL = '[{"tool":"reply","args":{"text":"ok"}}]';
 
+it("fails the worker check when a parseable completion skipped the grammar", () => {
+  expect(judgeGrammarSmokeCompletion({
+    content: '[{"tool":"reply","args":{"text":"ok"}}]',
+    grammarSkipped: true,
+    truncated: false,
+  }, PLAIN_INSTRUCT_PROFILE)).toMatchObject({ kind: "fail", cause: "grammar-rejected" });
+});
+
 describe("runGrammarSmoke against a stub llama-server", () => {
   it("sends a worker step's thinking-on grammar with a short think bound, and reads the prefilled think", async () => {
     // What a grammar-served Qwen completion looks like: mid-think, since

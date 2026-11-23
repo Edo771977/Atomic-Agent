@@ -171,6 +171,7 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - Unreported thinking tokens.
 
   See [#4](https://github.com/Edo771977/atomic-agent/pull/4).
+- **Inference reliability.** External llama servers that refuse GBNF can be retried without it before any output is streamed. Fusion rejects a worker completion served without the required grammar before dispatch, even when its format probe was skipped or cached. Such completions provide no format proof. An empty native-tool answer has an abortable delay before the re-ask. Local native-tool requests reserve space for schemas independently of the cached tool catalog and share the remaining prompt budget with project context and memory.
 - **Persistence.**
   - The `.env` round-trip.
   - Full forget.
