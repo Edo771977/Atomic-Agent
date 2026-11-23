@@ -5,7 +5,7 @@ Owner: repository maintainers
 
 Run date: 2026-10-06. Build: atomic-agent 0.6.6, macOS, Node 25.7.0 with the installed native SQLite dependency. This checks actual `dist` processes, HTTP/SSE, filesystem effects and SQLite persistence. The LLM endpoints are local scripted servers; this does not measure model quality.
 
-CI runs the built smoke in a Linux network namespace with only loopback enabled. The smoke opts in to telemetry and crash reporting, exercises a feature-flag lookup and update check, and requires an empty `ATOMIC_AGENT_NET_INTERCEPT_LOG` before passing.
+CI runs the built smoke in a Linux network namespace with only loopback enabled. The smoke opts in to telemetry and crash reporting, exercises feature flags with offline mode set through the environment and through config, and checks for updates. The offline tripwire log must be empty. A separate online control must record a real PostHog attempt that the tripwire blocks before connection.
 
 ## Repeatable offline check
 

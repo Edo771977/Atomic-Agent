@@ -166,9 +166,9 @@ function runCli(args, stateDir, input = "", expectedCode = 0) {
   return runNode([join(root, "dist/cli/index.js"), ...args], stateDir, input, expectedCode);
 }
 
-async function runNode(args, stateDir, input = "", expectedCode = 0) {
+async function runNode(args, stateDir, input = "", expectedCode = 0, env = childEnv(stateDir)) {
   const processHandle = spawn(process.execPath, args,
-    { cwd, env: childEnv(stateDir), stdio: ["pipe", "pipe", "pipe"] });
+    { cwd, env, stdio: ["pipe", "pipe", "pipe"] });
   cliChildren.add(processHandle);
   const result = { args, stdout: "", stderr: "", timedOut: false };
   const timer = setTimeout(() => { result.timedOut = true; processHandle.kill("SIGKILL"); }, 20000);
@@ -342,10 +342,17 @@ try {
     assert.match(result.stdout, /E2E-CLI-READ-OK/);
     assert.match(inferences("cli-read")[1].body.prompt, /E2E-FILE-ONE-9237/);
   });
+  const offlineConfigModule = new URL("../dist/cli/offline-from-config.js", import.meta.url).href;
+  const configOnlyEnv = childEnv(cliState);
+  delete configOnlyEnv.ATOMIC_AGENT_OFFLINE;
   await check("offline mode suppresses feature flags and update checks", async () => {
     const flagsModule = new URL("../dist/analytics/fetch-feature-flag.js", import.meta.url).href;
-    const flags = await runNode(["--input-type=module", "--eval", `
+    const flagProbe = `
       import { fetchFeatureFlag } from ${JSON.stringify(flagsModule)};
+      import { applyOfflineModeFromConfigFile } from ${JSON.stringify(offlineConfigModule)};
+      if (process.env.ATOMIC_AGENT_OFFLINE === undefined && !applyOfflineModeFromConfigFile()) {
+        throw new Error("offline configuration was not loaded");
+      }
       let calls = 0;
       const enabled = await fetchFeatureFlag({
         key: "offline-smoke",
@@ -353,8 +360,12 @@ try {
         fetchImpl: (...args) => { calls++; return fetch(...args); },
       });
       if (enabled || calls) throw new Error("offline feature flag attempted a request");
-    `], cliState);
-    assert.equal(flags.stdout, "");
+    `;
+    const flagArgs = ["--input-type=module", "--eval", flagProbe];
+    const envFlags = await runNode(flagArgs, cliState);
+    const configFlags = await runNode(flagArgs, cliState, "", 0, configOnlyEnv);
+    assert.equal(envFlags.stdout, "");
+    assert.equal(configFlags.stdout, "");
     const update = await runCli(["update", "--check"], cliState, "", 1);
     assert.match(update.stderr, /offline mode is on, so the update check was skipped/i);
   });
@@ -363,6 +374,35 @@ try {
     report.egress = attempts;
     assert.deepEqual(attempts.map((a) => `${a.kind} ${a.host}${a.port ? `:${a.port}` : ""}`), [],
       "outbound attempts (blocked by the tripwire; see report.json egress)");
+  });
+  await check("online control: the tripwire records and blocks product telemetry", async () => {
+    const onlineState = join(sandbox, "online-state");
+    const onlineLog = join(sandbox, "online-egress.ndjson");
+    await mkdir(onlineState);
+    await writeFile(onlineLog, "", { mode: 0o600 });
+    await writeFile(join(onlineState, "config.json"), JSON.stringify({
+      ...config, network: { ...config.network, offline: false },
+    }), { mode: 0o600 });
+    const analyticsModule = new URL("../dist/analytics/analytics-client.js", import.meta.url).href;
+    const posthogModule = new URL("../dist/analytics/posthog-config.js", import.meta.url).href;
+    const { POSTHOG_HOST } = await import(posthogModule);
+    const expectedHost = new URL(POSTHOG_HOST).hostname;
+    await runNode(["--input-type=module", "--eval", `
+      import { createAnalyticsClient } from ${JSON.stringify(analyticsModule)};
+      import { applyOfflineModeFromConfigFile } from ${JSON.stringify(offlineConfigModule)};
+      if (applyOfflineModeFromConfigFile()) throw new Error("online control started offline");
+      const client = createAnalyticsClient({
+        enabled: true, installId: "offline-smoke", platform: process.platform, version: "0",
+      });
+      if (!client) throw new Error("online control did not create an analytics client");
+      if (await client.captureConfirmed("app_opened")) throw new Error("tripwire allowed delivery");
+      await client.shutdown();
+    `], onlineState, "", 0, {
+      ...configOnlyEnv, ATOMIC_AGENT_STATE_DIR: onlineState, ATOMIC_AGENT_NET_INTERCEPT_LOG: onlineLog,
+    });
+    const attempts = (await readFile(onlineLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    report.onlineTelemetryAttempts = attempts;
+    assert(attempts.some(({ host }) => host === expectedHost), "online control made no PostHog attempt");
   });
   for (const inference of report.requests.filter((r) => !r.auxiliary)) {
     assert.equal(typeof inference.body.stream, "boolean");
