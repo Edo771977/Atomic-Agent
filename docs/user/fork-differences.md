@@ -29,7 +29,6 @@ Anything upstream published after 17 November is not here until it is imported.
 
 The fork imports mandatory `serve` authentication from upstream commit `8e2e65b7c3650d249ec782e8b2fbadf9a3635ffa`. The fork authenticates model discovery and its own project routes, excludes the serve key from agent subprocesses, and accepts an explicit key from a file. Signed tunnel deliveries without the serve key use `/webhooks/{name}`. See the [HTTP guide](../../src/http/README.md), [upstream triage](upstream-2026-11-triage.md), and [#187](https://github.com/Edo771977/Atomic-Agent/issues/187).
 
-
 Selective imports for provider and scheduler reliability:
 
 - `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.

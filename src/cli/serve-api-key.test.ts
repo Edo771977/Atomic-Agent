@@ -84,7 +84,7 @@ describe("serveApiKeyNotice", () => {
     expect(serveApiKeyNotice({ key: "k", source: "given" }, "http://127.0.0.1:8787")).toBe("");
   });
 
-  it("says where the generated key is and how to print it, without the key itself", () => {
+  it("says where the generated key is and how to send it, without the key itself", () => {
     const notice = serveApiKeyNotice(fileKey, "http://127.0.0.1:8787");
     expect(notice).toContain("/s/serve-api.key");
     expect(notice).toContain("generated");
@@ -109,4 +109,9 @@ it.skipIf(process.platform === "win32")("round2-5 refuses a hard-linked persiste
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+it("round2-9 completes the generated-file notice", () => {
+  const key = { key: "synthetic", path: "/state/serve-api.key", created: true, source: "file" } as const;
+  expect(serveApiKeyNotice(key, "http://localhost")).toContain("key generated at /state/serve-api.key");
 });

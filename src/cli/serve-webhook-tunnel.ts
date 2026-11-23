@@ -7,9 +7,9 @@
  * second listener on a random loopback port whose route table holds only
  * webhook delivery routes (`buildTunnelRouteTable`). The main API has
  * its own port. Every delivery needs the binding's secret or signature
- * (GitHub, Standard Webhooks or Stripe). The /api webhook route also
- * asks for the serve bearer. The provider endpoint authentication only. Signed bindings also get replay protection there: a
- * repeated delivery id answers 200 and runs nothing, and a signature
+ * (GitHub, Standard Webhooks or Stripe). Signed bindings also get
+ * replay protection on this listener.
+ * A repeated delivery id answers 200 and runs nothing, and a signature
  * timestamp more than 5 minutes old is refused. serve refuses to start
  * the tunnel when no binding has a secret. There is deliberately no
  * option to point the tunnel at the main API port.
