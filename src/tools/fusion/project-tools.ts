@@ -803,7 +803,9 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
         let count = 0;
         for (const file of activeLessons.length === 0 ? [] : evidence.changedFiles ?? []) {
           const ids = activeLessons.filter((lesson) =>
-            lessonTouchesTask(lesson.touches, [file], process.platform))
+            (lesson.always && (lesson.hash === ctx.project?.lessonDeferred?.[lesson.id] && lesson.hash !== undefined)
+              ? false
+              : (lesson.always && lesson.touches.length === 0) || lessonTouchesTask(lesson.touches, [file], process.platform)))
             .map((lesson) => lesson.id);
           if (ids.length === 0) continue;
           count += 1;

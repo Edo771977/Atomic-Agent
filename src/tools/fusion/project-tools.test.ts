@@ -469,11 +469,13 @@ it("invites a lesson proposal after a failed milestone report", async () => {
   expect(failed.summary).toMatch(/project\.lesson\.propose.*milestone-failure.*milestone m1, run r1/);
 });
 
-it("bounds large lesson reports", async () => {
+it("bounds large lesson reports and respects binding scope and deferrals", async () => {
   const project = {
     milestones: [{ id: "m1", runIds: ["r1"] }],
+    lessonDeferred: { deferred: "hash" },
     [currentProjectLessons]: { active: [
-      { id: "binding", touches: ["src"] },
+      { id: "binding", always: true, touches: [] },
+      { id: "deferred", hash: "hash", always: true, touches: ["src"] },
     ] },
   } as unknown as ProjectState;
   const { milestone } = tools({ evidence: () => ({
@@ -483,6 +485,7 @@ it("bounds large lesson reports", async () => {
   const notes = (result.details[PROJECT_UPDATE_DETAIL] as { reportNotes: string[] }).reportNotes;
   expect(notes).toHaveLength(2);
   expect(notes[0]).toMatch(/src\/0\.ts.*binding.*more/);
+  expect(notes[0]).not.toContain("deferred");
   expect(notes[0]!.length).toBeLessThanOrEqual(2000);
-  expect(notes[1]).toMatch(/shell.*patch/i);
+  expect(notes[1]).toMatch(/shell.*patch/);
 });
