@@ -161,3 +161,12 @@ describe("explainLocalEngineState: the lock owner's age and pid reuse", () => {
     expect(LOCAL_ENGINE_LIVE_OWNER_CEILING_MS).toBeGreaterThan(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
   });
 });
+
+describe("explainLocalEngineState: a start on its way before the lock (ATO-421)", () => {
+  const pending = vi.fn(() => ({ state: "unknown", reason: "start_pending", lock: "free" }) as never);
+
+  it("asks whether a model process exists, so the no-process ceiling bounds the wait", () => {
+    expect(explainLocalEngineState("local-llama", cfg("managed"), "local-llama", pending, () => "none"))
+      .toEqual({ state: "unknown", reason: "start_pending", modelProcess: "none" });
+  });
+});
