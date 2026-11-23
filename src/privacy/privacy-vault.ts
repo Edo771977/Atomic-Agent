@@ -32,6 +32,8 @@ const LITERAL_REFERENCE = /^\[(?:SECRET|IBAN|CARD|EMAIL|PHONE)_\d{1,6}\]$/;
 
 /** Deepest nesting the deep walkers visit; anything below is left as is. */
 const MAX_DEPTH = 32;
+const MAX_CACHE_CHARS = 3 * 1024 * 1024;
+const MAX_CACHE_ENTRIES = 2048;
 
 export interface PrivacyVaultStats {
   /** Distinct values this vault has masked so far. */
@@ -65,6 +67,9 @@ export class PrivacyVault {
   };
   /** Values reapplied by exact match, longest first; rebuilt lazily. */
   #reapply: string[] | null = null;
+  readonly #maskCache = new Map<string, { masked: string; references: Set<string>; chars: number }>();
+  #maskCacheChars = 0;
+  #knownCacheKey = "";
   private lastRequest = 0;
   private maskedRequests = 0;
 
@@ -80,6 +85,7 @@ export class PrivacyVault {
     this.#byValue.set(value, placeholder);
     this.#byPlaceholder.set(placeholder, value);
     this.#reapply = null;
+    this.clearMaskCache();
     return placeholder;
   }
 
@@ -145,13 +151,44 @@ export class PrivacyVault {
     });
   }
 
+  private clearMaskCache(): void {
+    this.#maskCache.clear();
+    this.#maskCacheChars = 0;
+  }
+
+  private maskCached(text: string, known: readonly KnownSecret[], request?: Set<string>): string {
+    let entry = this.#maskCache.get(text);
+    if (!entry) {
+      const references = new Set<string>();
+      const masked = this.mask(text, known, references);
+      entry = { masked, references, chars: text.length + masked.length };
+      if (entry.chars <= MAX_CACHE_CHARS) {
+        while (this.#maskCache.size >= MAX_CACHE_ENTRIES ||
+          this.#maskCacheChars + entry.chars > MAX_CACHE_CHARS) {
+          const oldest = this.#maskCache.keys().next().value!;
+          this.#maskCacheChars -= this.#maskCache.get(oldest)!.chars;
+          this.#maskCache.delete(oldest);
+        }
+        this.#maskCache.set(text, entry);
+        this.#maskCacheChars += entry.chars;
+      }
+    }
+    if (request) for (const reference of entry.references) request.add(reference);
+    return entry.masked;
+  }
+
   /**
    * Mask every string inside plain objects and arrays. A named JSON field
    * is decoded before masking so escaping cannot hide a private value.
    */
   maskDeep<T>(value: T, options: { jsonField?: string; request?: Set<string> } = {}): T {
     const known = this.known();
-    const mask = (text: string): string => this.mask(text, known, options.request);
+    const knownKey = JSON.stringify(known);
+    if (knownKey !== this.#knownCacheKey) {
+      this.clearMaskCache();
+      this.#knownCacheKey = knownKey;
+    }
+    const mask = (text: string): string => this.maskCached(text, known, options.request);
     return mapStrings(value, (text, key) => {
       if (key === undefined || key !== options.jsonField) return mask(text);
       let parsed: unknown;

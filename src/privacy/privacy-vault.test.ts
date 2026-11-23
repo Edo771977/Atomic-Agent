@@ -1,3 +1,5 @@
+import * as privateDetector from "./detect-private-data.js";
+import { vi } from "vitest";
 import { describe, expect, it } from "vitest";
 
 import { PrivacyVault } from "./privacy-vault.js";
@@ -96,4 +98,19 @@ it("counts interleaved requests independently", () => {
   expect(vault.stats()).toMatchObject({ lastRequest: 2, maskedRequests: 1 });
   vault.endRequest(second);
   expect(vault.stats()).toMatchObject({ lastRequest: 1, maskedRequests: 2 });
+});
+
+it("reuses a masked string and invalidates it when a new value is learned", () => {
+  const vault = new PrivacyVault();
+  const scan = vi.spyOn(privateDetector, "findPrivateSpans");
+  const original = "cached context with Zq8vLp3mWx7tRb2n";
+  try {
+    expect(vault.maskDeep([original])).toEqual([original]);
+    expect(vault.maskDeep([original])).toEqual([original]);
+    expect(scan).toHaveBeenCalledTimes(1);
+    expect(vault.mask("API_KEY=Zq8vLp3mWx7tRb2n")).toBe("API_KEY=[SECRET_1]");
+    expect(vault.maskDeep([original])).toEqual(["cached context with [SECRET_1]"]);
+  } finally {
+    scan.mockRestore();
+  }
 });
