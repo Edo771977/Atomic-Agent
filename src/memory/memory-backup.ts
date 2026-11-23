@@ -203,12 +203,14 @@ export interface MemoryRestoreResult {
   notes: number;
   facts: number;
   rejected?: number;
+  pinnedOverflow?: number;
   reasons?: Record<string, number>;
 }
 
 export function formatMemoryRestoreResult(result: MemoryRestoreResult): string {
   const reasons = Object.entries(result.reasons ?? {}).map(([reason, count]) => `${reason}: ${count}`);
-  return `${result.notes} notes, ${result.facts} profile facts, ${result.rejected ?? 0} rejected${reasons.length ? ` (${reasons.join(", ")})` : ""}`;
+  const warning = result.pinnedOverflow ? ` Warning: ${result.pinnedOverflow} pinned profile facts exceed the profile limit.` : "";
+  return `${result.notes} notes, ${result.facts} profile facts, ${result.rejected ?? 0} rejected${reasons.length ? ` (${reasons.join(", ")})` : ""}${warning}`;
 }
 
 const MAX_RESTORE_BYTES = 128 * 1024 * 1024;
@@ -366,6 +368,8 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
               `Restore would add ${result.notes} notes and ${result.facts} profile facts and evict ${noteOverflow} notes and ${factOverflow} profile facts. Increase the configured limits or restore a subset with --max-notes N and --max-facts N. ${formatMemoryRestoreResult(result)}.`,
             );
           }
+          const pinnedOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 1") - (context.profileMaxEntries ?? Infinity));
+          if (pinnedOverflow) result.pinnedOverflow = pinnedOverflow;
           if (context.preview) throw new RestorePreview(result);
           return result;
         }).immediate();

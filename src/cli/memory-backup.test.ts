@@ -253,6 +253,17 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite") }, out)).toEqual({ notes: 1, facts: 0 });
   });
 
+  it("warns in preview when pinned facts exceed the profile limit", async () => {
+    const profile = new ProfileStore({ dbFile });
+    profile.set("city", "Rome");
+    profile.set("country", "Italy");
+    profile.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    expect(restoreMemoryBackup({ memoryDbFile: join(dir, "live.sqlite"), profileMaxEntries: 1, preview: true }, out))
+      .toMatchObject({ facts: 2, pinnedOverflow: 1 });
+  });
+
   it("migrates an older archive privately while keeping the original bytes", () => {
     const archive = new Database(dbFile);
     archive.exec(`
