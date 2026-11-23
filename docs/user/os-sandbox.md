@@ -22,3 +22,5 @@ Linux requires a user namespace and removal of all capabilities, including when 
 On a real Mac, validate profile compilation and exercise synthetic Apple Events, pasteboard reads, Mach lookups and Unix sockets with networking both off and approved. Confirm local service verification and npm and Git still work.
 
 With Safe Mode active, linked node_modules and .git from a verification copy remain read-only on Linux. Command and service goal checks that need external network access can fail because their executors keep networking disabled.
+
+A one-time shell network grant exposes host loopback services as well as external networks. On Linux sharing the network namespace also exposes abstract Unix sockets. An attached browser Chromium DevTools Protocol (CDP) listener on loopback is reachable with this grant. Isolating CDP separately would require a filtered network namespace or a trusted proxy that excludes the endpoint. Keep the grant off for a session that depends on CDP remaining private to the host.

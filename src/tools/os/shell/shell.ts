@@ -466,7 +466,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           sessionId: ctx.sessionId,
           tool: "os.shell.run",
           category: "http_write",
-          reason: "Allow this process and its descendants to use the network for this run.",
+          reason: "Allow this process and its descendants to use external networks and the host loopback, including local services such as browser debugging ports. On Linux this also exposes host abstract Unix sockets.",
           preview: formatShellPreview(cmd, execArgs, useShell),
           affectedResources: [cwd],
         }, ctx.signal, true);
