@@ -75,7 +75,10 @@ export function withFixtureMilestoneEvidence(view: ProjectGateView, includeReser
             ...m,
             runIds: ["run-1"],
             summary: "Board renders. The timer works.",
-            ...(!includeReserved ? { criteriaBasisSummary: { check: 1, vision: 0, person: 0, unrecorded: 1 } } : {}),
+            criteriaBasisSummary: {
+              check: includeReserved ? 2 : 1, vision: 0, person: 0, unrecorded: 1,
+              ...(includeReserved ? { withReservations: { check: 1 } } : {}),
+            },
             directorReportWarnings: ["The timer works."],
             attachments: [{ path: FIXTURE_SHOT_PATH, caption: "The board at start", criteria: ["c1"] }],
             criteriaFacts: [

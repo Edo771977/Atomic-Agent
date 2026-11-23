@@ -60,12 +60,13 @@ describe("/api/project", () => {
     expect(json.view.allowedVerdicts).toContain("cheaper");
   });
 
-  it("GET carries a milestone's attachments and criteria facts (issue #40)", async () => {
-    views.set("s1", withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" })));
+  it("GET carries a milestone's attachments, criteria facts and reservations", async () => {
+    views.set("s1", withFixtureMilestoneEvidence(fixtureProjectGateView({ kind: "milestone", id: "m1" }), true));
     const json = (await (await fetch(`${harness.baseUrl}/api/project?session=s1`)).json()) as { view: ProjectGateView };
     expect(json.view.milestones[0]).toMatchObject({
       attachments: [{ path: FIXTURE_SHOT_PATH, caption: "The board at start", criteria: ["c1"] }],
-      criteriaFacts: [{ id: "c1", state: "passed" }, { id: "c2", state: "unverified", why: "no vision-capable reviewer" }],
+      criteriaFacts: [{ id: "c1", state: "passed" }, { id: "c3", state: "passed", reservation: "1 warning" }, { id: "c2", state: "unverified", why: "no vision-capable reviewer" }],
+      criteriaBasisSummary: { check: 2, vision: 0, person: 0, unrecorded: 1, withReservations: { check: 1 } },
     });
     expect(json.view.brief!.criteria).toEqual([{ id: "c1", text: "Runs in a browser" }, { id: "c2", text: "Ten levels" }]);
   });
