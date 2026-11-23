@@ -1,3 +1,8 @@
+import { readFileSync } from "node:fs";
+import { maskSecrets } from "../error-reporting/secret-detector.js";
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { getConfig } from "../config/index.js";
+import { serveApiKeyPath } from "./serve-api-key.js";
 import { describe, expect, it, vi } from "vitest";
 
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
@@ -8,6 +13,7 @@ import { serveCommand } from "./serve-command.js";
 
 /** What `serveCommand` handed `createAgentRuntime`, the last time it ran. */
 const boot = vi.hoisted(() => ({
+  known: null as ReturnType<typeof runtimeKnownSecrets> | null,
   options: null as CreateAgentRuntimeOptions | null,
 }));
 
@@ -21,6 +27,7 @@ vi.mock("../runtime/bootstrap.js", async (importOriginal) => {
     ...actual,
     createAgentRuntime: async (options: CreateAgentRuntimeOptions) => {
       boot.options = options;
+      boot.known = runtimeKnownSecrets({});
       throw new Error("runtime stand-in: not booting");
     },
   };
@@ -173,4 +180,48 @@ describe("the API key from the environment", () => {
       vi.unstubAllEnvs();
     }
   });
+});
+
+it("rejects the old key printing flag even from an unmarked process", async () => {
+  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", undefined);
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-no-print-key");
+  const stdout = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    expect(await serveCommand(["--print-api-key"])).toBe(1);
+    expect(stdout).not.toHaveBeenCalled();
+    expect(stderr.mock.calls.flat().join("")).not.toContain("synthetic-serve-no-print-key");
+  } finally {
+    stdout.mockRestore();
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it("warns once when the serve key comes from the environment", async () => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", "synthetic-serve-warning-key");
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand([]);
+    const output = stderr.mock.calls.flat().join("");
+    expect(output.match(/use --api-key-file/g)).toHaveLength(1);
+    expect(output).not.toContain("synthetic-serve-warning-key");
+  } finally {
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
+
+it.each(["plainlowercasesynthetickey", undefined])("registers the active serve key for masking (%s)", async (given) => {
+  vi.stubEnv("ATOMIC_AGENT_API_KEY", given);
+  const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+  try {
+    await serveCommand([]);
+    const key = given ?? readFileSync(serveApiKeyPath(getConfig().paths.stateDir), "utf8").trim();
+    expect(maskSecrets("tool output: " + key, boot.known ?? [])).toBe("tool output: [redacted:serve-api-key]");
+    expect(runtimeKnownSecrets({}).some(secret => secret.value === key)).toBe(false);
+  } finally {
+    stderr.mockRestore();
+    vi.unstubAllEnvs();
+  }
 });

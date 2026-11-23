@@ -574,13 +574,22 @@ Run `atomic-agent` as a local HTTP service:
 atomic-agent serve \
   --host 127.0.0.1 \
   --port 8787 \
-  --cwd /path/to/work \
-  --api-key "$ATOMIC_AGENT_API_KEY"
+  --cwd /path/to/work
 ```
 
-Without a key, anyone who reaches the port can run the agent and its tools, so `serve` refuses to start on a host other than loopback (`0.0.0.0`, a LAN address) unless `--api-key` or `ATOMIC_AGENT_API_KEY` is set. On loopback it still starts without one and prints a one-line warning. Without a key it answers only requests that name a loopback host (`localhost`, `127.0.0.1`, `[::1]`, `*.localhost`, this machine's name) and come from no web page or a page on one of those hosts, and it wants request bodies as `application/json`, so a website open in your browser cannot drive it (ATO-1495). To let a specific web origin in, list it in `ATOMIC_AGENT_ALLOWED_ORIGINS` (comma-separated, a trailing `*` matches a prefix, for example `chrome-extension://*`).
+Every `/api/*` and `/v1/*` route on the main listener requires the serve API key. Missing or invalid credentials return HTTP 401. Non-loopback callers can receive HTTP 429 after repeated failures. `GET /health`, `GET /panel` and `GET /panel/app.js` are public. The separate Cloudflare listener accepts provider deliveries at `POST /webhooks/{name}` using the binding secret or signature. Senders that use the tunnel’s old `/api/webhooks/{name}` path must send the serve key as well, or switch to the new URL shown at startup.
 
-`POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787`) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
+If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward the serve credential in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include the serve key, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds the serve key must limit this to the exact configured webhook path and method and preserve signed request bodies.
+
+On loopback, `serve` generates an owner-only key in `<stateDir>/serve-api.key` (by default `~/.atomic-agent/serve-api.key`) on first use and reuses it. Read the file from your own account and enter its contents in the local panel, or send them as `Authorization: Bearer <key>` or `x-api-key`. The generated file uses mode `0600` on POSIX and an owner-only ACL on Windows.
+
+To rotate a generated key, stop the servers sharing that state directory, remove `serve-api.key`, restart them, and update their clients and saved panel keys. For an explicit key, replace the configured token and restart. On a LAN listen address, supply an explicit key of at least 16 characters.
+
+Start with `--api-key-file <path>` and leave `ATOMIC_AGENT_API_KEY` unset to keep an explicit key out of the startup environment and command line. Use a file that only your account can read. Serve keeps that file, so its creator manages cleanup. `--api-key` and `ATOMIC_AGENT_API_KEY` remain supported. On Linux the environment form remains visible to permitted readers of `/proc/<pid>/environ`.
+
+The key is a local defense. A process running as your user that ignores the agent's tool controls can read files your account can read. Use an operating-system isolation boundary if those processes must be separated. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent.
+
+`POST /v1/chat/completions` maps one request to one full macro-turn: `user -> 0..N tool steps -> reply`. `POST /v1/messages` (Anthropic Messages, for Claude Code: `ANTHROPIC_BASE_URL=http://127.0.0.1:8787` with `ANTHROPIC_API_KEY` set to the serve key) and `POST /v1/responses` (OpenAI Responses, for Codex and the Agents SDK) run the same turn and answer in their own format; the agent uses its own tools, not the client's ([details](src/http/README.md)). Atomic-specific routes expose sessions, approvals, tasks, webhooks, events, skills, config, and capabilities.
 
 `serve` boots the same runtime the TUI does, so enabled Telegram and Discord bots, and every enabled Swarm bot that has a token, come up in this process too. That makes `serve` the way to keep the bots answering with no TUI open; it stays in the foreground until you stop it and does not restart itself. Each bot runs in one process at a time; see Channels below.
 

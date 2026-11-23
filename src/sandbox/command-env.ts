@@ -160,7 +160,7 @@ export function buildCommandEnv(
   const allowed = new Set(passthrough.map((name) => name.toUpperCase()));
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
-    if (typeof value !== "string") continue;
+    if (typeof value !== "string" || isServeApiKeyEnv(key)) continue;
     if (GIT_CONFIG_ENV_NAME.test(key)) continue;
     if (isSecretEnvName(key) && !allowed.has(key.toUpperCase())) continue;
     env[key] = value;
@@ -228,12 +228,20 @@ function filterGitConfigEnv(
   return env;
 }
 
+function isServeApiKeyEnv(name: string): boolean {
+  return name.toUpperCase() === "ATOMIC_AGENT_API_KEY";
+}
+
+export function withoutServeApiKey(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !isServeApiKeyEnv(name)));
+}
+
 /** Mark subprocesses started by tools so an inherited CLI can refuse operator decisions. */
 export const AGENT_TOOL_CHILD_ENV = "ATOMIC_AGENT_TOOL_CHILD";
 
 export function markAgentToolChild(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(env).filter(([name]) => name.toUpperCase() !== AGENT_TOOL_CHILD_ENV)),
+    ...Object.fromEntries(Object.entries(withoutServeApiKey(env)).filter(([name]) => name.toUpperCase() !== AGENT_TOOL_CHILD_ENV)),
     [AGENT_TOOL_CHILD_ENV]: "1",
   };
 }

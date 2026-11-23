@@ -1,3 +1,6 @@
+import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -5,7 +8,6 @@ import {
   isLoopbackListenHost,
   lanUrls,
   parseArgs,
-  serveAuthWarning,
   type ServeArgs,
 } from "./serve-args.js";
 
@@ -71,7 +73,9 @@ describe("serve refuses a network host without an API key (ATO-760)", () => {
   });
 });
 
-describe("loopback without a key still starts, with a warning", () => {
+describe("loopback without a given key parses, for serve's own generated key", () => {
+  // `apiKey: null` means "none given": serveCommand then runs with the
+  // key in <stateDir>/serve-api.key (serve-api-key.test.ts), never keyless.
   it.each(["127.0.0.1", "127.0.0.2", "localhost", "LOCALHOST", "::1", "[::1]"])(
     "--host %s without a key parses",
     (host) => {
@@ -85,17 +89,16 @@ describe("loopback without a key still starts, with a warning", () => {
     expect(parsed.apiKey).toBeNull();
   });
 
-  it("warns in one line when there is no key, and not when there is one", () => {
-    const warning = serveAuthWarning({ apiKey: null });
-    expect(warning).not.toBeNull();
-    expect(warning!.trimEnd()).not.toContain("\n");
-    expect(warning).toContain("ATOMIC_AGENT_API_KEY");
-    expect(serveAuthWarning({ apiKey: "s3cret" })).toBeNull();
+  it("the help says a key is always required and where serve keeps its own", () => {
+    expect(HELP).toContain("serve-api.key");
+    expect(HELP).toContain("always required");
+    expect(HELP).not.toContain("--print-api-key");
+    expect(HELP).not.toContain("ATOMIC_AGENT_ALLOWED_ORIGINS");
   });
 });
 
 describe("the desktop app's launch line", () => {
-  it("parses unchanged: loopback host, a per-launch key, no warning", () => {
+  it("parses unchanged: loopback host, a per-launch key", () => {
     // desktop/main/agent-client.ts spawns exactly this shape.
     const parsed = parsedOk([
       "--host", "127.0.0.1", "--port", "51234", "--api-key", "a".repeat(48),
@@ -103,7 +106,6 @@ describe("the desktop app's launch line", () => {
     expect(parsed.host).toBe("127.0.0.1");
     expect(parsed.port).toBe(51234);
     expect(parsed.apiKey).toBe("a".repeat(48));
-    expect(serveAuthWarning(parsed)).toBeNull();
   });
 });
 
@@ -185,4 +187,21 @@ describe("serve --tunnel flags (ATO-625)", () => {
     expect(parseError(["--tunnel-name"])).toContain("requires a value");
     expect(parseError(["--tunnel-name", "--tunnel"])).toContain("requires a value");
   });
+});
+
+it.skipIf(process.platform === "win32")("rejects loose permissions and symlinks for an explicit key file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "serve-explicit-auth-"));
+  try {
+    const path = join(dir, "key");
+    const link = join(dir, "link");
+    writeFileSync(path, "synthetic-file-key\n", { mode: 0o600 });
+    symlinkSync(path, link);
+    expect(parseError(["--api-key-file", link])).toMatch(/owner|symlink/i);
+    chmodSync(path, 0o644);
+    expect(parseError(["--api-key-file", path])).toMatch(/0600|owner/i);
+    chmodSync(path, 0o600);
+    expect(parsedOk(["--api-key-file", path]).apiKey).toBe("synthetic-file-key");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

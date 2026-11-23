@@ -153,7 +153,7 @@ export function findStateSecretReads(
   secrets: StateSecrets,
 ): string[] {
   const targetsOf = READ_TOOL_TARGETS.get(tool);
-  if (targetsOf === undefined || secrets.files.length === 0) return [];
+  if (targetsOf === undefined) return [];
   const known = canonicalSecrets(secrets);
   const hits = new Set<string>();
   for (const target of targetsOf(args)) {
@@ -164,10 +164,34 @@ export function findStateSecretReads(
     } catch {
       continue; // The tool refuses this path itself.
     }
+    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
     const hit = secretNamedBy(path, known, RECURSIVE_READ_TOOLS.has(tool));
     if (hit !== null) hits.add(hit);
   }
-  return [...hits];
+  return dedupe([...hits]);
+}
+
+const PROC_ENVIRON = /(?:^|[^\w/.-])(\/proc\/[^/\s;"\u0060|<>&]+(?:\/task\/[^/\s;"\u0060|<>&]+)?\/environ)(?=$|[^\w/.-])/g;
+
+function processEnvironments(text: string): string[] {
+  return [...text.matchAll(PROC_ENVIRON)].map(match => match[1]!);
+}
+
+function psShowsEnvironment(line: string): boolean {
+  return line.split(/[;|&\n]+/).some(segment => {
+    const match = /(?:^|\s)(?:[^\s]+\/)?ps\s+(.+)$/.exec(segment);
+    if (!match?.[1]) return false;
+    const words = match[1].split(/\s+/);
+    for (let index = 0; index < words.length; index++) {
+      const word = words[index]!;
+      if (/^(?:-[opqgGstTuU]|--(?:format|pid|ppid|sid|user|group|tty|sort))$/.test(word)) {
+        index++;
+        continue;
+      }
+      if (word === "--environment" || word === "-E" || /^[a-zA-Z]*e[a-zA-Z]*$/.test(word)) return true;
+    }
+    return false;
+  });
 }
 
 /** Shell operators and grouping a path token ends at. */
@@ -233,7 +257,6 @@ export function findShellStateSecrets(
   secrets: StateSecrets,
   env: ShellScopeEnv = { home: homedir(), platform: process.platform },
 ): string[] {
-  if (secrets.files.length === 0) return [];
   const known = canonicalSecrets(secrets);
   let cwd = ctx.workingDir;
   if (typeof args.cwd === "string" && args.cwd.length > 0) {
@@ -248,7 +271,13 @@ export function findShellStateSecrets(
   line = line.replace(/["']/g, "");
   if (env.platform !== "win32") line = line.replace(/\\/g, "");
 
-  const hits = new Set<string>();
+  const hits = new Set(processEnvironments(line));
+  if (/(^|[^\w.-])serve-api\.key(?=$|[^\w.-])/i.test(line)) {
+    for (const file of known.files) {
+      if (/(?:^|[\\/])serve-api\.key$/i.test(file)) hits.add(file);
+    }
+  }
+  if (psShowsEnvironment(line)) hits.add("process environment (ps)");
   // A secret spelled out in full anywhere on the line, glued to code
   // (`python3 -c open(/…/.env)`) or not.
   for (const file of [...known.files, ...known.directories]) {
@@ -259,6 +288,7 @@ export function findShellStateSecrets(
     if (token.length === 0) continue;
     const path = pathOfToken(token, cwd, env.home);
     if (path === null) continue;
+    for (const envPath of [...processEnvironments(path), ...processEnvironments(canonical(path))]) hits.add(envPath);
     if (GLOB.test(path)) {
       const pattern = globToRegExp(path, env.platform);
       for (const candidate of candidates) {
@@ -270,6 +300,22 @@ export function findShellStateSecrets(
     if (hit !== null) hits.add(hit);
   }
   return dedupe([...hits]);
+}
+
+/** Recognized writes to server key paths use the trust-config approval. */
+export function shellServerKeyMutation(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env?: ShellScopeEnv,
+): boolean {
+  const files = secrets.files.filter(path => /(?:^|[\\/])(?:serve-api|llama-server)\.key$/i.test(path));
+  if (files.length === 0) return false;
+  return shellCommandLine(args).split(/[;|&\n]+/).some(cmd => {
+    const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
+    return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
+      && findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
+  });
 }
 
 /** `file` appears in `line` as a whole path: not `.env` inside `.env.example`. */

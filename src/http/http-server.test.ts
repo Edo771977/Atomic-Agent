@@ -22,16 +22,46 @@ describe("http-server", () => {
     expect(body.error.message).toMatch(/no route/i);
   });
 
-  it("serves /v1/models without auth even when an API key is configured", async () => {
+  it("requires a key for the model catalog and operator API", async () => {
     const secured = await startTestHarness({ apiKey: "secret" });
     try {
-      const response = await fetch(`${secured.baseUrl}/v1/models`);
+      for (const [method, path] of [
+        ["GET", "/v1/models"],
+        ["GET", "/api/sessions"],
+        ["POST", "/api/project/decision"],
+        ["POST", "/api/project/backlog"],
+        ["POST", "/api/project/lessons"],
+        ["POST", "/api/approval/resolve"],
+        ["PATCH", "/api/config"],
+        ["POST", "/api/project-trust"],
+        ["POST", "/api/skills/install"],
+        ["POST", "/api/question/answer"],
+        ["POST", "/api/tasks"],
+        ["POST", "/api/webhooks/example"],
+      ]) {
+        const response = await fetch(`${secured.baseUrl}${path}`, { method });
+        expect(response.status, `${method} ${path}`).toBe(401);
+      }
+      const response = await fetch(`${secured.baseUrl}/v1/models`, {
+        headers: { Authorization: "Bearer secret" },
+      });
       expect(response.status).toBe(200);
       const body = (await response.json()) as { data: Array<{ id: string }> };
       expect(body.data[0]?.id).toBe("atomic-agent");
     } finally {
       await secured.cleanup();
     }
+  });
+
+  it("refuses to build a server with no key unless told it is meant to have none", async () => {
+    const base = {
+      runtime: harness.runtime,
+      host: "127.0.0.1",
+      port: 0,
+      routes: [],
+    };
+    await expect(createHttpServer({ ...base, apiKey: null })).rejects.toThrow(/API key is required/);
+    await expect(createHttpServer({ ...base, apiKey: "   " })).rejects.toThrow(/empty/);
   });
 
   it("close() stops accepting new connections", async () => {
@@ -56,7 +86,7 @@ describe("http-server networkServe (issue #33)", () => {
       host: options.host,
       port: 0,
       apiKey: null,
-      loopbackGuard: false,
+      unauthenticated: true,
       ...(options.networkServe === undefined ? {} : { networkServe: options.networkServe }),
       routes: [{ method: "GET", path: "/probe", handler: async (_req, res, ctx) => sendJson(res, 200, { networkServe: ctx.networkServe === true }) }],
     });
