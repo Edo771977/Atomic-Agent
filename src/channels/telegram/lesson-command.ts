@@ -1,4 +1,4 @@
-import { excerptPreview, hiddenLinesNote, visiblePreviewLine } from "../../approval/approval-preview.js";
+import { excerptPreview, hiddenLinesNote, previewLines, visiblePreviewLine } from "../../approval/approval-preview.js";
 import type { AgentRuntime } from "../../runtime/runtime-contract.js";
 import { isIncognitoSession } from "../../session/incognito.js";
 import { stateDirProjectRecords, validProjectLessonId, type ProjectLessonCall } from "../../session/project-decisions.js";
@@ -9,6 +9,9 @@ import {
 } from "../../session/project-lessons.js";
 import { readProjectRef } from "../../session/session-project-store.js";
 import { confirmationCode } from "./confirmation-code.js";
+
+// Every prompt projection includes at most 300 UTF-16 units per section.
+const MAX_APPROVAL_SECTION_CHARS = 600;
 
 const CALLS = { "/lesson-approve": "approved", "/lesson-retire": "retired", "/lesson-reopen": null } as const;
 type PlanLessonCommand = "/lesson-defer" | "/lesson-activate";
@@ -42,7 +45,7 @@ function renderLessons({ lessons, problems }: ProjectLessons, calls: Record<stri
   ].join("\n");
 }
 
-function lessonPreview(lesson: ProjectLesson, previous: ProjectLessonCall | undefined): string[] {
+function lessonPreview(lesson: ProjectLesson, previous: ProjectLessonCall | undefined, full: boolean): string[] {
   const sections = [
     ["Decided", lesson.sections.decided],
     ["Tried and ruled out", lesson.sections.triedAndRuledOut],
@@ -52,6 +55,7 @@ function lessonPreview(lesson: ProjectLesson, previous: ProjectLessonCall | unde
     lessonLine(lesson, previous),
     `Fingerprint: ${projectLessonFingerprint(lesson)}`,
     ...sections.flatMap(([title, text]) => {
+      if (full) return [title + ":", ...previewLines(text).map((line) => "  " + line)];
       const excerpt = excerptPreview(text, { maxLines: 8, maxChars: 600 });
       const note = hiddenLinesNote(excerpt.hiddenLines, excerpt.cutChars);
       return [`${title}:`, ...excerpt.lines.map((line) => `  ${line}`), ...(note === null ? [] : [`  ${note}`])];
@@ -96,7 +100,11 @@ function runPlanLessonCommand(
 }
 
 /** The inbound handler enforces owner, chat and egress rules before calling this. */
-export function runLessonCommand(command: LessonCommand, args: readonly string[], deps: LessonCommandDeps): string {
+export function runLessonCommand(
+  command: LessonCommand,
+  args: readonly string[],
+  deps: LessonCommandDeps,
+): string | { preview: string; confirmation: string } {
   const { runtime, sessionId, chatKey, busy } = deps;
   if (command === "/lessons" && args.length !== 0) return "Usage: /lessons";
   const session = sessionId === null ? null : runtime.sessionStore.load(sessionId);
@@ -136,13 +144,17 @@ export function runLessonCommand(command: LessonCommand, args: readonly string[]
   const prepared = prepareProjectLessonDecision(id, state, lesson, previous);
   if (!prepared.ok) return prepared.message;
   if (state === null && previous === undefined) return `No choice to reopen for ${id}.`;
+  if (state === "approved" && lesson !== undefined &&
+      Object.values(lesson.sections).some((text) => text.length > MAX_APPROVAL_SECTION_CHARS)) {
+    return "A lesson section is too long to preview in full. Read the file and approve it from the CLI.";
+  }
   if (confirmation === undefined) {
-    return [
-      ...(lesson === undefined
-        ? [`The file for ${id} is missing or invalid. Previous fingerprint: ${previous?.hash}.`]
-        : lessonPreview(lesson, previous)),
-      `To confirm ${command}, reply ${command} ${id} ${code}.`,
-    ].join("\n");
+    const request = `To confirm ${command}, reply ${command} ${id} ${code}.`;
+    const preview = lesson === undefined
+      ? [`The file for ${id} is missing or invalid. Previous fingerprint: ${previous?.hash}.`]
+      : lessonPreview(lesson, previous, state === "approved");
+    if (state === "approved") return { preview: preview.join("\n"), confirmation: request };
+    return [...preview, request].join("\n");
   }
   const written = writeProjectLessonDecision(records, record, prepared.decision);
   return written.ok ? `Lesson ${id} is now ${state ?? "reopened"}.`

@@ -824,8 +824,14 @@ async function handleSlashCommand(
       };
       if (verb === "/lessons" || verb === "/lesson-approve" || verb === "/lesson-retire" ||
           verb === "/lesson-reopen" || verb === "/lesson-defer" || verb === "/lesson-activate") {
-        const text = runLessonCommand(verb, rest, { ...deps, chatKey: ref.key });
-        await sendText(ctx, ref.target, text);
+        const result = runLessonCommand(verb, rest, { ...deps, chatKey: ref.key });
+        if (typeof result === "string") {
+          await sendText(ctx, ref.target, result);
+        } else if (await sendText(ctx, ref.target, result.preview)) {
+          if (!sessionId || !channelSendWithheld(ctx.runtime, sessionId)()) {
+            await sendText(ctx, ref.target, result.confirmation);
+          }
+        }
         return;
       }
       const deferId = verb === "/defer" ? normalizeCriterionId(rest[0]) : null;
@@ -1360,7 +1366,7 @@ async function sendText(
   target: TelegramTarget,
   text: string,
   parseMode: TelegramParseMode = "plain",
-): Promise<void> {
+): Promise<boolean> {
   const result = await sendOutbound({
     api: ctx.api,
     chatId: target.chatId,
@@ -1372,4 +1378,5 @@ async function sendText(
   if (result.chunks > result.dropped) {
     ctx.onMessageSent?.(result.chunks - result.dropped);
   }
+  return result.dropped === 0;
 }

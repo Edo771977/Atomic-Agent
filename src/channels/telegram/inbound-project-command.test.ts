@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -254,8 +254,9 @@ describe("Telegram project gate", () => {
   }
 
   async function previewLesson(command: string) {
+    const start = sent.length;
     await say(command + " storage");
-    const preview = sent.at(-1)!;
+    const preview = sent.slice(start).join("\n");
     const code = preview.match(/storage ([0-9a-f]{16})/)?.[1];
     expect(code).toBeDefined();
     return { preview, confirm: command + " storage " + code };
@@ -295,6 +296,36 @@ describe("Telegram project gate", () => {
     expect(record().lessonCalls?.storage).toEqual({ state: "approved", hash, always: true });
     await say("/lessons");
     expect(sent.at(-1)).toMatch(/declared: active.*effective: approved/i);
+  });
+
+  it("shows all short lines that can reach the prompts before approving", async () => {
+    await openLessons();
+    const lines = Array.from({ length: 12 }, (_, index) => "Review line " + (index + 1));
+    writeLesson("active", lines.join("\n"));
+    const { preview } = await previewLesson("/lesson-approve");
+    for (const line of lines) expect(preview).toContain(line);
+  });
+
+  it("refuses approval when the full section cannot be shown", async () => {
+    const record = await openLessons();
+    writeLesson("active", "a".repeat(601));
+    await say("/lesson-approve storage");
+    expect(sent.at(-1)).toMatch(/too long.*file.*CLI/i);
+    expect(sent.at(-1)).not.toMatch(/storage [0-9a-f]{16}/);
+    expect(record().lessonCalls).toBeUndefined();
+  });
+
+  it("withholds approval confirmation if a preview chunk fails to send", async () => {
+    await openLessons();
+    writeLesson("active", "Review text");
+    const file = join(dir, ".atomic", "project", "lessons", "storage.md");
+    const longPath = "src/" + "x".repeat(250);
+    const paths = Array.from({ length: 20 }, (_, i) => longPath + i).join(", ");
+    writeFileSync(file, readFileSync(file, "utf8").replace("src/storage", paths));
+    vi.mocked(ctx.api.sendMessage).mockRejectedValueOnce(new Error("delivery failed"));
+    const start = sent.length;
+    await say("/lesson-approve storage");
+    expect(sent.slice(start).join("\n")).not.toMatch(/storage [0-9a-f]{16}/);
   });
 
   it("refuses a changed file and a proposed lesson", async () => {
