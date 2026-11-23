@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { getConfig, resetConfigCache } from "../../config/index.js";
 import { QWEN_THINK_PROFILE } from "../../llm/model-profile.js";
-import { LOCAL_REASONING_BUDGET_TOKENS } from "../../llm/reasoning-levels.js";
+import { LOCAL_CHAT_REASONING_BUDGET_TOKENS } from "../../llm/reasoning-budget.js";
 import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
 import { SlotManager } from "../../llm/slot-manager.js";
 import { ToolRegistry } from "../../tools/tool-registry.js";
@@ -22,7 +22,11 @@ afterEach(() => resetConfigCache());
 
 const WINDOW = 16_384;
 
-function prepare(level: ReasoningEffort | undefined, transport: "grammar" | "native_tools" = "grammar") {
+function prepare(
+  level: ReasoningEffort | undefined,
+  transport: "grammar" | "native_tools" = "grammar",
+  terminalOnly = false,
+) {
   const ctx: StepContext = {
     session: {
       ...createEmptySessionState({ id: "reasoning-reserve", workingDir: "/fixture" }),
@@ -36,13 +40,17 @@ function prepare(level: ReasoningEffort | undefined, transport: "grammar" | "nat
     },
     stepIndex: 1,
     signal: new AbortController().signal,
-    ...(level !== undefined ? { reasoningOverride: level } : {}),
+    ...(level !== undefined ? {
+      reasoningOverride: level,
+      reasoningBudgetTokens: LOCAL_CHAT_REASONING_BUDGET_TOKENS[level],
+    } : {}),
+    terminalOnly,
   };
   const deps: StepDependencies = {
     registry: new ToolRegistry(),
     slotManager: new SlotManager(1),
     profile: QWEN_THINK_PROFILE,
-    grammar: 'root ::= "fixture"',
+    grammar: "root ::= think-prelude tool-call-array",
     toolTransport: transport,
     toolCallAdapter: null,
     supportsSlotAffinity: false,
@@ -57,7 +65,7 @@ describe("reply reserve under a chat's reasoning level (ATO-1678)", () => {
   const cap = () => getConfig().localModels.completionMaxTokens;
 
   it("reserves the level's think budget plus room for the tool call", () => {
-    const expected = effectiveReplyReserve(cap(), WINDOW, LOCAL_REASONING_BUDGET_TOKENS.medium);
+    const expected = effectiveReplyReserve(cap(), WINDOW, LOCAL_CHAT_REASONING_BUDGET_TOKENS.medium);
     // The level really moves the reserve on this window.
     expect(expected).toBeGreaterThan(effectiveReplyReserve(cap(), WINDOW, 0));
     const prompt = prepare("medium");
@@ -68,6 +76,12 @@ describe("reply reserve under a chat's reasoning level (ATO-1678)", () => {
   it("keeps the configured budget when no level is picked", () => {
     expect(prepare(undefined).replyReserve).toBe(
       effectiveReplyReserve(cap(), WINDOW, getConfig().localModels.reasoningBudgetTokens),
+    );
+  });
+
+  it("leaves the terminal grammar's reply reserve independent of the per-turn bound", () => {
+    expect(prepare("medium", "grammar", true).replyReserve).toBe(
+      prepare(undefined, "grammar", true).replyReserve,
     );
   });
 

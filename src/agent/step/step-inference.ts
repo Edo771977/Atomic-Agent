@@ -114,12 +114,11 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     ...(deps.toolTransport === "native_tools" ? {
       toolSchemaTokens: nativeToolSchemaTokens(stepDescriptors, deps),
     } : {}),
-    // A chat's reasoning level bounds the grammar's think block with its
-    // own budget (`resolveStepGrammar`, ATO-490); the reply reserve must
-    // plan for that bound, not `localModels.reasoningBudgetTokens`
-    // (ATO-1678). `high` is `0`, unbounded, as the grammar sends it.
-    ...(ctx.reasoningOverride !== undefined && deps.toolTransport !== "native_tools"
-      ? { reasoningBudgetTokens: LOCAL_REASONING_BUDGET_TOKENS[ctx.reasoningOverride] }
+    // Match the bound already resolved by the turn for this grammar,
+    // including a Fusion worker's explicit budget or an unbounded zero.
+    ...(deps.toolTransport !== "native_tools" && ctx.reasoningBudgetTokens !== undefined &&
+      !ctx.terminalOnly && !thinkingOff && hasReasoningPrelude(deps.grammar)
+      ? { reasoningBudgetTokens: ctx.reasoningBudgetTokens }
       : {}),
     ...(ctx.toolRole !== undefined ? { toolRole: ctx.toolRole } : {}),
     fusionTokensPerSecond: deps.fusionTokensPerSecond?.() ?? null,
