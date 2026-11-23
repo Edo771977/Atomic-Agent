@@ -23,7 +23,7 @@ The CLI lists notes in pages of 200. Use `atomic-agent memory list note --offset
 
 ## Back up and recover memory
 
-Run `atomic-agent memory backup [--out <directory>]` or `/memory backup [directory]` in the TUI. The result contains a private `memory.sqlite` and `RESTORE.txt` under the chosen directory or under the state directory's `backups/`. The backup is published as a complete directory. It is refused if the memory scanner detects a credential.
+Run `atomic-agent memory backup [--out <directory>]` or `/memory backup [directory]` in the TUI. The result contains a private `memory.sqlite` and `RESTORE.txt` under the chosen directory or under the state directory's `backups/`. The destination is reserved exclusively and the completed database is published atomically. It is refused if the memory scanner detects a credential.
 
 Use `atomic-agent memory restore --from <directory>` or `/memory restore <directory>` to merge notes and current profile facts. Existing entries win. Repeating the operation does not duplicate entries. A schema version mismatch is reported before the destination is changed. Memory lessons, procedures, links, votes and the source journal stay in the snapshot. The restored notes are searchable and can be embedded again with `atomic-agent memory reindex`. Project lessons in `.atomic/project/lessons/` belong to the project folder. Incognito sessions and tool subprocesses cannot run backup or restore.
 

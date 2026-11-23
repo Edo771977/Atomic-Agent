@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -255,6 +255,17 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(() => restoreMemoryBackup(context, out)).toThrow(/tool subprocesses/);
     expect(existsSync(join(dir, "nested"))).toBe(false);
     expect(existsSync(dbFile)).toBe(false);
+  });
+
+  it("never replaces a destination created while the snapshot is in progress", async () => {
+    new MemoryStore({ dbFile, maxEntries: 10 }).close();
+    const out = join(dir, "bk");
+    const pending = createMemoryBackup({ memoryDbFile: dbFile }, out);
+    mkdirSync(out);
+    const before = statSync(out).ino;
+    await expect(pending).rejects.toThrow(/already exists/);
+    expect(statSync(out).ino).toBe(before);
+    expect(existsSync(join(out, "memory.sqlite"))).toBe(false);
   });
 
   it("never overwrites an earlier backup", async () => {

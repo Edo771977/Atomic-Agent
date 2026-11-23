@@ -20,7 +20,7 @@ No durable store holds a credential: profile, note, lesson and procedure writes 
 
 ## Backup and entry state
 
-[Backup and restore](memory-backup.ts) provide the shared CLI and TUI operations. A backup stages a consistent SQLite snapshot privately, checks stored values for credentials, rebuilds full-text indexes, and publishes the directory atomically. Restore validates the schema and merges notes and active facts in one write transaction, preserving constraint scopes and disabled state. The target maintains its own search index and rebuilds embeddings through the normal backfill. Project files under `.atomic/project/lessons/` are outside this store.
+[Backup and restore](memory-backup.ts) provide the shared CLI and TUI operations. A backup stages a consistent SQLite snapshot privately, checks stored values for credentials, rebuilds full-text indexes, and publishes the completed database atomically into a new private directory. Restore validates the schema and merges notes and active facts in one write transaction, preserving constraint scopes and disabled state. The target maintains its own search index and rebuilds embeddings through the normal backfill. Project files under `.atomic/project/lessons/` are outside this store.
 
 An optional `disabled_at` column on notes and profile facts keeps entries available for person-operated listings while filtering them out of prompt retrieval and consolidation. Toggling records a reversible change in [the journal](evolution/memory-change-log.ts). An active profile fact carries its state forward to the next version.
 

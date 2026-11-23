@@ -1,6 +1,6 @@
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { execFileSync } from "node:child_process";
-import { chmodSync, closeSync, existsSync, fsyncSync, mkdirSync, mkdtempSync, openSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, closeSync, existsSync, fsyncSync, linkSync, mkdirSync, mkdtempSync, openSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type Database from "better-sqlite3";
@@ -117,7 +117,7 @@ function assertNoSecrets(db: Database.Database): void {
   }
 }
 
-/** Publish the directory only after the snapshot and its instructions are complete. */
+/** Publish the complete database into an exclusively claimed directory. */
 export async function createMemoryBackup(context: MemoryBackupContext, directory: string): Promise<string> {
   assertMemoryBackupAllowed(context.incognito);
   const dest = resolve(directory);
@@ -165,7 +165,24 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     writeFileSync(instructions, MEMORY_RESTORE_INSTRUCTIONS, { mode: 0o600, flush: true });
     restrictBackupPath(instructions, false);
     syncDirectoryBestEffort(staging);
-    renameSync(staging, dest);
+    try {
+      mkdirSync(dest, { mode: 0o700 });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+        throw new MemoryBackupError("backup directory already exists");
+      }
+      throw error;
+    }
+    try {
+      restrictBackupPath(dest, true);
+      linkSync(instructions, join(dest, "RESTORE.txt"));
+      // The complete database becomes available in a single filesystem operation.
+      linkSync(output, join(dest, MEMORY_BACKUP_FILE));
+      syncDirectoryBestEffort(dest);
+    } catch (error) {
+      rmSync(dest, { recursive: true, force: true });
+      throw error;
+    }
     syncDirectoryBestEffort(dirname(dest));
     return join(dest, MEMORY_BACKUP_FILE);
   } finally {
