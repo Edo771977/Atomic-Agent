@@ -151,6 +151,50 @@ jobs:
         if: (success() || failure()) && steps.install.outcome == 'success' && matrix.drop_canvas == 'false'
         run: node node_modules/vitest/vitest.mjs run --config eval-agents/vitest.hermetic.config.ts --maxWorkers=1
 
+  offline-smoke:
+    name: Offline process smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.7"
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Run with loopback as the only network interface
+        run: |
+          sudo unshare --net bash -euc '
+            ip link set lo up
+            exec runuser -u "$1" -- "$2" scripts/smoke-e2e.mjs --output "$3"
+          ' -- "$(id -un)" "$(command -v node)" "$RUNNER_TEMP/offline-smoke"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: offline-smoke
+          path: ${{ runner.temp }}/offline-smoke
+
+  macos-verify-browser:
+    name: macOS verify browser
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/verify-playwright
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "25.7"
+          cache: npm
+      - run: npm ci
+      - name: Verify real system Chrome fallback
+        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=system npx vitest run src/tools/verify/run-verify.test.ts -t 'expected real macOS browser'
+      - name: Install Playwright Chromium
+        run: npx playwright-core install chromium
+      - name: Verify real Playwright Chromium takes precedence
+        run: ATOMIC_AGENT_VERIFY_MAC_BROWSER=playwright npx vitest run src/tools/verify/run-verify.test.ts -t 'expected real macOS browser'
+
   windows-core:
     name: Windows core reliability
     runs-on: windows-latest

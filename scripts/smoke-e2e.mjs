@@ -26,6 +26,7 @@ const sandbox = await mkdtemp(join(tmpdir(), "atomic-e2e-state-"));
 // tripwire still catches whatever bypasses its HTTP pool.
 const egressLog = join(sandbox, "egress.ndjson");
 const tripwire = `--import=${pathToFileURL(join(root, "scripts/net-intercept-preload.mjs")).href}`;
+await writeFile(egressLog, "", { mode: 0o600 });
 const state = join(sandbox, "state");
 const cwd = join(sandbox, "workspace");
 await mkdir(state);
@@ -161,8 +162,12 @@ async function stop() {
   const result = await waitFor(() => closed && exitPromise, "sidecar exits after shutdown + stdin EOF", 5000);
   assert.deepEqual(await result, { code: 0, signal: null });
 }
-async function runCli(args, stateDir, input = "") {
-  const processHandle = spawn(process.execPath, [join(root, "dist/cli/index.js"), ...args],
+function runCli(args, stateDir, input = "", expectedCode = 0) {
+  return runNode([join(root, "dist/cli/index.js"), ...args], stateDir, input, expectedCode);
+}
+
+async function runNode(args, stateDir, input = "", expectedCode = 0) {
+  const processHandle = spawn(process.execPath, args,
     { cwd, env: childEnv(stateDir), stdio: ["pipe", "pipe", "pipe"] });
   cliChildren.add(processHandle);
   const result = { args, stdout: "", stderr: "", timedOut: false };
@@ -180,7 +185,7 @@ async function runCli(args, stateDir, input = "") {
     report.cli ??= [];
     report.cli.push(result);
     assert.equal(result.timedOut, false);
-    assert.equal(result.code, 0, result.stderr);
+    assert.equal(result.code, expectedCode, result.stderr);
     assert.equal(result.signal, null);
     return result;
   } finally { clearTimeout(timer); cliChildren.delete(processHandle); }
@@ -193,7 +198,8 @@ try {
   config.localModels.url = `http://127.0.0.1:${server.address().port}`;
   config.localModels.mode = "external";
   config.agent.approvalLevel = 1;
-  config.analytics.enabled = false;
+  config.analytics.enabled = true;
+  config.analytics.errorReports = true;
   config.network = { ...config.network, offline: true };
   for (const feature of Object.values(config.memory)) {
     if (feature && typeof feature === "object" && "enabled" in feature) feature.enabled = false;
@@ -336,8 +342,24 @@ try {
     assert.match(result.stdout, /E2E-CLI-READ-OK/);
     assert.match(inferences("cli-read")[1].body.prompt, /E2E-FILE-ONE-9237/);
   });
+  await check("offline mode suppresses feature flags and update checks", async () => {
+    const flagsModule = new URL("../dist/analytics/fetch-feature-flag.js", import.meta.url).href;
+    const flags = await runNode(["--input-type=module", "--eval", `
+      import { fetchFeatureFlag } from ${JSON.stringify(flagsModule)};
+      let calls = 0;
+      const enabled = await fetchFeatureFlag({
+        key: "offline-smoke",
+        distinctId: "offline-smoke",
+        fetchImpl: (...args) => { calls++; return fetch(...args); },
+      });
+      if (enabled || calls) throw new Error("offline feature flag attempted a request");
+    `], cliState);
+    assert.equal(flags.stdout, "");
+    const update = await runCli(["update", "--check"], cliState, "", 1);
+    assert.match(update.stderr, /offline mode is on, so the update check was skipped/i);
+  });
   await check("offline mode on: nothing tried to reach a host outside this machine", async () => {
-    const attempts = (await readFile(egressLog, "utf8").catch(() => "")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
+    const attempts = (await readFile(egressLog, "utf8")).split("\n").filter(Boolean).map((line) => JSON.parse(line));
     report.egress = attempts;
     assert.deepEqual(attempts.map((a) => `${a.kind} ${a.host}${a.port ? `:${a.port}` : ""}`), [],
       "outbound attempts (blocked by the tripwire; see report.json egress)");
