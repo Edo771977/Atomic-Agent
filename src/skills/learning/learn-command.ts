@@ -123,7 +123,7 @@ export function formatLearnedList(
     lines.push(
       "Pending review (drafts awaiting explicit approval):",
       ...[...pending].reverse().map((d) => formatDraft(d, options.stateDir)),
-      `Read one in full with ${prefix} show <id>, then approve it with ${prefix} approve <id>@<fingerprint> or delete it with ${prefix} discard <id>.`,
+      `Read one in full with ${prefix} show <id>, then approve it with ${prefix} approve ${prefix === "/learn" ? "<id>@<fingerprint>" : "<id>"} or delete it with ${prefix} discard <id>.`,
     );
   }
   if (entries.length > 0) {
@@ -309,6 +309,6 @@ function formatDraftView(v: PendingDraftView, prefix: string): string {
     }
   }
   lines.push("", "Draft SKILL.md in full:", "-----", v.skillMd.replace(/\n$/, ""), "-----");
-  lines.push(`Approve it with ${prefix} approve ${v.id}@${v.fingerprint}, or delete it with ${prefix} discard ${v.id}.`);
+  lines.push(`Approve it with ${prefix} approve ${prefix === "/learn" ? `${v.id}@${v.fingerprint}` : v.id}, or delete it with ${prefix} discard ${v.id}.`);
   return lines.join("\n");
 }

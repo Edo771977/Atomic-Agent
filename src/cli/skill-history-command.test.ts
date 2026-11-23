@@ -1,3 +1,4 @@
+import * as terminal from "./learn-terminal.js";
 import { learnedSkillScope, withLearnedTurn } from "../skills/learning/learn-scope.js";
 import { hashSkillText } from "../skills/learning/pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -162,6 +163,15 @@ describe("skill history / restore / curate", () => {
     expect(stderr).not.toContain("\u001b");
   });
 
+  it("refuses approval without a terminal even with a valid fingerprint argument", async () => {
+    const content = "---\nname: console-check\ndescription: Check the console.\n---\nRead the report and compare it with the approved checklist.\n";
+    const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "console-check", reason: "console", content, sources: [] });
+    expect(await skillCommand(["learned", "approve", `${draft.id}@${hashSkillText(content)}`])).not.toBe(0);
+    expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
+    expect(stderr).toContain("interactive terminal");
+    expect(existsSync(join(scope().skillsDir, "console-check"))).toBe(false);
+  });
+
   it("skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)", async () => {
     const content = "---\nname: changelog-notes\ndescription: Collect release notes from the changelog.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n2. Copy the newest section.\n";
     const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changelog-notes", reason: "changelog steps", content, sources: ["os.web.fetch"], origin: "discord" });
@@ -198,8 +208,12 @@ describe("skill history / restore / curate", () => {
     expect(stdout).toContain("2. Copy the newest section.");
     expect(await skillCommand(["learned", "show", "abcdef"])).toBe(1);
 
-    const approve = (text: string) => skillCommand(["learned", "approve", `${draft.id}@${hashSkillText(text)}`]);
-    expect(await skillCommand(["learned", "approve", draft.id])).toBe(2);
+    const read = vi.spyOn(terminal, "readLearnFingerprint");
+    const approve = (text: string) => {
+      read.mockResolvedValue(hashSkillText(text));
+      return skillCommand(["learned", "approve", draft.id]);
+    };
+    expect(await skillCommand(["learned", "approve"])).toBe(2);
     const file = join(scope().stateDir, "skills-pending", draft.id, "SKILL.md");
     expect(await skillCommand(["install", join(scope().stateDir, "skills-pending", draft.id), "--yes"])).toBe(1);
     expect(stderr).toContain("Review and approve this draft");

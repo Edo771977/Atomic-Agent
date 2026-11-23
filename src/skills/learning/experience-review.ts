@@ -10,6 +10,7 @@ import { readSkillLock } from "../hub/skill-lock.js";
 import { scanSkillFiles } from "../hub/skill-security-scanner.js";
 import {
   appendLearnedChange,
+  approvedLearnedContent,
   learnedJournalFile,
   newLearnedId,
   readLearnedChanges,
@@ -368,7 +369,8 @@ async function writeLearnedSkill(
     reason: decision.reason,
     ...(before.snapshot ? { snapshot: before.snapshot } : {}),
     ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-    ...(ctx.draftId ? { approvedDraft: ctx.draftId } : {}),
+    approvedDraft: ctx.draftId,
+    approvedContentHash: hashSkillText(decision.content),
   };
   await appendLearnedChange(journal, change);
   const marker = join(dir, ".approved-sha256");
@@ -536,6 +538,7 @@ export async function readPatchCandidates(
   names: readonly string[],
 ): Promise<PatchCandidate[]> {
   if (await realpath(skillsDir).catch(() => null) !== skillsDir) return [];
+  const journal = await readFile(join(skillsDir, "..", "skills-history", "learned.jsonl"), "utf8").catch(() => "");
   const out: PatchCandidate[] = [];
   for (const name of names.slice(0, EXPERIENCE_REVIEW_LIMITS.maxPatchCandidates)) {
     try {
@@ -547,7 +550,8 @@ export async function readPatchCandidates(
       const stat = await lstat(file);
       if (!stat.isFile() || stat.size > LEARNED_SKILL_LIMITS.maxBytes) continue;
       const content = await readFile(file, "utf8");
-      if (await readFile(marker, "utf8") !== hashSkillText(content)) continue;
+      const digest = hashSkillText(content);
+      if (await readFile(marker, "utf8") !== digest || !approvedLearnedContent(journal, name, digest)) continue;
       if (!lintLearnedSkill({ content, folderName: name, mode: "create", takenNames: new Set() }).ok) continue;
       out.push({ name, content });
     } catch {

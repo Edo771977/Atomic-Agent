@@ -766,10 +766,11 @@ function matchSkillDraftConsent(
   for (const words of segments) {
     for (let i = 0; i < words.length - 2; i += 1) {
       if (words[i] !== "skill" || words[i + 1] !== "learned") continue;
-      if (words[i + 2]?.toLowerCase() === "approve") {
+      const verb = words[i + 2]?.toLowerCase();
+      if (verb !== undefined && !["list", "show", "discard", "undo"].includes(verb)) {
         return {
           id: "dangerous.skill_draft_consent",
-          reason: "approve a learned skill draft",
+          reason: "approve a learned skill draft or run an unrecognized learned-skill action",
         };
       }
     }

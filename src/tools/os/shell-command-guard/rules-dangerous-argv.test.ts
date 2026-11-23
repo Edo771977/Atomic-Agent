@@ -355,6 +355,8 @@ describe("dangerous.skill_draft_consent (ATO-67)", () => {
     `atomic-agent skill learned approve a1b2c3@${"a".repeat(64)}`,
     "atomic-agent skill learned approve a1b2c3",
     "atag skill learned approve a1b2c3",
+    "atag skill learned unknown",
+    "atag skill learned \"$verb\"",
     "npx atomic-agent skill learned approve a1b2c3",
     "node dist/cli/index.js skill learned approve a1b2c3",
     "/usr/local/bin/atomic-agent skill learned APPROVE a1b2c3",

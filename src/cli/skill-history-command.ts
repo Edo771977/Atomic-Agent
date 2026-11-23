@@ -1,3 +1,4 @@
+import { readLearnFingerprint } from "./learn-terminal.js";
 import { learnedSkillScope, learnedTurnRunning, withLearnedDecision } from "../skills/learning/learn-scope.js";
 import { SessionStore } from "../session/session-store.js";
 import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
@@ -38,19 +39,35 @@ export const SKILL_HISTORY_HELP_LINES = [
   "                             archived, a patched one goes back to the version saved before the patch)",
   "  learned show <id> [--json] Print a draft pending review in full: path, where it came from, its SKILL.md,",
   "                             and for a patch a diff against the live skill",
-  "  learned approve <id>@<fingerprint> | discard <id>",
+  "  learned approve <id> | discard <id>",
   "                             Approve the reviewed text or discard the draft.",
 ];
 
 /** `skill learned [show|undo|approve|discard <id>]` (ATO-67): the TUI's `/learn`. */
 export async function handleSkillLearned(args: string[]): Promise<number> {
-  const command = parseLearnCommand(args.join(" "));
-  if (command.kind === "error") {
-    process.stderr.write("usage: atomic-agent skill learned [show <id> [--json] | undo <id> | approve <id>@<fingerprint> | discard <id>]\n");
-    return 2;
-  }
   const config = getConfig();
   const scope = learnedSkillScope(config.paths.stateDir, process.cwd());
+  let command = parseLearnCommand(args.join(" "));
+  if (args[0]?.toLowerCase() === "approve") {
+    const id = args[1]?.toLowerCase();
+    if (args.length !== 2 || !id || !/^[0-9a-f]{4,16}$/.test(id)) {
+      process.stderr.write("usage: atomic-agent skill learned approve <id> (interactive terminal required)\n");
+      return 2;
+    }
+    const origin = projectDecisionOriginRefusal();
+    if (origin) { process.stderr.write(origin + "\n"); return 1; }
+    const preview = await runLearnCommand({ kind: "show", id, json: false }, scope, "atomic-agent skill learned");
+    if (!preview.ok) { process.stderr.write(preview.text + "\n"); return 1; }
+    const fingerprint = await readLearnFingerprint(preview.text);
+    if (!fingerprint || !/^[0-9a-f]{64}$/.test(fingerprint)) {
+      process.stderr.write("Approval requires an interactive terminal and the displayed fingerprint.\n");
+      return 1;
+    }
+    command = { kind: "approve", id, fingerprint };
+  } else if (command.kind === "error") {
+    process.stderr.write("usage: atomic-agent skill learned [show <id> [--json] | undo <id> | approve <id> | discard <id>]\n");
+    return 2;
+  }
   const result = await runLearnCommand(
     command,
     { ...scope,

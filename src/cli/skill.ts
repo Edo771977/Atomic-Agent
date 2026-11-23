@@ -482,7 +482,7 @@ export function formatPendingSection(pending: readonly PendingDraft[]): string {
       `          review: atomic-agent skill learned show ${d.id}`,
     );
   }
-  lines.push("Then: atomic-agent skill learned approve <id>@<fingerprint> | atomic-agent skill learned discard <id>");
+  lines.push("Then: atomic-agent skill learned approve <id> | atomic-agent skill learned discard <id>");
   return `${lines.join("\n")}\n`;
 }
 

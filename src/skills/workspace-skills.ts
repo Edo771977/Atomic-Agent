@@ -1,3 +1,4 @@
+import { approvedLearnedContent } from "./learning/learned-journal.js";
 import { lstatSync } from "node:fs";
 import { learnedSkillScope } from "./learning/learn-scope.js";
 import { LEARNED_SKILL_LIMITS, lintLearnedSkill } from "./learning/skill-lint.js";
@@ -164,6 +165,14 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
     if (visited.has(dir)) continue;
     visited.add(dir);
     watched.push(dir);
+    let learnedJournal = "";
+    if (learned) {
+      const scopeDir = dirname(dir);
+      const journalPath = join(scopeDir, "skills-history", "learned.jsonl");
+      watched.push(dirname(journalPath), journalPath);
+      try { learnedJournal = readWorkspaceFile(scopeDir, journalPath, 8 * 1024 * 1024)?.content ?? ""; }
+      catch { continue; }
+    }
     let names: string[];
     try { names = readdirSync(dir).sort(); } catch (error) { diagnostics.push(`${dir}: ${String(error)}`); continue; }
     for (const name of names) {
@@ -197,7 +206,8 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
         if (!file) continue;
         if (learned) {
           const approval = readWorkspaceFile(dir, join(dir, name, ".approved-sha256"), 64);
-          if (approval?.content !== createHash("sha256").update(file.content).digest("hex") ||
+          const digest = createHash("sha256").update(file.content).digest("hex");
+          if (approval?.content !== digest || !approvedLearnedContent(learnedJournal, name, digest) ||
               !lintLearnedSkill({ content: file.content, folderName: name, mode: "create", takenNames: new Set() }).ok) continue;
         }
         if (bytes + Buffer.byteLength(file.content) > 8 * 1024 * 1024) {

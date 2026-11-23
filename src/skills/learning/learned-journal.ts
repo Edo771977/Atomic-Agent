@@ -32,6 +32,7 @@ export interface LearnedChange {
   sessionId?: string;
   /** Set when the change was a pending draft the owner approved (`/learn approve <id>`). */
   approvedDraft?: string;
+  approvedContentHash?: string;
 }
 
 export interface LearnedEntry extends LearnedChange {
@@ -84,6 +85,7 @@ function parseLine(raw: string): JournalLine | null {
     reason: typeof obj.reason === "string" ? obj.reason : "",
     ...(typeof obj.snapshot === "string" ? { snapshot: obj.snapshot } : {}),
     ...(typeof obj.sessionId === "string" ? { sessionId: obj.sessionId } : {}),
+    ...(typeof obj.approvedContentHash === "string" ? { approvedContentHash: obj.approvedContentHash } : {}),
     ...(typeof obj.approvedDraft === "string" ? { approvedDraft: obj.approvedDraft } : {}),
   };
 }
@@ -106,6 +108,7 @@ export async function readLearnedChanges(file: string): Promise<LearnedEntry[]> 
         id: parsed.id, at: parsed.at, name: parsed.name, action: parsed.action, reason: parsed.reason,
         ...(parsed.snapshot !== undefined ? { snapshot: parsed.snapshot } : {}),
         ...(parsed.sessionId !== undefined ? { sessionId: parsed.sessionId } : {}),
+        ...(parsed.approvedContentHash !== undefined ? { approvedContentHash: parsed.approvedContentHash } : {}),
         ...(parsed.approvedDraft !== undefined ? { approvedDraft: parsed.approvedDraft } : {}),
       };
       byId.set(change.id, change);
@@ -198,4 +201,14 @@ export async function undoLearnedChange(
   }
   await appendLine(file, { type: "undo", id, at: now });
   return { entry: { ...entry, undoneAt: now }, outcome, savedAs };
+}
+
+
+/** A marker alone is insufficient: a journaled consent must cover these bytes. */
+export function approvedLearnedContent(journal: string, name: string, contentHash: string): boolean {
+  return journal.split("\n").some(raw => {
+    const row = parseLine(raw);
+    return row?.type === "learn" && row.name === name && /^[0-9a-f]{4,16}$/.test(row.approvedDraft ?? "") &&
+      row.approvedContentHash === contentHash;
+  });
 }
