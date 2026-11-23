@@ -474,7 +474,7 @@ it("bounds large lesson reports and respects binding scope and deferrals", async
     milestones: [{ id: "m1", runIds: ["r1"] }],
     lessonDeferred: { deferred: "hash" },
     [currentProjectLessons]: { active: [
-      { id: "binding", always: true, touches: [] },
+      { id: "binding", hash: "binding-hash", always: true, touches: [] },
       { id: "deferred", hash: "hash", always: true, touches: ["src"] },
     ] },
   } as unknown as ProjectState;

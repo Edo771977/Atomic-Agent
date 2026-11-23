@@ -45,6 +45,21 @@ describe("a run's criteria facts and a milestone's evidence (issue #40)", () => 
     expect(evidence.facts).toEqual([{ id: "c1", state: "passed" }]);
   });
 
+  it("keeps bounded change evidence and flags an untracked shared run", () => {
+    const state = stateDir();
+    const runsDir = runsOf(state);
+    const run = { runId: "fr-1", sessionId: "s" };
+    writeRunChangedFiles(runsDir, run, [], true);
+    writeRunChangedFiles(runsDir, { ...run, runId: "fr-2" },
+      Array.from({ length: 2000 }, (_, i) => `src/${i}-${"a".repeat(250)}.ts`));
+    const input = { runsDir, stateDir: state, criteriaOrder: [] };
+    expect(readMilestoneEvidence({ ...input, runIds: ["fr-1"] })).toMatchObject({ changedFilesIncomplete: true });
+    const large = readMilestoneEvidence({ ...input, runIds: ["fr-2"] });
+    expect(large.changedFilesIncomplete).toBe(true);
+    expect(large.changedFiles!.length).toBeLessThan(2000);
+    expect(large.changedFiles!.length).toBeGreaterThan(1);
+  });
+
   it("keeps the weakest basis across tasks without changing the criterion verdict", () => {
     const state = stateDir();
     writeRunCriteriaFacts(runsOf(state), { runId: "fr-1", sessionId: "s" }, [

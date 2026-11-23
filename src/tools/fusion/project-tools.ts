@@ -1,4 +1,5 @@
 import { criterionBasisLabel, criterionBasisSummaryLine, directorReportWarningLine, directorReportWarnings, summarizeCriterionBases } from "../../session/project-gate-text.js";
+import { lessonsForCurrentPlan } from "../../session/project-lesson-projection.js";
 import { lessonProposalHint, PROJECT_LESSON_PROPOSE_TOOL } from "../../session/project-lesson-hints.js";
 import { lessonTouchesTask } from "./plan-references.js";
 import { compressToolResult, type CompressedToolResult } from "../../compressor/result-compressor.js";
@@ -797,15 +798,14 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           reportNotes.push(warning);
           lines.push(warning);
         }
-        const activeLessons = ctx.incognito ? [] : ctx.project?.[currentProjectLessons]?.active ?? [];
+        const activeLessons = ctx.incognito ? [] : lessonsForCurrentPlan(
+          ctx.project?.[currentProjectLessons]?.active ?? [], ctx.project?.lessonDeferred);
         const listed: string[] = [];
         let length = 0;
         let count = 0;
         for (const file of activeLessons.length === 0 ? [] : evidence.changedFiles ?? []) {
           const ids = activeLessons.filter((lesson) =>
-            (lesson.always && (lesson.hash === ctx.project?.lessonDeferred?.[lesson.id] && lesson.hash !== undefined)
-              ? false
-              : (lesson.always && lesson.touches.length === 0) || lessonTouchesTask(lesson.touches, [file], process.platform)))
+            (lesson.always && lesson.touches.length === 0) || lessonTouchesTask(lesson.touches, [file], process.platform))
             .map((lesson) => lesson.id);
           if (ids.length === 0) continue;
           count += 1;
@@ -821,7 +821,7 @@ export function buildProjectTools(deps: ProjectToolDeps): [ToolDefinition, ToolD
           reportNotes.push(`Changed files covered by active lessons: ${entries}. Check that the changes follow them.`);
         }
         if (activeLessons.length > 0 && evidence.changedFilesIncomplete) {
-          reportNotes.push("Changed-file coverage may be incomplete. Shell, move, trash and some patch changes are not reliably tracked in shared workspaces.");
+          reportNotes.push("Changed-file coverage may be incomplete. In shared workspaces, shell, move, trash and some patch changes are not reliably tracked.");
         }
         if (report.attachments === undefined && evidence.attachments.length > 0) {
           report = { ...report, attachments: evidence.attachments };
