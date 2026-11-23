@@ -159,7 +159,7 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
       const calls: string[][] = [];
       const tool = build(gate, calls, httpConfig(), new UrlSendSites(), `\n${marker}${metadata}`);
       await expect(tool.run({ url: PLAIN_URL }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
-      expect(asked).toEqual([expect.objectContaining({ category: "http_write", grantKey: "https://evil.example" })]);
+      expect(asked).toEqual([expect.objectContaining({ category: "http_write", grantKey: "url-data:https://evil.example" })]);
       expect(calls).toHaveLength(1);
     });
   }
@@ -188,4 +188,20 @@ it.each([["data", DATA_URL], ["strict", PLAIN_URL]] as const)("crawl asks about 
   await expect(tool.run({ url }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
   expect(asked).toHaveLength(1);
   expect(calls).toHaveLength(0);
+});
+
+it("a chat grant for a strict visit leaves a subsequent POST body subject to approval", async () => {
+  const asked: ApprovalRequest[] = [];
+  const gate = new ApprovalGate({
+    level: 3,
+    emit: (request) => {
+      asked.push(request);
+      if (asked.length === 1) gate.resolve({ approvalId: request.approvalId, approved: true, grant: "category" });
+      else gate.reject(request.approvalId, "denied");
+    },
+  });
+  const tool = tools[0]![1](gate, [], httpConfig({ urlDataGuard: "strict" }), new UrlSendSites());
+  await tool.run({ url: PLAIN_URL }, ctx());
+  await expect(tool.run({ url: PLAIN_URL, method: "POST", body: "{}" }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
+  expect(asked.map((request) => request.grantKey)).toEqual(["url-visit:https://docs.example", "https://docs.example"]);
 });

@@ -38,6 +38,7 @@ import {
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
   requireUrlSendApproval,
+  urlSendGrantKey,
   urlSendReason,
   type UrlSendSites,
 } from "./url-data-guard.js";
@@ -223,7 +224,7 @@ export function buildOsWebFetchTool(
             category: urlCheck !== null ? "http_write" : "http",
             reason: urlCheck !== null ? urlSendReason(shownUrl, urlCheck) : `GET ${args.url}`,
             affectedResources: [urlCheck !== null ? shownUrl : args.url],
-            grantKey: urlOrigin(args.url),
+            grantKey: urlCheck ? urlSendGrantKey(urlCheck) : urlOrigin(args.url),
           },
           ctx.signal,
         );

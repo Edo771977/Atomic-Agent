@@ -24,6 +24,7 @@ import {
   checkUrlSend,
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
+  urlSendGrantKey,
   urlSendReason,
 } from "../os/web/url-data-guard.js";
 import { maskUrlSecrets } from "../os/web/http-request-preview.js";
@@ -197,7 +198,7 @@ async function requireUrlData(
       reason: urlSendReason(shown, check),
       preview: shown,
       affectedResources: [check.host],
-      grantKey: check.origin,
+      grantKey: urlSendGrantKey(check),
     },
     ctx.signal,
   );

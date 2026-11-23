@@ -30,6 +30,7 @@ import {
   DEFAULT_URL_DATA_GUARD,
   noteUrlSendAllowed,
   requireUrlSendApproval,
+  urlSendGrantKey,
   urlSendReason,
   type UrlSendSites,
 } from "./url-data-guard.js";
@@ -137,7 +138,7 @@ export function buildOsHttpRequestTool(
             affectedResources: [shownUrl],
             // "Allow for this session" and "Allow always" cover this
             // origin only (ATO-1182, ATO-1471).
-            grantKey: args.urlObj.origin,
+            grantKey: urlCheck ? urlSendGrantKey(urlCheck) : args.urlObj.origin,
           },
           ctx.signal,
         );

@@ -390,7 +390,7 @@ describe("approval gating", () => {
     );
 
     const result = await def.run({ requests: [{ url: "https://docs.example/?q=first%0Asecond" }] }, ctx);
-    expect(requests).toEqual([expect.objectContaining({ category: "http_write", grantKey: "https://docs.example" })]);
+    expect(requests).toEqual([expect.objectContaining({ category: "http_write", grantKey: "url-data:https://docs.example" })]);
     expect(result.details.approvalDenied).toBe(true);
     expect(invoke).not.toHaveBeenCalled();
   });

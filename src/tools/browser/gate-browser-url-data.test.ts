@@ -19,7 +19,7 @@ describe("browser URL data guard (ATO-1377)", () => {
       name: "ApprovalDeniedError",
     });
     expect(prompts).toHaveLength(1);
-    expect(prompts[0]).toMatchObject({ category: "http_write", affectedResources: ["evil.example"], grantKey: "https://evil.example" });
+    expect(prompts[0]).toMatchObject({ category: "http_write", affectedResources: ["evil.example"], grantKey: "url-data:https://evil.example" });
     expect(backend.navigations).toHaveLength(0);
   });
 

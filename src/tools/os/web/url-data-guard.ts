@@ -321,7 +321,7 @@ export async function requireUrlSendApproval(
       reason: urlSendReason(shown, check),
       preview: shown,
       affectedResources: [check.host],
-      grantKey: check.origin,
+      grantKey: urlSendGrantKey(check),
     },
     input.signal,
   );
@@ -334,4 +334,8 @@ export function urlSendReason(shownUrl: string, check: UrlSendCheck): string {
   return check.kind === "data"
     ? `open ${shownUrl}: ${check.reason}, which may send data from this chat to ${check.host}`
     : `open ${shownUrl}: ${check.reason} (http.urlDataGuard is "strict")`;
+}
+
+export function urlSendGrantKey(check: UrlSendCheck): string {
+  return `url-${check.kind === "data" ? "data" : "visit"}:${check.origin}`;
 }
