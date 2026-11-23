@@ -6,16 +6,18 @@ import { MemoryStore, ProfileStore } from "../memory/index.js";
 type Subcommand = "list" | "disable" | "enable" | "history" | "undo";
 
 export function runMemoryEntryCommand(sub: Subcommand, args: string[]): number {
-  const [kind, key] = args;
+  const [kind, key, rawOffset] = args;
+  const offset = rawOffset === undefined ? 0 : Number(rawOffset);
   const collection = kind === "note" || kind === "profile";
   const validId = (value: string | undefined) => value !== undefined && /^[1-9]\d*$/.test(value)
     && Number.isSafeInteger(Number(value));
-  const valid = sub === "list" ? collection && args.length === 1
+  const valid = sub === "list" ? collection && (args.length === 1 || (kind === "note" && args.length === 3
+    && key === "--offset" && /^\d+$/.test(rawOffset ?? "") && Number.isSafeInteger(offset)))
     : sub === "history" ? args.length === 0
     : sub === "undo" ? args.length === 1 && validId(kind)
     : collection && args.length === 2 && (kind === "profile" ? Boolean(key) : validId(key));
   if (!valid) {
-    process.stderr.write("usage: memory list note|profile | disable|enable note|profile <id-or-key> | history | undo <change-id>\n");
+    process.stderr.write("usage: memory list note [--offset N] | list profile | disable|enable note|profile <id-or-key> | history | undo <change-id>\n");
     return 2;
   }
   let notes: MemoryStore | undefined;
@@ -28,7 +30,7 @@ export function runMemoryEntryCommand(sub: Subcommand, args: string[]): number {
     profile = new ProfileStore({ dbFile });
     let result: unknown;
     if (sub === "list") {
-      result = kind === "note" ? notes.list({ limit: 200 }) : profile.list();
+      result = kind === "note" ? notes.list({ limit: 200, offset }) : profile.list();
     } else if (sub === "history") {
       result = notes.getChangeLog().list();
     } else if (sub === "undo") {

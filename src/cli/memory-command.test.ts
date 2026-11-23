@@ -77,6 +77,15 @@ describe("memoryCommand", () => {
     expect(stdout()).toMatch(/export \[--vault/);
   });
 
+  it("pages through notes beyond the first 200", async () => {
+    const store = new MemoryStore({ dbFile: join(stateDir, "memory.sqlite"), maxEntries: 201 });
+    for (let i = 0; i < 201; i++) store.store({ content: `note ${i}` }, i);
+    store.setDisabled(1, true);
+    store.close();
+    expect(await memoryCommand(["list", "note", "--offset", "200"])).toBe(0);
+    expect(JSON.parse(stdout())).toMatchObject([{ id: 1, disabledAt: expect.any(Number) }]);
+  });
+
   it("lists disabled notes, shows their history, and undoes the change", async () => {
     seedMemory();
     expect(await memoryCommand(["disable", "note", "1"])).toBe(0);

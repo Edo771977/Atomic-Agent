@@ -19,6 +19,8 @@ Deleting a chat is not the same operation as deleting durable memory. Review wha
 
 In the TUI, open `/memory`, select a note or profile fact and press `d`. Disabled entries are marked in the unfiltered list and stay out of agent recall, search and prompts. In the CLI, use `atomic-agent memory list note` or `atomic-agent memory list profile`, then `atomic-agent memory disable note <id>` or `atomic-agent memory disable profile <key>`. Use `enable` with the same arguments to reactivate it. `atomic-agent memory history` displays the journal and `atomic-agent memory undo <change-id>` reverses a change.
 
+The CLI lists notes in pages of 200. Use `atomic-agent memory list note --offset 200` for the next page. Entries written under a confidential folder policy require that folder’s scope and are omitted from the global CLI list.
+
 ## Back up and recover memory
 
 Run `atomic-agent memory backup [--out <directory>]` or `/memory backup [directory]` in the TUI. The result contains a private `memory.sqlite` and `RESTORE.txt` under the chosen directory or under the state directory's `backups/`. The backup is published as a complete directory. It is refused if the memory scanner detects a credential.

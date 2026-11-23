@@ -150,6 +150,7 @@ export interface MemoryListOptions {
   scope?: "project" | "all";
   workingDir?: string | null;
   limit?: number;
+  offset?: number;
   /**
    * Memory-v2 phase 5. When `true` (default for the prompt-side
    * `### memory-index` rendering, opt-in for direct callers), rows
@@ -1029,6 +1030,8 @@ export class MemoryStore {
       MEMORY_LIST_MAX_LIMIT,
       "limit",
     );
+    const offset = opts.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new MemoryValidationError("offset", "offset must be a nonnegative integer");
     const scope = opts.scope ?? "all";
     const where: string[] = [`memory_scope_visible(constraint_scope)`];
     const params: unknown[] = [];
@@ -1078,8 +1081,8 @@ export class MemoryStore {
         FROM memories
         ${whereClause}
        ORDER BY updated_at DESC, id DESC
-       LIMIT ?`;
-    params.push(limit);
+       LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
     const rows = this.db.prepare(sql).all(...params) as MemoryRow[];
     return rows.map(rowToEntry);
   }
