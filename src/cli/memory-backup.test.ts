@@ -245,7 +245,7 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     const old = notes.store({ content: "the user lives in Rome" });
     const current = notes.store({ content: "the user lives in Milan" });
     const archived = notes.store({ content: "an archived detail" });
-    notes.markSuperseded(old.id, current.id);
+    notes.markSuperseded(old.id, current.id, { leaseMs: 0 });
     notes.archiveInto([archived.id], 1);
     notes.close();
     const out = join(dir, "bk");

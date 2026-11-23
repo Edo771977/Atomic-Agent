@@ -124,7 +124,7 @@ describe("turning one memory entry off (ATO-1124)", () => {
   });
 
   it("keeps room for active dedup candidates", () => {
-    const notes = notesStore({ dedup: { enabled: true } });
+    const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.85 } });
     for (const topic of ["coffee", "cars", "trains", "boats", "houses", "bikes"]) {
       const note = notes.store({ content: `the user collects vintage ${topic}`, tags: [topic] });
       notes.setDisabled(note.id, true);
@@ -135,7 +135,7 @@ describe("turning one memory entry off (ATO-1124)", () => {
   });
 
   it("only suppresses agent notes with compatible tags", () => {
-    const notes = notesStore({ dedup: { enabled: true } });
+    const notes = notesStore({ dedup: { enabled: true, fts5Threshold: 0.85 } });
     const disabled = notes.store({ content: "the user prefers paper notebooks", tags: ["office"] });
     notes.setDisabled(disabled.id, true);
     expect(notes.store({ content: disabled.content, tags: ["travel"] }).id).not.toBe(disabled.id);
