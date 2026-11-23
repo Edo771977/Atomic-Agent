@@ -1,5 +1,6 @@
 import { hasUnresolvedWildcardDnsAddress } from "../llm/provider/openai/local-server-url.js";
 import { isOtherComputerOnNetworkUrl } from "../llm/provider/openai/network-server-address.js";
+import { isLocalProviderUrl } from "../llm/provider/presets/is-local-provider-url.js";
 import { isLoopbackUrl } from "../llm/provider/url-host.js";
 import { describeMalformedApiKey } from "./api-key-shape.js";
 import type { UserLlmProviderEntry } from "./llm-config.js";
@@ -77,7 +78,7 @@ export function resolveLlmProviderApiKeyWithSource(
     // operator's own choice and is honoured.
     if (!maySendSharedOpenAiKey(entry.baseUrl)) return done();
     const shared = sharedOpenAiKey();
-    if (shared === undefined) return done();
+    if (shared === undefined || (shared.name !== "OPENAI_COMPAT_API_KEY" && !mayReceiveOpenAiKey(entry.baseUrl))) return done();
     return take(shared.value, { kind: "env", name: shared.name }) ?? done();
   }
   return done();
@@ -120,6 +121,24 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
     return value.length > 0 ? { name, value } : undefined;
   }
   return undefined;
+}
+
+const OPENAI_ORIGIN = "https://api.openai.com";
+
+/**
+ * ATO-1703: whether `OPENAI_API_KEY` / `ATOMIC_AGENT_OPENAI_API_KEY` may be
+ * sent to a compat entry's `baseUrl`. Only OpenAI's own API and servers on
+ * this machine qualify; no `baseUrl` means the provider's built-in default,
+ * which is not a host a config file chose. Anything unparsable gets nothing.
+ */
+export function mayReceiveOpenAiKey(baseUrl: string | undefined): boolean {
+  if (baseUrl === undefined || baseUrl.length === 0) return true;
+  if (isLocalProviderUrl(baseUrl)) return true;
+  try {
+    return new URL(baseUrl).origin === OPENAI_ORIGIN;
+  } catch {
+    return false;
+  }
 }
 
 /**
