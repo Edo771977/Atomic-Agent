@@ -111,7 +111,7 @@ import { formatSessionFusionNotice } from "./fusion-resume-notice.js";
 import { projectResumeLine } from "./project/project-card-lines.js";
 import { projectContinueMessage } from "../session/project-continue.js";
 import { withProject, type ProjectDecision } from "../session/session-project.js";
-import { projectLessonPanel, type ProjectLessonChoice } from "./project/project-lesson-operations.js";
+import { projectLessonPanel, type ProjectLessonChoice } from "../session/project-lesson-operations.js";
 import type { ProjectBacklogDecision } from "../session/project-backlog.js";
 import { INTERRUPTED_TURN_NOTICE } from "./interrupted-turn-notice.js";
 import { createHeapGuard } from "../runtime/heap-guard.js";

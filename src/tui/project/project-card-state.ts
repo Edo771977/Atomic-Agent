@@ -15,7 +15,7 @@ import { uncitedDecisions } from "../../session/project-gate-text.js";
 import type { ProjectGateRow, ProjectGateView } from "../../session/project-gate-view.js";
 import type { ProjectVerdict } from "../../session/session-project.js";
 
-import type { ProjectLessonPanel } from "./project-lesson-operations.js";
+import type { ProjectLessonPanel } from "../../session/project-lesson-operations.js";
 
 export type ProjectCardMode = "actions" | "edit" | "note" | "backlog" | "lessons";
 
