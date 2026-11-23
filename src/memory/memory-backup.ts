@@ -267,6 +267,17 @@ function archiveMetadata(row: ArchiveRow, kind: "note" | "profile"): void {
   if (badTime || badFields) throw new MemoryBackupError(`invalid ${kind} metadata`);
 }
 
+function requireArchiveTable(db: Database.Database, name: string, optional = false): void {
+  const type = db.prepare("SELECT type FROM pragma_table_list WHERE schema = 'main' AND name = ?").pluck().get(name);
+  if (type !== "table" && !(optional && type === undefined)) {
+    throw new MemoryBackupError(`backup ${name} must be a table`);
+  }
+}
+
+function noteIdentity(id: unknown, createdAt: unknown): string {
+  return JSON.stringify([id, createdAt]);
+}
+
 /** Merge current entries under one SQLite write transaction, including deduplication. */
 export function restoreMemoryBackup(context: MemoryRestoreContext, directory: string): MemoryRestoreResult {
   assertMemoryBackupAllowed(context.incognito);
@@ -285,7 +296,10 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
   try {
     original.pragma("trusted_schema = OFF");
     return original.transaction(() => {
+      requireArchiveTable(original, "schema_meta");
+      requireArchiveTable(original, "profile_facts");
       const version = readSchemaVersion(original);
+      requireArchiveTable(original, "memories", version < 2);
       const bytes = Number(original.pragma("page_count", { simple: true })) * Number(original.pragma("page_size", { simple: true }));
       if (bytes > MAX_RESTORE_BYTES) throw new MemoryBackupError("backup exceeds the restore size limit");
       const snapshot = context.preview || context.expectedHash !== undefined ? original.serialize() : undefined;
@@ -304,9 +318,12 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
       const source = migrated ?? original;
       const count = Number(source.prepare("SELECT (SELECT count(*) FROM memories) + (SELECT count(*) FROM profile_facts)").pluck().get());
       if (count > MAX_RESTORE_ROWS) throw new MemoryBackupError("backup exceeds the restore row limit");
+      const eligibleNotes = `consolidated_into IS NULL AND NOT ${supersededSql("tags")}`;
+      const incomingNotes = Number(source.prepare(`SELECT count(*) FROM memories WHERE ${eligibleNotes}`).pluck().get());
+      const incomingFacts = Number(source.prepare("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL").pluck().get());
       const notes = source.prepare(`
         SELECT id, content, created_at, updated_at, session_id, working_dir, tags, constraint_scope, disabled_at
-        FROM memories WHERE consolidated_into IS NULL AND NOT ${supersededSql("tags")} ORDER BY id
+        FROM memories WHERE ${eligibleNotes} ORDER BY id
       `);
       const facts = source.prepare(`
         SELECT key, value, pinned, keywords, valid_from, created_at, updated_at, constraint_scope, disabled_at
@@ -319,22 +336,48 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
         if (!context.preview || !exists) applyMigrations(target);
         const insertNote = target.prepare(`
           INSERT INTO memories (content, created_at, updated_at, source, session_id, working_dir, tags, constraint_scope, disabled_at)
-          SELECT @content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags, @constraint_scope, @disabled_at
-          WHERE NOT EXISTS (
-            SELECT 1 FROM memories WHERE content = @content AND constraint_scope IS @constraint_scope
-          )
+          VALUES (@content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags, @constraint_scope, @disabled_at)
         `);
         const insertFact = target.prepare(`
           INSERT INTO profile_facts (key, value, pinned, keywords, valid_from, created_at, updated_at,
                                      name_grounding, name_checked_at, constraint_scope, disabled_at)
-          SELECT @key, @value, @pinned, @keywords, @valid_from, @created_at, @updated_at,
-                 @name_grounding, @name_checked_at, @constraint_scope, @disabled_at
-          WHERE NOT EXISTS (SELECT 1 FROM profile_facts WHERE key = @key)
+          VALUES (@key, @value, @pinned, @keywords, @valid_from, @created_at, @updated_at,
+                  NULL, NULL, @constraint_scope, @disabled_at)
         `);
         return target.transaction(() => {
           const result: MemoryRestoreResult = { notes: 0, facts: 0 };
-          const noteScope = target.prepare("SELECT 1 FROM memories WHERE constraint_scope IS NOT NULL AND (content = ? OR (id = ? AND created_at = ?)) LIMIT 1");
-          const factScope = target.prepare("SELECT 1 FROM profile_facts WHERE key = ? AND constraint_scope IS NOT NULL LIMIT 1");
+          const liveNotes = new Map<string, Set<string | null>>();
+          const scopedNotes = new Set<string>();
+          const liveFacts = new Set<string>();
+          const scopedFacts = new Set<string>();
+          const noteRows = target.prepare("SELECT id, content, created_at, constraint_scope FROM memories");
+          let noteCount = 0;
+          for (const row of noteRows.iterate() as Iterable<{ id: number; content: string; created_at: number; constraint_scope: string | null }>) {
+            noteCount += 1;
+            const scopes = liveNotes.get(row.content) ?? new Set<string | null>();
+            scopes.add(row.constraint_scope);
+            liveNotes.set(row.content, scopes);
+            if (row.constraint_scope !== null) scopedNotes.add(noteIdentity(row.id, row.created_at));
+          }
+          const factRows = target.prepare("SELECT key, constraint_scope, pinned, superseded_by FROM profile_facts");
+          let unpinnedCount = 0;
+          let pinnedCount = 0;
+          for (const row of factRows.iterate() as Iterable<{ key: string; constraint_scope: string | null; pinned: number; superseded_by: number | null }>) {
+            liveFacts.add(row.key);
+            if (row.constraint_scope !== null) scopedFacts.add(row.key);
+            if (row.superseded_by === null) {
+              if (row.pinned === 0) unpinnedCount += 1;
+              else pinnedCount += 1;
+            }
+          }
+          const noteLimit = context.maxEntries ?? Infinity;
+          const profileLimit = context.profileMaxEntries ?? Infinity;
+          // If the raw selection may overflow, use the exact eligible count before any writes.
+          const checkNotes = Math.min(incomingNotes, context.takeNotes ?? Infinity) > Math.max(0, noteLimit - noteCount);
+          const checkFacts = Math.min(incomingFacts, context.takeFacts ?? Infinity) > Math.max(0, profileLimit - unpinnedCount);
+          const notesToInsert: ArchiveRow[] = [];
+          const factsToInsert: ArchiveRow[] = [];
+          const disabledNotesPresent = Boolean(target.prepare("SELECT 1 FROM memories WHERE disabled_at IS NOT NULL LIMIT 1").get());
           const disabledMatches = target.prepare(`
             SELECT m.content, m.tags FROM memories_fts JOIN memories m ON m.id = memories_fts.rowid
             WHERE memories_fts MATCH ? AND m.disabled_at IS NOT NULL AND m.constraint_scope IS ?
@@ -357,12 +400,18 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
               archiveMetadata(row, "note");
               const content = validateContent(row.content);
               const tags = withoutReservedTags(validateTags(archiveArray(row.tags)));
-              if (row.constraint_scope === null && noteScope.get(content, row.id, row.created_at)) throw new MemoryBackupError("scope mismatch");
+              const scopes = liveNotes.get(content) ?? new Set<string | null>();
+              if (row.constraint_scope === null && (scopedNotes.has(noteIdentity(row.id, row.created_at))
+                || [...scopes].some((scope) => scope !== null))) throw new MemoryBackupError("scope mismatch");
+              const scope = row.constraint_scope as string | null;
               selectedNotes += 1;
-              const query = buildFtsQuery(content);
+              if (scopes.has(scope)) continue;
+              const query = disabledNotesPresent ? buildFtsQuery(content) : "";
               if (query && (disabledMatches.all(query, row.constraint_scope) as Array<{ content: string; tags: string | null }>)
                 .some((candidate) => matchesDisabledNote(candidate, content, tags, context.dedupThreshold ?? 0.85))) continue;
-              result.notes += insertNote.run({ ...row, content, source: "agent", tags: JSON.stringify(tags) }).changes;
+              scopes.add(scope);
+              liveNotes.set(content, scopes);
+              notesToInsert.push({ ...row, content, source: "agent", tags: JSON.stringify(tags) });
             } catch (error) {
               if (!rejected(error, "note")) throw error;
             }
@@ -377,24 +426,31 @@ export function restoreMemoryBackup(context: MemoryRestoreContext, directory: st
               const value = validateValue(row.value);
               if (isSecretKey(key) || containsSecretPair(key, value)) throw new MemoryBackupError("profile credential");
               const keywords = validateKeywords(archiveArray(row.keywords));
-              if (row.constraint_scope === null && factScope.get(key)) throw new MemoryBackupError("scope mismatch");
+              if (row.constraint_scope === null && scopedFacts.has(key)) throw new MemoryBackupError("scope mismatch");
               selectedFacts += 1;
-              result.facts += insertFact.run({ ...row, key, value, keywords: JSON.stringify(keywords), name_grounding: null, name_checked_at: null }).changes;
+              if (liveFacts.has(key)) continue;
+              liveFacts.add(key);
+              factsToInsert.push({ ...row, key, value, keywords: JSON.stringify(keywords) });
+              if (row.pinned === 0) unpinnedCount += 1;
+              else pinnedCount += 1;
             } catch (error) {
               if (!rejected(error, "profile")) throw error;
             }
           }
-          const count = (sql: string) => Number(target.prepare(sql).pluck().get());
-          const noteOverflow = Math.max(0, count("SELECT count(*) FROM memories") - (context.maxEntries ?? Infinity));
-          const factOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 0") - (context.profileMaxEntries ?? Infinity));
+          result.notes = notesToInsert.length;
+          result.facts = factsToInsert.length;
+          const noteOverflow = checkNotes ? Math.max(0, noteCount + result.notes - noteLimit) : 0;
+          const factOverflow = checkFacts ? Math.max(0, unpinnedCount - profileLimit) : 0;
           if ((result.notes > 0 && noteOverflow > 0) || (result.facts > 0 && factOverflow > 0)) {
             throw new MemoryBackupError(
               `Restore would add ${result.notes} notes and ${result.facts} profile facts and evict ${noteOverflow} notes and ${factOverflow} profile facts. Increase the configured limits or restore a subset with --max-notes N and --max-facts N. ${formatMemoryRestoreResult(result)}.`,
             );
           }
-          const pinnedOverflow = Math.max(0, count("SELECT count(*) FROM profile_facts WHERE superseded_by IS NULL AND pinned = 1") - (context.profileMaxEntries ?? Infinity));
+          const pinnedOverflow = Math.max(0, pinnedCount - profileLimit);
           if (pinnedOverflow) result.pinnedOverflow = pinnedOverflow;
           if (context.preview) throw new RestorePreview({ ...result, backupHash: backupHash! });
+          for (const note of notesToInsert) insertNote.run(note);
+          for (const fact of factsToInsert) insertFact.run(fact);
           return result;
         }).immediate();
       } catch (error) {

@@ -304,6 +304,36 @@ describe("atomic-agent memory backup (ATO-46)", () => {
     expect(restoreMemoryBackup({ ...target, expectedHash: fresh.backupHash! }, out)).toEqual({ notes: 1, facts: 0 });
   });
 
+  it("refuses a source view in place of the notes table", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "synthetic archive note" });
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const edited = new Database(join(out, "memory.sqlite"));
+    edited.exec("ALTER TABLE memories RENAME TO source_notes; CREATE VIEW memories AS SELECT * FROM source_notes");
+    edited.close();
+    const target = { memoryDbFile: join(dir, "live.sqlite") };
+    expect(() => restoreMemoryBackup(target, out)).toThrow(/memories must be a table/);
+    expect(existsSync(target.memoryDbFile)).toBe(false);
+  });
+
+  it("checks the restore quota before running any insert", async () => {
+    const notes = new MemoryStore({ dbFile, maxEntries: 10 });
+    notes.store({ content: "new archive note" });
+    notes.close();
+    const out = join(dir, "bk");
+    await createMemoryBackup({ memoryDbFile: dbFile }, out);
+    const livePath = join(dir, "live.sqlite");
+    const live = new MemoryStore({ dbFile: livePath, maxEntries: 1 });
+    live.store({ content: "live note" });
+    live.close();
+    const liveDb = new Database(livePath);
+    liveDb.exec("CREATE TRIGGER report_insert BEFORE INSERT ON memories BEGIN SELECT RAISE(ABORT, 'insert attempted'); END");
+    liveDb.close();
+    expect(() => restoreMemoryBackup({ memoryDbFile: livePath, maxEntries: 1 }, out)).toThrow(/would add 1 notes/);
+  });
+
   it("migrates an older archive privately while keeping the original bytes", () => {
     const archive = new Database(dbFile);
     archive.exec(`
