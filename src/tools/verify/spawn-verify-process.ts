@@ -25,6 +25,7 @@ import {
   formatSandboxUnavailable,
   readOsSandboxSettings,
   wrapWithOsSandbox,
+  withSandboxCache,
 } from "../../sandbox/os-sandbox.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
 import {
@@ -145,19 +146,21 @@ export function spawnVerifyProcess(
 ): VerifyProcess {
   const invocation = options.invocation ?? resolveInvocation(cmd, args);
   const detached = process.platform !== "win32";
-  const wrapped = readOsSandboxSettings().mode === "workspace"
+  const sandboxed = readOsSandboxSettings().mode === "workspace";
+  const wrapped = sandboxed
     ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
       workspaceRoots: [options.cwd],
       network: false,
     }))
     : { ok: true as const, command: invocation.command, args: invocation.args };
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
+  const env = withEnvOverrides({
+    ...buildCommandEnv(process.env),
+    ...(options.network ? {} : networkBlockEnv()),
+  }, options.env ?? {});
   const child = spawn(wrapped.command, wrapped.args, {
     cwd: options.cwd,
-    env: markAgentToolChild(withEnvOverrides({
-      ...buildCommandEnv(process.env),
-      ...(options.network ? {} : networkBlockEnv()),
-    }, options.env ?? {})),
+    env: markAgentToolChild(sandboxed ? withSandboxCache(env) : env),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,

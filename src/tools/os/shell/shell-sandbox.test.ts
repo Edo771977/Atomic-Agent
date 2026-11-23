@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import { createServer } from "node:net";
@@ -11,6 +11,7 @@ import {
   buildOsSandboxPolicy, wrapWithOsSandbox, type OsSandboxSettings,
 } from "../../../sandbox/os-sandbox.js";
 import type { ToolContext } from "../../tool-registry.js";
+import { runVerify } from "../../verify/run-verify.js";
 import { buildOsShellTool } from "./shell.js";
 
 const fixturePolicy = buildOsSandboxPolicy({ workspaceRoots: [tmpdir()], network: false });
@@ -61,14 +62,17 @@ describe.skipIf(unavailable !== undefined)(
       };
     }
 
-    function tool(settings: OsSandboxSettings) {
+    function tool(settings: OsSandboxSettings, stateDir = state, onOneShot?: () => void) {
       const gate = new ApprovalGate({
-        emit: (req) => gate.resolve({ approvalId: req.approvalId, approved: true }),
+        emit: (req) => {
+          if (req.oneShot) onOneShot?.();
+          gate.resolve({ approvalId: req.approvalId, approved: true });
+        },
       });
       return buildOsShellTool({
         approvals: gate,
         approvalRequired: true,
-        stateDir: state,
+        stateDir,
         sandbox: () => settings,
       });
     }
@@ -108,6 +112,63 @@ describe.skipIf(unavailable !== undefined)(
       expect(git.summary).toContain("?? package.json");
     });
 
+    it("keeps state hidden when it is under a writable project", async () => {
+      const nestedState = join(work, "state");
+      await mkdir(nestedState);
+      await writeFile(join(nestedState, "serve-api.key"), "synthetic-nested-marker");
+      const result = await tool(on, nestedState).run({ cmd: "cat state/serve-api.key; echo end" }, ctx());
+      expect(result.summary).toContain("end");
+      expect(result.summary).not.toContain("synthetic-nested-marker");
+    });
+
+    it("keeps a detached shell job confined", async () => {
+      const runner = tool(on);
+      const job = await runner.run({
+        cmd: 'echo attempt > "$ATO469_OUTSIDE/detached.txt"; echo job-alive; sleep 20',
+        background: true,
+      }, ctx());
+      const jobId = Number(job.details?.jobId);
+      expect(Number.isInteger(jobId)).toBe(true);
+      try {
+        expect(job.summary).toContain("job-alive");
+        expect(existsSync(join(outside, "detached.txt"))).toBe(false);
+      } finally {
+        await runner.run({ kill: jobId }, ctx());
+      }
+    });
+
+    it("wraps verify commands and protects state from the copied workspace", async () => {
+      vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+      vi.stubEnv("ATOMIC_AGENT_STATE_DIR", state);
+      try {
+        const result = await runVerify({
+          kind: "command", cmd: process.execPath,
+          args: ["-e", "require('node:fs').readFileSync(process.env.ATO469_STATE + '/serve-api.key')"],
+        }, ctx());
+        expect(result.ok).toBe(false);
+        expect(result.stderrTail).toMatch(/ENOENT|EPERM|EACCES/);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it.skipIf(process.platform !== "linux")("probes a verify service within its private Linux network", async () => {
+      vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+      vi.stubEnv("ATOMIC_AGENT_STATE_DIR", state);
+      try {
+        const result = await runVerify({
+          kind: "service",
+          start: { cmd: process.execPath, args: ["-e",
+            "require('node:http').createServer((req, res) => res.end('inside fixture')).listen(23456, '127.0.0.1')"] },
+          ready: { port: 23456 },
+          requests: [{ path: "/", expectBody: "inside fixture" }],
+        }, ctx());
+        expect(result, result.summary).toMatchObject({ ok: true, ready: true, requests: [{ ok: true }] });
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it.skipIf(process.platform !== "linux")("hides another process and blocks access to a host listener", async () => {
       const serve = spawn(process.execPath, ["-e", "setInterval(() => {}, 1000)", "synthetic-serve-argv"], {
         env: { ...process.env, ATOMIC_AGENT_API_KEY: "synthetic-serve-environment" },
@@ -130,6 +191,13 @@ describe.skipIf(unavailable !== undefined)(
         expect(denied.status).toBe("error");
         const allowed = await tool({ mode: "off", network: false }).run({ cmd: process.execPath, args: probe }, ctx());
         expect(allowed.summary).toContain("host network reachable");
+        await expect(runner.run({ cmd: process.execPath, args: probe, network: true }, ctx()))
+          .rejects.toThrow("networking is disabled");
+        const onOneShot = vi.fn();
+        const approved = await tool({ mode: "workspace", network: true }, state, onOneShot)
+          .run({ cmd: process.execPath, args: probe, network: true }, ctx());
+        expect(approved.summary).toContain("host network reachable");
+        expect(onOneShot).toHaveBeenCalledTimes(1);
       } finally {
         serve.kill();
         server.close();

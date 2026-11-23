@@ -178,8 +178,8 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
   if (process.platform === "linux" && readOsSandboxSettings().mode === "workspace" &&
-      (args.kind === "service" || (args.kind === "page" && args.start !== undefined))) {
-    throw new Error("Safe Mode: verify.run cannot probe a service inside the private Linux network namespace.");
+      args.kind === "page" && args.start !== undefined) {
+    throw new Error("Safe Mode: verify.run cannot launch a host browser against a page server in the private Linux network namespace.");
   }
   const ui = args.kind === "ui" ? await runImpeccableCheck(args, dir, cwd, detector, ctx.shellPolicy, ctx.signal) : undefined;
   if (ui !== undefined || isArtifactKind(args.kind)) {

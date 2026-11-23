@@ -35,6 +35,12 @@ export function readOsSandboxSettings(
   return { mode, network: net === "on" || net === "1" || net === "true" };
 }
 
+/** Keep tools that need cache writes inside the sandbox's temporary roots. */
+export function withSandboxCache(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const cache = join(tmpdir(), "atomic-agent-tool-cache");
+  return { ...env, XDG_CACHE_HOME: cache, npm_config_cache: join(cache, "npm") };
+}
+
 export interface OsSandboxPolicy {
   /** Folders the command may write under (working folders first). */
   writableRoots: readonly string[];

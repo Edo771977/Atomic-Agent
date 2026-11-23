@@ -1,5 +1,3 @@
-import { join } from "node:path";
-import { tmpdir } from "node:os";
 import {
   compressToolResult,
   type CompressedToolResult,
@@ -16,6 +14,7 @@ import {
   formatSandboxUnavailable,
   readOsSandboxSettings,
   wrapWithOsSandbox,
+  withSandboxCache,
   type OsSandboxSettings,
 } from "../../../sandbox/os-sandbox.js";
 import { quoteCmdArg } from "../../../sandbox/shell-invocation.js";
@@ -455,7 +454,6 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let spawnCommand = spawnSpec.command;
     let spawnArgs = spawnSpec.args;
     let sandboxNotice: string | null = null;
-    const sandboxEnv = sandbox.mode === "workspace" ? { npm_config_cache: join(tmpdir(), "atomic-agent-npm-cache") } : {};
     if (sandbox.mode === "workspace") {
       const network = rawArgs.network === true;
       if (network && (!sandbox.network || isOfflineNetwork())) {
@@ -494,8 +492,8 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;
       sandboxNotice = network
-        ? "Safe Mode sandbox is active with network access approved for this command."
-        : "Safe Mode sandbox is active. Direct external IP access is blocked.";
+        ? "Safe Mode sandbox requested with network access approved for this command."
+        : "Safe Mode sandbox requested with external IP access blocked.";
     }
     // Its own process group, so a stop reaches what the command
     // started too (`sleep 30 &` behind a subshell used to outlive the
@@ -507,13 +505,11 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     const baseEnv = withToolchainEnv(
       buildCommandEnv(process.env, options.envPassthrough ?? []),
     );
+    const commandEnv = pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path);
     const job = startCommandJob(spawnCommand, spawnArgs, {
       cwd: pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: markAgentToolChild({
-        ...(pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path)),
-        ...sandboxEnv,
-      }),
+      env: markAgentToolChild(sandbox.mode === "workspace" ? withSandboxCache(commandEnv) : commandEnv),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
