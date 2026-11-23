@@ -37,9 +37,11 @@ it("uses workspace write approval and creates only a new, inactive proposal", as
     const original = readFileSync(path, "utf8");
     expect((await tool.run({ ...args, decided: "replacement" }, ctx)).status).toBe("error");
     expect(readFileSync(path, "utf8")).toBe(original);
+    await tool.run({ ...args, id: "long", decided: "x".repeat(500) }, ctx);
+    expect(request.mock.calls.at(-1)?.[0].reason).toMatch(/preview truncated/i);
     expect((await tool.run({ ...args, id: "other", status: "active" }, ctx)).status).toBe("error");
     const dir = join(folder, ".atomic", "project", "lessons");
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 14; i++) {
       writeFileSync(join(dir, `existing-${i}.md`), original.replace("id: no-deps", `id: existing-${i}`));
     }
     const full = await tool.run({ ...args, id: "one-too-many" }, ctx);

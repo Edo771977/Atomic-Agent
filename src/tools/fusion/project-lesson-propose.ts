@@ -64,7 +64,8 @@ export function buildProjectLessonTool(options: FsDangerousToolOptions & { trust
       }
       await requireFsApproval(options, {
         kind: "write", paths: [path], sessionId: ctx.sessionId, tool,
-        reason: "Save a new project lesson proposal", preview: draft.text.slice(0, 400),
+        reason: draft.text.length > 400 ? "Save a new project lesson proposal (preview truncated)" : "Save a new project lesson proposal",
+        preview: draft.text.slice(0, 400),
         targetPaths: [path], affectedResources: [path], workingDir: ctx.workingDir,
         trustConfigPaths: options.trustConfigPaths,
       }, ctx.signal);
