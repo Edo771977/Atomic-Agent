@@ -285,12 +285,18 @@ describe("Privacy Shield in the fork", () => {
     );
     const p = provider(fetchImpl);
     const messages = { system: `Stable prefix for ${EMAIL}`, droppedSummary: null, turns: [], tail: "First" };
-    const request = { prompt: messages.system, sessionId: "stable", messages };
+    const request = {
+      prompt: messages.system, sessionId: "stable", messages,
+      tools: [{ type: "function", function: { name: "reply", parameters: { type: "object" } } }],
+    };
     const first = await drain(p.completeStream(request));
     await drain(p.completeStream({ ...request, messages: { ...messages, tail: "Second" } }));
     const prefix = (call: number) => JSON.stringify(JSON.parse(sentBody(fetchImpl, call)).messages[0]);
+    expect(JSON.parse(prefix(0))).toMatchObject({ role: "system" });
     expect(prefix(0)).toContain("[EMAIL_1]");
     expect(prefix(0)).toBe(prefix(1));
+    expect(sentBody(fetchImpl, 0)).toContain("First");
+    expect(sentBody(fetchImpl, 1)).toContain("Second");
     expect(first.chunks.map((chunk) => chunk.delta).join("")).toBe(`[EMAIL_999] ${EMAIL}`);
     expect(first.result.content).toBe(`[EMAIL_999] ${EMAIL}`);
   });
