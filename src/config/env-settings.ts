@@ -98,6 +98,7 @@ export const ENV_SETTINGS: readonly EnvSetting[] = [
   // Safe Mode: the OS sandbox around the agent's shell and verification commands (ATO-469, ATO-472).
   env("ATOMIC_AGENT_SANDBOX", "off", "Set to workspace to run the agent's shell and verification commands in the OS sandbox: writes only in the working folder and temporary folders, no reads of credential folders or the state directory. Where no sandbox exists (Windows, Linux without bwrap) commands are refused. Unset or any other value: off."),
   env("ATOMIC_AGENT_SANDBOX_NETWORK", "off", "Set to on to permit one-time shell network requests. Each command also needs network: true, explicit approval and an unrestricted egress policy."),
+  env("ATOMIC_AGENT_SANDBOX_TOOLCHAINS", null, "Additional absolute read-only toolchain directories for Safe Mode, separated like PATH. Entire private roots and their ancestors stay hidden."),
 
   // Browser tools.
   env("ATOMIC_AGENT_BROWSER_ENABLED", ENV_DEFAULTS.BROWSER_ENABLED, "Register the browser tools."),
