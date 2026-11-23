@@ -276,10 +276,11 @@ describe("Privacy Shield in the fork", () => {
     const fetchImpl = vi.fn(async () =>
       sse([contentFrame(content), stopFrames()]),
     );
-    const { result } = await drain(provider(fetchImpl).completeStream({
+    const { chunks, result } = await drain(provider(fetchImpl).completeStream({
       prompt: `Read ${path}`, sessionId: "grammar-fallback",
     }));
     expect(parseToolCalls(result.content).calls[0]?.args).toEqual({ path });
+    expect(chunks.map(chunk => chunk.delta).join("")).toBe(result.content);
   });
 
   it("masks private values in the JSON arguments replayed as chat history", () => {
@@ -372,4 +373,19 @@ it("restores plain text after a provider refuses response_format", async () => {
   });
   expect(JSON.parse(sentBody(replies, 1))).not.toHaveProperty("response_format");
   expect(result.content).toBe(`Value ${secret}`);
+});
+
+it("preserves JSON escaping in live structured-output chunks", async () => {
+  const secret = String.raw`Secret"With\Slash42`;
+  setPrivacyKnownSecrets(() => [{ label: "fixture", value: secret }]);
+  setPrivacyShieldEnabled(true);
+  const replies = vi.fn(async () => sse([
+    contentFrame('{"value":"[SEC'), contentFrame('RET_1]"}'), stopFrames(),
+  ]));
+  const { chunks, result } = await drain(provider(replies).completeStream({
+    prompt: `Value ${secret}`, sessionId: "format-stream",
+    responseFormat: { name: "format", schema: { type: "object" } },
+  }));
+  expect(chunks.map(chunk => chunk.delta).join("")).toBe(result.content);
+  expect(JSON.parse(result.content)).toEqual({ value: secret });
 });

@@ -124,18 +124,37 @@ export interface ChunkUnmasker {
  * two chunks (`[EMA` + `IL_1]`). One per stream attempt: a reopened
  * stream starts from scratch.
  */
-export function createChunkUnmasker(vault: PrivacyVault): ChunkUnmasker {
-  const text = createStreamUnmasker(vault);
+export function createChunkUnmasker(vault: PrivacyVault, jsonContent = false): ChunkUnmasker {
+  const text = createStreamUnmasker(vault, { json: jsonContent });
   const reasoning = createStreamUnmasker(vault);
+  // A native-tool reply can carry a call array in content, with no wire
+  // response format. Only its complete body can tell us how to escape it.
+  let undecided: string | undefined = jsonContent ? undefined : "";
+  let grammarCandidate = false;
+  const pushText = (delta: string): string => {
+    if (undecided === undefined) return text.push(delta);
+    undecided += delta;
+    if (grammarCandidate) return "";
+    const start = undecided.trimStart();
+    if (!start || /^\[\s*$/.test(start)) return "";
+    if (start.startsWith("{") || /^\[\s*\{/.test(start)) {
+      grammarCandidate = true;
+      return "";
+    }
+    const buffered = undecided;
+    undecided = undefined;
+    return text.push(buffered);
+  };
   return {
     push(chunk) {
-      const delta = text.push(chunk.delta);
+      const delta = pushText(chunk.delta);
       const reasoningDelta = reasoning.push(chunk.reasoningDelta);
       if (delta === chunk.delta && reasoningDelta === chunk.reasoningDelta) return chunk;
       return { ...chunk, delta, reasoningDelta };
     },
     flush() {
-      const delta = text.flush();
+      const delta = undecided === undefined ? text.flush() : unmaskReply(undecided, vault, false, true);
+      undecided = undefined;
       const reasoningDelta = reasoning.flush();
       if (delta.length === 0 && reasoningDelta.length === 0) return null;
       return { delta, reasoningDelta, done: false };

@@ -966,7 +966,7 @@ export class OpenAiProvider implements LlmProvider {
         const stream = this.streamConsumer.consume(res.body, request.signal);
         // Placeholders back in the text as it streams; a fresh hold-back
         // per attempt, like the transcript above.
-        const unmasker: ChunkUnmasker | null = vault ? createChunkUnmasker(vault) : null;
+        const unmasker: ChunkUnmasker | null = vault ? createChunkUnmasker(vault, sentJsonResponseFormat(sentBody)) : null;
         // Whether this pump reached the consumer's own `done`. A pump that
         // did not has abandoned a live stream; see the release below.
         let drained = false;
