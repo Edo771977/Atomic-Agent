@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { Database as DatabaseCtor } from "../native/load-better-sqlite3.js";
 import { applyMigrations, MEMORY_SCHEMA_VERSION } from "./memory-schema.js";
 import { MemoryStore } from "./memory-store.js";
+import { restoreMemoryChange } from "./evolution/memory-restore.js";
 import { ProfileStore } from "./profile-store.js";
 
 /**
@@ -40,6 +41,26 @@ describe("turning one memory entry off (ATO-1124)", () => {
     stores.push(store);
     return store;
   };
+
+  it("records a state change once and restores it without replacing the entry", () => {
+    const notes = notesStore();
+    const profile = profileStore();
+    const note = notes.store({ content: "Meet on Tuesday" });
+    const fact = profile.set("city", "Lisbon");
+    notes.setDisabled(note.id, true);
+    notes.setDisabled(note.id, true);
+    profile.setDisabled(fact.key, true);
+
+    const changes = notes.getChangeLog().list();
+    expect(changes.map((change) => change.op)).toEqual(["set_disabled", "set_disabled"]);
+    for (const change of changes) {
+      expect(restoreMemoryChange(change.id, { notes, profile }).ok).toBe(true);
+      expect(restoreMemoryChange(change.id, { notes, profile }).ok).toBe(false);
+    }
+    expect(notes.get(note.id)?.disabledAt).toBeUndefined();
+    expect(profile.get(fact.key)?.disabledAt).toBeUndefined();
+    expect(profile.history(fact.key)).toHaveLength(1);
+  });
 
   it("adds disabled_at in place, without a schema version bump", () => {
     const db = new DatabaseCtor(dbFile);

@@ -285,7 +285,7 @@ export class ProfileStore {
               superseded_by, supersedes, created_at, updated_at,
               vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
-        WHERE key = ? AND superseded_by IS NULL AND memory_scope_visible(constraint_scope)`,
+        WHERE key = ? AND superseded_by IS NULL`,
     );
     // Per-folder provider constraints (issue #33): reads see only the
     // facts the call's scope may (memory-constraint-scope.ts); the write
@@ -293,7 +293,7 @@ export class ProfileStore {
     this.selectVisibleActiveByKeyStmt = this.db.prepare(
       `SELECT id, key, value, pinned, keywords, valid_from,
               superseded_by, supersedes, created_at, updated_at,
-              vote_score, name_grounding, name_checked_at, constraint_scope
+              vote_score, name_grounding, name_checked_at, constraint_scope, disabled_at
          FROM profile_facts
         WHERE key = ? AND superseded_by IS NULL
           AND memory_scope_visible(constraint_scope)`,
@@ -621,15 +621,28 @@ export class ProfileStore {
    * has no active row.
    */
   setDisabled(key: string, disabled: boolean, now: number = Date.now()): ProfileFact | null {
+    return this.changeDisabledAt(key, disabled ? now : null, now);
+  }
+
+  changeDisabledAt(key: string, disabledAt: number | null, now = Date.now()): ProfileFact | null {
     const normalisedKey = validateKey(key);
-    // Turning off an already-off fact keeps the first time.
-    this.db
-      .prepare(
-        `UPDATE profile_facts SET disabled_at = ${disabled ? "COALESCE(disabled_at, ?)" : "NULL"}
-          WHERE key = ? AND superseded_by IS NULL AND memory_scope_visible(constraint_scope)`,
-      )
-      .run(...(disabled ? [now] : []), normalisedKey);
-    return this.get(normalisedKey);
+    return this.db.transaction(() => {
+      const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as ProfileRow | undefined;
+      if (row === undefined) return null;
+      const before = rowToFact(row);
+      if ((before.disabledAt !== undefined) === (disabledAt !== null)) return before;
+      this.db.prepare(`UPDATE profile_facts SET disabled_at = ? WHERE id = ?`).run(disabledAt, row.id);
+      this.changeLog.record({
+        kind: "profile", target: normalisedKey, op: "set_disabled", by: "user",
+        before: {
+          key: before.key, value: before.value, pinned: before.pinned, keywords: before.keywords,
+          constraintScope: row.constraint_scope ?? null,
+          ...(before.disabledAt === undefined ? {} : { disabledAt: before.disabledAt }),
+        },
+        after: disabledAt === null ? "enabled" : "disabled",
+      }, now);
+      return this.get(normalisedKey);
+    }).immediate();
   }
 
   /**

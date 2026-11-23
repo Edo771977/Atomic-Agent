@@ -1169,12 +1169,22 @@ export class MemoryStore {
    * note, or `null` when the id is not stored.
    */
   setDisabled(id: number, disabled: boolean, now: number = this.now()): MemoryEntry | null {
+    return this.changeDisabledAt(id, disabled ? now : null, now);
+  }
+
+  changeDisabledAt(id: number, disabledAt: number | null, now = this.now()): MemoryEntry | null {
     const normalizedId = validateId(id);
-    // Turning off an already-off note keeps the first time.
-    this.db
-      .prepare(`UPDATE memories SET disabled_at = ${disabled ? "COALESCE(disabled_at, ?)" : "NULL"} WHERE id = ? AND memory_scope_visible(constraint_scope)`)
-      .run(...(disabled ? [now] : []), normalizedId);
-    return this.get(normalizedId);
+    return this.db.transaction(() => {
+      const before = this.get(normalizedId);
+      if (before === null || (before.disabledAt !== undefined) === (disabledAt !== null)) return before;
+      this.db.prepare(`UPDATE memories SET disabled_at = ? WHERE id = ?`).run(disabledAt, normalizedId);
+      this.changeLog.record({
+        kind: "note", target: String(normalizedId), op: "set_disabled", by: "user",
+        before: noteSnapshot(before, this.rawScope(normalizedId)),
+        after: disabledAt === null ? "enabled" : "disabled",
+      }, now);
+      return this.get(normalizedId);
+    }).immediate();
   }
 
   /**
@@ -1974,5 +1984,6 @@ function noteSnapshot(entry: MemoryEntry, constraintScope: string | null): NoteS
     sessionId: entry.sessionId,
     workingDir: entry.workingDir,
     tags: entry.tags,
+    ...(entry.disabledAt === undefined ? {} : { disabledAt: entry.disabledAt }),
   };
 }

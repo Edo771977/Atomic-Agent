@@ -43,7 +43,22 @@ export function restoreMemoryChange(
     return { ok: false, status: 409, code: "already_restored", message: `memory change ${changeId} was already undone` };
   }
   let applied: { note?: MemoryEntry; fact?: ProfileFact };
-  if (change.kind === "note" && change.op === "remove") {
+  if (change.op === "set_disabled") {
+    const previous = change.before.disabledAt ?? null;
+    if (change.kind === "note") {
+      const note = deps.notes.changeDisabledAt(Number(change.target), previous, now);
+      if (note === null) {
+        return { ok: false, status: 409, code: "note_gone", message: `note ${change.target} no longer exists` };
+      }
+      applied = { note };
+    } else {
+      const fact = deps.profile.changeDisabledAt(change.target, previous, now);
+      if (fact === null) {
+        return { ok: false, status: 404, code: "version_not_found", message: `fact ${change.target} no longer exists` };
+      }
+      applied = { fact };
+    }
+  } else if (change.kind === "note" && change.op === "remove") {
     applied = { note: deps.notes.restoreNote(change.before as NoteSnapshot, now) };
   } else if (change.kind === "note") {
     const before = change.before as NoteSnapshot;
