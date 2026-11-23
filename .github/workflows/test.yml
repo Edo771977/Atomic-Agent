@@ -138,14 +138,45 @@ jobs:
           npm run quarantine:check
           npm run quarantine:self-test
 
-      - name: Install Chromium for the real browser tests
+      - name: Report the system browser
         if: matrix.drop_canvas == 'false'
-        run: npx playwright-core install --with-deps chromium
+        run: |
+          if browser="$(command -v google-chrome || command -v chromium)"; then
+            echo "System browser: $browser"
+            "$browser" --version
+          else
+            echo "Chrome or Chromium was not found on PATH. The real browser tests will check whether a browser can launch."
+          fi
 
       - name: Run tests
+        id: suite
         env:
           ATAG_VERIFY_REQUIRE_BROWSER: ${{ matrix.drop_canvas == 'false' && '1' || '0' }}
+          ATAG_VERIFY_TEST_REPORT: ${{ matrix.drop_canvas == 'false' && format('{0}/verify-tests.json', runner.temp) || '' }}
         run: node scripts/run-tests.mjs ${{ matrix.scope }}
+
+      - name: Report real browser test results
+        if: ${{ !cancelled() && matrix.drop_canvas == 'false' && steps.suite.outcome != 'skipped' }}
+        env:
+          ATAG_VERIFY_TEST_REPORT: ${{ runner.temp }}/verify-tests.json
+        run: |
+          node --input-type=module <<'JS'
+          import { readFileSync } from 'node:fs';
+
+          const { testResults } = JSON.parse(readFileSync(process.env.ATAG_VERIFY_TEST_REPORT, 'utf8'));
+          const cases = testResults.flatMap(({ name, assertionResults }) => {
+            if (name.endsWith('/src/tools/verify/run-page-real-browser.test.ts')) return assertionResults;
+            if (name.endsWith('/src/tools/verify/run-verify.test.ts')) {
+              return assertionResults.filter(({ ancestorTitles }) => ancestorTitles.includes('runVerify — page, real browser'));
+            }
+            return [];
+          });
+          for (const { fullName, status } of cases) console.log(`${status}: ${fullName}`);
+          const passed = cases.filter(({ status }) => status === 'passed').length;
+          const skipped = cases.filter(({ status }) => status === 'skipped' || status === 'pending').length;
+          console.log(`Real browser tests: ${passed}/13 passed, ${skipped} skipped (${cases.length} reported)`);
+          if (cases.length !== 13 || passed !== 13) process.exitCode = 1;
+          JS
 
       # The eval harness checks are independent of the main suite: report them
       # even when an earlier check failed, as long as dependencies installed.
