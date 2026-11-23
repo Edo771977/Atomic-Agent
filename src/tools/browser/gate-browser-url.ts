@@ -14,7 +14,7 @@ import {
   localPageRefusal,
   type LocalPageRead,
 } from "./gate-page-read.js";
-import type { BrowserBackend } from "./browser-backend.js";
+import type { BrowserBackend, BrowserRedirectGuard } from "./browser-backend.js";
 import {
   blockedDomainMessage,
   checkBrowserUrl,
@@ -152,6 +152,22 @@ export async function gateBrowserUrl(
   }
   await requireUrlData(dangerous, policy, tool, url, ctx);
   return null;
+}
+
+/** Reuse the dispatch decision for a destination before Chrome follows the redirect. */
+export function browserRedirectGuard(
+  dangerous: DangerousToolOptions,
+  policy: BrowserDomainPolicy,
+  tool: string,
+  ctx: Pick<ToolContext, "sessionId" | "signal">,
+): BrowserRedirectGuard {
+  return {
+    signal: ctx.signal,
+    async authorize(url, signal) {
+      const refused = await gateBrowserUrl(dangerous, policy, tool, url, { sessionId: ctx.sessionId, signal });
+      if (refused) throw new Error(refused.summary);
+    },
+  };
 }
 
 /**

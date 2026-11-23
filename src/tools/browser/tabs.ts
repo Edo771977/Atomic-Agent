@@ -12,7 +12,7 @@ import {
   EMPTY_DOMAIN_POLICY,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
-import { gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
+import { browserRedirectGuard, gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
 
 /**
  * Estimated width of one rendered tab line: `*[3] <title> — <url>`.
@@ -70,6 +70,7 @@ export function buildBrowserTabsTool(
         refuseScriptUrl("browser.tabs", input.url);
         const refused = await gateBrowserUrl(options, policy, "browser.tabs", input.url, ctx);
         if (refused) return refused;
+        if (isSafeUrl(input.url)) input.redirectGuard = browserRedirectGuard(options, policy, "browser.tabs", ctx);
       }
 
       // Mirror browser.navigate: tabs.new with a URL is the same danger surface

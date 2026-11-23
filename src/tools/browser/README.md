@@ -29,6 +29,8 @@ Owner: src/tools/browser/
   - `browser.read_aria` and the world snapshot of a blocked page, or of a page that frames one (AI-mode snapshots include iframe content): no page content reaches the model.
 - With a non-empty allow-list, navigate, tabs new, search, and a link or form target outside it ask first (`browser_offsite`, level 3).
 
+Chrome checks HTTP document redirects during explicit navigation, opening a tab, and search before following them. The redirect destination goes through the same domain, offline and URL data checks as the original destination. Navigation follow-up checks still apply to pages reached through clicks and script-driven navigation.
+
 ## Offline mode
 
 While offline mode is on (ATO-1084), navigate, tabs new and search refuse a URL that is not on this machine (`offline_mode`), a page that lands elsewhere is cleared, and a Chrome the agent starts gets a dead proxy for everything but loopback; a live switch-on stops one it launched earlier (`stopLaunchedBrowser`), and the next call relaunches it offline. An attached Chrome only gets the URL gate. See [offline mode](../../llm/docs/offline-network.md).

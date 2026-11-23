@@ -8,7 +8,7 @@ import {
   EMPTY_DOMAIN_POLICY,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
-import { gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
+import { browserRedirectGuard, gateBrowserUrl, recheckLandedPage } from "./gate-browser-url.js";
 import { searchUrlFor } from "./search-engines.js";
 import { BROWSER_PAGE_SOURCE } from "../untrusted-tool-output.js";
 
@@ -43,6 +43,7 @@ export function buildBrowserSearchTool(
       await backend.ensureReady();
       const payload: SearchInput = {
         query,
+        redirectGuard: browserRedirectGuard(dangerous, policy, "browser.search", ctx),
         ...(engine !== undefined ? { engine } : {}),
       };
       const result = await backend.search(payload);
