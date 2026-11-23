@@ -36,6 +36,8 @@ export interface InstallLocalSkillOptions
   extends InstallSkillOptions, ScanGateOptions {
   /** Override the staging temp root (tests). Defaults to the OS temp dir. */
   tmpRoot?: string;
+  /** An explicit local CLI choice to publish a project skill globally. */
+  allowLearnedPromotion?: boolean;
 }
 
 export interface InstallLocalSkillResult extends InstallSkillResult {
@@ -60,6 +62,7 @@ export async function installLocalSkill(
       throw new Error("Review and approve this draft with the learned skills command before installing it.");
     }
     if (basename(parent) === "skills") {
+      if (!options.allowLearnedPromotion) throw new Error("This learned skill is project-scoped. Promote it explicitly from the local CLI.");
       const refusal = projectDecisionOriginRefusal();
       if (refusal) throw new Error(refusal);
     }

@@ -240,6 +240,7 @@ async function handleInstall(args: string[]): Promise<number> {
   }
   try {
     const result = await installLocalSkill({
+      allowLearnedPromotion: true,
       sourceDir: resolve(source),
       targetRoot: config.paths.globalSkillsDir,
       force,
