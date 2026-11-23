@@ -75,3 +75,14 @@ it("keeps the reversible archive private to the vault during serialization", () 
   expect(JSON.stringify(vault.stats())).not.toContain(value);
   expect(Object.keys(vault)).not.toEqual(expect.arrayContaining(["byValue", "byPlaceholder", "reapply"]));
 });
+
+it("round-trips a literal placeholder without substituting an email into replayed text", () => {
+  const vault = new PrivacyVault();
+  const email = "me@private.test";
+  const realReference = vault.mask(email);
+  const literal = "Write the string [EMAIL_1] to the file";
+  const maskedLiteral = vault.mask(literal);
+  expect(vault.unmask(maskedLiteral)).toBe(literal);
+  expect(vault.unmask(realReference)).toBe(email);
+  expect(vault.mask(literal)).toBe(maskedLiteral);
+});

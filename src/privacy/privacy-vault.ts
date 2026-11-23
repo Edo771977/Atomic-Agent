@@ -28,6 +28,7 @@ export const PLACEHOLDER = /\[(SECRET|IBAN|CARD|EMAIL|PHONE)_(\d{1,6})\]/g;
 
 /** Shortest value the exact-match pass reapplies; shorter ones would shred ordinary words. */
 const MIN_REAPPLY_LENGTH = 6;
+const LITERAL_REFERENCE = /^\[(?:SECRET|IBAN|CARD|EMAIL|PHONE)_\d{1,6}\]$/;
 
 /** Deepest nesting the deep walkers visit; anything below is left as is. */
 const MAX_DEPTH = 32;
@@ -111,23 +112,30 @@ export class PrivacyVault {
   mask(text: string, known: readonly KnownSecret[] = this.known()): string {
     if (text.length === 0) return text;
     const spans = findPrivateSpans(text, known);
-    let out = text;
+    const escapeLiterals = (plain: string): string => plain.replace(PLACEHOLDER, (literal) => {
+      const reference = this.placeholderFor(literal, "SECRET");
+      this.note(reference);
+      return reference;
+    });
+    let out: string;
     if (spans.length > 0) {
       const parts: string[] = [];
       let last = 0;
       for (const span of spans) {
-        parts.push(text.slice(last, span.start));
+        parts.push(escapeLiterals(text.slice(last, span.start)));
         const placeholder = this.placeholderFor(span.value, span.kind);
         this.note(placeholder);
         parts.push(placeholder);
         last = span.end;
       }
-      parts.push(text.slice(last));
+      parts.push(escapeLiterals(text.slice(last)));
       out = parts.join("");
+    } else {
+      out = escapeLiterals(text);
     }
     if (this.#byValue.size === 0) return out;
     this.#reapply ??= [...this.#byValue.keys()]
-      .filter((v) => v.length >= MIN_REAPPLY_LENGTH)
+      .filter((v) => v.length >= MIN_REAPPLY_LENGTH && !LITERAL_REFERENCE.test(v))
       .sort((a, b) => b.length - a.length);
     for (const value of this.#reapply) {
       if (!out.includes(value)) continue;
