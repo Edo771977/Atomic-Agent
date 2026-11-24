@@ -309,9 +309,9 @@ describe("wrapWithOsSandbox", () => {
       const wrapped = wrapWithOsSandbox("true", [], policy(), {
         platform: "linux", bwrap: "/usr/bin/bwrap", disableUsernsAvailable: true,
       });
-      expect(wrapped).toEqual({ ok: false, reason: "Linux host inventory exceeded the 5-second preparation limit" });
+      expect(wrapped).toEqual({ ok: false, reason: "Linux host inventory exceeded the 30-second preparation limit" });
       expect(mountFixture.findTimeout).toBeGreaterThan(0);
-      expect(mountFixture.findTimeout).toBeLessThanOrEqual(5000);
+      expect(mountFixture.findTimeout).toBeLessThanOrEqual(30_000);
       expect(mountFixture.directoryReads).toBe(0);
     } finally {
       mountFixture.timeOutFind = false;

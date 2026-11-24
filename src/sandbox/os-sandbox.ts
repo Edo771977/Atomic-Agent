@@ -155,12 +155,12 @@ function gitMounts(path: string, roots: readonly string[], output: Set<string>):
   if (roots.some(root => contains(root, gitdir)) && isDirectory(gitdir)) output.add(gitdir);
 }
 
-const LINUX_INVENTORY_BUDGET_MS = 5_000;
-const LINUX_INVENTORY_TIMEOUT = "Linux host inventory exceeded the 5-second preparation limit";
+// Fresh Linux runners can take over 11 seconds to read cold system trees.
+const LINUX_INVENTORY_BUDGET_MS = 30_000;
 
 class LinuxInventoryTimeout extends Error {
   constructor() {
-    super(LINUX_INVENTORY_TIMEOUT);
+    super(`Linux host inventory exceeded the ${LINUX_INVENTORY_BUDGET_MS / 1000}-second preparation limit`);
   }
 }
 
