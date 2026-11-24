@@ -333,4 +333,17 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
   });
+
+  it.each([
+    ["cd /scratch; touch *", false],
+    ["cd /scratch; chmod -R 755 *", false],
+    ["touch ~/*", false],
+    ["chmod -R 755 ~/*", false],
+    ["touch ~/.agents/*/demo", true],
+  ] as const)("round six point 5 classifies %s", (cmd, blocked) => {
+    const protectedDir = "/scratch/.agents/skills/";
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
+  });
 });

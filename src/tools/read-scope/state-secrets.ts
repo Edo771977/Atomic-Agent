@@ -197,7 +197,7 @@ function namesProcSecret(name: string): boolean {
 
 /** Compile glob atoms plus nested brace lists, retaining empty alternatives. */
 function matchesName(pattern: string, file: string, platform: NodeJS.Platform): boolean {
-  const atom = (value: string) => globToRegExp(value, platform).source.slice(1, -1);
+  const atom = (value: string) => globToRegExp(value, platform, true).source.slice(1, -1);
   function compile(value: string, depth: number): string {
     if (depth > 24) return atom(value);
     const open = value.indexOf("{");
@@ -249,15 +249,19 @@ function expandVariables(line: string, home: string, stateDir: string): string {
 }
 
 /** A glob token as a whole-path regular expression: `*` and `?` stay inside one segment. */
-function globToRegExp(pattern: string, platform: NodeJS.Platform): RegExp {
+function globToRegExp(pattern: string, platform: NodeJS.Platform, includeHidden = false): RegExp {
   const sep = platform === "win32" ? "[\\\\/]" : "/";
   const notSep = platform === "win32" ? "[^\\\\/]" : "[^/]";
   let out = "";
+  let segmentStart = true;
   for (let i = 0; i < pattern.length; i += 1) {
     const c = pattern[i]!;
+    const isSeparator = c === "/" || (platform === "win32" && c === "\\");
+    if (!includeHidden && segmentStart && /[*?\[]/.test(c)) out += "(?!\\.)";
+    segmentStart = isSeparator;
     if (c === "*") {
       if (pattern[i + 1] === "*") {
-        out += ".*";
+        out += includeHidden ? ".*" : `(?:(?!${sep}\\.).)*`;
         i += 1;
       } else out += `${notSep}*`;
     } else if (c === "?") out += notSep;
@@ -268,7 +272,7 @@ function globToRegExp(pattern: string, platform: NodeJS.Platform): RegExp {
         out += `[${pattern.slice(i + 1, close).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`;
         i = close;
       }
-    } else if (c === "/" || (platform === "win32" && c === "\\")) out += sep;
+    } else if (isSeparator) out += sep;
     else out += c.replace(/[.+^${}()|\\]/g, "\\$&");
   }
   return new RegExp(`^${out}$`, platform === "win32" ? "i" : "");
@@ -409,7 +413,7 @@ export function findShellStateSecrets(
     if (path === null) continue;
     for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     if (GLOB.test(path)) {
-      const pattern = globToRegExp(path, env.platform);
+      const pattern = globToRegExp(path, env.platform, true);
       for (const candidate of candidates) {
         if (pattern.test(candidate)) hits.add(candidate);
       }
@@ -445,7 +449,7 @@ function findTouchesPath(selection: FindSelection, protectedPath: string, platfo
   if (!name && !type) return true;
   let pattern: RegExp | undefined;
   try {
-    pattern = name ? globToRegExp(name, platform) : undefined;
+    pattern = name ? globToRegExp(name, platform, true) : undefined;
   } catch {
     return false;
   }
