@@ -205,9 +205,12 @@ describe("operator memory routes", () => {
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 
-  it("allows an immediate retry after an HTTP backup fails before publishing", async () => {
+  it("backs off briefly after an HTTP backup fails before publishing", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
     vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("disk failure"));
     expect((await send("/api/memory/backup", {})).status).toBe(500);
+    expect((await send("/api/memory/backup", {})).status).toBe(429);
+    now.mockReturnValue(6000);
     expect((await send("/api/memory/backup", {})).status).toBe(200);
   });
 
