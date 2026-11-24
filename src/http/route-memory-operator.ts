@@ -26,6 +26,28 @@ function assertIdle(ctx: HandlerContext): void {
   if (busy.length) throw new MemoryChoiceConflict("turn-running");
 }
 
+function sendConflict(res: Parameters<HttpHandler>[1], error: MemoryChoiceConflict): void {
+  const message = {
+    "stale-view": "Refresh the memory list and try again.",
+    incognito: "Unavailable while an incognito chat is open.",
+    "backup-running": "A memory backup is already running.",
+    "turn-running": "Wait for the turn to finish.",
+  }[error.code];
+  sendError(res, 409, openaiError(message, "invalid_request_error", null, error.code));
+}
+
+export function enforceMemoryChoiceIdle(res: Parameters<HttpHandler>[1], ctx: HandlerContext): boolean {
+  try {
+    assertIdle(ctx);
+    return true;
+  } catch (error) {
+    if (error instanceof MemoryChoiceConflict) sendConflict(res, error);
+    else if (error instanceof RequestError) sendError(res, error.status, openaiError(error.message));
+    else throw error;
+    return false;
+  }
+}
+
 function operatorPost(
   execute: (body: Record<string, unknown>, ctx: HandlerContext) => unknown,
 ): HttpHandler {
@@ -50,13 +72,7 @@ function operatorPost(
       const result = await execute(body as Record<string, unknown>, ctx);
       sendJson(res, 200, result);
     } catch (error) {
-      if (error instanceof MemoryChoiceConflict) {
-        const message = error.code === "stale-view" ? "Refresh the memory list and try again."
-          : error.code === "incognito" ? "Unavailable while an incognito chat is open."
-          : error.code === "backup-running" ? "A memory backup is already running."
-          : "Wait for the turn to finish.";
-        return sendError(res, 409, openaiError(message, "invalid_request_error", null, error.code));
-      }
+      if (error instanceof MemoryChoiceConflict) return sendConflict(res, error);
       if (error instanceof MemoryValidationError || error instanceof ProfileValidationError) {
         return sendError(res, 400, openaiError("Invalid memory entry"));
       }

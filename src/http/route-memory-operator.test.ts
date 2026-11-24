@@ -183,6 +183,39 @@ describe("operator memory routes", () => {
     expect((await send("/api/memory/backup", {})).status).toBe(200);
   });
 
+  it("guards an undo of a memory toggle and emits a refresh", async () => {
+    harness.runtime.notesStore.setDisabled(noteId, true);
+    const entry = harness.runtime.notesStore.getChangeLog().list()[0]!;
+    const path = `/api/memory/changes/${entry.id}/restore`;
+    const busy = vi.spyOn(harness.runtime.turnController, "busySessionIds").mockReturnValue(["running"]);
+    const blocked = await send(path, {});
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: "turn-running" } });
+    busy.mockRestore();
+    const privateMode = vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(true);
+    const privateResult = await send(path, {});
+    expect(privateResult.status).toBe(409);
+    expect(await privateResult.json()).toMatchObject({ error: { code: "incognito" } });
+    privateMode.mockRestore();
+    expect(harness.runtime.notesStore.get(noteId)?.disabledAt).toBeDefined();
+
+    const abort = new AbortController();
+    const events = await fetch(harness.baseUrl + "/api/events", {
+      headers: { authorization: "Bearer viewer-test-token" }, signal: abort.signal,
+    });
+    const reader = events.body!.getReader();
+    try {
+      expect((await send(path, {})).status).toBe(200);
+      const event = new TextDecoder().decode((await reader.read()).value);
+      expect(event).toContain("event: memory_state_changed");
+      expect(event).toContain("data: {}");
+      expect(harness.runtime.notesStore.get(noteId)?.disabledAt).toBeUndefined();
+    } finally {
+      abort.abort();
+      await reader.cancel().catch(() => {});
+    }
+  });
+
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
     const response = await send("/api/memory/backup", {});

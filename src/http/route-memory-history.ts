@@ -1,3 +1,4 @@
+import { enforceMemoryChoiceIdle } from "./route-memory-operator.js";
 import { operatorMemoryPayload } from "./memory-operator-view.js";
 import {
   MEMORY_CHANGE_LOG_LIST_MAX,
@@ -68,6 +69,8 @@ export function createRestoreMemoryChangeHandler(): HttpHandler {
       sendError(res, 400, openaiError("change id must be a positive integer"));
       return;
     }
+    const isToggle = ctx.runtime.notesStore.getChangeLog().get(Number(raw))?.op === "set_disabled";
+    if (isToggle && !enforceMemoryChoiceIdle(res, ctx)) return;
     let outcome: RestoreOutcome;
     try {
       outcome = restoreMemoryChange(Number(raw), {
@@ -84,6 +87,7 @@ export function createRestoreMemoryChangeHandler(): HttpHandler {
       sendError(res, outcome.status, openaiError(outcome.message, "invalid_request_error", null, outcome.code));
       return;
     }
+    if (isToggle) ctx.memoryEvents?.emit("state");
     sendJson(res, 200, operatorMemoryPayload({
       restored: true,
       change: outcome.change,
