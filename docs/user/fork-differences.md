@@ -58,6 +58,10 @@ The official installer (`curl … atomicagent.io/install`) and upstream's releas
 
 Everything below exists only in this fork. Links are to the fork's pull requests.
 
+## Memory backup and entry controls
+
+CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
+
 ## Fusion team
 
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).

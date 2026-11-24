@@ -89,7 +89,7 @@ export function createLinkAwareReflectionRunner(args: {
         try {
           for (const id of ids) {
             const entry = args.notesStore.get(id);
-            if (!entry) continue;
+            if (!entry || entry.disabledAt !== undefined) continue;
             candidates.push({ id: entry.id, body: entry.content });
           }
         } catch (err) {

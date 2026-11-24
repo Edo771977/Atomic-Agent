@@ -627,6 +627,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onOpenLocalFileRequested: (path) => openLocalFileFromChat(path, bus),
         onUiAction: (action, via) => runtime.reportUiAction?.(action, via),
         onMemoryDumpRequested: () => orchestrator.dumpProfile(),
+        onMemoryBackupRequested: (request) => void orchestrator.memory.runBackup(request),
         onSkillCatalogRequested: () => orchestrator.dumpSkillCatalog(),
         onPersistLlamaUrl: (nextUrl) =>
           persistLlamaUrl(nextUrl, bus, orchestrator, runtime),
@@ -695,6 +696,7 @@ export async function tuiCommand(args: string[]): Promise<number> {
         onMemoryAutoRefreshStart: () => orchestrator.memory.startAutoRefresh(),
         onMemoryRefreshRequested: (opts) => orchestrator.memory.refresh(opts),
         onMemoryDetailRequested: (row) => orchestrator.memory.openDetail(row),
+        onMemoryToggleDisabledRequested: (row) => orchestrator.memory.toggleDisabled(row),
         onMemoryOpenNoteRequested: (noteId) =>
           orchestrator.memory.openNoteById(noteId),
         onMemoryExpandNeighborsRequested: (noteId) =>

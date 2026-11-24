@@ -514,6 +514,21 @@ function noticeLines(actions: readonly TuiAction[]): readonly string[] {
  * cut; the operator asking the same question still got the short list
  * with no sign of the rest (issue #466).
  */
+it("marks disabled facts in the operator memory dump", () => {
+  const bus = makeTuiEventBus();
+  const actions: TuiAction[] = [];
+  bus.subscribe((action) => actions.push(action));
+  const runtime = {
+    ...stubRuntime(() => new Promise<never>(() => {})),
+    profileStore: { list: () => [{ key: "city", value: "Rome", disabledAt: 5_000 }] },
+  } as unknown as AgentRuntime;
+  const orchestrator = new ChatOrchestrator(runtime, bus, {
+    maxSteps: 5, llamaUrl: "http://127.0.0.1:8080", readGateFacts: cloudGateFacts,
+  });
+  orchestrator.dumpProfile();
+  expect(actions).toContainEqual({ type: "system_message", text: "user profile (1 fact)\n  - city: Rome (disabled)" });
+});
+
 describe("ChatOrchestrator /skills dump truncation", () => {
   function skillRuntime(
     catalog: Array<{ name: string; description: string; source: string }>,

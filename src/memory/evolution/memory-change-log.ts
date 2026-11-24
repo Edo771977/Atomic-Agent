@@ -23,7 +23,7 @@ import type Database from "better-sqlite3";
  */
 
 export type MemoryChangeKind = "note" | "profile";
-export type MemoryChangeOp = "update" | "remove";
+export type MemoryChangeOp = "update" | "remove" | "set_disabled";
 /** Who asked for the change: the person (HTTP routes) or the agent (tools, reflection). */
 export type MemoryChangeActor = "user" | "agent";
 
@@ -37,6 +37,7 @@ export interface NoteSnapshot {
   sessionId: string | null;
   workingDir: string | null;
   tags: string[];
+  disabledAt?: number;
   /**
    * The note's `constraint_scope` when it was journaled (issue #33):
    * an undo puts it back in that scope, and a call that could not see
@@ -51,6 +52,8 @@ export interface ProfileSnapshot {
   value: string;
   pinned: boolean;
   keywords: string[];
+  disabledAt?: number;
+  constraintScope?: string | null;
 }
 
 export interface MemoryChange {
@@ -113,7 +116,7 @@ function rowToChange(row: ChangeRow): MemoryChange {
     id: row.id,
     kind: row.kind === "profile" ? "profile" : "note",
     target: row.target,
-    op: row.op === "update" ? "update" : "remove",
+    op: row.op === "update" || row.op === "set_disabled" ? row.op : "remove",
     by: row.actor === "user" ? "user" : "agent",
     at: row.at,
     before: JSON.parse(row.before) as NoteSnapshot | ProfileSnapshot,
@@ -123,8 +126,7 @@ function rowToChange(row: ChangeRow): MemoryChange {
 }
 
 function visibleNow(change: MemoryChange): boolean {
-  if (change.kind !== "note") return true;
-  const scope = (change.before as NoteSnapshot).constraintScope;
+  const scope = change.before.constraintScope;
   return typeof scope !== "string" || currentScopeVisible(scope);
 }
 
