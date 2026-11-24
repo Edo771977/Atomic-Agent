@@ -1,3 +1,4 @@
+import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { createIncognitoSessions } from "../incognito-sessions.js";
 import { createRuntimeTaskStores } from "./runtime-task-services.js";
 import { traceFilePath } from "../../tracing/trace/trace-sink.js";
@@ -228,6 +229,32 @@ describe("runtime session phases", () => {
     stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
     expect(existsSync(trace)).toBe(false);
     expect(existsSync(checkpoints.sessionDir(id))).toBe(false);
+  });
+
+  it.each(["fusion", "spill"] as const)("retries a failed private %s removal after boot", async (artifact) => {
+    const id = "s-dead";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const spill = new ToolOutputSpill({ baseDir: join(dir, "spill") });
+    const fusion = new FusionRunStore({ dir: join(dir, FUSION_RUNS_DIR_NAME) });
+    const run = fusion.start({ sessionId: id, workingDir: dir, args: { tasks: [] }, tasks: [], waveCount: 1 });
+    run.finish("interrupted");
+    await spill.spill("os.shell.run", id, compressToolResult({
+      tool: "os.shell.run", status: "ok", output: "private content\n".repeat(5000),
+    }));
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(sessions.createEmptySessionState({ id, workingDir: dir, incognito: seeded.newIncognitoMark() }));
+    seeded.close();
+    const removal = artifact === "fusion"
+      ? vi.spyOn(FusionRunStore.prototype, "removeForSession").mockImplementationOnce(() => { throw new Error("busy"); })
+      : vi.spyOn(spill, "removeSession").mockImplementationOnce(() => { throw new Error("busy"); });
+    const exists = () => artifact === "fusion" ? fusion.load(run.runId) !== null : existsSync(spill.dirFor(id));
+    const first = await prepareRuntimeSessionStore(config, logger, checkpoints, spill);
+    stores.push(first);
+    expect(first.load(id)).toBeNull();
+    expect(exists()).toBe(true);
+    removal.mockRestore();
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints, spill));
+    expect(exists()).toBe(false);
   });
 
   it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {

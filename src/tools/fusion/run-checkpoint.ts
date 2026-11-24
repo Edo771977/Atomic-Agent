@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -440,30 +441,45 @@ export class FusionRunStore {
    * an incognito chat leaves none of its fan-outs behind). Returns how
    * many files went; a folder that cannot be read has none to delete.
    */
-  removeForSession(sessionId: string): number {
-    let names: string[];
+  removeForSession(sessionId: string, strict = false): number {
+    let entries: string[];
     try {
-      names = readdirSync(this.dir);
-    } catch {
+      entries = readdirSync(this.dir, { encoding: "utf8" });
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return 0;
     }
     let removed = 0;
-    for (const runId of this.runFolders()) {
+    for (const runId of this.runFolders(strict)) {
+      const folder = join(this.dir, runId);
       try {
-        const marker = JSON.parse(readFileSync(join(this.dir, runId, RUN_DIR_MARKER), "utf8")) as { sessionId?: unknown };
-        if (marker.sessionId === sessionId) this.removeRunFolder(runId);
-      } catch {
-        // No readable marker: not known to be this session's.
+        const marker = JSON.parse(readFileSync(join(folder, RUN_DIR_MARKER), "utf8")) as { sessionId?: unknown } | null;
+        if (marker?.sessionId !== sessionId) continue;
+        if (!strict) {
+          this.removeRunFolder(runId);
+          continue;
+        }
+        for (const name of readdirSync(folder)) {
+          if (name !== RUN_DIR_MARKER) rmSync(join(folder, name), { recursive: true, force: true, maxRetries: 3 });
+        }
+        rmSync(join(folder, RUN_DIR_MARKER), { force: true });
+        rmdirSync(folder);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (strict && code !== undefined && code !== "ENOENT") throw error;
       }
     }
-    for (const name of names) {
+    for (const name of entries) {
       if (!name.endsWith(".json")) continue;
       const runId = name.slice(0, -".json".length);
       if (!FusionRunStore.isValidRunId(runId)) continue;
-      const checkpoint = readCheckpoint(join(this.dir, name));
+      const checkpoint = readCheckpoint(join(this.dir, name), strict);
       if (checkpoint?.sessionId !== sessionId) continue;
       this.active.delete(runId);
-      if (this.remove(runId)) removed += 1;
+      if (strict) {
+        rmSync(this.path(runId), { force: true });
+        removed += 1;
+      } else if (this.remove(runId)) removed += 1;
     }
     return removed;
   }
@@ -520,12 +536,13 @@ export class FusionRunStore {
   }
 
   /** Run ids that have a folder of their own. */
-  private runFolders(): string[] {
+  private runFolders(strict = false): string[] {
     try {
       return readdirSync(this.dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && FusionRunStore.isValidRunId(entry.name))
         .map((entry) => entry.name);
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return [];
     }
   }
@@ -717,14 +734,16 @@ export class FusionRunRecorder {
   }
 }
 
-function readCheckpoint(file: string): FusionRunCheckpoint | null {
+function readCheckpoint(file: string, strict = false): FusionRunCheckpoint | null {
   let parsed: unknown;
   try {
     if (statSync(file).size > CHECKPOINT_MAX_BYTES) return null;
     const bytes = readFileSync(file);
     if (bytes.length > CHECKPOINT_MAX_BYTES) return null;
     parsed = JSON.parse(bytes.toString("utf8"));
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (strict && code !== undefined && code !== "ENOENT") throw error;
     return null;
   }
   if (!record(parsed)) return null;

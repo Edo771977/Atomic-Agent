@@ -227,8 +227,11 @@ export class FileCheckpointStore {
   }
 
   async finishIncognitoRemoval(sessionId: string, complete?: () => void): Promise<void> {
-    await this.removeSession(sessionId);
-    complete?.();
+    try {
+      complete?.();
+    } finally {
+      await this.removeSession(sessionId);
+    }
     await rm(this.incognitoRemovalMarker(sessionId), { force: true });
   }
 
@@ -250,10 +253,10 @@ export class FileCheckpointStore {
         const id: unknown = JSON.parse(await readFile(marker, "utf8"));
         if (typeof id !== "string" || name !== sha256Of(Buffer.from(id)) + ".json") continue;
         if (shouldRemove?.(id) !== false) {
-          await this.removeSession(id);
-          complete?.(id);
+          await this.finishIncognitoRemoval(id, () => complete?.(id));
+        } else {
+          await rm(marker, { force: true });
         }
-        await rm(marker, { force: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") onError(error);
       }
