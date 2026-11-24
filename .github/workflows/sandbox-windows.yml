@@ -75,5 +75,5 @@ jobs:
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd /d "%RUNNER_TEMP%"
           cl /nologo /std:c++20 /W4 /O2 /MT /DATOMIC_SANDBOX_DIAGNOSTICS /Fe:atomic-sandbox-diagnostic.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\atomic-sandbox-helper.cpp" || exit /b 1
-      - name: Compare compatibility and containment on identical fixtures
-        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --matrix
+      - name: Check targeted npm ACLs and Git startup under LPAC with registryRead
+        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --targeted

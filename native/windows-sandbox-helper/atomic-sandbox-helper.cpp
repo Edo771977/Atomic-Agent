@@ -172,6 +172,24 @@ static std::wstring childEnvironment(const SandboxRequest& request) {
         const auto value = request.env.find(name);
         if (value != request.env.end()) settings.emplace(value->first, value->second);
     }
+#ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+    if (request.env.count(L"ATOMIC_DIAGNOSTIC_GIT")) {
+        settings.emplace(L"GIT_TRACE", L"1");
+        settings.emplace(L"GIT_TRACE2_EVENT", L"1");
+        settings.emplace(L"GIT_PAGER", L"");
+        settings.emplace(L"GIT_TERMINAL_PROMPT", L"0");
+        settings.emplace(L"GIT_CONFIG_COUNT", L"3");
+        settings.emplace(L"GIT_CONFIG_KEY_0", L"core.fsmonitor");
+        settings.emplace(L"GIT_CONFIG_VALUE_0", L"false");
+        settings.emplace(L"GIT_CONFIG_KEY_1", L"core.hooksPath");
+        settings.emplace(L"GIT_CONFIG_VALUE_1", L"");
+        settings.emplace(L"GIT_CONFIG_KEY_2", L"credential.helper");
+        settings.emplace(L"GIT_CONFIG_VALUE_2", L"");
+        if (request.env.count(L"ATOMIC_DIAGNOSTIC_EMPTY_CONFIG")) {
+            settings[L"GIT_CONFIG_GLOBAL"] = request.privateTemp + L"\\empty-git-config";
+        }
+    }
+#endif
     std::wstring block;
     for (const auto& entry : settings) {
         block += entry.first + L'=' + entry.second;
@@ -315,6 +333,71 @@ static int diagnose(int argc, wchar_t** argv) {
         environment.data(), request.timeoutMs, true, lpac, caps.values));
 }
 
+static constexpr DWORD ancestorAttributes = FILE_READ_ATTRIBUTES | SYNCHRONIZE;
+
+static bool diagnosticAncestorAce(HANDLE directory, PSID sid, bool expected) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PACL dacl = nullptr;
+    if (GetSecurityInfo(directory, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, nullptr, nullptr,
+        &dacl, nullptr, &descriptor) != ERROR_SUCCESS) return false;
+    DWORD count = 0;
+    bool exact = true;
+    for (WORD i = 0; dacl && i < dacl->AceCount; ++i) {
+        void* raw = nullptr;
+        if (!GetAce(dacl, i, &raw)) { exact = false; break; }
+        const auto* ace = static_cast<const ACCESS_ALLOWED_ACE*>(raw);
+        if (ace->Header.AceType == ACCESS_ALLOWED_ACE_TYPE && EqualSid(sid, const_cast<DWORD*>(&ace->SidStart))) {
+            ++count;
+            if (ace->Header.AceFlags != 0 || ace->Mask != ancestorAttributes) exact = false;
+        }
+    }
+    LocalFree(descriptor);
+    return dacl && exact && count == (expected ? 1u : 0u);
+}
+
+static int diagnosticAncestors(wchar_t** argv) {
+    const std::wstring mode = argv[2];
+    const std::wstring root = argv[5];
+    const bool grant = mode == L"grant";
+    const bool revoke = mode == L"revoke";
+    SandboxSid sid;
+    if ((!grant && !revoke && mode != L"absent") || !isOperator() ||
+        !sandboxGrantRoot(root, argv[4], true) || !openProfile(argv[3], sid, false)) return 4;
+
+    size_t errors = 0;
+    auto path = root;
+    while (path.size() > 3) {
+        const auto separator = path.find_last_of(L'\\');
+        path.resize(separator == 2 ? 3 : separator);
+        const DWORD access = READ_CONTROL | ((grant || revoke) ? WRITE_DAC : 0);
+        LpacHandle directory(CreateFileW(path.c_str(), access, FILE_SHARE_READ | FILE_SHARE_WRITE,
+            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+        if (!directory) {
+            std::fwprintf(stderr, L"Ancestor ACL open failed at %ls: %lu\n", path.c_str(), GetLastError());
+            ++errors;
+            continue;
+        }
+        BY_HANDLE_FILE_INFORMATION info{};
+        if (!GetFileInformationByHandle(directory.get(), &info) ||
+            (info.dwFileAttributes & FILE_ATTRIBUTE_REPARSE_POINT) ||
+            !(info.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) ||
+            !acl_tree::isSamePath(directory.get(), path)) {
+            std::fwprintf(stderr, L"Ancestor path validation failed at %ls\n", path.c_str());
+            ++errors;
+            continue;
+        }
+        const DWORD status = grant || revoke ? acl_tree::update(directory.get(), sid.value,
+            grant ? ancestorAttributes : 0, false) : ERROR_SUCCESS;
+        if (status != ERROR_SUCCESS || !diagnosticAncestorAce(directory.get(), sid.value, grant)) {
+            std::fwprintf(stderr, L"Ancestor ACL %ls failed at %ls: %lu\n", mode.c_str(), path.c_str(), status);
+            ++errors;
+        } else {
+            std::wprintf(L"Ancestor ACL %ls: %ls\n", mode.c_str(), path.c_str());
+        }
+    }
+    return errors == 0 ? 0 : 4;
+}
+
 static int diagnosticFile(wchar_t** argv) {
     const std::wstring kind = argv[2];
     const DWORD access = kind == L"write-deny" ? GENERIC_WRITE : GENERIC_READ;
@@ -406,6 +489,7 @@ int wmain(int argc, wchar_t** argv) {
         return connectWinRt(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10))) == S_OK ? 0 : 5;
     }
 #ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+    if (action == L"--ancestor-acl" && argc == 6) return diagnosticAncestors(argv);
     if (action == L"diagnose") return diagnose(argc, argv);
     if (action == L"--file-check" && argc == 4) return diagnosticFile(argv);
 #endif

@@ -24,7 +24,7 @@ const tools = join(base, "runtime");
 const gitTools = join(tools, "git");
 const node = join(tools, "node.exe");
 const git = join(gitTools, "git.exe");
-const npmRoot = join(tools, "npm");
+const npmRoot = join(base, "npm");
 const npm = join(npmRoot, "bin", "npm-cli.js");
 const readOnlyRoots = matrix ? [helper, node, gitTools, npmRoot] : [helper, node, gitTools];
 const protectedFiles = [];
@@ -121,9 +121,7 @@ try {
     call(node, [npm, "install", "--cache", cache, "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: root });
     rmSync(join(root, "node_modules"), { recursive: true, force: true });
     const npmArgs = [node, npm];
-    let ancestors = false;
     try {
-      ancestors = true;
       check("ancestor-acl-grant", () => console.log(call(helper, ["--ancestor-acl", "grant", ...operator.slice(0, 3)])));
       check("npm-version", () => assert.match(launch([...npmArgs, "--version"]), /^\d+\./));
       check("npm-test", () => assert.match(launch([...npmArgs, "test"]), /sandbox npm test/));
@@ -148,10 +146,8 @@ try {
         });
       }
     } finally {
-      if (ancestors) {
-        check("ancestor-acl-revoke", () => console.log(call(helper, ["--ancestor-acl", "revoke", ...operator.slice(0, 3)])));
-        check("ancestor-acl-absent", () => console.log(call(helper, ["--ancestor-acl", "absent", ...operator.slice(0, 3)])));
-      }
+      check("ancestor-acl-revoke", () => console.log(call(helper, ["--ancestor-acl", "revoke", ...operator.slice(0, 3)])));
+      check("ancestor-acl-absent", () => console.log(call(helper, ["--ancestor-acl", "absent", ...operator.slice(0, 3)])));
     }
     assert.deepEqual(errors, [], "LPAC registryRead compatibility failures");
   } else if (matrix) {
