@@ -139,4 +139,3 @@ describe("handlePrivacyTabKey", () => {
     expect(onPrivacyShieldToggleRequested).toHaveBeenCalledTimes(1);
   });
 });
-

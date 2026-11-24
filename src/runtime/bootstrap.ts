@@ -827,7 +827,7 @@ export async function createAgentRuntime(
         turnUsageMeter.peekCostUsd(sessionId) ?? 0,
         { usd: resolveSessionRunMode().turnBudgetUsd, timeMs: resolveSessionRunMode().turnTimeBudgetMs },
       );
-      fusionOutcomes.beginTurn(sessionId);
+      if (!sessionStore.isIncognito(sessionId)) fusionOutcomes.beginTurn(sessionId);
     },
     forgetDeclinedApprovals: (sessionId: string) => approvals.forgetDeclined(sessionId),
     clearUntrustedContent: (sessionId: string) => approvals.clearUntrustedContent(sessionId),

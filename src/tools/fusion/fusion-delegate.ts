@@ -1,3 +1,4 @@
+import { redactPrivacyEvidence } from "../../privacy/index.js";
 import { checkDidNotRun } from "./check-ran.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import {
@@ -1359,7 +1360,7 @@ export function buildFusionDelegateTool(
           workingDir: deps.receiptProjectFolder?.() ?? candidateOriginalDir,
           ...(ctx.projectRef === undefined ? {} : { projectRef: ctx.projectRef }),
         }, kind, () => ({
-          ...payload(),
+          ...redactPrivacyEvidence(ctx.sessionId, payload()),
           ...(admitted.milestoneId === null ? {} : { milestoneId: admitted.milestoneId }),
           ...(admitted.runId === undefined ? {} : { runId: admitted.runId }),
         }));
@@ -2022,9 +2023,9 @@ export function buildFusionDelegateTool(
           ? "local"
           : "cloud";
         const logOutcome = (result: WorkerTaskResult): void => {
-          if (deps.outcomeJournal === undefined || awaitsExpansion(result)) return;
+          if (ctx.incognito || deps.outcomeJournal === undefined || awaitsExpansion(result)) return;
           deps.outcomeJournal.append(
-            outcomeRowFor({
+            redactPrivacyEvidence(ctx.sessionId, outcomeRowFor({
               result,
               task: briefs.get(result.id),
               leg,
@@ -2034,7 +2035,7 @@ export function buildFusionDelegateTool(
                   ? estimateUsageCostUsd(result.usage, pricing)
                   : null,
               at: Date.now(),
-            }),
+            })),
           );
         };
         return {
@@ -2825,8 +2826,8 @@ export function buildFusionDelegateTool(
         if (candidateOutcomesRecorded) return;
         candidateOutcomesRecorded = true;
         const ran = [...completedCandidateRows.values()].filter(row => !(row.error ?? "").startsWith("not started:"));
-        deps.outcomeLog?.append(outcomeRowsFor(ran, new Date()).map(({ record, row }) =>
-          withCandidateOutcome(record, report.acceptanceReceipt!, report.contract?.checks ?? [], row.id, candidateWorkerRuns.get(row.id))));
+        if (!ctx.incognito) deps.outcomeLog?.append(outcomeRowsFor(ran, new Date()).map(({ record, row }) =>
+          redactPrivacyEvidence(ctx.sessionId, withCandidateOutcome(record, report.acceptanceReceipt!, report.contract?.checks ?? [], row.id, candidateWorkerRuns.get(row.id)))));
       };
       const fanoutStartedAt = Date.now();
       const endLiveFanout = formatCheck.beginFanout(checkedServers);
@@ -3799,8 +3800,9 @@ export function buildFusionDelegateTool(
           const outcomeRows = outcomeRowsFor(ran, now);
           // Final candidate disposition is telemetry, never individual task quality credit.
           candidateOutcomesRecorded = candidate !== undefined;
-          deps.outcomeLog?.append(outcomeRows.map(({ record, row }) => candidateReport === undefined ? record
-            : withCandidateOutcome(record, candidateReport.acceptanceReceipt!, candidateReport.contract?.checks ?? [], row.id, candidateWorkerRuns.get(row.id))));
+          if (!ctx.incognito) deps.outcomeLog?.append(outcomeRows.map(({ record, row }) =>
+            redactPrivacyEvidence(ctx.sessionId, candidateReport === undefined ? record
+              : withCandidateOutcome(record, candidateReport.acceptanceReceipt!, candidateReport.contract?.checks ?? [], row.id, candidateWorkerRuns.get(row.id)))));
           deps.turnLedger?.noteFanout(ctx.sessionId, {
             tasks: outcomeRows.map(({ row, record, pricing }) => ({
               ok: row.status === "ok",
