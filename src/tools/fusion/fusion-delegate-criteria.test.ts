@@ -140,9 +140,10 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
   it("keeps the UI fingerprint reproducible from the milestone run directory", async () => {
     const state = mkdtempSync(join(tmpdir(), "fusion-ui-evidence-"));
     const runsDir = join(state, "fusion-runs");
+    let output = "detector evidence contact@example.test";
     const { dir, run } = setup({
       runCheckpoints: new FusionRunStore({ dir: runsDir }),
-      runChecks: async () => ({ ok: true, results: [{ ok: true, stdoutTail: "detector evidence contact@example.test", impeccableVersion: "4.10.0" }] }),
+      runChecks: async () => ({ ok: true, results: [{ ok: true, stdoutTail: output, impeccableVersion: "4.10.0" }] }),
     });
     try {
       const bin = join(dir, "node_modules", ".bin");
@@ -153,9 +154,17 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
       const { runId } = result.details.projectUpdate as { runId: string };
       const { facts } = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: [id] });
       const basis = facts[0]?.basis;
-      const hash = receiptHash("[redacted]");
+      const hash = receiptHash(output);
       expect(basis).toMatchObject({ kind: "check", checks: [{ kind: "ui", runId, outputHash: hash }] });
       expect(receiptHash(readFileSync(join(runsDir, runId, `ui-${hash}.txt`), "utf8"))).toBe(hash);
+      output = "distinct detector evidence owner@example.test";
+      const second = await run(true, [{ task: "t", criteria: [id], type: "ui", path: "index.html" }]);
+      const secondId = (second.details.projectUpdate as { runId: string }).runId;
+      const secondHash = receiptHash(output);
+      const secondEvidence = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [secondId], criteriaOrder: [id] });
+      expect(secondEvidence.facts[0]?.basis).toMatchObject({ kind: "check", checks: [{ kind: "ui", runId: secondId, outputHash: secondHash }] });
+      expect(secondHash).not.toBe(hash);
+      expect(readFileSync(join(runsDir, secondId, "ui-" + secondHash + ".txt"), "utf8")).toBe(output);
     } finally {
       rmSync(dir, { recursive: true, force: true });
       rmSync(state, { recursive: true, force: true });

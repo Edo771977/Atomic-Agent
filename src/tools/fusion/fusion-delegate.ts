@@ -1378,7 +1378,7 @@ export function buildFusionDelegateTool(
         ? undefined
         : (check, record, ok) => {
           const kind = check.kind ?? check.type ?? "command";
-          const output = kind === "ui" ? redactPrivacyEvidence(ctx.sessionId, record.output, { always: true }) : record.output;
+          const output = kind === "ui" ? protectEvidence(record.output) : record.output;
           if (kind === "ui" && evidenceRunsDir !== undefined && checkRun !== undefined) {
             writeRunUiOutput(evidenceRunsDir, checkRun, output);
           }
