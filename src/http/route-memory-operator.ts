@@ -1,4 +1,5 @@
 import { withFileLock } from "../session/project-lock.js";
+import { routeErrorDiagnostics } from "./route-error-diagnostics.js";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { stat } from "node:fs/promises";
@@ -94,7 +95,13 @@ function operatorPost(
         return sendError(res, error.code === "backup-exists" ? 409 : 422,
           openaiError(message, "invalid_request_error", null, error.code));
       }
-      ctx.runtime.logger.error("Memory operator request failed");
+      const errno = error instanceof Error ? (error as NodeJS.ErrnoException).errno : undefined;
+      ctx.runtime.logger.error("Memory operator request failed", {
+        method: req.method ?? "POST",
+        route: ctx.routeTemplate ?? null,
+        ...routeErrorDiagnostics(error),
+        ...(ctx.routeTemplate === "/api/memory/backup" && Number.isInteger(errno) ? { errno } : {}),
+      });
       sendError(res, 500, openaiError("Memory operation failed", "server_error"));
     }
   };

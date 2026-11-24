@@ -167,11 +167,14 @@ describe("operator memory routes", () => {
 
   it("logs unexpected backup errors without sensitive details", async () => {
     const logger = vi.spyOn(harness.runtime.logger, "error");
-    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("private detail for test"));
+    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(Object.assign(new Error("private detail for test"), { code: "EACCES", errno: -13, path: "/private/test-path" }));
     const response = await send("/api/memory/backup", {});
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("private detail");
-    expect(logger).toHaveBeenCalledWith("Memory operator request failed");
+    expect(logger).toHaveBeenCalledWith("Memory operator request failed", {
+      method: "POST", route: "/api/memory/backup", errorName: "Error", code: "EACCES", errno: -13,
+    });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("/private/test-path");
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 
@@ -334,12 +337,15 @@ describe("operator memory routes", () => {
   it("logs dispatch failures without returning or logging exception text", async () => {
     const logger = vi.spyOn(harness.runtime.logger, "error");
     vi.spyOn(harness.runtime.notesStore, "list").mockImplementationOnce(() => {
-      throw new Error("private detail for test");
+      throw Object.assign(new TypeError("private detail for test"), { code: "SQLITE_BUSY", path: "/private/test-path" });
     });
     const response = await send("/api/memory/notes");
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("private detail");
-    expect(logger).toHaveBeenCalledWith("HTTP route failed");
+    expect(logger).toHaveBeenCalledWith("HTTP route failed", {
+      method: "GET", route: "/api/memory/notes", errorName: "TypeError", code: "SQLITE_BUSY",
+    });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("/private/test-path");
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 

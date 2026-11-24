@@ -25,6 +25,7 @@ export interface HandlerContext {
   runtime: AgentRuntime;
   apiKey: string | null;
   params: Record<string, string>;
+  routeTemplate?: string;
   caller?: HttpCaller;
   memoryEvents?: import("node:events").EventEmitter;
   stillAuthorized?: () => boolean;
