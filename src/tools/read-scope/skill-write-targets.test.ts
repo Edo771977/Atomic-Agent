@@ -103,4 +103,16 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
   });
+
+  it.each([
+    ["touch /scratch/shar{ed,ing}/file", true],
+    ["touch /scratch/shar*/file", true],
+    ["touch /scratch/shar[ei]d/file", true],
+    ["touch /scratch/shar?x/file", false],
+    ["mv /scratc? /tmp/backup", true],
+  ] as const)("round five point 3 classifies %s", (cmd, blocked) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
+  });
 });

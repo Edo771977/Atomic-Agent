@@ -273,6 +273,33 @@ function globToRegExp(pattern: string, platform: NodeJS.Platform): RegExp {
   return new RegExp(`^${out}$`, platform === "win32" ? "i" : "");
 }
 
+/** Expand literal brace alternatives before compiling shell path patterns. */
+function globAlternatives(pattern: string, budget = 4): string[] {
+  const start = pattern.indexOf("{");
+  const end = pattern.indexOf("}", start + 1);
+  if (budget === 0 || start === -1 || end === -1) return [pattern];
+  const choices = pattern.slice(start + 1, end).split(",");
+  if (choices.length < 2 || choices.length > 16) return [pattern];
+  return choices.flatMap((choice) =>
+    globAlternatives(pattern.slice(0, start) + choice + pattern.slice(end + 1), budget - 1));
+}
+
+function globTouchesPath(pattern: string, root: string, platform: NodeJS.Platform): boolean {
+  try {
+    const expression = globToRegExp(pattern, platform);
+    for (let path = root; ; path = dirname(path)) {
+      if (expression.test(path)) return true;
+      if (dirname(path) === path) break;
+    }
+    for (let path = dirname(pattern); dirname(path) !== path; path = dirname(path)) {
+      if (globToRegExp(path, platform).test(root)) return true;
+    }
+  } catch {
+    // Malformed character classes have no usable match.
+  }
+  return false;
+}
+
 /** What a word of the command names on disk, or `null` when it names nothing. */
 function pathOfToken(token: string, cwd: string, home: string): string | null {
   // `--env-file=…`, `FOO=…`, `curl -d @…`: the value is the path.
@@ -419,12 +446,14 @@ function protectedWritePaths(
   const targets = scanWritePaths(args, ctx, scope);
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
+  const patterns = scope.patterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
   return entries.filter((entry) => {
     const path = resolve(entry);
     return [path, canonical(path)].some((root) =>
       writes.some((target) => samePath(root, target) ||
         (isTrustDirectoryEntry(entry) && isInside(root, target))) ||
-      recursive.some((target) => isInside(target, root)));
+      recursive.some((target) => isInside(target, root)) ||
+      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform)));
   });
 }
 

@@ -38,6 +38,7 @@ export interface WriteTargetScope {
   home?: string;
   recursive: string[];
   placed: string[];
+  patterns?: string[];
   removals?: string[];
   skipRemovals?: (program: string, argv: string[], cwd: string) => boolean;
 }
@@ -900,6 +901,11 @@ function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: Writ
   if (fallback) {
     const candidate = resolveWord({ text: fallback[1]! + fallback[2], dynamic: false }, dir, scope.home);
     if (candidate) scope.placed.push(candidate);
+  }
+  if (!word.text.includes("$") && /[*?\[{]/.test(word.text) && (dir !== undefined || isAbsolute(word.text))) {
+    const text = scope.home && word.text.startsWith("~/") ? scope.home + word.text.slice(1) : word.text;
+    (scope.patterns ??= []).push(resolve(dir ?? homedir(), text));
+    return undefined;
   }
   const variable = /^\$(?:\{([A-Za-z_]\w*)[^}]*\}|([A-Za-z_]\w*))(.*)$/s.exec(word.text);
   if (variable) {
