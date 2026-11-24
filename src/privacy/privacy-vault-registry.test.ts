@@ -128,3 +128,13 @@ it("redacts evidence independently of provider counters and placeholder numberin
   expect(vault.stats().distinct).toBe(1);
   expect(vault.mask("owner@example.test")).toBe("[EMAIL_1]");
 });
+
+it("uses disposable archives for a closed chat and its former workers", () => {
+  linkPrivacyVault("late-worker", "closed-chat");
+  forgetPrivacyVault("closed-chat");
+  for (const id of ["closed-chat", "late-worker"]) {
+    privacyVaultFor(id).mask("late@example.test");
+    expect(privacyVaultFor(id).isEmpty).toBe(true);
+  }
+  expect(privacyShieldTotals()).toEqual({ masked: 0, sessions: 0 });
+});

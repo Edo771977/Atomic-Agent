@@ -11,6 +11,7 @@ import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
 
 const MAX_SESSION_VAULTS = 128;
 const vaults = new Map<string, PrivacyVault>();
+const closedSessions = new Set<string>();
 const activeTurns = new Map<string, number>();
 
 function trimVaults(): void {
@@ -75,7 +76,7 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
   // Auxiliary calls have no session lifetime and must not share substitutions.
-  if (!sessionId) return new PrivacyVault(() => knownSecrets());
+  if (!sessionId || closedSessions.has(sessionId)) return new PrivacyVault(() => knownSecrets());
   const key = vaultKey(sessionId);
   const vault = vaults.get(key) ?? new PrivacyVault(() => knownSecrets());
   vaults.delete(key);
@@ -108,6 +109,8 @@ export function rebuildPrivacyVault(
 export function linkPrivacyVault(sessionId: string, parentSessionId: string): void {
   if (sessionId === parentSessionId) return;
   const parent = vaultKey(parentSessionId);
+  if (closedSessions.has(parent)) closedSessions.add(sessionId);
+  if (closedSessions.has(sessionId)) return;
   aliases.set(sessionId, parent);
   const turn = turnShield.getStore();
   if (turn?.id === parent) turn.shared = true;
@@ -115,10 +118,14 @@ export function linkPrivacyVault(sessionId: string, parentSessionId: string): vo
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
 export function forgetPrivacyVault(sessionId: string): void {
+  closedSessions.add(sessionId);
   vaults.delete(sessionId);
   aliases.delete(sessionId);
   for (const [worker, parent] of aliases) {
-    if (parent === sessionId) aliases.delete(worker);
+    if (parent === sessionId) {
+      closedSessions.add(worker);
+      aliases.delete(worker);
+    }
   }
 }
 
@@ -158,6 +165,7 @@ export function privacyShieldTotals(): PrivacyShieldTotals {
 /** Tests only. */
 export function resetPrivacyVaults(): void {
   vaults.clear();
+  closedSessions.clear();
   activeTurns.clear();
   aliases.clear();
   knownSecrets = () => knownSecretsFromEnv();
