@@ -350,6 +350,7 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // ATO-1082: Privacy Shield switch and its "masked N" counter.
     { method: "GET", path: "/api/privacy-shield", handler: createGetPrivacyShieldHandler() },
     { method: "POST", path: "/api/privacy-shield", handler: createSetPrivacyShieldHandler() },
+    { method: "PATCH", path: "/api/privacy-shield", handler: createSetPrivacyShieldHandler() },
     { method: "POST", path: "/api/context-preview", handler: createContextPreviewHandler() },
     // ATO-875: one plain model call, no tools, no session (route-complete.ts).
     { method: "POST", path: "/api/complete", handler: createPlainCompleteHandler() },

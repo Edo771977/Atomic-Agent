@@ -21,9 +21,9 @@ describe("runtime.privacyShield (ATO-1082)", () => {
   it("reports masked counts for the process and one chat", () => {
     const control = createPrivacyShieldControl({ persist: () => {} });
     const vault = privacyVaultFor("s1");
-    vault.beginRequest();
-    vault.mask("a@b.io and 4111111111111111");
-    vault.endRequest();
+    const request = vault.beginRequest();
+    vault.maskDeep({ content: "a@b.io and 4111111111111111" }, { request });
+    vault.endRequest(request);
     privacyVaultFor("s2").mask("c@d.io");
     expect(control.stats()).toEqual({ masked: 3, sessions: 2 });
     expect(control.stats("s1")).toEqual({

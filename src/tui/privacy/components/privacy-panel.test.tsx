@@ -112,14 +112,14 @@ describe("PrivacyPanel", () => {
     });
     expect(off).toContain("Privacy Shield");
     expect(off).toContain("privacy shield off");
-    expect(off).toContain("masked 0 values since the agent started");
+    expect(off).toContain("masked 0 values in retained chats");
     expect(off).toContain("m: shield on");
 
     const on = renderFlat({
       shield: { supported: true, enabled: true, masked: 5, sessionMasked: null },
     });
     expect(on).toContain("privacy shield on");
-    expect(on).toContain("masked 5 values since the agent started");
+    expect(on).toContain("masked 5 values in retained chats");
     expect(on).toContain("m: shield off");
   });
 

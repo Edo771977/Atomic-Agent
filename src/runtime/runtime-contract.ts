@@ -228,7 +228,7 @@ export interface OfflineModeControl {
 
 /**
  * Live control of Privacy Shield (ATO-1082). `setEnabled` persists
- * `privacy.shield.enabled` and applies it to the next cloud request.
+ * `privacy.shield.enabled` and applies it to new turns.
  */
 export interface PrivacyShieldControl {
   isEnabled(): boolean;

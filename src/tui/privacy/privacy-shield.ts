@@ -72,11 +72,11 @@ export function snapshotPrivacyShield(
 const values = (n: number): string => `${n} ${n === 1 ? "value" : "values"}`;
 
 /**
- * "masked 3 values in this chat · 7 since the agent started". Built only
+ * "masked 3 values in this chat · 7 in retained chats". Built only
  * from the agent's counter; `null` when it could not be read.
  */
 export function shieldCounterLine(shield: ShieldPanelState): string | null {
   if (shield.masked === null) return null;
-  if (shield.sessionMasked === null) return `masked ${values(shield.masked)} since the agent started`;
-  return `masked ${values(shield.sessionMasked)} in this chat · ${shield.masked} since the agent started`;
+  if (shield.sessionMasked === null) return `masked ${values(shield.masked)} in retained chats`;
+  return `masked ${values(shield.sessionMasked)} in this chat · ${shield.masked} in retained chats`;
 }

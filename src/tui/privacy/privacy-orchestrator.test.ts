@@ -203,6 +203,44 @@ describe("PrivacyOrchestrator", () => {
     expect(synced?.shield).toEqual({ supported: true, enabled: true, masked: 4, sessionMasked: null });
   });
 
+  it("refuses the Privacy Shield toggle in an agent tool child", async () => {
+    const { actions, bus } = makeBus();
+    const setEnabled = vi.fn();
+    const runtime = {
+      getApprovalLevel: () => 1,
+      approvals: { sessionGrants: () => ({ categories: [], shapes: [] }) },
+      privacyShield: { setEnabled, isEnabled: () => true, stats: () => ({ masked: 2, sessions: 1 }) },
+    } as unknown as AgentRuntime;
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    try {
+      await new PrivacyOrchestrator(runtime, bus).toggleShield();
+      expect(setEnabled).not.toHaveBeenCalled();
+      expect(actions).toContainEqual({
+        type: "privacy_action_settled", error: "privacy shield can only be changed by the operator",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps private values out of errors from the switch", async () => {
+    const { actions, bus } = makeBus();
+    const runtime = {
+      getApprovalLevel: () => 1,
+      approvals: { sessionGrants: () => ({ categories: [], shapes: [] }) },
+      privacyShield: {
+        isEnabled: () => true,
+        stats: () => ({ masked: 1, sessions: 1 }),
+        setEnabled: async () => { throw new Error("private@example.test"); },
+      },
+    } as unknown as AgentRuntime;
+    await new PrivacyOrchestrator(runtime, bus).toggleShield();
+    expect(actions).toContainEqual({
+      type: "privacy_action_settled", error: "could not switch privacy shield",
+    });
+    expect(JSON.stringify(actions)).not.toContain("private@example.test");
+  });
+
   it("toggleShield() does nothing to a runtime without the control", async () => {
     const { actions, bus } = makeBus();
     const runtime = {

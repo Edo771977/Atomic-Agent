@@ -56,12 +56,12 @@ describe("Privacy Shield in the Privacy tab (ATO-1082)", () => {
 
   it("words the counter line", () => {
     expect(shieldCounterLine(snapshotPrivacyShield(control(), "s1"))).toBe(
-      "masked 3 values in this chat · 7 since the agent started",
+      "masked 3 values in this chat · 7 in retained chats",
     );
-    expect(shieldCounterLine(snapshotPrivacyShield(control()))).toBe("masked 7 values since the agent started");
+    expect(shieldCounterLine(snapshotPrivacyShield(control()))).toBe("masked 7 values in retained chats");
     expect(
       shieldCounterLine({ supported: true, enabled: true, masked: 1, sessionMasked: null }),
-    ).toBe("masked 1 value since the agent started");
+    ).toBe("masked 1 value in retained chats");
     expect(shieldCounterLine({ supported: true, enabled: true, masked: null, sessionMasked: null })).toBeNull();
   });
 });
