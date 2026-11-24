@@ -46,3 +46,18 @@ jobs:
           name: atomic-sandbox-helper-win32-x64
           path: ${{ runner.temp }}/atomic-sandbox-helper.exe
           if-no-files-found: error
+  sandbox-windows:
+    needs: build-helper
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+      - uses: actions/download-artifact@v4
+        with:
+          name: atomic-sandbox-helper-win32-x64
+          path: ${{ runner.temp }}/atomic-lpac-helper
+      - name: Check the native launcher against reachable host fixtures
+        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-lpac-helper/atomic-sandbox-helper.exe"
