@@ -374,7 +374,7 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     ["cp -aT source .", true],
     ["cp -r ./source/.agen* .", true],
     ["cp -a ./source/.agen* .", true],
-    ["mv ./source/.agen* .", true],
+    ["mv ./source/.agen* .", false],
     ['cp -r "$SOURCE" .', true],
     ['mv "$SOURCE" .', true],
     ["cp -r ./source/ordinary* .", false],
@@ -384,6 +384,7 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     try {
       const skills = join(home, ".agents", "skills");
       mkdirSync(skills, { recursive: true });
+      mkdirSync(join(home, "source", ".agents"), { recursive: true });
       expect(findShellSkillWrites({ cmd }, { workingDir: home }, {
         stateDir: join(home, ".atomic-agent"), files: [], skillWritePaths: [skills + "/"],
       }, { home, platform: "linux" })).toEqual(blocked ? [skills + "/"] : []);
@@ -438,5 +439,27 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
   ])("round seven point 3: %s", (prefix) => {
     expect(checkRoundSeven(prefix)).toEqual([]);
     expect(checkRoundSeven("touch ~/.agents/$X/x")).toEqual(["/scratch/.agents/skills/"]);
+  });
+
+  it.each([
+    "cp -r * ..",
+    "cp -r ./* ../",
+    "mv * ..",
+  ])("round seven point 4: %s", (prefix) => {
+    const base = mkdtempSync(join(tmpdir(), "skill-parent-copy-"));
+    try {
+      const home = join(base, "home");
+      const skills = join(home, ".agents", "skills");
+      mkdirSync(skills, { recursive: true });
+      mkdirSync(join(home, "ordinary"));
+      const scan = (cmd: string) => findShellSkillWrites({ cmd }, { workingDir: home }, {
+        stateDir: join(home, ".atomic-agent"), files: [], skillWritePaths: [skills + "/"],
+      }, { home, platform: "linux" });
+      expect(scan(prefix)).toEqual([]);
+      mkdirSync(join(home, "source", "home"), { recursive: true });
+      expect(scan("cp -r source/* ..")).toEqual([skills + "/"]);
+    } finally {
+      rmSync(base, { recursive: true, force: true });
+    }
   });
 });

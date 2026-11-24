@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync } from "node:fs";
+import { globSync, lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
@@ -289,12 +289,12 @@ function globAlternatives(pattern: string, budget = 4): string[] {
     globAlternatives(pattern.slice(0, start) + choice + pattern.slice(end + 1), budget - 1));
 }
 
-function globTouchesPath(pattern: string, root: string, platform: NodeJS.Platform): boolean {
+function globTouchesPath(pattern: string, root: string, platform: NodeJS.Platform, includeAncestors = false): boolean {
   try {
     const expression = globToRegExp(pattern, platform);
     for (let path = root; ; path = dirname(path)) {
       if (expression.test(path)) return true;
-      if (dirname(path) === path) break;
+      if (!includeAncestors || dirname(path) === path) break;
     }
     for (let path = dirname(pattern); dirname(path) !== path; path = dirname(path)) {
       if (globToRegExp(path, platform).test(root)) return true;
@@ -303,6 +303,28 @@ function globTouchesPath(pattern: string, root: string, platform: NodeJS.Platfor
     // Malformed character classes have no usable match.
   }
   return false;
+}
+
+/** A recursive copy can merge into an existing child with the same name. */
+function copyTouchesPath(source: string, destination: string, root: string, platform: NodeJS.Platform): boolean {
+  if (!isInside(destination, root)) return false;
+  const child = resolve(destination, relative(destination, root).split(sep)[0]!);
+  if (child === destination || child === root) return false;
+  try {
+    if (!lstatSync(child).isDirectory()) return false;
+    const leaf = basename(child);
+    return globAlternatives(source).some((pattern) => {
+      if (!globToRegExp(basename(pattern), platform).test(leaf)) return false;
+      const parent = dirname(pattern);
+      const directories = /[*?\[]/.test(parent) ? globSync(parent) : [parent];
+      return directories.some((dir) => {
+        try { return lstatSync(resolve(dir, leaf)).isDirectory(); }
+        catch { return false; }
+      });
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** What a word of the command names on disk, or `null` when it names nothing. */
@@ -483,6 +505,7 @@ function protectedWritePaths(
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
   const patterns = scope.patterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
+  const removalPatterns = scope.removalPatterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
   const findSelections = scope.findSelections?.flatMap((selection) => {
     const root = canonical(selection.root);
     return root === selection.root ? [selection] : [selection, { ...selection, root }];
@@ -494,6 +517,8 @@ function protectedWritePaths(
         (isTrustDirectoryEntry(entry) && isInside(root, target))) ||
       recursive.some((target) => isInside(target, root)) ||
       patterns.some((pattern) => globTouchesPath(pattern, root, env.platform)) ||
+      removalPatterns.some((pattern) => globTouchesPath(pattern, root, env.platform, true)) ||
+      scope.recursiveCopies?.some(({ source, destination }) => copyTouchesPath(source, destination, root, env.platform)) ||
       findSelections.some((selection) => findTouchesPath(selection, root, env.platform)));
   });
 }
