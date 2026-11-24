@@ -155,7 +155,12 @@ export interface LearnCommandDirs {
   stateDir: string;
   skillsDir: string;
   activationRefusal?: () => string | undefined;
-  /** The command consumed by the in-process UI after its one-use confirmation. */
+  /**
+   * The exact command consumed by the TUI after validating its one-use
+   * confirmation. Callers with arbitrary code in this process can construct
+   * both references. This internal dispatch guard is not an authentication
+   * boundary and must not be populated from remote or CLI input.
+   */
   confirmedDraft?: Extract<LearnCommand, { kind: "approve" }>;
   /**
    * Every skill name in use, for an approved new skill to be checked
