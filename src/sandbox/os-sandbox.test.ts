@@ -26,7 +26,15 @@ import {
   wrapWithOsSandbox,
 } from "./os-sandbox.js";
 
-const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined, blocked: "", directoryReads: 0, fakeNix: false }));
+const mountFixture = vi.hoisted(() => ({
+  contents: undefined as string | undefined,
+  blocked: "",
+  directoryReads: 0,
+  fakeNix: false,
+  timeOutFind: false,
+  findTimeout: 0,
+}));
+const useHostSystemInventory = process.env.ATOMIC_AGENT_REQUIRE_BWRAP === "1";
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>();
   return {
@@ -40,8 +48,8 @@ vi.mock("node:fs", async importOriginal => {
       if (args[0] === mountFixture.blocked) mountFixture.directoryReads++;
       return Reflect.apply(fs.readdirSync, fs, args);
     },
-    readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && mountFixture.contents !== undefined
-      ? mountFixture.contents
+    readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && (mountFixture.contents !== undefined || !useHostSystemInventory)
+      ? mountFixture.contents ?? ""
       : Reflect.apply(fs.readFileSync, fs, args),
   };
 });
@@ -51,10 +59,21 @@ vi.mock("node:child_process", async importOriginal => {
   return {
     ...child,
     spawnSync: (...args: unknown[]) => {
-      if (mountFixture.fakeNix && args[0] === "/usr/bin/find" && Array.isArray(args[1]) && args[1].includes("/nix/store")) {
-        const options = args[1] as string[];
-        const exemption = options.some((arg, index) => arg === "-path" && options[index + 1] === "/nix/store");
-        return { status: 0, stdout: exemption ? "s/nix/store/synthetic.sock\0" : "d/nix/store\0" };
+      if (args[0] === "/usr/bin/find" && Array.isArray(args[1]) && args[1].includes("-perm")) {
+        const findArgs = args[1] as string[];
+        if (mountFixture.timeOutFind) {
+          const options = args[2] as { timeout: number; killSignal: string };
+          mountFixture.findTimeout = options.timeout;
+          expect(options.killSignal).toBe("SIGKILL");
+          return { error: Object.assign(new Error("find timed out"), { code: "ETIMEDOUT" }) };
+        }
+        if (mountFixture.fakeNix && findArgs.includes("/nix/store")) {
+          const exemption = findArgs.some((arg, index) => arg === "-path" && findArgs[index + 1] === "/nix/store");
+          return { status: 0, stdout: exemption ? "s/nix/store/synthetic.sock\0" : "d/nix/store\0" };
+        }
+        // Keep real workspace scans in fixture tests. Only the dedicated
+        // Bubblewrap workflow needs to traverse the host's system trees.
+        if (!useHostSystemInventory) return { status: 0, stdout: "" };
       }
       return Reflect.apply(child.spawnSync, child, args);
     },
@@ -280,6 +299,24 @@ describe("wrapWithOsSandbox", () => {
     expect(w.args).toContain("--unshare-pid");
     expect(w.args).toContain("--proc");
     expect(w.args.slice(-4)).toEqual(["--", "/bin/sh", "-c", "ls"]);
+  });
+
+  it.skipIf(process.platform !== "linux")("refuses the launch when system inventory times out", () => {
+    mountFixture.timeOutFind = true;
+    mountFixture.blocked = "/usr/bin";
+    mountFixture.directoryReads = 0;
+    try {
+      const wrapped = wrapWithOsSandbox("true", [], policy(), {
+        platform: "linux", bwrap: "/usr/bin/bwrap", disableUsernsAvailable: true,
+      });
+      expect(wrapped).toEqual({ ok: false, reason: expect.stringContaining("30-second preparation limit while checking system socket masks. Retry") });
+      expect(mountFixture.findTimeout).toBeGreaterThan(0);
+      expect(mountFixture.findTimeout).toBeLessThanOrEqual(30_000);
+      expect(mountFixture.directoryReads).toBe(0);
+    } finally {
+      mountFixture.timeOutFind = false;
+      mountFixture.blocked = "";
+    }
   });
 
   it("covers a secret file with /dev/null and a folder with tmpfs on Linux", () => {
