@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { expandHome, resolveUserPath } from "../expand-home.js";
@@ -455,11 +456,16 @@ function commandTargets(
       !(name === "rsync" && args.some(({ text }) => text === "--dry-run" || /^-[^-]*n/.test(text)))) {
     const copy = copyOperands(name, args);
     const dest = copy.destination && resolveWriteWord(copy.destination, cwd, scope);
-    if (dest && !args.some(({ text }) => text === "-T" || text === "--no-target-directory")) {
+    if (dest) {
+      const noTargetDirectory = args.some(({ text }) => text === "-T" || text === "--no-target-directory");
+      const recursiveCopy = args.some(({ text }) => text === "--recursive" || /^-[^-]*[Rra]/.test(text));
       for (const source of copy.sources) {
-        const contentsOnly = name === "rsync" && source.text.endsWith("/");
+        const contentsOnly = name === "ditto" || (name === "rsync" && source.text.endsWith("/")) ||
+          (name === "cp" && /(?:^|\/)\.$/.test(source.text));
         const input = resolveDirectoryWord(source, cwd, scope);
-        if (input && !contentsOnly) scope.placed.push(resolve(dest, basename(input)));
+        if (input && !contentsOnly && !noTargetDirectory) scope.placed.push(resolve(dest, basename(input)));
+        const canPlaceTree = name === "mv" || name === "ln" || name === "rsync" || recursiveCopy;
+        if (contentsOnly || (canPlaceTree && (noTargetDirectory || !existsSync(dest)))) scope.recursive.push(dest);
       }
     }
   }
