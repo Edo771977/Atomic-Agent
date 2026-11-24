@@ -427,4 +427,16 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     expect(checkRoundSeven(prefix)).toEqual([]);
     expect(checkRoundSeven(prefix.replace(/\/(?="$)/, ""))).toEqual([]);
   });
+
+  it.each([
+    "mkdir -p \"$HOME/$PROJECT\"",
+    "cp -r dist \"$HOME/$APP\"",
+    "ln -s \"$PWD\" ~/$NAME",
+    "cp a ~/$X",
+    "touch \"$HOME/$(date +%s)\"",
+    "cp a \"$HOME/$(basename a)\"",
+  ])("round seven point 3: %s", (prefix) => {
+    expect(checkRoundSeven(prefix)).toEqual([]);
+    expect(checkRoundSeven("touch ~/.agents/$X/x")).toEqual(["/scratch/.agents/skills/"]);
+  });
 });

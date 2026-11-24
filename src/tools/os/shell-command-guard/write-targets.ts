@@ -3,7 +3,7 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { expandHome, resolveUserPath } from "../expand-home.js";
-import { liftSubstitutions, PRINTED_PLACEHOLDER } from "./command-substitution.js";
+import { liftSubstitutions, PRINTED_PLACEHOLDER, SUBSTITUTION_PLACEHOLDER } from "./command-substitution.js";
 import { basenameCommand } from "./normalise.js";
 import {
   lexShellLine,
@@ -1053,7 +1053,13 @@ function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = 
     const values = scope.assignments?.get(name) ?? (name === "HOME" && scope.home ? [scope.home] : []);
     const prefix = text.slice(cursor, match.index);
     const candidates = [...values];
-    if (candidates.length === 0 && unresolved && match.index > 0 && text.includes("/")) candidates.push("{.,}*");
+    const suffix = text.slice(match.index + match[0].length);
+    // A single computed component is useful only between known path text.
+    if (candidates.length === 0 && unresolved && text.includes("/") && !match[0].startsWith(SUBSTITUTION_PLACEHOLDER) &&
+        paths.every((path) => /[^/\\]/.test(path + prefix)) &&
+        /[^/\\]/.test(suffix.replace(references, ""))) {
+      candidates.push("{.,}*");
+    }
     if (candidates.length === 0) return [];
     paths = paths.flatMap((path) => candidates.map((value) => path + prefix + value)).slice(0, 32);
     cursor = match.index + match[0].length;
