@@ -441,7 +441,7 @@ function commandTargets(
   while (i < words.length) {
     const word = words[i]!.text;
     if (KEYWORDS.has(word) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
-      if (scope) rememberAssignment(words[i]!, cwd, scope);
+      if (scope) rememberAssignment(words[i]!, scope);
       i += 1;
       continue;
     }
@@ -470,12 +470,12 @@ function commandTargets(
   const args = words.slice(i + 1);
   if (name === "for" && scope && args[1]?.text === "in" && /^[A-Za-z_]\w*$/.test(args[0]?.text ?? "")) {
     for (const item of args.slice(2)) {
-      rememberAssignment({ ...item, text: args[0]!.text + "=" + item.text }, cwd, scope);
+      rememberAssignment({ ...item, text: args[0]!.text + "=" + item.text }, scope);
     }
     return none;
   }
   if (name === "export" && scope) {
-    for (const assignment of args) rememberAssignment(assignment, cwd, scope);
+    for (const assignment of args) rememberAssignment(assignment, scope);
     return none;
   }
 
@@ -994,27 +994,31 @@ function resolveWord(word: ShellWord, dir: string | undefined, home?: string): s
   }
 }
 
-function rememberAssignment(word: ShellWord, dir: string | undefined, scope: WriteTargetScope): void {
+function rememberAssignment(word: ShellWord, scope: WriteTargetScope): void {
   const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/s.exec(word.text);
   if (!assignment) return;
   const [, name, value] = assignment;
-  const target = resolveDirectoryWord({ text: value!, dynamic: word.dynamic }, dir, scope);
-  if (target === undefined) return;
+  const values = directoryWordValues({ text: value!, dynamic: word.dynamic }, scope);
+  if (values.length === 0) return;
   const assignments = scope.assignments ??= new Map();
   const candidates = assignments.get(name!) ?? new Set<string>();
-  candidates.add(target);
+  for (const value of values) candidates.add(value);
   assignments.set(name!, candidates);
 }
 
-function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
-  if (!word.dynamic || !scope) return resolveWord(word, dir, scope?.home);
+function directoryWordValues(word: ShellWord, scope?: WriteTargetScope): string[] {
+  if (!word.dynamic) return [word.text];
+  if (!scope) return [];
   const variable = /^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))([^$*?\[{}]*)$/.exec(word.text);
-  if (!variable) return undefined;
+  if (!variable) return [];
   const name = (variable[1] ?? variable[2])!;
-  const bases = scope.assignments?.get(name);
-  const base = bases?.size === 1 ? bases.values().next().value : name === "HOME" ? scope.home : undefined;
-  if (base === undefined) return undefined;
-  return resolveWord({ text: base + variable[3], dynamic: false }, dir, scope.home);
+  const bases = scope.assignments?.get(name) ?? (name === "HOME" && scope.home ? [scope.home] : []);
+  return [...bases].map((base) => base + variable[3]);
+}
+
+function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
+  const values = directoryWordValues(word, scope);
+  return values.length === 1 ? resolveWord({ text: values[0]!, dynamic: false }, dir, scope?.home) : undefined;
 }
 
 function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
