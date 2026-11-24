@@ -144,6 +144,7 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
       await tool.run({ url: PLAIN_URL }, ctx()).catch(() => undefined);
       await tool.run({ url: "https://docs.example/other" }, ctx()).catch(() => undefined);
       expect(asked).toHaveLength(1);
+      expect(asked[0]!.grantKey).toBe("url-visit:https://docs.example");
       expect(asked[0]!.reason).toMatch(/first request to docs\.example in this chat/);
       await tool.run({ url: PLAIN_URL }, ctx("another-chat")).catch(() => undefined);
       expect(asked).toHaveLength(2);
@@ -159,7 +160,7 @@ describe("URL data guard in the GET tools (ATO-1377)", () => {
       const calls: string[][] = [];
       const tool = build(gate, calls, httpConfig(), new UrlSendSites(), `\n${marker}${metadata}`);
       await expect(tool.run({ url: PLAIN_URL }, ctx())).rejects.toMatchObject({ name: "ApprovalDeniedError" });
-      expect(asked).toEqual([expect.objectContaining({ category: "http_write", grantKey: "url-data:https://evil.example" })]);
+      expect(asked).toEqual([expect.objectContaining({ category: "http_write", grantKey: "url-data:https://evil.example", reason: expect.stringMatching(/^follow a redirect to .*line breaks/) })]);
       expect(calls).toHaveLength(1);
     });
   }

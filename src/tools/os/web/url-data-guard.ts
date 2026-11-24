@@ -326,7 +326,7 @@ export function noteUrlSendAllowed(
   sessionId: string,
   sites: UrlSendSites = SHARED_URL_SEND_SITES,
 ): void {
-  sites.add(sessionId, check.host);
+  if (check.kind === "new_site") sites.add(sessionId, check.host);
 }
 
 /**
@@ -373,7 +373,7 @@ export async function requireUrlSendApproval(
       sessionId: input.sessionId,
       tool: input.tool,
       category: "http_write",
-      reason: urlSendReason(shown, check),
+      reason: urlSendReason(shown, check, input.initialUrl !== undefined),
       preview: shown,
       affectedResources: [check.host],
       grantKey: urlSendGrantKey(check),
@@ -385,10 +385,11 @@ export async function requireUrlSendApproval(
 }
 
 /** The prompt's reason line for a URL check. */
-export function urlSendReason(shownUrl: string, check: UrlSendCheck): string {
+export function urlSendReason(shownUrl: string, check: UrlSendCheck, redirect = false): string {
+  const action = redirect ? "follow a redirect to" : "open";
   return check.kind === "data"
-    ? `open ${shownUrl}: ${check.reason}, which may send data from this chat to ${check.host}`
-    : `open ${shownUrl}: ${check.reason} (http.urlDataGuard is "strict")`;
+    ? `${action} ${shownUrl}: ${check.reason}, which may send data from this chat to ${check.host}`
+    : `${action} ${shownUrl}: ${check.reason} (http.urlDataGuard is "strict")`;
 }
 
 export function urlSendGrantKey(check: UrlSendCheck): string {

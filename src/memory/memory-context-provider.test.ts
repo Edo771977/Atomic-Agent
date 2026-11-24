@@ -172,6 +172,10 @@ describe("createDefaultMemoryContextProvider", () => {
     expect(ids).toContain(a.id);
     expect(ids).toContain(b.id);
     expect(ids).toContain(c.id);
+
+    store.setDisabled(b.id, true);
+    const filtered = await provider.buildMemoryContext(input("lisbon"));
+    expect(filtered.recalled.map((entry) => entry.id)).not.toContain(b.id);
   });
 
   it("phase 2: stays byte-identical when link expansion is disabled", async () => {

@@ -30,6 +30,14 @@ describe("memory.profile.remove", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("treats disabled entries as absent for the agent", async () => {
+    store.set("city", "Rome");
+    store.setDisabled("city", true);
+    const result = await buildProfileRemoveTool({ store }).run({ key: "city" }, makeCtx());
+    expect(result.details.removed).toBe(false);
+    expect(store.get("city")?.disabledAt).toBeDefined();
+  });
+
   it("removes an existing key", async () => {
     store.set("language", "ru");
     const tool = buildProfileRemoveTool({ store });

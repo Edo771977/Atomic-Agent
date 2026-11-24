@@ -1,3 +1,6 @@
+import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
+import { setTimeout as delay } from "node:timers/promises";
+import { assertMemoryBackupAllowed, createMemoryBackup, defaultBackupDir, formatMemoryRestoreResult, restoreMemoryBackup } from "../../memory/memory-backup.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import { LINK_LIST_ALL_DEFAULT_LIMIT } from "../../memory/links/link-store.js";
 import type { TuiEventBus } from "../tui-app.js";
@@ -19,7 +22,6 @@ import type {
 import {
   toLessonSummaryRows,
   toLinkSummaryRows,
-  toNoteSummaryRows,
   toNoteSummaryRowsFromEntries,
   toProcedureSummaryRows,
   toProfileSummaryRows,
@@ -28,6 +30,7 @@ import {
 
 export interface MemoryOrchestratorOptions {
   refreshIntervalMs?: number;
+  isIncognito?: () => boolean;
 }
 
 const DEFAULT_REFRESH_INTERVAL_MS = 5_000;
@@ -49,7 +52,7 @@ export class MemoryOrchestrator {
   constructor(
     private readonly runtime: AgentRuntime,
     private readonly bus: TuiEventBus & { emit(action: unknown): void },
-    options: MemoryOrchestratorOptions = {},
+    private readonly options: MemoryOrchestratorOptions = {},
   ) {
     this.refreshIntervalMs =
       options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
@@ -117,6 +120,61 @@ export class MemoryOrchestrator {
         type: "runtime_info",
         line: `memory refresh failed: ${msg}`,
       });
+    }
+  }
+
+  async runBackup(request: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean; expectedHash?: string }): Promise<void> {
+    const { paths } = this.runtime.config;
+    const context = { memoryDbFile: paths.memoryDbFile, incognito: this.options.isIncognito?.() ?? false };
+    try {
+      let line: string;
+      if (request.operation === "backup") {
+        const path = await createMemoryBackup(context, request.directory ?? defaultBackupDir(paths.stateDir));
+        line = `memory backed up to ${path}`;
+      } else {
+        if (request.directory === undefined) throw new Error("restore requires a backup directory");
+        assertMemoryBackupAllowed(context.incognito);
+        if (request.confirmed) {
+          if (!request.expectedHash) throw new Error("confirmation requires the preview SHA-256");
+          this.bus.emit({ type: "system_message", text: "Memory restore in progress…" });
+          await delay(50);
+          assertMemoryBackupAllowed(this.options.isIncognito?.());
+        }
+        const result = restoreMemoryBackup({
+          ...context, maxEntries: this.runtime.config.memory.notes.maxEntries,
+          profileMaxEntries: this.runtime.config.memory.profile.maxEntries,
+      dedupThreshold: this.runtime.config.memory.dedup.fts5Threshold, preview: !request.confirmed,
+          ...(request.expectedHash ? { expectedHash: request.expectedHash } : {}),
+        }, request.directory);
+        line = request.confirmed ? `Restored: ${formatMemoryRestoreResult(result)}`
+          : `Restore preview: ${formatMemoryRestoreResult(result)}. Backup SHA-256: ${result.backupHash}. Repeat with /memory restore --yes ${result.backupHash} <directory> to confirm.`;
+        if (request.confirmed) this.refresh();
+      }
+      this.bus.emit({ type: "runtime_info", line });
+      if (request.operation === "restore") this.bus.emit({ type: "system_message", text: line });
+    } catch (error) {
+      const line = `memory ${request.operation} failed: ${String(error)}`;
+      this.bus.emit({ type: "runtime_info", line });
+      if (request.operation === "restore") this.bus.emit({ type: "system_message", text: line });
+    }
+  }
+
+  toggleDisabled(row: MemorySummaryRow): void {
+    if (this.options.isIncognito?.() || process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+      this.bus.emit({ type: "runtime_info", line: "memory changes are unavailable in this session" });
+      return;
+    }
+    try {
+      if (row.channel === "notes" && row.numericId !== undefined) {
+        const note = this.runtime.notesStore.get(row.numericId);
+        if (note) this.runtime.notesStore.setDisabled(note.id, note.disabledAt === undefined);
+      } else if (row.channel === "profile" && row.profileKey !== undefined) {
+        const fact = this.runtime.profileStore.get(row.profileKey);
+        if (fact) this.runtime.profileStore.setDisabled(fact.key, fact.disabledAt === undefined);
+      }
+      this.refresh();
+    } catch (error) {
+      this.bus.emit({ type: "memory_refresh_failed", error: String(error) });
     }
   }
 
@@ -226,7 +284,7 @@ function loadChannelRows(
       if (q.length > 0) {
         // As the prompt does, a search leaves out notes the reconciler
         // marked stale; the unfiltered list still shows them.
-        const hits = runtime.notesStore.recall(q, {
+        const hits = runtime.notesStore.searchForOperator(q, {
           k: 50,
           ...(cfg.notes.reconcile ? { excludeSuperseded: true } : {}),
         });
@@ -239,11 +297,11 @@ function loadChannelRows(
         );
         return { rows: toNoteSummaryRowsFromEntries(archived), hint: null };
       }
-      const index = runtime.notesStore.listIndex({
+      const entries = runtime.notesStore.list({
         limit: NOTES_LIST_LIMIT,
         excludeArchived: opts.notesArchiveFilter === "active",
       });
-      return { rows: toNoteSummaryRows(index), hint: null };
+      return { rows: toNoteSummaryRowsFromEntries(entries), hint: null };
     }
     case "lessons":
       if (!cfg.lessons.enabled) {

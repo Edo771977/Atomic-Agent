@@ -892,15 +892,13 @@ Honestly degraded, and labelled as such in the UI:
   exactly this reason (see *Packaging* below). The plan hand-off rides on the
   same route, so a binary without it draws no bar at all: with no plan mode
   there is nothing to hand off from.
-- **No session-wide approval grants, and no target-path retargeting.** The TUI
-  offers both (`[s]` allow-category, `[a]` allow-shape, `edit target path…`)
-  because it reaches the gate in process. On the wire, `ResolveBody` in
-  `src/http/route-approval.ts` is `{approvalId, decision, reason}` and
-  `parseDecision` maps the decision to a bare boolean — nothing can carry a
-  grant scope or a `pathOverride`. So the card draws Approve / Deny / Abort and
-  says why, rather than a button it cannot honour; the `s` and `a` keys that
-  used to fire a grant-shaped verdict were removed for the same reason. Loosen
-  the standing stance with the mode control in the composer instead.
+- **URL approvals.** In strict mode, the card explains why the agent is
+  asking about the first visit to a site. For an address or redirect that
+  may send chat data, it shows the full reason with the agent's masked URL.
+  **Allow in this chat** applies to the displayed origin and request type
+  for the current chat. Site visits and URLs that may send chat data have
+  separate permissions. **Allow once** answers the current prompt.
+  Named shell commands can also offer **Allow in this chat**.
 - **Where the approval surface still diverges from the TUI's, field by field.**
   Three differences remain after the parity work above, none of them accidental:
   (a) the desktop's Category row adds which mode would run the request

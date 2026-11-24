@@ -27,6 +27,12 @@ describe("describeRunMode", () => {
     ).toContain("1 worker on local-llama");
   });
 
+  it("names the configured automatic escalation target", () => {
+    const escalation = { providerId: "openrouter", model: "strong", auto: true, replace: false, maxUsd: 1 };
+    expect(describeRunMode({ ...base, escalation })).toContain("stuck workers escalate to openrouter (strong)");
+    expect(describeRunMode({ ...base, escalation: { ...escalation, auto: false } })).not.toContain("escalate");
+  });
+
   it("describes a plain mode by its active provider", () => {
     expect(
       describeRunMode({

@@ -46,6 +46,10 @@ function handleListKey(
     return true;
   }
   const selected = selectedVisibleRow(panel);
+  if (input === "d" && selected && (selected.channel === "notes" || selected.channel === "profile")) {
+    callbacks.onMemoryToggleDisabledRequested?.(selected);
+    return true;
+  }
   if (key.return && selected) {
     if (selected.channel === "links" && selected.linkFromId !== undefined) {
       callbacks.onMemoryOpenNoteRequested?.(selected.linkFromId);

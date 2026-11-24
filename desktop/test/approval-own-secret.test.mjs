@@ -19,6 +19,7 @@ function fn(name) {
 
 function apprWhy(m) {
   const c = vm.createContext({ esc: (s) => String(s), apprCode: (s) => String(s), apprPath: (s) => String(s), VIDEO_PAID_WHY: "" });
+  vm.runInContext(fn("apprUrlScope"), c);
   vm.runInContext(fn("apprWhy"), c);
   return c.apprWhy(m);
 }

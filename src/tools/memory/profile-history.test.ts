@@ -56,6 +56,30 @@ describe("memory.profile.history", () => {
     expect(result.summary).toContain("(active)");
   });
 
+  it("hides a disabled key from the agent while keeping the operator history", async () => {
+    store.set("language", "it", 1_000);
+    store.set("language", "en", 2_000);
+    const tool = buildProfileHistoryTool({ store });
+
+    store.setDisabled("language", true);
+    const disabled = await tool.run({ key: "language" }, makeCtx());
+    expect(disabled.details.history).toEqual([]);
+    expect(store.history("language")).toHaveLength(2);
+
+    store.setDisabled("language", false);
+    const enabled = await tool.run({ key: "language" }, makeCtx());
+    expect(enabled.details.count).toBe(2);
+  });
+
+  it("shows all versions once the profile key is re-enabled", async () => {
+    store.set("language", "it", 1_000);
+    store.setDisabled("language", true);
+    store.set("language", "en", 2_000);
+    store.setDisabled("language", false);
+    const result = await buildProfileHistoryTool({ store }).run({ key: "language" }, makeCtx());
+    expect(result.details.history).toMatchObject([{ value: "it" }, { value: "en" }]);
+  });
+
   it("returns an error result for a malformed key", async () => {
     const tool = buildProfileHistoryTool({ store });
     const result = await tool.run({ key: "has space" }, makeCtx());

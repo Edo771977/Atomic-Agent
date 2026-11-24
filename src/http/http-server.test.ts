@@ -28,6 +28,8 @@ describe("http-server", () => {
       for (const [method, path] of [
         ["GET", "/v1/models"],
         ["GET", "/api/sessions"],
+        ["GET", "/api/events"],
+        ["GET", "/api/memory/changes"],
         ["POST", "/api/project/decision"],
         ["POST", "/api/project/backlog"],
         ["POST", "/api/project/lessons"],

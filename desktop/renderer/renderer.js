@@ -4228,10 +4228,8 @@ function apprCard(m) {
     + '</div></div>'
     + '<div class="apprbtns">'
       + '<button class="btn sm appr-yes" data-appr="y" title="Allow this one call' + (current ? ' (' + apprKeyLabel('y') + ')' : '') + '">Allow once' + keyOn('y') + '</button>'
-      /* ATO-473: the agent's shape grant, for a command it can name (m.shape,
-         never `bash -c`), on an agent that takes it (apprChatOk). No key: the
-         chords stay Allow once and Deny. */
-      + (apprChatOk(m) ? '<button class="btn sm btn-s appr-chat" data-appr="c" title="' + esc('Allow this call, and ' + m.shape + ' commands for the rest of this chat without asking') + '">Allow in this chat</button>' : '')
+      /* Keep the shortcuts for Allow once and Deny. */
+      + (apprChatOk(m) ? '<button class="btn sm btn-s appr-chat" data-appr="c" title="' + esc(apprChatTitle(m)) + '">Allow in this chat</button>' : '')
       /* ATO-1142: a saved rule, for a request the agent says it can remember
          (canAlways). The agent's own words name what the rule covers. No key,
          like Allow in this chat. */
@@ -4303,14 +4301,21 @@ const APPR_FALLBACK = {
   verify_page_local:'open a page of this project to check it',
   verify_ui_detector:'run a UI checker from this project or your PATH',
 };
-/** ATO-473: whether the card offers "Allow in this chat". The agent grants
-    the request's command shape (the binary, `git`) for the rest of the chat;
-    it names one only for a command it can see into (never `bash -c`), and an
-    agent that does not list `allow-in-chat` on /api/capabilities answers it
-    with a 400, so there the button is not drawn at all. */
+/** Offer a chat grant for a named shell command or a URL scope the agent supports. */
 function apprChatOk(m) {
   const decisions = LIVE_CAPS && LIVE_CAPS.agent && LIVE_CAPS.agent.approvalDecisions;
-  return !!m.shape && m.cat === 'shell' && Array.isArray(decisions) && decisions.includes('allow-in-chat');
+  return Array.isArray(decisions) && decisions.includes('allow-in-chat')
+    && ((m.cat === 'shell' && !!m.shape) || (m.canGrantUrlInChat === true && !!apprUrlScope(m)));
+}
+function apprUrlScope(m) {
+  const match = m.cat === 'http_write' && /^url-(visit|data):(https?:\/\/.+)$/.exec(m.grantKey || '');
+  if (!match) return null;
+  return {kind: match[1], origin: match[2], label: match[1] === 'visit' ? 'site visits' : 'URLs that may send chat data'};
+}
+function apprChatTitle(m) {
+  const url = apprUrlScope(m);
+  return url ? 'Allow ' + url.label + ' at ' + url.origin + ' for the rest of this chat'
+    : 'Allow this call, and ' + m.shape + ' commands for the rest of this chat without asking';
 }
 /** ATO-1142: whether the card offers "Always allow". Only when the agent's
     `approval_request` frame says `canAlways: true` (a category it may save a
@@ -4336,6 +4341,11 @@ function apprAsk(m) {
   const pv = String(m.preview || '').trim();
   const firstLine = (s) => String(s).split('\n')[0].trim();
   let mt;
+  const url = apprUrlScope(m);
+  if (url) {
+    const action = url.kind === 'visit' ? 'visit ' : 'open a URL that may send chat data to ';
+    return q(action + apprCode(url.origin));
+  }
   if (m.cat === 'shell' || m.tool === 'os.shell.run') {
     const cmd = pv && pv !== '(no preview)' ? firstLine(pv) : '';
     // ATO-432: a multiline command says so; the whole of it is open under Details (apprMultiline).
@@ -4379,6 +4389,7 @@ function apprMultiline(m) {
 }
 /** One line of what allowing it does, or '' when there is nothing to add (html). */
 function apprWhy(m) {
+  if (apprUrlScope(m)) return esc(m.reason || '');
   if (m.cat === 'fs_read_outside') {
     /* B3: the one approval that outlives its call. Allowing a read outside
        the working folder also lets the agent read under that folder for the
@@ -12501,7 +12512,7 @@ function toolWaitAnswered(req) {
 /* B01: the same call asked for again: same chat, tool, category, preview and target. */
 function sameApprovalCall(a, b) {
   return !!a && !!b && a.sessionId === b.sessionId && a.tool === b.tool && a.cat === b.cat
-    && a.preview === b.preview && a.affectsDir === b.affectsDir && a.affectsBase === b.affectsBase;
+    && a.grantKey === b.grantKey && a.preview === b.preview && a.affectsDir === b.affectsDir && a.affectsBase === b.affectsBase;
 }
 
 /* B01: chat `sid`'s turn ended here (done, error, stopped). Nothing it asked
@@ -12580,6 +12591,8 @@ function onApprovalEvent(payload) {
     reason: payload.reason || '',
     preview: payload.preview || '(no preview)',
     shape: payload.commandShape || '',
+    grantKey: typeof payload.grantKey === 'string' ? payload.grantKey : '',
+    canGrantUrlInChat: payload.canGrantUrlInChat === true,
     // ATO-1142: the agent can save an allow rule for this request, and the words it uses for it.
     canAlways: payload.canAlways === true,
     alwaysLabel: typeof payload.alwaysLabel === 'string' ? payload.alwaysLabel : '',
@@ -12754,9 +12767,10 @@ function apprChatFallback(req, decision, res) {
     return again;
   });
 }
-/* The receipt for a taken "Allow in this chat". A system row's text is html,
-   and the shape is the binary name the model chose, so it is escaped. */
+/* The receipt names the command or URL scope. System rows contain HTML. */
 function apprChatGrantedNote(req) {
+  const url = apprUrlScope(req);
+  if (url) return {id:nid(), k:'system', apprNote:true, text:esc(apprChatTitle(req).replace(/^Allow /, 'Allowed ')) + '.'};
   return {id:nid(), k:'system', apprNote:true,
     text:'Allowed in this chat. Atomic Agent won\u2019t ask again about <code>' + esc(req.shape) + '</code> commands until you start a new chat.'};
 }

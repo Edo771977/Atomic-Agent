@@ -75,7 +75,11 @@ test('a project_gate frame without a session or a view of schema 1 is dropped', 
 
 test('the events stream emits project for project_gate and approval only for approval requests', async () => {
   const v = view();
-  const req = {approvalId: 'a1', sessionId: 'ses-1', tool: 'os.fs.write'};
+  const req = {
+    approvalId: 'a1', sessionId: 'ses-1', tool: 'os.http.request', category: 'http_write',
+    grantKey: 'url-data:https://docs.example', canGrantUrlInChat: true,
+    reason: 'follow a redirect to https://docs.example/?d=[masked]: the address carries a long encoded value',
+  };
   const s = await standIn((r) => r.url === '/api/events'
     ? [200, sse([['approval_request', req], ['project_gate', {session_id: 'ses-1', view: v}]]), SSE]
     : [404, {error: {message: 'No route'}}]);

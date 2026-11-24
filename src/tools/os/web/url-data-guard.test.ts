@@ -131,6 +131,14 @@ describe("checkUrlSend", () => {
   });
 });
 
+it("keeps a strict visit pending after permission to send data to that origin", () => {
+  const sites = new UrlSendSites();
+  const check = checkUrlSend("strict", `https://docs.example/?d=${encodeURIComponent(FILE_TEXT)}`, "s", sites)!;
+  expect(check.kind).toBe("data");
+  noteUrlSendAllowed(check, "s", sites);
+  expect(checkUrlSend("strict", "https://docs.example/guide", "s", sites)?.kind).toBe("new_site");
+});
+
 it("normalizes a trailing DNS dot, tracks ports, and releases the session's visits", () => {
   const sites = new UrlSendSites();
   const first = checkUrlSend("strict", "https://docs.example:8443", "s", sites)!;

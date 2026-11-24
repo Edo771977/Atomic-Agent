@@ -33,6 +33,14 @@ describe("memory.notes.forget", () => {
     rmSync(tmp, { recursive: true, force: true });
   });
 
+  it("treats disabled entries as absent for the agent", async () => {
+    const note = store.store({ content: "A disabled note" });
+    store.setDisabled(note.id, true);
+    const result = await buildNotesForgetTool({ store }).run({ id: note.id }, makeCtx());
+    expect(result.details.removed).toBe(false);
+    expect(store.get(note.id)?.disabledAt).toBeDefined();
+  });
+
   it("removes an existing entry by id", async () => {
     const entry = store.store({ content: "ephemeral" }, 1);
     const tool = buildNotesForgetTool({ store });

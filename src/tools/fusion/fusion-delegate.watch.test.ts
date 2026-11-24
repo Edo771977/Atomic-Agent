@@ -192,6 +192,15 @@ describe("who watches a team run's worker (issue #43)", () => {
     expect(rows[0]!.watch).toMatchObject({ judge: "model-a" });
   });
 
+  it.each([undefined, { ...DIRECTED, pinsModel: () => false }])("pins the legacy watch model with context %j", async (context) => {
+    const { watchCalls } = await run({
+      context, ticks: 2,
+      tasks: [{ id: "t", title: "Watch a file task", instructions: "write a.txt", watchMinutes: 1 }],
+      runOver: { orchestratorModel: "legacy", orchestratorPinModel: "legacy" },
+    });
+    expect(watchCalls).toEqual([expect.objectContaining({ providerId: "api-a", model: "legacy" })]);
+  });
+
   it("the director when team.review is off, as for the review itself", async () => {
     const { watchCalls, rows } = await run({ context: { ...REVIEWED, team: { ...REVIEWED.team, review: "off" } }, ticks: 2 });
     expect(watchCalls).toEqual([expect.objectContaining({ providerId: "api-a", model: "model-a" })]);

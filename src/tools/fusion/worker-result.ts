@@ -200,6 +200,8 @@ export interface TaskReview {
 }
 
 export interface WorkerTaskResult {
+  /** Author of the escalation re-run, when the first attempt was replaced. */
+  escalationRerun?: { providerId: string; model: string | null; requestedModel: string | null };
   id: string;
   title: string;
   status: WorkerTaskStatus;
