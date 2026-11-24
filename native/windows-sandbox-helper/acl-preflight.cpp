@@ -79,8 +79,12 @@ int wmain(int argc, wchar_t** argv) {
     require(checkFile(L"fixture\\after", CREATE_NEW) == ERROR_SUCCESS, "create post-grant file");
 
     std::wstring command = L"\"" + std::wstring(executable) + L"\" --child \"" + profileFile + L"\"";
-    wchar_t emptyEnvironment[] = {L'\0', L'\0'};
-    const DWORD status = runLpac(sid, executable, command, L"fixture", emptyEnvironment, 10000, false);
+    wchar_t systemRoot[MAX_PATH]{};
+    UINT rootLength = GetWindowsDirectoryW(systemRoot, MAX_PATH);
+    require(rootLength > 0 && rootLength < MAX_PATH, "locate Windows directory");
+    std::wstring environment = L"SystemRoot=" + std::wstring(systemRoot);
+    environment.push_back(L'\0');
+    const DWORD status = runLpac(sid, executable, command, L"fixture", environment.data(), 10000, false);
     bool present = false;
     if (status == 0) {
         require(acl_tree::containsSid(L"fixture\\deep\\nested\\before", sid, present) && present,
