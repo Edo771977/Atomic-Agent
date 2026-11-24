@@ -497,4 +497,7 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       expect(findShellTrustDeletes({ cmd }, context, protectedState, env)).toEqual(destructive ? [path] : []);
     }
   });
+  it("scans substitutions in an unterminated quoted heredoc conservatively", () => {
+    expect(checkRoundSeven("cat <<'END'\n$(touch /scratch/.agents/skills/demo)")).toEqual(["/scratch/.agents/skills/"]);
+  });
 });
