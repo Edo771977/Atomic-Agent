@@ -154,10 +154,10 @@ export function forgetPrivacyVault(sessionId: string): void {
 }
 
 /** Protect evidence from restored provider values without changing the archive. */
-export function redactPrivacyEvidence<T>(sessionId: string, value: T): T {
+export function redactPrivacyEvidence<T>(sessionId: string, value: T, options?: { always?: boolean }): T {
   const vault = vaults.get(vaultKey(sessionId));
   if (vault) return vault.redactEvidence(value);
-  return isPrivacyShieldEnabledForRequest(sessionId)
+  return options?.always || isPrivacyShieldEnabledForRequest(sessionId)
     ? new PrivacyVault(() => knownSecrets()).redactEvidence(value)
     : value;
 }

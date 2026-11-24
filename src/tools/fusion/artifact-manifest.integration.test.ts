@@ -1,8 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { resetPrivacyVaults } from "../../privacy/index.js";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -46,6 +47,50 @@ describe("artifact evidence through Fusion results and checkpoints", () => {
     expect(JSON.stringify(row.artifactManifest)).not.toContain("ALL TESTS PASSED");
     expect(result.details.artifactManifests).toEqual({ core: row.artifactManifest });
     expect(result.summary).toContain("manifest:");
+  });
+
+  it.each([false, true])("protects run checkpoints and evidence (incognito=%s)", async (incognito) => {
+    const filename = "owner@example.test.txt";
+    const runsDir = join(dir, "checkpoints");
+    const d = deps();
+    const store = new FusionRunStore({ dir: runsDir });
+    const write = store.write.bind(store);
+    const writes = vi.spyOn(store, "write");
+    const snapshots: string[] = [];
+    // Capture each version before the successful run removes its checkpoint.
+    writes.mockImplementation((checkpoint) => {
+      snapshots.push(JSON.stringify(checkpoint));
+      return write(checkpoint);
+    });
+    d.runCheckpoints = store;
+    d.resolveOriginalRequest = () => "Build output for owner@example.test";
+    d.runTurn = async (session, _brief, options) => {
+      const path = join(session.workingDir, filename);
+      writeFileSync(path, "actual file bytes");
+      options.eventHook?.({ type: "llm_event", event: { type: "tool_call_executed", result: { tool: "os.fs.write", status: "ok", summary: "written", details: { path, existed: false, addedLines: 1, removedLines: 0 }, truncated: false }, batchIndex: 0, batchSize: 1 } });
+      return { session, reason: "reply", stepCount: 1 };
+    };
+    resetPrivacyVaults();
+    try {
+      const result = await buildFusionDelegateTool(d).run({
+        tasks: [{ id: "core", instructions: "Write " + filename, files: [filename] }],
+      }, { workingDir: dir, sessionId: "s-parent", stepIndex: 0, incognito, signal: new AbortController().signal });
+      expect(result.status).toBe("ok");
+      if (incognito) {
+        expect(snapshots).toEqual([]);
+        expect(existsSync(runsDir)).toBe(false);
+      } else {
+        expect(JSON.parse(snapshots[0]!)).toMatchObject({ originalRequest: "[redacted]", redactedArgs: true });
+        expect(snapshots.join(" ")).toContain("[redacted]");
+        expect(snapshots.join(" ")).toContain("artifactManifest");
+        expect(snapshots.join(" ")).not.toContain("owner@example.test");
+        const files = readdirSync(runsDir, { recursive: true, encoding: "utf8" })
+          .filter((path) => path.endsWith(".json")).map((path) => readFileSync(join(runsDir, path), "utf8"));
+        expect(files.join(" ")).not.toContain("owner@example.test");
+      }
+    } finally {
+      resetPrivacyVaults();
+    }
   });
 
   it("round-trips runtime evidence through the existing v1 checkpoint and resume plan", async () => {
