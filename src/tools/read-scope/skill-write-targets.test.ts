@@ -244,4 +244,17 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       rmSync(home, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    ["find /scratch/shared -type f -print0 | xargs -0 touch", true],
+    ["ls /scratch/shared | xargs touch", true],
+    ["find /scratch/shared -type f -print0 | xargs -0 cat", false],
+    ["ls /tmp | xargs touch", false],
+    ["cd /scratch; ls . | xargs touch", true],
+    ["cd /; ls . | xargs touch", false],
+  ] as const)("round five point 7 classifies %s", (cmd, blocked) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
+  });
 });

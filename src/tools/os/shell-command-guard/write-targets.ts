@@ -239,12 +239,14 @@ function lineTargets(
   let words: ShellWord[] = [];
   let stdin: ShellWord | undefined;
   let piped: ShellWord | undefined;
+  let pipeOrigins: FindSelection[] = [];
   let hasInputRedirect = false;
   const flush = (toPipe = false): boolean => {
     if (words.length === 0) return true;
     const input = hasInputRedirect ? stdin : piped;
-    const found = commandTargets(words, cwd, windows, scope, input);
+    const found = commandTargets(words, cwd, windows, scope, input, hasInputRedirect ? [] : pipeOrigins);
     piped = scope && toPipe ? literalShellInput(words) : undefined;
+    pipeOrigins = scope && toPipe ? pathProducer(words, cwd, scope) : [];
     stdin = undefined;
     hasInputRedirect = false;
     words = [];
@@ -367,10 +369,25 @@ function findRoots(args: readonly ShellWord[], dir: string | undefined, scope: W
   return {
     expression,
     roots: (roots.length ? roots : [word(".")]).flatMap((root) => {
-      const path = resolveWriteWord(root, dir, scope);
+      const path = resolveDirectoryWord(root, dir, scope);
       return path ? [{ root: path, ...selection }] : [];
     }),
   };
+}
+
+function pathProducer(words: readonly ShellWord[], dir: string | undefined, scope: WriteTargetScope): FindSelection[] {
+  const [head, ...args] = words;
+  const name = head && commandName(head.text);
+  if (name === "find") return findRoots(args, dir, scope).roots;
+  if (name !== "ls") return [];
+  const operands = plainOperands(args, (flag) => ["-I", "--ignore", "--hide", "--format"].includes(flag));
+  const recursive = args.some(({ text }) => text === "--recursive" || /^-[^-]*R/.test(text));
+  const directoryOnly = args.some(({ text }) => text === "--directory" || /^-[^-]*d/.test(text));
+  const maxDepth = directoryOnly ? 0 : recursive ? undefined : 1;
+  return (operands.length ? operands : [word(".")]).flatMap((operand) => {
+    const root = resolveDirectoryWord(operand, dir, scope);
+    return root ? [{ root, maxDepth }] : [];
+  });
 }
 
 function findExecTargets(
@@ -411,6 +428,7 @@ function commandTargets(
   windows: boolean,
   scope?: WriteTargetScope,
   stdin?: ShellWord,
+  pipeOrigins: readonly FindSelection[] = [],
 ): { targets: string[]; dir: string | undefined } | null {
   let words = inputWords;
   let cwd = dir;
@@ -424,7 +442,15 @@ function commandTargets(
     }
     const launcher = commandName(word);
     if (!PREFIX_COMMANDS.has(launcher)) break;
-    const inner = launcherCommand(launcher, words.slice(i + 1), cwd, scope?.home, scope);
+    const launcherArgs = words.slice(i + 1);
+    const inner = launcherCommand(launcher, launcherArgs, cwd, scope?.home, scope);
+    if (launcher === "xargs" && scope && pipeOrigins.length && inner.words.length) {
+      const marker = resolve(inner.cwd ?? homedir(), ".atomic-pipeline-selected-path");
+      const probe: WriteTargetScope = { home: scope.home, assignments: scope.assignments, placed: [], recursive: [] };
+      const invocation = xargsCommand(inner.words, launcherArgs, marker);
+      const writes = commandTargets(invocation, inner.cwd, windows, probe);
+      if (writes?.targets.includes(marker)) (scope.findSelections ??= []).push(...pipeOrigins);
+    }
     words = launcher === "xargs" && scope && stdin && !stdin.dynamic
       ? xargsCommand(inner.words, words.slice(i + 1), stdin.text)
       : inner.words;
