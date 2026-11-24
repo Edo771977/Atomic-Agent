@@ -59,7 +59,7 @@ export async function installLocalSkill(
     const project = dirname(parent);
     if (basename(dirname(project)) !== "learned-projects" || !/^[0-9a-f]{64}$/.test(basename(project))) continue;
     if (basename(parent) === "skills-pending") {
-      throw new Error("Review and approve this draft with the learned skills command before installing it.");
+      throw new Error("Review and approve this draft in the TUI using /learn before installing it.");
     }
     if (basename(parent) === "skills") {
       if (!options.allowLearnedPromotion) throw new Error("This learned skill is project-scoped. Promote it explicitly from the local CLI.");

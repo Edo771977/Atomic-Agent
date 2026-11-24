@@ -228,7 +228,7 @@ describe("skill history / restore / curate", () => {
 
     expect(await skillCommand(["learned", "approve"])).toBe(2);
     expect(await skillCommand(["install", join(scope().stateDir, "skills-pending", draft.id), "--yes"])).toBe(1);
-    expect(stderr).toContain("Review and approve this draft");
+    expect(stderr).toContain("Review and approve this draft in the TUI using /learn");
     expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
     await approvePendingDraft({ ...scope(), takenNames: new Set(), expectedFingerprint: draftFingerprint(draft, content) }, draft.id);
     const installed = join(scope().skillsDir, "changelog-notes", "SKILL.md");
