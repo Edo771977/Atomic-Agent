@@ -155,38 +155,69 @@ function gitMounts(path: string, roots: readonly string[], output: Set<string>):
   if (roots.some(root => contains(root, gitdir)) && isDirectory(gitdir)) output.add(gitdir);
 }
 
-function nativeGitMetadata(root: string, roots: readonly string[], hostMounts: ReadonlySet<string>): Set<string> | undefined {
+const LINUX_INVENTORY_BUDGET_MS = 5_000;
+const LINUX_INVENTORY_TIMEOUT = "Linux host inventory exceeded the 5-second preparation limit";
+
+class LinuxInventoryTimeout extends Error {
+  constructor() {
+    super(LINUX_INVENTORY_TIMEOUT);
+  }
+}
+
+function remainingInventoryTime(deadline: number): number {
+  if (deadline === Infinity) return 0; // No Linux inventory deadline for Seatbelt.
+  const remaining = Math.ceil(deadline - performance.now());
+  if (remaining <= 0) throw new LinuxInventoryTimeout();
+  return remaining;
+}
+
+function runInventoryFind(args: string[], deadline: number) {
+  const result = spawnSync("/usr/bin/find", args, {
+    encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024,
+    timeout: remainingInventoryTime(deadline), killSignal: "SIGKILL",
+  });
+  if ((result.error as NodeJS.ErrnoException | undefined)?.code === "ETIMEDOUT") {
+    throw new LinuxInventoryTimeout();
+  }
+  remainingInventoryTime(deadline);
+  return result;
+}
+
+function nativeGitMetadata(root: string, roots: readonly string[], hostMounts: ReadonlySet<string>, deadline: number): Set<string> | undefined {
   const prune = [...hostMounts].filter(path => path !== root && contains(root, path));
-  const result = spawnSync("/usr/bin/find", [
+  const result = runInventoryFind([
     "-P", root, ...prune.flatMap(path => ["-path", findPathPattern(path), "-prune", "-o"]),
     "(", "-name", ".git", "-o", "-type", "d", "(", "-name", "node_modules", "-o", "!", "-readable", "-o", "!", "-executable", ")", ")",
     "-print0", "-prune",
-  ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
+  ], deadline);
   if (result.status !== 0 || result.error !== undefined) return undefined;
   const protectedPaths = new Set<string>();
   try {
     for (const path of result.stdout.split("\0").filter(Boolean)) {
+      remainingInventoryTime(deadline);
       if (!contains(root, path) || protectedPaths.size > 512) return undefined;
       gitMounts(path, roots, protectedPaths);
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof LinuxInventoryTimeout) throw error;
     return undefined;
   }
   return protectedPaths;
 }
 
 /** Recompute metadata on every shell launch, including repositories created since startup. */
-function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>): string[] {
+function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>, deadline = Infinity): string[] {
   const readonly = new Set<string>();
   for (const root of roots.filter(isDirectory)) {
     const pending = [root];
     let visited = 0;
     while (pending.length > 0) {
+      remainingInventoryTime(deadline);
       visited++;
       // Avoid a separate process for small trees. Large trees use the live
       // native inventory with the same masks and without a directory cap.
       if (visited === 128 && process.platform === "linux") {
-        const native = nativeGitMetadata(root, roots, hostMounts);
+        const native = nativeGitMetadata(root, roots, hostMounts, deadline);
         if (native !== undefined && native.size + readonly.size <= 512) {
           for (const path of native) readonly.add(path);
           break;
@@ -203,6 +234,7 @@ function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>):
       const dir = pending.pop()!;
       try {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          remainingInventoryTime(deadline);
           const path = join(dir, entry.name);
           if (hostMounts.has(path)) continue;
           if (entry.name !== ".git") {
@@ -480,10 +512,11 @@ function inheritedMounts(roots: readonly string[], hostMounts: ReadonlySet<strin
 }
 
 /** Report host sockets and directories whose contents we cannot inventory. */
-function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<string>): string[][] {
+function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<string>, deadline: number): string[][] {
   const masks: string[][] = [];
   const pending = [root];
   while (pending.length > 0) {
+    remainingInventoryTime(deadline);
     const path = pending.pop()!;
     if (inherited.has(path)) continue;
     try {
@@ -495,6 +528,7 @@ function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<str
         continue;
       }
       for (const entry of readdirSync(path, { withFileTypes: true })) {
+        remainingInventoryTime(deadline);
         const entryPath = join(path, entry.name);
         if (entry.isDirectory()) pending.push(entryPath);
         else if (entry.isSocket()) masks.push(["--ro-bind", "/dev/null", entryPath]);
@@ -513,9 +547,10 @@ function findPathPattern(path: string): string {
 }
 
 /** Accept only GNU find's precise, independently verified directory denials. */
-function deniedFindDirectories(stderr: string, roots: readonly string[]): string[] | undefined {
+function deniedFindDirectories(stderr: string, roots: readonly string[], deadline: number): string[] | undefined {
   const denied: string[] = [];
   for (const line of stderr.trimEnd().split("\n")) {
+    remainingInventoryTime(deadline);
     const path = /^\/usr\/bin\/find: '([^'\\\r\n]+)': Permission denied$/.exec(line)?.[1];
     if (path === undefined || !isAbsolute(path) || !roots.some(root => contains(root, path))) return undefined;
     try {
@@ -539,21 +574,22 @@ function deniedFindDirectories(stderr: string, roots: readonly string[]): string
  * JavaScript. A failed or unsupported invocation falls back to the complete
  * JavaScript scanner, including its masks for unreadable directories.
  */
-function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system: boolean): string[][] | undefined {
+function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system: boolean, deadline: number): string[][] | undefined {
   if (roots.length === 0) return [];
   const prune = [...inherited].filter(path => roots.some(root => contains(root, path)));
   const inheritedArgs = prune.flatMap(path => ["-path", findPathPattern(path), "-prune", "-o"]);
   const nixException = system && roots.includes(NIX_STORE) && isTrustedNixStore() ? ["!", "-path", NIX_STORE] : [];
-  const result = spawnSync("/usr/bin/find", [
+  const result = runInventoryFind([
     "-P", ...roots, ...inheritedArgs,
     ...(system ? ["-type", "d", ...nixException, "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),
     "-type", "s", "-printf", String.raw`s%p\0`,
-  ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
+  ], deadline);
   if (result.error !== undefined || (result.status !== 0 && result.status !== 1)) return undefined;
-  const denied = result.status === 1 ? deniedFindDirectories(result.stderr, roots) : [];
+  const denied = result.status === 1 ? deniedFindDirectories(result.stderr, roots, deadline) : [];
   if (denied === undefined) return undefined;
   const masks = denied.flatMap(path => [["--tmpfs", path], ["--remount-ro", path]]);
   for (const entry of result.stdout.split("\0")) {
+    remainingInventoryTime(deadline);
     if (entry === "") continue;
     const path = entry.slice(1);
     if (!roots.some(root => contains(root, path))) return undefined;
@@ -656,6 +692,7 @@ function bwrapArgs(
   command: string,
   args: readonly string[],
   hostMounts: ReadonlySet<string>,
+  deadline: number,
   cwd?: string,
   disableUserns = false,
 ): string[] {
@@ -697,8 +734,8 @@ function bwrapArgs(
   const scanRoots = exposed.filter(path => !exposed.some(other => other !== path && contains(other, path)));
   for (const system of [true, false]) {
     const roots = scanRoots.filter(path => systemMounts.includes(path) === system && existsSync(path));
-    const masks = fastLinuxMasks(roots, inherited, system) ??
-      roots.flatMap(path => maskingMounts(path, system, inherited));
+    const masks = fastLinuxMasks(roots, inherited, system, deadline) ??
+      roots.flatMap(path => maskingMounts(path, system, inherited, deadline));
     for (const mount of masks) out.push(...mount);
   }
   for (const mount of inherited) {
@@ -783,9 +820,9 @@ export function wrapWithOsSandbox(
       .some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a writable workspace root overlaps a system filesystem mount" };
   }
-  const applyGitProtection = (hostMounts = new Set<string>()): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
+  const applyGitProtection = (hostMounts = new Set<string>(), deadline = Infinity): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
     ...policy,
-    readOnlyGitRoots: gitMetadata(policy.workspaceRoots, hostMounts),
+    readOnlyGitRoots: gitMetadata(policy.workspaceRoots, hostMounts, deadline),
   };
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);
@@ -809,8 +846,18 @@ export function wrapWithOsSandbox(
       warnedAboutRoot = true;
       process.emitWarning("Safe Mode is running with host UID 0. Run the agent as an ordinary user where possible.", { code: "ATOMIC_AGENT_SANDBOX_ROOT" });
     }
-    const hostMounts = process.platform === "linux" ? linuxHostMounts() : new Set<string>();
-    return { ok: true, command: bwrap, args: bwrapArgs(applyGitProtection(hostMounts), command, args, hostMounts, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
+    const disableUserns = options.disableUsernsAvailable ?? supportsDisableUserns(bwrap);
+    const deadline = performance.now() + LINUX_INVENTORY_BUDGET_MS;
+    try {
+      const hostMounts = process.platform === "linux" ? linuxHostMounts() : new Set<string>();
+      const protectedPolicy = applyGitProtection(hostMounts, deadline);
+      const wrappedArgs = bwrapArgs(protectedPolicy, command, args, hostMounts, deadline, cwd, disableUserns);
+      remainingInventoryTime(deadline);
+      return { ok: true, command: bwrap, args: wrappedArgs };
+    } catch (error) {
+      if (error instanceof LinuxInventoryTimeout) return { ok: false, reason: error.message };
+      throw error;
+    }
   }
   return {
     ok: false,
