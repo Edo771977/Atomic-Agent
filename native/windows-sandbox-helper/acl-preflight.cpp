@@ -6,7 +6,7 @@
 #include <cstdio>
 #include <string>
 #include "acl-tree.h"
-#include "lpac-token.h"
+#include "lpac-process.h"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "userenv.lib")
@@ -78,39 +78,9 @@ int wmain(int argc, wchar_t** argv) {
     require(projectGrant.errors == 0 && projectGrant.objects == 4, "grant existing workspace tree");
     require(checkFile(L"fixture\\after", CREATE_NEW) == ERROR_SUCCESS, "create post-grant file");
 
-    SIZE_T size = 0;
-    InitializeProcThreadAttributeList(nullptr, 2, 0, &size);
-    auto attributes = static_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(HeapAlloc(GetProcessHeap(), 0, size));
-    require(attributes && InitializeProcThreadAttributeList(attributes, 2, 0, &size), "initialize attributes");
-    SECURITY_CAPABILITIES security{sid, nullptr, 0, 0};
-    DWORD optOut = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
-    require(UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
-        &security, sizeof(security), nullptr, nullptr) != FALSE, "set security capabilities");
-    require(UpdateProcThreadAttribute(attributes, 0, PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
-        &optOut, sizeof(optOut), nullptr, nullptr) != FALSE, "set LPAC opt-out");
-    STARTUPINFOEXW startup{};
-    startup.StartupInfo.cb = sizeof(startup);
-    startup.lpAttributeList = attributes;
-    PROCESS_INFORMATION process{};
     std::wstring command = L"\"" + std::wstring(executable) + L"\" --child \"" + profileFile + L"\"";
-    require(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
-        "launch LPAC probe");
-    if (!verifyLpacToken(process.hProcess, sid)) {
-        TerminateProcess(process.hProcess, 2);
-        return 2;
-    }
-    require(ResumeThread(process.hThread) == 1, "resume verified LPAC probe");
-    DWORD status = 2;
-    if (WaitForSingleObject(process.hProcess, 10000) == WAIT_OBJECT_0) {
-        require(GetExitCodeProcess(process.hProcess, &status) != FALSE, "read probe exit status");
-    } else {
-        TerminateProcess(process.hProcess, status);
-    }
-    CloseHandle(process.hThread);
-    CloseHandle(process.hProcess);
-    DeleteProcThreadAttributeList(attributes);
-    HeapFree(GetProcessHeap(), 0, attributes);
+    wchar_t emptyEnvironment[] = {L'\0', L'\0'};
+    const DWORD status = runLpac(sid, executable, command, L"fixture", emptyEnvironment, 10000, false);
     bool present = false;
     if (status == 0) {
         require(acl_tree::containsSid(L"fixture\\deep\\nested\\before", sid, present) && present,
