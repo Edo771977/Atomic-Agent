@@ -507,6 +507,28 @@ function findPathPattern(path: string): string {
   return path.replace(/[\\*?\[\]]/g, "\\$&");
 }
 
+/** Accept only GNU find's precise, independently verified directory denials. */
+function deniedFindDirectories(stderr: string, roots: readonly string[]): string[] | undefined {
+  const denied: string[] = [];
+  for (const line of stderr.trimEnd().split("\n")) {
+    const path = /^\/usr\/bin\/find: '([^'\\\r\n]+)': Permission denied$/.exec(line)?.[1];
+    if (path === undefined || !isAbsolute(path) || !roots.some(root => contains(root, path))) return undefined;
+    try {
+      if (!lstatSync(path).isDirectory()) return undefined;
+    } catch {
+      return undefined;
+    }
+    try {
+      accessSync(path, constants.R_OK | constants.X_OK);
+      return undefined;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EACCES") return undefined;
+    }
+    denied.push(path);
+  }
+  return denied;
+}
+
 /**
  * GNU find can walk the live system trees without materializing every Dirent in
  * JavaScript. A failed or unsupported invocation falls back to the complete
@@ -520,11 +542,12 @@ function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system:
   const result = spawnSync("/usr/bin/find", [
     "-P", ...roots, ...inheritedArgs,
     ...(system ? ["-type", "d", ...nixException, "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),
-    "-type", "d", "(", "!", "-readable", "-o", "!", "-executable", ")", "-prune", "-printf", String.raw`d%p\0`, "-o",
     "-type", "s", "-printf", String.raw`s%p\0`,
   ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
-  if (result.status !== 0 || result.error !== undefined) return undefined;
-  const masks: string[][] = [];
+  if (result.error !== undefined || (result.status !== 0 && result.status !== 1)) return undefined;
+  const denied = result.status === 1 ? deniedFindDirectories(result.stderr, roots) : [];
+  if (denied === undefined) return undefined;
+  const masks = denied.flatMap(path => [["--tmpfs", path], ["--remount-ro", path]]);
   for (const entry of result.stdout.split("\0")) {
     if (entry === "") continue;
     const path = entry.slice(1);
