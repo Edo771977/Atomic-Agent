@@ -26,11 +26,16 @@ import {
   wrapWithOsSandbox,
 } from "./os-sandbox.js";
 
-const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined, blocked: "", directoryReads: 0 }));
+const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined, blocked: "", directoryReads: 0, fakeNix: false }));
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>();
   return {
     ...fs,
+    statSync: (...args: unknown[]) => mountFixture.fakeNix && (args[0] === "/nix" || args[0] === "/nix/store")
+      ? { uid: 0, mode: args[0] === "/nix" ? 0o755 : 0o1775, isDirectory: () => true }
+      : Reflect.apply(fs.statSync, fs, args),
+    existsSync: (...args: unknown[]) => mountFixture.fakeNix && args[0] === "/nix/store" ||
+      Reflect.apply(fs.existsSync, fs, args),
     readdirSync: (...args: unknown[]) => {
       if (args[0] === mountFixture.blocked) mountFixture.directoryReads++;
       return Reflect.apply(fs.readdirSync, fs, args);
@@ -38,6 +43,21 @@ vi.mock("node:fs", async importOriginal => {
     readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && mountFixture.contents !== undefined
       ? mountFixture.contents
       : Reflect.apply(fs.readFileSync, fs, args),
+  };
+});
+
+vi.mock("node:child_process", async importOriginal => {
+  const child = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...child,
+    spawnSync: (...args: unknown[]) => {
+      if (mountFixture.fakeNix && args[0] === "/usr/bin/find" && Array.isArray(args[1]) && args[1].includes("/nix/store")) {
+        const options = args[1] as string[];
+        const exemption = options.some((arg, index) => arg === "-path" && options[index + 1] === "/nix/store");
+        return { status: 0, stdout: exemption ? "s/nix/store/synthetic.sock\0" : "d/nix/store\0" };
+      }
+      return Reflect.apply(child.spawnSync, child, args);
+    },
   };
 });
 
@@ -555,5 +575,18 @@ it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("round 5 poi
     mountFixture.blocked = "";
     chmodSync(blocked, 0o700);
     rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+it.skipIf(process.platform !== "linux")("round 5 point 4: a trusted sticky Nix store is visible while sockets are masked", () => {
+  mountFixture.fakeNix = true;
+  try {
+    const launch = wrapWithOsSandbox("true", [], policy(), { bwrap: "/usr/bin/bwrap" });
+    if (!launch.ok) throw new Error(launch.reason);
+    expect(launch.args.join(" ")).not.toContain("--tmpfs /nix/store");
+    expect(launch.args.join(" ")).toContain("--ro-bind /dev/null /nix/store/synthetic.sock");
+  } finally {
+    mountFixture.fakeNix = false;
   }
 });

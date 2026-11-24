@@ -190,3 +190,25 @@ it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1" || !e
   `, [], false);
   expect(probe, probe.output).toEqual({ code: 0, output: "hello\n" });
 });
+
+it.skipIf(bwrap === null || !process.env.ATOMIC_AGENT_TEST_NIX_STORE)("round 5 point 4: real sticky Nix store keeps ordinary data and hides its socket", async () => {
+  const store = process.env.ATOMIC_AGENT_TEST_NIX_STORE!;
+  const socketPath = join(store, "fixture.sock");
+  const server = createServer(socket => socket.end("synthetic"));
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(socketPath, resolve);
+  });
+  try {
+    const result = await fixtureCommand(`
+      const [marker, path] = process.argv.slice(1);
+      if (!require("node:fs").readFileSync(marker, "utf8").startsWith("synthetic")) process.exit(3);
+      const socket = require("node:net").connect(path);
+      socket.on("error", () => process.exit(17));
+      socket.resume();
+    `, [join(store, "marker"), socketPath], true);
+    expect(result, result.output).toMatchObject({ code: 17 });
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+  }
+});

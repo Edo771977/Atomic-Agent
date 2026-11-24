@@ -444,6 +444,21 @@ const LINUX_ETC_ENTRIES = [
   "/etc/ssl/certs", "/etc/pki/ca-trust/extracted",
 ];
 
+const NIX_STORE = "/nix/store";
+
+function isTrustedNixStore(): boolean {
+  try {
+    const parent = statSync("/nix");
+    const store = statSync(NIX_STORE);
+    return real("/nix") === "/nix" && real(NIX_STORE) === NIX_STORE &&
+      parent.isDirectory() && parent.uid === 0 && (parent.mode & 0o022) === 0 &&
+      store.isDirectory() && store.uid === 0 && (store.mode & 0o002) === 0 &&
+      ((store.mode & 0o020) === 0 || (store.mode & 0o1000) !== 0);
+  } catch {
+    return false;
+  }
+}
+
 function linuxHostMounts(): Set<string> {
   const points = readFileSync("/proc/self/mountinfo", "utf8").split("\n").flatMap(line => {
     const encoded = line.split(" ")[4];
@@ -470,7 +485,7 @@ function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<str
       const info = lstatSync(path);
       if (info.isSocket()) masks.push(["--ro-bind", "/dev/null", path]);
       if (!info.isDirectory()) continue;
-      if (system && (info.mode & 0o022) !== 0) {
+      if (system && (info.mode & 0o022) !== 0 && (path !== NIX_STORE || !isTrustedNixStore())) {
         masks.push(["--tmpfs", path], ["--remount-ro", path]);
         continue;
       }
@@ -501,9 +516,10 @@ function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system:
   if (roots.length === 0) return [];
   const prune = [...inherited].filter(path => roots.some(root => contains(root, path)));
   const inheritedArgs = prune.flatMap(path => ["-path", findPathPattern(path), "-prune", "-o"]);
+  const nixException = system && roots.includes(NIX_STORE) && isTrustedNixStore() ? ["!", "-path", NIX_STORE] : [];
   const result = spawnSync("/usr/bin/find", [
     "-P", ...roots, ...inheritedArgs,
-    ...(system ? ["-type", "d", "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),
+    ...(system ? ["-type", "d", ...nixException, "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),
     "-type", "d", "(", "!", "-readable", "-o", "!", "-executable", ")", "-prune", "-printf", String.raw`d%p\0`, "-o",
     "-type", "s", "-printf", String.raw`s%p\0`,
   ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
@@ -524,6 +540,7 @@ function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system:
 function linuxSystemMounts(out: string[]): string[] {
   const trees: string[] = [];
   for (const path of LINUX_SYSTEM_TREES) {
+    if (path === NIX_STORE && !isTrustedNixStore()) continue;
     if (real(path) !== path || !isDirectory(path)) continue;
     out.push("--ro-bind", path, path);
     trees.push(path);
