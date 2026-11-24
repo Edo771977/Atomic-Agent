@@ -320,4 +320,17 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
   });
+
+  it.each([
+    ["DEST='/scratch/.agents/sk?lls/demo'; echo x >> \"$DEST\"", true],
+    ["for dest in /scratch/.agents/sk?lls/demo; do sed -i s/a/b/ \"$dest\"; done", true],
+    ["DEST='/scratch/.agents/sk?lls/sub/'; cp input \"$DEST\"", true],
+    ["DEST='../.agents/sk?lls/demo'; cd /scratch/project; echo x >> \"$DEST\"", true],
+    ["cd /scratch; for dest in .agents/sk?lls/sub/; do cp input \"$dest\"; done", true],
+  ] as const)("round six point 4 classifies %s", (cmd, blocked) => {
+    const protectedDir = "/scratch/.agents/skills/";
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
+  });
 });

@@ -1016,7 +1016,9 @@ function rememberAssignment(word: ShellWord, scope: WriteTargetScope): void {
   const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/s.exec(word.text);
   if (!assignment) return;
   const [, name, value] = assignment;
-  const values = directoryWordValues({ text: value!, dynamic: word.dynamic }, scope);
+  const raw = value!;
+  const values = word.dynamic && !raw.includes("$") && /[*?\[{]/.test(raw)
+    ? [raw] : directoryWordValues({ text: raw, dynamic: word.dynamic }, scope);
   if (values.length === 0) return;
   const assignments = scope.assignments ??= new Map();
   const candidates = assignments.get(name!) ?? new Set<string>();
@@ -1041,7 +1043,15 @@ function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: 
 
 function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
   const target = resolveDirectoryWord(word, dir, scope);
-  if (target !== undefined || !scope || !word.dynamic) return target;
+  if (!scope) return target;
+  if (target !== undefined) {
+    if (/[*?\[{]/.test(target)) {
+      (scope.patterns ??= []).push(target);
+      return undefined;
+    }
+    return target;
+  }
+  if (!word.dynamic) return undefined;
   const fallback = /^\$\{[A-Za-z_]\w*:?[=-]([^$*?\[{}]+)\}([^$*?\[{}]*)$/.exec(word.text);
   if (fallback) {
     const candidate = resolveWord({ text: fallback[1]! + fallback[2], dynamic: false }, dir, scope.home);
