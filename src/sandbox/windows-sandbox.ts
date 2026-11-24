@@ -200,7 +200,7 @@ function changeAcl(plan: Omit<WindowsSandboxPlan, "approximateFiles">, operation
   const details = result.stdout?.trim();
   if (result.status !== 0 || details === undefined) throw new Error(`Windows sandbox ${operation} failed${details ? ` (${details})` : ""}`);
   const sid = details.split("\t")[0];
-  if (!/^S-1-15-2(?:-\d+)+$/.test(sid)) throw new Error("Windows sandbox helper returned an invalid SID");
+  if (sid === undefined || !/^S-1-15-2(?:-\d+)+$/.test(sid)) throw new Error("Windows sandbox helper returned an invalid SID");
   return sid;
 }
 
@@ -310,10 +310,10 @@ function createWindowsLaunch(command: string, args: readonly string[], root: str
 
 export function wrapWindowsSandbox(command: string, args: readonly string[], policy: OsSandboxPolicy, options: WindowsLaunch): OsSandboxWrap {
   if (policy.network) return { ok: false, reason: "the Windows sandbox denies all networking, including one-time requests" };
-  if (policy.workspaceRoots.length !== 1 || policy.readOnlyWorkspaceRoots.length > 0) {
+  const root = policy.workspaceRoots[0];
+  if (root === undefined || policy.workspaceRoots.length !== 1 || policy.readOnlyWorkspaceRoots.length > 0) {
     return { ok: false, reason: "Windows sandbox requires a single approved project root" };
   }
-  const root = policy.workspaceRoots[0];
   if (policy.denyRead.some(path => overlaps(root, path))) {
     return { ok: false, reason: "Windows sandbox project overlaps a protected credential path" };
   }

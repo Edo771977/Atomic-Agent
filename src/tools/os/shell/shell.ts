@@ -491,7 +491,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           cwd: pinned?.cwd ?? cwd,
           windowsVerbatimArguments,
           // Background jobs retain the existing wait and cancellation policy.
-          ...(rawArgs.timeoutMs !== undefined && rawArgs.timeoutMs > 0 ? { timeoutMs: rawArgs.timeoutMs } : {}),
+          ...(typeof rawArgs.timeoutMs === "number" && rawArgs.timeoutMs > 0 ? { timeoutMs: rawArgs.timeoutMs } : {}),
         },
       );
       if (!wrapped.ok) {

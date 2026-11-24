@@ -271,6 +271,13 @@ static int run(const wchar_t* file) {
         }
     }
 
+    acl_tree::Result audits;
+    for (const auto& path : request.writableRoots) acl_tree::walk(path, sid.value, acl_tree::modify, audits, true);
+    for (const auto& path : request.readOnlyRoots) acl_tree::walk(path, sid.value, acl_tree::readExecute, audits, true);
+    if (audits.errors) {
+        std::fprintf(stderr, "ACL verification failed on %zu path(s)\n", audits.errors);
+        return static_cast<int>(lpacError("verify registered grants; reopen the project in the TUI to regrant", ERROR_ACCESS_DENIED));
+    }
     auto key = request.state + L"\\serve-api.key";
     if (GetFileAttributesW(key.c_str()) == INVALID_FILE_ATTRIBUTES && GetLastError() == ERROR_FILE_NOT_FOUND) key = request.outsideCanary;
     if (fileProbe(key.c_str(), GENERIC_READ) != ERROR_SUCCESS ||
