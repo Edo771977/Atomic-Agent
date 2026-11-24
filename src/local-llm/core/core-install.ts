@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { downloadFile, discardPartialDownload, type DownloadFileOptions } from "../downloads/download-file.js";
 import { CoreUnavailableError, isCoreCancellation, toCoreUnavailable } from "./core-errors.js";
 import { activeCoreVersion, CORE_REPO, CORE_VERSION, CORE_VERSIONS, coreBinary, coreRoot, coreVersionDir, readCoreJson, writeCoreJson } from "./core-state.js";
+import { isOfflineNetwork } from "../../llm/offline-network.js";
 import { isNewerVersion } from "../../update/compare-semver.js";
 
 
@@ -134,17 +135,22 @@ export interface CoreUpdateCheck {
 export async function checkCoreUpdate(dataDir: string, request: typeof fetch = fetch, force = false): Promise<CoreUpdateCheck> {
   const cachePath = join(coreRoot(dataDir), "release-check.json");
   const cached = readCoreJson<{ checkedAt: number; latestVersion: string }>(cachePath);
-  let latestVersion = cached && Date.now() - cached.checkedAt < 6 * 60 * 60_000 && /^\d+\.\d+\.\d+$/.test(cached.latestVersion) ? cached.latestVersion : null;
-  if (!latestVersion || force) {
-  const response = await request(`https://api.github.com/repos/${CORE_REPO}/releases/latest`, {
-    headers: { Accept: "application/vnd.github+json", "User-Agent": "atomic-agent" },
-    signal: AbortSignal.timeout(15_000),
-  });
-  if (!response.ok) throw new Error(`Could not check Atomic Core updates (${response.status}).`);
-  const value = await response.json() as { tag_name?: unknown };
-  if (typeof value.tag_name !== "string" || !/^v?\d+\.\d+\.\d+$/.test(value.tag_name)) throw new Error("Atomic Core release information is invalid.");
-  latestVersion = value.tag_name.replace(/^v/, "");
-  writeCoreJson(cachePath, { checkedAt: Date.now(), latestVersion });
+  const cachedVersion = cached && /^\d+\.\d+\.\d+$/.test(cached.latestVersion) ? cached.latestVersion : null;
+  let latestVersion: string;
+  if (isOfflineNetwork()) {
+    latestVersion = cachedVersion ?? CORE_VERSION;
+  } else if (!force && cached && cachedVersion && Date.now() - cached.checkedAt < 6 * 60 * 60_000) {
+    latestVersion = cachedVersion;
+  } else {
+    const response = await request(`https://api.github.com/repos/${CORE_REPO}/releases/latest`, {
+      headers: { Accept: "application/vnd.github+json", "User-Agent": "atomic-agent" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) throw new Error(`Could not check Atomic Core updates (${response.status}).`);
+    const value = await response.json() as { tag_name?: unknown };
+    if (typeof value.tag_name !== "string" || !/^v?\d+\.\d+\.\d+$/.test(value.tag_name)) throw new Error("Atomic Core release information is invalid.");
+    latestVersion = value.tag_name.replace(/^v/, "");
+    writeCoreJson(cachePath, { checkedAt: Date.now(), latestVersion });
   }
   const version = activeCoreVersion(dataDir);
   const currentVersion = isCoreInstalled(dataDir, version) ? version : null;

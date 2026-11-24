@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { resetConfigCache } from "../config/index.js";
@@ -64,10 +65,23 @@ function failedMilestoneProject(): ProjectState {
 /** `ms`: until the pipes closed, which needs every holder of them gone (issue #102), not only `exit`. */
 interface Ran { code: number | null; stdout: string; stderr: string; ms: number; exitMs: number }
 
-function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
-  const started = Date.now();
+const cliDir = join(process.cwd(), "src", "cli");
+const runEntry = [
+  `import ${JSON.stringify(pathToFileURL(join(cliDir, "node-env-bootstrap.ts")).href)};`,
+  `import { runAgentCommand } from ${JSON.stringify(pathToFileURL(join(cliDir, "run-agent.ts")).href)};`,
+  `import { exitAfterFlush } from ${JSON.stringify(pathToFileURL(join(cliDir, "exit-after-flush.ts")).href)};`,
+  "exitAfterFlush(await runAgentCommand(process.argv.slice(1)));",
+].join("\n");
+
+function runCli(args: string[], env: NodeJS.ProcessEnv, entry: "run" | "cli" = "run"): Promise<Ran> {
+  const started = performance.now();
+  // The project-gate cases exercise the real run command in a child.
+  // Keep CLI dispatcher coverage in the end-to-end exit/pipe cases.
+  const scriptArgs = entry === "cli"
+    ? [join(cliDir, "index.ts"), "run", ...args]
+    : ["--input-type=module", "--eval", runEntry, "--", ...args];
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ["--import", "tsx", join(process.cwd(), "src", "cli", "index.ts"), "run", ...args], {
+    const child = spawn(process.execPath, ["--import", "tsx", ...scriptArgs], {
       env, stdio: ["pipe", "pipe", "pipe"],
     });
     let stdout = "";
@@ -76,15 +90,25 @@ function runCli(args: string[], env: NodeJS.ProcessEnv): Promise<Ran> {
     child.stderr.on("data", (b: Buffer) => { stderr += b.toString(); });
     // stdin closed from the start: EOF before any line.
     child.stdin.end();
-    const killer = setTimeout(() => child.kill("SIGKILL"), EXIT_WITHIN_MS);
-    child.on("error", reject);
+    const killer = setTimeout(() => {
+      child.kill("SIGKILL");
+      // A leaked descendant may keep the pipes open even after killing
+      // the CLI. Fail on the original deadline and preserve its output.
+      child.stdout.destroy();
+      child.stderr.destroy();
+      reject(new Error(`CLI or its pipes stayed open for ${EXIT_WITHIN_MS} ms\n${stdout}\n${stderr}`));
+    }, EXIT_WITHIN_MS);
+    child.once("error", (error) => {
+      clearTimeout(killer);
+      reject(error);
+    });
     let exitMs = -1;
-    child.on("exit", () => { exitMs = Date.now() - started; });
+    child.on("exit", () => { exitMs = performance.now() - started; });
     // `close` fires once stdout and stderr are closed: a child the CLI left
     // behind holding them (an inherited handle) keeps them open.
     child.on("close", (code) => {
       clearTimeout(killer);
-      resolve({ code, stdout, stderr, ms: Date.now() - started, exitMs });
+      resolve({ code, stdout, stderr, ms: performance.now() - started, exitMs });
     });
   });
 }
@@ -152,7 +176,7 @@ describe("run with stdin closed (issue #100)", () => {
     const store = new SessionStore();
     store.save(withProject({ ...createEmptySessionState({ id: "s-eof-done", workingDir }), turnCount: 1 }, project));
     store.close();
-    const ran = await runCli(["--cwd", workingDir, "--session", "s-eof-done", "--auto-approve-project"], env);
+    const ran = await runCli(["--cwd", workingDir, "--session", "s-eof-done", "--auto-approve-project"], env, "cli");
     expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
     expect(ran.exitMs).toBeGreaterThanOrEqual(0);
     expect(ran.code).toBe(0);
@@ -298,7 +322,7 @@ describe("run with stdin closed (issue #100)", () => {
   }, 60_000);
 
   it("a plain chat with nothing waiting still exits 0", async () => {
-    const ran = await runCli(["--cwd", workingDir], env);
+    const ran = await runCli(["--cwd", workingDir], env, "cli");
     expect(ran.ms).toBeLessThan(EXIT_WITHIN_MS);
     expect(ran.exitMs).toBeGreaterThanOrEqual(0);
     expect(ran.code).toBe(0);

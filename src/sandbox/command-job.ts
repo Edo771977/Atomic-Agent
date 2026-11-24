@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
 import { CappedOutput } from "./capped-output.js";
-import { buildCommandEnv } from "./command-env.js";
+import { buildCommandEnv, withoutServeApiKey } from "./command-env.js";
 import { killProcessTree } from "./kill-process-tree.js";
 
 const IS_WINDOWS = process.platform === "win32";
@@ -146,7 +146,7 @@ export function startCommandJob(
   const cap = options.maxOutputBytes ?? DEFAULT_JOB_OUTPUT_BYTES;
   const child = spawn(command, args, {
     cwd: options.cwd,
-    env: options.env ?? buildCommandEnv(process.env),
+    env: options.env ? withoutServeApiKey(options.env) : buildCommandEnv(process.env),
     stdio: ["pipe", "pipe", "pipe"],
     // A group of its own on POSIX; on Windows `detached` would open a
     // console, and the tree-kill needs no group.

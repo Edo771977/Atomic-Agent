@@ -5,13 +5,11 @@
  *
  * What is exposed is deliberately small. cloudflared is pointed at a
  * second listener on a random loopback port whose route table holds only
- * `POST /api/webhooks/{name}` (`buildTunnelRouteTable`); the main API,
- * on its own port, is never the tunnel's origin. That gateway has no
- * bearer key in front of it, so it serves only bindings that have a
- * `secret`, and each hit must pass the binding's `verify` scheme (the
- * `x-webhook-secret` header, or a GitHub / Standard Webhooks / Stripe
- * signature). Signed bindings also get replay protection there: a
- * repeated delivery id answers 200 and runs nothing, and a signature
+ * webhook delivery routes (`buildTunnelRouteTable`). The main API has
+ * its own port. Every delivery needs the binding's secret or signature
+ * (GitHub, Standard Webhooks or Stripe). Signed bindings also get
+ * replay protection on this listener.
+ * A repeated delivery id answers 200 and runs nothing, and a signature
  * timestamp more than 5 minutes old is refused. serve refuses to start
  * the tunnel when no binding has a secret. There is deliberately no
  * option to point the tunnel at the main API port.
@@ -23,6 +21,7 @@ import {
   createHttpServer,
   resetWebhookTunnelStatus,
   setWebhookTunnelStatus,
+  webhookTunnelPath,
   type ApprovalBus,
   type CompletionRegistry,
   type HttpServerHandle,
@@ -96,6 +95,12 @@ export interface StartWebhookTunnelOptions {
   runtime: AgentRuntime;
   request: TunnelRequest;
   preflight: Extract<TunnelPreflight, { ok: true }>;
+  /**
+   * Serve's own API key. The gateway's routes check each binding's secret
+   * or signature instead and never ask for it, but serve builds no
+   * listener without a key.
+   */
+  apiKey: string;
   approvalBus: ApprovalBus;
   completionRegistry: CompletionRegistry;
   write: (line: string) => void;
@@ -109,11 +114,7 @@ export async function startWebhookTunnel(options: StartWebhookTunnelOptions): Pr
     runtime: options.runtime,
     host: "127.0.0.1",
     port: 0,
-    apiKey: null,
-    // The public tunnel host and senders' own body types would trip the
-    // keyless loopback guard (ATO-1495); each binding's secret and
-    // signature check stands in for it here.
-    loopbackGuard: false,
+    apiKey: options.apiKey,
     // Reachable from the internet through cloudflared: the per-folder
     // `serve` refusal applies as on a network address (issue #33). The
     // gateway only takes signed webhook POSTs, which answer a task id and
@@ -156,9 +157,9 @@ export async function startWebhookTunnel(options: StartWebhookTunnelOptions): Pr
       return null;
     }
     setWebhookTunnelStatus({ state: "up", mode: request.mode, publicUrl: url, error: null });
-    write(`[atomic-agent] tunnel up at ${url} (only /api/webhooks/* is reachable through it)\n`);
+    write(`[atomic-agent] tunnel up at ${url} (only webhook deliveries are reachable through it)\n`);
     for (const name of preflight.reachable) {
-      write(`[atomic-agent] webhook ${name}: ${url}/api/webhooks/${encodeURIComponent(name)}\n`);
+      write(`[atomic-agent] webhook ${name}: ${url}${webhookTunnelPath(name)}\n`);
     }
     if (preflight.withoutSecret.length > 0) {
       write(

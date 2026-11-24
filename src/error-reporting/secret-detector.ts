@@ -43,6 +43,8 @@ export interface KnownSecret {
   /** Shown in the marker, e.g. `OPENROUTER_API_KEY` or `openrouter-key`. */
   label: string;
   value: string;
+  /** A verified active credential. Skip heuristics used for inferred secrets. */
+  exact?: boolean;
 }
 
 /** Shortest exact value worth matching: shorter ones would shred ordinary words. */
@@ -99,7 +101,15 @@ function shape(
 const PEM_PRIVATE_KEY =
   /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----(?:(?:\\r\\n|\\n|\r?\n)[ \t]*(?:[A-Za-z0-9+/=]{1,4096}|(?:Proc-Type|DEK-Info): [^\r\n\\]{0,200})?)*(?:(?:\\r\\n|\\n|\r?\n)[ \t]*)?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----)?/g;
 
+const HTTP_TOKEN_RULE = shape(/atag_[A-Za-z0-9_-]{43}/g, "atag_", "http-token");
+
+/** Mask named HTTP bearer tokens in persisted trace records without changing other trace data. */
+export function maskNamedHttpTokens(text: string): string {
+  return HTTP_TOKEN_RULE.applies(text) ? HTTP_TOKEN_RULE.apply(text) : text;
+}
+
 const SHAPE_RULES: readonly Rule[] = [
+  HTTP_TOKEN_RULE,
   // Anthropic (`sk-ant-api03-…`, `sk-ant-oat01-…`) and OpenRouter
   // (`sk-or-v1-…`) before the generic `sk-` shape that would also match.
   shape(/(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}/g, "sk-ant-", "anthropic-key", hasLongRun),
@@ -369,11 +379,11 @@ function usableKnownSecrets(known: readonly KnownSecret[]): KnownSecret[] {
   const seen = new Set<string>();
   const out: KnownSecret[] = [];
   for (const secret of known) {
-    const value = secret.value.trim();
+    const value = secret.exact ? secret.value : secret.value.trim();
     if (seen.has(value)) continue;
-    if (!usableKnownValue(value)) continue;
+    if (!value || (!secret.exact && !usableKnownValue(value))) continue;
     seen.add(value);
-    out.push({ label: secret.label, value });
+    out.push({ ...secret, value });
   }
   return out.sort((a, b) => b.value.length - a.value.length);
 }
@@ -384,14 +394,19 @@ function usableKnownSecrets(known: readonly KnownSecret[]): KnownSecret[] {
  * pattern layer. Returns `text` itself when nothing was found.
  */
 export function maskSecrets(text: string, known: readonly KnownSecret[] = []): string {
-  if (text.length < MIN_KNOWN_SECRET_LENGTH) return text;
+  if (text.length < MIN_KNOWN_SECRET_LENGTH && !known.some(secret => secret.exact)) return text;
   let out = text;
   if (out.includes("PRIVATE KEY-----")) {
     out = out.replace(PEM_PRIVATE_KEY, redactedMarker("private-key"));
   }
   for (const secret of usableKnownSecrets(known)) {
-    if (out.includes(secret.value)) {
-      out = out.split(secret.value).join(redactedMarker(secret.label));
+    if (!out.includes(secret.value)) continue;
+    const marker = redactedMarker(secret.label);
+    if (secret.exact && secret.value.length < 16) {
+      const literal = secret.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      out = out.replace(new RegExp("(?<![\\p{L}\\p{N}_])" + literal + "(?![\\p{L}\\p{N}_])", "gu"), () => marker);
+    } else {
+      out = out.split(secret.value).join(marker);
     }
   }
   for (const rule of SHAPE_RULES) {

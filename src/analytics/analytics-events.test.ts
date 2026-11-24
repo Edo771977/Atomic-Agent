@@ -100,19 +100,35 @@ describe("captureAppInstalled", () => {
   });
 });
 
+it("retries undelivered one-time events on the next eligible action", async () => {
+  const client = fakeClient(false);
+  const store = fakeStore();
+  const model = { provider: "openrouter", kind: "cloud" } as const;
+  const message = { provider: "openrouter", model: "gpt" };
+  await captureModelConfigured(client, store, model);
+  await captureMessageSent(client, store, message);
+  expect(store.isModelConfiguredSent()).toBe(false);
+  expect(store.isFirstMessageSent()).toBe(false);
+
+  client.captureConfirmed.mockResolvedValue(true);
+  await captureModelConfigured(client, store, model);
+  await captureMessageSent(client, store, message);
+  expect(store.isModelConfiguredSent()).toBe(true);
+  expect(store.isFirstMessageSent()).toBe(true);
+});
+
 describe("captureMessageSent", () => {
   const ctx = { provider: "openrouter", model: "gpt" };
 
-  it("fires first_message_sent once, message_sent every time", () => {
+  it("fires first_message_sent once, message_sent every time", async () => {
     const client = fakeClient();
     const store = fakeStore();
 
-    captureMessageSent(client, store, ctx);
-    captureMessageSent(client, store, ctx);
+    await Promise.all([captureMessageSent(client, store, ctx), captureMessageSent(client, store, ctx)]);
+    expect(client.captureConfirmed).toHaveBeenCalledExactlyOnceWith(ANALYTICS_EVENTS.firstMessageSent, ctx);
 
     const events = client.capture.mock.calls.map((c) => c[0]);
     expect(events).toEqual([
-      ANALYTICS_EVENTS.firstMessageSent,
       ANALYTICS_EVENTS.messageSent,
       ANALYTICS_EVENTS.messageSent,
     ]);
@@ -156,9 +172,7 @@ describe("captureMessageSent", () => {
       stepCount: 5,
       outcome: "reply",
     });
-    // first call is first_message_sent — must carry base props only
-    expect(client.capture).toHaveBeenNthCalledWith(
-      1,
+    expect(client.captureConfirmed).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.firstMessageSent,
       { provider: "openrouter", model: "gpt" },
     );
@@ -222,9 +236,7 @@ describe("captureMessageSent", () => {
       completionTokens: 50,
       costUsd: 0.0042,
     });
-    // first call is first_message_sent — must carry base props only
-    expect(client.capture).toHaveBeenNthCalledWith(
-      1,
+    expect(client.captureConfirmed).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.firstMessageSent,
       { provider: "openrouter", model: "gpt" },
     );
@@ -327,11 +339,11 @@ describe("captureOnboardingStep", () => {
 describe("captureModelConfigured", () => {
   const ctx = { provider: "openrouter", kind: "cloud" } as const;
 
-  it("fires once and marks the flag", () => {
+  it("fires once and marks the flag", async () => {
     const client = fakeClient();
     const store = fakeStore();
-    captureModelConfigured(client, store, ctx);
-    expect(client.capture).toHaveBeenCalledWith(
+    await captureModelConfigured(client, store, ctx);
+    expect(client.captureConfirmed).toHaveBeenCalledWith(
       ANALYTICS_EVENTS.modelConfigured,
       { provider: "openrouter", kind: "cloud" },
     );
@@ -346,14 +358,14 @@ describe("captureModelConfigured", () => {
       provider: "llama.cpp",
       kind: "local",
     });
-    expect(client.capture).toHaveBeenCalledTimes(1);
+    expect(client.captureConfirmed).toHaveBeenCalledTimes(1);
   });
 
   it("no-ops when already sent", () => {
     const client = fakeClient();
     const store = fakeStore({ modelConfigured: true });
     captureModelConfigured(client, store, ctx);
-    expect(client.capture).not.toHaveBeenCalled();
+    expect(client.captureConfirmed).not.toHaveBeenCalled();
   });
 
   it("carries no model id, key, or url — only provider and kind", () => {
@@ -363,8 +375,10 @@ describe("captureModelConfigured", () => {
       provider: "llama.cpp",
       kind: "local",
     });
-    const payload = client.capture.mock.calls[0][1];
-    expect(Object.keys(payload).sort()).toEqual(["kind", "provider"]);
+    expect(client.captureConfirmed).toHaveBeenCalledExactlyOnceWith(
+      ANALYTICS_EVENTS.modelConfigured,
+      { provider: "llama.cpp", kind: "local" },
+    );
   });
 
   it("no-ops when analytics is disabled (null client)", () => {

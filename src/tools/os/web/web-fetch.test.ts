@@ -811,6 +811,23 @@ describe("os.web.fetch against a bot wall", () => {
     });
   }
 
+  it("never sends a data-bearing URL to the challenge fallback", async () => {
+    const renderPage = vi.fn(async () => null);
+    const tool = buildOsWebFetchTool({
+      runCommand: makeRunCommand(() => ({
+        stdout: curlStdout({ body: CHALLENGE, status: 200, contentType: "text/html" }),
+      })),
+      lookup: publicLookup,
+      config: USER_CONFIG_DEFAULTS as never,
+      sleep: fakeSleep().sleep,
+      renderPage,
+      env: {},
+    });
+    const result = await tool.run({ url: "https://example.com/?q=first%0Asecond" }, ctx());
+    expect(renderPage).not.toHaveBeenCalled();
+    expect(result.summary).toContain("fallback disabled for a data-bearing URL");
+  });
+
   it("reports a 200-status challenge instead of returning it as the page", async () => {
     // This is the one that silently poisoned answers: extraction works
     // fine on a challenge page, so "Just a moment…" came back as the

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import http from "node:http";
 import net from "node:net";
 import {
@@ -111,6 +111,16 @@ describe("transportDeadlinesFor with no config", () => {
   });
 });
 
+const proxyEnvKeys = [
+  "HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy",
+  "NO_PROXY", "no_proxy", "NODE_USE_ENV_PROXY",
+];
+
+beforeEach(() => {
+  for (const key of proxyEnvKeys) vi.stubEnv(key, undefined);
+});
+afterEach(() => vi.unstubAllEnvs());
+
 describe("proxyConfigured", () => {
   // A plain `Agent` as the global dispatcher replaces the proxy-aware
   // one Node installs for `--use-env-proxy`, so a host that can only
@@ -136,13 +146,12 @@ describe("installTransportDeadlines", () => {
   const original = getGlobalDispatcher();
 
   afterEach(() => {
-    delete process.env.HTTP_PROXY;
     setGlobalDispatcher(original);
     resetTransportDeadlines();
   });
 
   it("keeps proxy support when the environment asks for one", () => {
-    process.env.HTTP_PROXY = "http://proxy.invalid:3128";
+    vi.stubEnv("HTTP_PROXY", "http://proxy.invalid:3128");
     installTransportDeadlines();
     expect(getGlobalDispatcher()).toBeInstanceOf(EnvHttpProxyAgent);
   });

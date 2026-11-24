@@ -71,6 +71,8 @@ import { SwarmRegistry } from "../channels/swarm/index.js";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 
 import { installTransportDeadlines } from "../llm/transport-deadlines.js";
+import { setPrivacyKnownSecrets, setPrivacyShieldEnabled } from "../privacy/index.js";
+import { runtimeKnownSecrets } from "./runtime-known-secrets.js";
 
 import { ApprovalGate } from "../approval/approval-gate.js";
 import { ApprovalRulesStore } from "../approval/approval-rules-store.js";
@@ -84,6 +86,7 @@ import { PlaywrightBackend } from "../tools/browser/playwright-backend.js";
 import type { BrowserBackend } from "../tools/browser/browser-backend.js";
 import type { BrowserExtractModelRef } from "../tools/browser/extract-request.js";
 import { DeclaredInputsRegistry, ShellJobRegistry } from "../tools/os/index.js";
+import { FileCheckpointStore, fileCheckpointsRoot } from "../tools/os/fs/fs-checkpoint-store.js";
 import { ToolOutputSpill } from "../tools/index.js";
 import { registerSessionTools } from "../tools/sessions/index.js";
 import {
@@ -109,6 +112,7 @@ import { ProviderFallbackChain } from "../llm/fallback/index.js";
 import { createFallbackChainResolver } from "./fallback-chain-resolver.js";
 import { isLocalLinkWithoutModel } from "./local-link-availability.js";
 import { explainLocalEngineState, readLocalEngineState } from "./local-engine-state.js";
+import { isCloudLink } from "./cloud-link.js";
 import { createLocalOutOfMemoryPort, type LocalModelRestarter } from "./local-out-of-memory.js";
 import { createRuntimePromptPreview, buildRuntimePromptInput } from "./composition/runtime-prompt-preview.js";
 import { captureModelModePolicy, resolveModelMode } from "../llm/model-mode.js";
@@ -149,6 +153,9 @@ export async function createAgentRuntime(
   // unreachable, and turned a wedged llama-server into a bare
   // `fetch failed` at 306 s. See `installTransportDeadlines`.
   installTransportDeadlines(config);
+  // ATO-1081: Privacy Shield, read per cloud request by the providers.
+  setPrivacyShieldEnabled(config.privacy?.shield.enabled === true);
+  setPrivacyKnownSecrets(() => runtimeKnownSecrets(getConfig()));
   const workingDir = resolve(options.workingDir);
 
   const observability = createRuntimeObservability(config, options);
@@ -382,7 +389,11 @@ export async function createAgentRuntime(
     },
   });
 
-  const sessionStore = prepareRuntimeSessionStore(config, logger);
+  const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
+  let retainedIncognitoIds: readonly string[] = [];
+  const sessionStore = await prepareRuntimeSessionStore(config, logger, fileCheckpoints, undefined, ids => {
+    retainedIncognitoIds = ids;
+  });
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -417,7 +428,10 @@ export async function createAgentRuntime(
     parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
   });
   toolOutputSpill.sweepStale();
-  installRuntimeSessionDelete(sessionStore, dropRecorder, shellJobs, toolOutputSpill);
+  installRuntimeSessionDelete(
+    sessionStore, dropRecorder, shellJobs, toolOutputSpill,
+    fileCheckpoints,
+  );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
   // narrows the session's provider policy at dispatch.
@@ -467,7 +481,7 @@ export async function createAgentRuntime(
   const toolRegistry = createRuntimeToolRegistry(config, browserBackend, dangerous, toolOutputSpill, {
     onDispatch: (name, args, ctx) => { sessionReadTaint.noteDispatch(name, args, ctx); },
     dispatchGuard: egressGuard,
-  }, browserExtract);
+  }, browserExtract, fileCheckpoints);
 
   // What the operator asked for, per session, for the turn now running
   // on it — quoted into every fusion worker's brief (`worker-prompt.ts`)
@@ -652,7 +666,7 @@ export async function createAgentRuntime(
     slotId: () => slotManager.sideCallSlotId(),
     serverTemplate: () => getConfig().localModels.useServerTemplate !== "off",
   };
-  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger });
+  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger, sessionStore, retainedIncognitoIds });
   const { reflectionRunner, memoryContextProvider } = createRuntimeMemoryServices({
     config, profileStore, notesStore, linkStore, lessonStore, procedureStore, voteStore, embeddingClient,
     slotManager, llmComplete, toolTransport: bootstrapLlmSlice.transport, logger, metrics, touchRecorder, memoryHealth,
@@ -671,7 +685,8 @@ export async function createAgentRuntime(
     resolveToolTransport: (id?: string) => resolveActiveLlmSlice(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined).transport,
     resolveToolSchemaTokens: (id: string, descriptors: readonly ToolDescriptor[]) => {
       const slice = resolveActiveLlmSlice(fallbackChain.standingOverrideFor(id) ?? undefined);
-      return estimateTokens(JSON.stringify(slice.adapter?.descriptorsToTools(descriptors, { strict: slice.strictTools }) ?? []));
+      const tools = slice.adapter?.descriptorsToTools(descriptors, { strict: slice.strictTools });
+      return tools && tools.length > 0 ? estimateTokens(JSON.stringify(tools)) : 0;
     },
     profileWindowApplies: (id?: string) => resolveActiveLlmSlice(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined).isLlamaServer,
     resolveCatalogContextWindow: (id?: string) => resolveCatalogContextWindow(id ? fallbackChain.standingOverrideFor(id) ?? undefined : undefined),
@@ -842,6 +857,10 @@ export async function createAgentRuntime(
       const config = getConfig();
       return readLocalEngineState(providerId, config, resolveLlmConfig(config).activeTextProvider);
     },
+    // Two empty answers in a row from a cloud model offer another model
+    // instead of "Retry" (ATO-1578). Read live, like the engine state.
+    isCloudLink: (providerId: string | undefined) =>
+      isCloudLink(providerId, resolveLlmConfig(getConfig())),
     // The same reading with why, so the turn's error report says what the
     // wait decided on (ATO-1432).
     explainLocalEngineState: (providerId: string | undefined) => {

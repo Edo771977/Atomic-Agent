@@ -19,16 +19,14 @@ npm start
 One child process, one transport. The main process spawns
 
 ```
-ATOMIC_AGENT_API_KEY=<random per launch> atag serve --host 127.0.0.1 --port <ephemeral>
+atag serve --host 127.0.0.1 --port <ephemeral> --api-key-stdin
 ```
 
-with `cwd` set to the chosen workspace, waits for `/health`, and speaks HTTP to
-it. The port is ephemeral, the bind is loopback-only, and the bearer token is
-generated per launch, so nothing outside this app can reach the agent. The
-token travels in the child's environment, not as `--api-key` on the command
-line other users see in `ps` (issue #74); every agent the app can pick reads
-it there (serve's env fallback predates the desktop app), so no flag fallback
-is kept, and a current agent deletes it from its own environment once read.
+The main process sets `cwd` to the chosen workspace, waits for `/health`,
+and sends the per-launch bearer on authenticated HTTP requests. The local
+agent binary must support `--api-key-stdin`. If the agent rejects the token,
+Desktop reports the authentication error and stops reconnecting the events
+stream until the connection is restarted.
 
 **Folder trust (ATO-1250).** A folder's own skills and instruction files
 (`AGENTS.md`, `.atomic-agent/skills`, …) load only after the person trusts
@@ -482,6 +480,20 @@ also `.library-ms`, `.searchConnector-ms`, `.settingcontent-ms`, disk images
 `.iso`/`.img`/`.vhd`/`.vhdx`, `.xll`, `.wsb`, `.ps1xml`, `.mht`/`.mhtml`,
 `.xbap`, and macOS `.mobileconfig`/`.configprofile`) is shown in the file
 manager instead.
+
+## Security
+
+The supervised agent listens on loopback. Desktop generates a fresh bearer
+at each launch, writes it as one newline-terminated line through the child's
+stdin pipe, and closes the pipe. The bearer stays off disk and out of the
+child's arguments and launch environment. Desktop also strips any inherited
+`ATOMIC_AGENT_API_KEY`.
+
+At startup, Desktop removes key files left by older versions in the private
+`userData/serve-keys` directory when their launcher is gone. Restarting the
+local agent rotates the bearer. A process running as the same OS user may
+still access resources available to that user. See the
+[core HTTP security guide](../src/http/README.md).
 
 ## Process model
 

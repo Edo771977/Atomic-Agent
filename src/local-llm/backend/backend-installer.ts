@@ -1,3 +1,4 @@
+import { isOfflineNetwork } from "../../llm/offline-network.js";
 import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -122,6 +123,7 @@ export async function fetchLatestRelease(opts?: {
   const { repo, stableOnly } = backendReleaseSource(acceptable[0]!);
   const cacheKey = acceptable.join("|");
   const cached = releaseCache.get(cacheKey);
+  if (isOfflineNetwork()) return cached?.release ?? null;
   if (
     !opts?.force &&
     cached &&

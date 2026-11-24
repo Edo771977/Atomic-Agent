@@ -76,6 +76,7 @@ import {
   newIncognitoMark,
   orphanIncognitoSessionIds,
   storedSessionIsIncognito,
+  storedIncognitoOwnerGone,
   type IncognitoMark,
 } from "./incognito.js";
 
@@ -1253,20 +1254,42 @@ export class SessionStore {
     return storedSessionIsIncognito(this.db, id);
   }
 
+  /** Runtime task guard, including chats whose owner died since boot. */
+  isOrphanIncognito(id: string): boolean {
+    return !this.openIncognito.has(id) &&
+      storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity);
+  }
+
   /**
    * Delete the incognito chats whose owning process is gone — the app
    * was killed or crashed before it could close them. Boot only, before
    * this process opens one of its own (see `orphanIncognitoSessionIds`).
    * Returns the deleted ids so the caller can remove their trace files.
+   *
+   * `beforeDelete` runs for each chat before its row goes (ATO-1547: the
+   * runtime drops the chat's tasks there). When it throws or returns false, that chat is
+   * kept for the next start, so a crash or a locked file between the two
+   * never leaves the tasks behind with no chat left to find them by.
    */
-  sweepOrphanIncognito(): string[] {
+  async sweepOrphanIncognito(beforeDelete?: (id: string) => boolean | void | Promise<boolean | void>): Promise<string[]> {
     const ids = orphanIncognitoSessionIds(
       this.db,
       this.turnOwnerProbe,
       this.dbIdentity,
     );
-    for (const id of ids) this.delete(id);
-    return ids;
+    const deleted: string[] = [];
+    for (const id of ids) {
+      if (beforeDelete) {
+        try {
+          if (await beforeDelete(id) === false) continue;
+        } catch {
+          continue;
+        }
+      }
+      this.delete(id);
+      deleted.push(id);
+    }
+    return deleted;
   }
 
   delete(id: string): void {

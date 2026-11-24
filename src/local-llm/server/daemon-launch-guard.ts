@@ -25,12 +25,12 @@ import { describeServerFault } from "./server-fault.js";
 export class PortTakenError extends Error {
   constructor(
     readonly port: number,
-    /** Model ids the holder serves (`/v1/models`), `[]` when it did not say. */
-    readonly servedModels: readonly string[],
+    /** Model ids the holder serves (`/v1/models`), `null` when the catalog is unavailable. */
+    readonly servedModels: readonly string[] | null,
   ) {
     super(
       `port ${port} is already served by another process` +
-        (servedModels.length > 0 ? ` (model ${servedModels.join(", ")})` : "") +
+        (servedModels && servedModels.length > 0 ? ` (model ${servedModels.join(", ")})` : "") +
         " — stop it, or set a different localModels.managed.port",
     );
     this.name = "PortTakenError";
@@ -40,7 +40,8 @@ export class PortTakenError extends Error {
 /**
  * Model ids the server on `port` reports on `/v1/models` (llama-server
  * lists its `-a` alias there, and the route is exempt from `--api-key`).
- * `null` when nothing answered or the body was not the OpenAI shape.
+ * `null` when the catalog is unavailable, including a 401 from an
+ * authenticated HTTP listener such as atomic-agent serve.
  */
 export async function fetchServedModelIds(
   port: number,
@@ -80,7 +81,7 @@ export async function isPortAnswering(
 
 export async function assertPortFree(port: number): Promise<void> {
   if (!(await isPortAnswering(port))) return;
-  throw new PortTakenError(port, (await fetchServedModelIds(port)) ?? []);
+  throw new PortTakenError(port, await fetchServedModelIds(port));
 }
 
 export interface WaitForOwnDaemonOptions {
@@ -133,7 +134,7 @@ export async function waitForOwnDaemon(
     const fault = describeServerFault(log);
     if (exited) {
       if (fault && /could not take its port/.test(fault.summary)) {
-        throw new PortTakenError(opts.port, (await fetchServedModelIds(opts.port)) ?? []);
+        throw new PortTakenError(opts.port, await fetchServedModelIds(opts.port));
       }
       const how = describeExit(exited);
       throw opts.makeHealthError(

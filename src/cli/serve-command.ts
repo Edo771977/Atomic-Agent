@@ -1,11 +1,16 @@
+import { registerServeKeyForRedaction, runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
+import { maskSecrets } from "../error-reporting/secret-detector.js";
 import { resolveBootApprovalLevel } from "../approval/approval-level.js";
 import { getConfig } from "../config/index.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { createAgentRuntime } from "../runtime/bootstrap.js";
 import { createStderrSink } from "../tracing/structured-logger.js";
 import { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 
-import { HELP, lanUrls, parseArgs, serveAuthWarning } from "./serve-args.js";
+import { HELP, lanUrls, parseArgs } from "./serve-args.js";
+import { readServeKeyFromStdin } from "./serve-api-key-input.js";
+import { resolveServeApiKey, serveApiKeyNotice } from "./serve-api-key.js";
 import {
   MEMORY_GUARD_EXIT_CODE,
   memoryGuardDisabled,
@@ -31,6 +36,7 @@ import {
   buildRouteTable,
   CompletionRegistry,
   createHttpServer,
+  createHttpTokenSource,
 } from "../http/index.js";
 import type { HttpServerHandle } from "../http/index.js";
 import { isNetworkListenHost } from "../http/serve-egress.js";
@@ -59,12 +65,46 @@ export async function serveCommand(args: string[]): Promise<number> {
     return 1;
   }
 
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    process.stderr.write("serve: run this command from the operator's terminal, outside an agent tool process.\n");
+    return 1;
+  }
+
+  const keyFileError = parsed.deleteKeyFile?.();
+  if (keyFileError !== undefined) {
+    process.stderr.write("serve: " + keyFileError + "\n");
+    return 1;
+  }
+
+  let explicitKey = parsed.apiKey;
+  if (parsed.apiKeyFromStdin && !parsed.reapOnly) {
+    const input = await readServeKeyFromStdin();
+    if ("error" in input) {
+      process.stderr.write("serve: " + input.error + "\n");
+      return 1;
+    }
+    explicitKey = input.key;
+  }
+
   const stateDir = getConfig().paths.stateDir;
   if (parsed.reapOnly) {
     process.stdout.write(formatReapOutcomes(await reapOrphanedServes({ stateDir })));
     return 0;
   }
 
+  if (parsed.apiKeyFromEnvironment || parsed.apiKeyFromArgument) {
+    const exposure = parsed.apiKeyFromArgument ? "--api-key can be visible in process arguments" :
+      "ATOMIC_AGENT_API_KEY can be visible in the startup environment";
+    process.stderr.write("serve: " + exposure + ". For explicit keys, use --api-key-file.\n");
+  }
+
+  // Always a key, on loopback too: the operator's, else the persisted one
+  // made on the first run. No key, no server.
+  const apiKey = resolveServeApiKey(explicitKey, stateDir);
+  if ("error" in apiKey) {
+    process.stderr.write(`serve: ${apiKey.error}\n`);
+    return 1;
+  }
   // ATO-625: refuse the tunnel before anything boots, so a missing
   // cloudflared or a webhook set with no secret never opens a public address.
   let tunnelCheck: Extract<TunnelPreflight, { ok: true }> | null = null;
@@ -96,6 +136,7 @@ export async function serveCommand(args: string[]): Promise<number> {
   let orphanWatch: OrphanWatch | null = null;
   let memoryGuard: ServeMemoryGuard | null = null;
   let tunnel: WebhookTunnel | null = null;
+  const releaseKey = registerServeKeyForRedaction(apiKey.key);
   try {
     runtime = await createAgentRuntime({
       workingDir: parsed.workingDir,
@@ -139,22 +180,24 @@ export async function serveCommand(args: string[]): Promise<number> {
         },
       },
     });
+    const namedTokens = createHttpTokenSource(stateDir);
     handle = await createHttpServer({
       runtime,
       host: parsed.host,
       port: parsed.port,
-      apiKey: parsed.apiKey,
+      apiKey: apiKey.key,
       routes: buildRouteTable({ metricsRegistry }),
       approvalBus,
       projectGateBus,
       completionRegistry,
+      // ATO-583: `atag http tokens add` names tokens with a role; the serve key stays owner.
+      namedTokens,
     });
-    const authNote = parsed.apiKey ? "auth=bearer" : "auth=none";
+    const baseUrl = `http://${handle.host}:${handle.port}`;
     process.stderr.write(
-      `[atomic-agent] serve listening on http://${handle.host}:${handle.port} (${authNote}, cwd=${parsed.workingDir})\n`,
+      `[atomic-agent] serve listening on ${baseUrl} (auth=bearer, cwd=${parsed.workingDir})\n`,
     );
-    const authWarning = serveAuthWarning(parsed);
-    if (authWarning) process.stderr.write(authWarning);
+    process.stderr.write(serveApiKeyNotice(apiKey, baseUrl));
     // Issue #33: on a network address, constrained folders without
     // "serve" in allowedEgress are refused over HTTP (serve-egress.ts).
     const constraintNote = serveConstraintNote(handle.host, getConfig().projects.constraints);
@@ -168,6 +211,7 @@ export async function serveCommand(args: string[]): Promise<number> {
         runtime,
         request: parsed.tunnel,
         preflight: tunnelCheck,
+        apiKey: apiKey.key,
         approvalBus,
         completionRegistry,
         write: (line) => process.stderr.write(line),
@@ -230,20 +274,24 @@ export async function serveCommand(args: string[]): Promise<number> {
   } catch (err) {
     const message =
       err instanceof Error ? (err.stack ?? err.message) : String(err);
-    process.stderr.write(`serve failed: ${message}\n`);
+    process.stderr.write(`serve failed: ${maskSecrets(message, runtimeKnownSecrets({}))}\n`);
     return 1;
   } finally {
-    memoryGuard?.stop();
-    orphanWatch?.stop();
-    // The public address goes first, before the API it fronts.
-    if (tunnel) await tunnel.stop().catch(() => {});
-    if (handle) await handle.close();
-    if (runtime) await runtime.shutdown(crashedShutdown ? { crashed: true } : undefined);
-    // Released last, and only once the port and the databases are
-    // actually let go. A teardown that wedges must stay on record:
-    // a process still holding its port with no record is precisely the
-    // invisible stray this module exists to prevent.
-    releaseRecord?.();
+    try {
+      memoryGuard?.stop();
+      orphanWatch?.stop();
+      // The public address goes first, before the API it fronts.
+      if (tunnel) await tunnel.stop().catch(() => {});
+      if (handle) await handle.close();
+      if (runtime) await runtime.shutdown(crashedShutdown ? { crashed: true } : undefined);
+      // Released last, and only once the port and the databases are
+      // actually let go. A teardown that wedges must stay on record:
+      // a process still holding its port with no record is precisely the
+      // invisible stray this module exists to prevent.
+      releaseRecord?.();
+    } finally {
+      releaseKey();
+    }
   }
 }
 

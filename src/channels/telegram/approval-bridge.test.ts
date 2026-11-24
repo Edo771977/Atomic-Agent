@@ -7,6 +7,7 @@ import type {
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 
 import {
+  EXPIRED_APPROVAL_NOTICE,
   ApprovalBridge,
   type ApprovalBridgeDeps,
   type InboundCallbackUpdate,
@@ -474,6 +475,54 @@ describe("ApprovalBridge.handleCallback", () => {
     expect(h.api.answerCallbackQuery).toHaveBeenCalledWith("cb-1", {
       text: "Already resolved",
     });
+  });
+
+  it.each([
+    { chat: { id: 7 }, message_id: 98 },
+    { chat: { id: 8 }, message_id: 99 },
+    undefined,
+  ])("ignores callbacks that do not identify the pending prompt: %j", async (message) => {
+    const h = makeHarness();
+    await h.bridge.dispatch(req("reused"), 7);
+    const update = callback("reused", "y");
+    if (message) update.message = message;
+    else delete update.message;
+    await h.bridge.handleCallback(update);
+    expect(h.approvals.decisions).toEqual([]);
+    expect(h.bridge.pendingCount()).toBe(1);
+  });
+
+  it("says a button from before a restart expired, runs nothing and removes the keyboard (ATO-613)", async () => {
+    const previous = makeHarness();
+    await previous.bridge.dispatch(req("old"), 7);
+    previous.bridge.cancelAll();
+    const h = makeHarness();
+    await h.bridge.handleCallback({ ...callback("old", "y"), message: {
+      chat: { id: 7 }, message_id: 99, text: String(previous.api.sendMessage.mock.calls[0]![1]),
+    } });
+
+    expect(h.approvals.decisions).toEqual([]);
+    expect(h.api.answerCallbackQuery).toHaveBeenCalledWith("cb-1", {
+      text: EXPIRED_APPROVAL_NOTICE,
+    });
+    await vi.waitFor(() => expect(h.api.editMessageText).toHaveBeenCalledTimes(1));
+    expect(h.api.editMessageText.mock.calls[0]![0]).toBe(7);
+    expect(h.api.editMessageText.mock.calls[0]![1]).toBe(99);
+    expect(String(h.api.editMessageText.mock.calls[0]![2])).toMatch(/git push origin main[\s\S]*expired/);
+
+    await h.bridge.dispatch(req("new"), 7);
+    await h.bridge.handleCallback(callback("new", "y"));
+    expect(h.approvals.decisions).toEqual([{ approvalId: "new", approved: true, reason: "telegram" }]);
+  });
+
+  it("still says Already resolved for a prompt this run posted and closed", async () => {
+    const h = makeHarness();
+    await h.bridge.dispatch(req("abc"), 7);
+    await h.bridge.handleCallback(callback("abc", "y"));
+    h.api.answerCallbackQuery.mockClear();
+
+    await h.bridge.handleCallback(callback("abc", "n"));
+    expect(h.api.answerCallbackQuery).toHaveBeenCalledWith("cb-1", { text: "Already resolved" });
   });
 
   it("cancels the timer once the button is clicked", async () => {

@@ -138,9 +138,8 @@ export interface RouteTableOptions {
 /**
  * Build the full atomic-agent HTTP route table. All handlers are
  * instantiated here so the serve command only needs to hand the
- * runtime to `createHttpServer`. Unauthenticated routes are the
- * minimum set an OpenAI SDK probes before attempting auth: `/health`
- * and `/v1/models`.
+ * runtime to `createHttpServer`. Only liveness and the static panel
+ * assets are public.
  */
 export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinition[] {
   // One closure for the GET and the POST: the coding mode is per-process
@@ -165,7 +164,6 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
       method: "GET",
       path: "/v1/models",
       handler: createModelsHandler(),
-      requiresAuth: false,
     },
     // ATO-1128: the phone panel's page; it holds no data and asks for the key (route-panel.ts).
     { method: "GET", path: "/panel", handler: createPanelPageHandler(), requiresAuth: false },

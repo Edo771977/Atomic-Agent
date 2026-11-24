@@ -15,12 +15,20 @@ import { parseStringArrayOrNull } from "./config-values.js";
  */
 export type HttpApprovalMode = "never" | "writes" | "always";
 
+/**
+ * Ask before a URL sends data out in its address (ATO-1377, see
+ * `src/tools/os/web/url-data-guard.ts`).
+ */
+export type UrlDataGuardMode = "off" | "data" | "strict";
+
 export interface RuntimeHttpConfig {
   enabled: boolean;
   approvalMode: HttpApprovalMode;
   hostAllowlist: string[] | null;
   maxResponseBytes: number;
   defaultTimeoutMs: number;
+  /** Absent (older callers, tests) reads as `"data"`. */
+  urlDataGuard?: UrlDataGuardMode;
 }
 
 export interface UserHttpConfig {
@@ -40,6 +48,10 @@ export interface UserHttpConfig {
   maxResponseBytes: number;
   /** Timeout of one `os.http.request` call that sets none, in ms. */
   defaultTimeoutMs: number;
+  /**
+   * Ask before an address sends data in web fetch, the initial crawl URL, HTTP GET, browser navigation, supported shell clients, and literal MCP URL arguments (ATO-1377). `"data"` (default) checks for substantial or encoded data. `"strict"` also asks on the first visit per site per chat. `"off"` disables these URL prompts. HTTP `approvalMode: "never"` skips this guard for `os.http.request` and its redirects only. Offline, egress, and HTTP destination restrictions still apply.
+   */
+  urlDataGuard: UrlDataGuardMode;
 }
 
 export function parseHttpApprovalMode(
@@ -78,6 +90,17 @@ function resolveHttpApprovalMode(
   );
 }
 
+export function parseUrlDataGuardMode(
+  raw: unknown,
+  field: string,
+): UrlDataGuardMode {
+  if (raw === "off" || raw === "data" || raw === "strict") return raw;
+  throw new ConfigValidationError(
+    field,
+    `expected one of off|data|strict, got ${JSON.stringify(raw)}`,
+  );
+}
+
 export function createHttpDefaults(): UserHttpConfig {
   return {
     enabled: true,
@@ -85,6 +108,7 @@ export function createHttpDefaults(): UserHttpConfig {
     hostAllowlist: null,
     maxResponseBytes: 1_048_576,
     defaultTimeoutMs: 30_000,
+    urlDataGuard: "data",
   };
 }
 
@@ -115,6 +139,10 @@ export function parseHttpConfig(
     defaultTimeoutMs: parsePositiveInt(
       raw.defaultTimeoutMs ?? readDefaults().defaultTimeoutMs,
       "http.defaultTimeoutMs",
+    ),
+    urlDataGuard: parseUrlDataGuardMode(
+      raw.urlDataGuard ?? readDefaults().urlDataGuard,
+      "http.urlDataGuard",
     ),
   };
 }

@@ -25,6 +25,7 @@
 import { setDynamicResourceClassResolver } from "../agent/tool-resource-class.js";
 import type { DangerousToolOptions } from "../approval/dangerous-tool.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
+import type { UrlDataGuardMode } from "../config/http-config.js";
 import type { ToolRegistry } from "../tools/tool-registry.js";
 
 import { McpClient, type McpClientDeps } from "./mcp-client.js";
@@ -75,6 +76,7 @@ export interface McpManagerDeps extends McpClientDeps {
    * test seam — production bootstrap always passes it.
    */
   dangerous?: DangerousToolOptions;
+  urlDataGuard?: UrlDataGuardMode;
   /**
    * How a server's `elicitation/create` reaches a person (ATO-704). When
    * set, every client gets its own handler naming its server and
@@ -409,6 +411,7 @@ export class McpManager {
       const def = createMcpToolDefinition(meta, s.client, {
         trust,
         dangerous: this.deps.dangerous,
+        ...(this.deps.urlDataGuard !== undefined ? { urlDataGuard: this.deps.urlDataGuard } : {}),
         trustReadOnlyHint: trustsReadOnlyHintFor(s.config, meta.rawName),
         localTransport: isLocalMcpTransport(s.config.transport),
         ...(s.config.approval !== undefined ? { approval: s.config.approval } : {}),

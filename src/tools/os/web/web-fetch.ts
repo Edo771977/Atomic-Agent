@@ -5,6 +5,7 @@ import {
   type CommandResult,
 } from "../../../sandbox/command-runner.js";
 import {
+  ApprovalDeniedError,
   requireApproval,
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
@@ -32,6 +33,17 @@ const TOOL_NAME = "os.web.fetch";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 import { describeChallenge, detectChallenge } from "./web-fetch-challenge.js";
+import {
+  checkUrlSend,
+  findUrlData,
+  DEFAULT_URL_DATA_GUARD,
+  noteUrlSendAllowed,
+  requireUrlSendApproval,
+  urlSendGrantKey,
+  urlSendReason,
+  type UrlSendSites,
+} from "./url-data-guard.js";
+import { maskUrlSecrets } from "./http-request-preview.js";
 import {
   describeReadVia,
   readPastWall,
@@ -90,7 +102,7 @@ export interface OsWebFetchOptions {
    * working — when absent `DEFAULT_FETCH_CONFIG` applies, which reproduces the
    * pre-v38 30s budget.
    */
-  config?: Pick<AtomicAgentConfig, "web">;
+  config?: Pick<AtomicAgentConfig, "web"> & Partial<Pick<AtomicAgentConfig, "http">>;
   /** Injectable sleep so retry-backoff tests do not wait in real time. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   /**
@@ -99,6 +111,8 @@ export interface OsWebFetchOptions {
    * (`ApprovalGate.holdsForOutsideContent`, ATO-618). Absent: never asks.
    */
   dangerous?: DangerousToolOptions;
+  /** Sites a chat already used under `http.urlDataGuard: "strict"` (ATO-1377). Defaults to the shared store. */
+  urlSendSites?: UrlSendSites;
   /** Injectable Defuddle runner so extractor tests need no real package. */
   runDefuddle?: DefuddleRunner;
   /**
@@ -186,19 +200,36 @@ export function buildOsWebFetchTool(
       // After outside content a GET's URL alone can carry data out
       // (`https://x/?d=<secret>`), so a held session asks first (ATO-618).
       const gate = options.dangerous;
-      if (gate?.approvals.holdsForOutsideContent(ctx.sessionId, "http") === true) {
+      // ATO-1377: an address that carries a lot of data (or, under
+      // `"strict"`, the chat's first request to a site) asks like a POST
+      // on every session, held or not.
+      const urlCheck =
+        gate === undefined
+          ? null
+          : checkUrlSend(
+              options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+              args.url,
+              ctx.sessionId,
+              options.urlSendSites,
+            );
+      if (
+        gate !== undefined &&
+        (urlCheck !== null || gate.approvals.holdsForOutsideContent(ctx.sessionId, "http"))
+      ) {
+        const shownUrl = maskUrlSecrets(args.url);
         await requireApproval(
           gate,
           {
             sessionId: ctx.sessionId,
             tool: TOOL_NAME,
-            category: "http",
-            reason: `GET ${args.url}`,
-            affectedResources: [args.url],
-            grantKey: urlOrigin(args.url),
+            category: urlCheck !== null ? "http_write" : "http",
+            reason: urlCheck !== null ? urlSendReason(shownUrl, urlCheck) : `GET ${args.url}`,
+            affectedResources: [urlCheck !== null ? shownUrl : args.url],
+            grantKey: urlCheck ? urlSendGrantKey(urlCheck) : urlOrigin(args.url),
           },
           ctx.signal,
         );
+        if (urlCheck !== null) noteUrlSendAllowed(urlCheck, ctx.sessionId, options.urlSendSites);
       }
       let outcome: FetchOutcome;
       try {
@@ -210,8 +241,27 @@ export function buildOsWebFetchTool(
           fetchCfg,
           timeoutMs: args.timeoutMs,
           sleep,
+          ...(gate === undefined ? {} : {
+            hooks: {
+              authorizeRedirect: async (url) => {
+                const target = url.toString();
+                const refused = offlineRefusal(target, TOOL_NAME);
+                if (refused) throw refused;
+                await requireUrlSendApproval(gate, {
+                  mode: options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+                  tool: TOOL_NAME,
+                  url: target,
+                  initialUrl: args.url,
+                  sessionId: ctx.sessionId,
+                  signal: ctx.signal,
+                  ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+                });
+              },
+            },
+          }),
         });
       } catch (err) {
+        if (err instanceof ApprovalDeniedError) throw err;
         return compressToolResult({
           tool: TOOL_NAME,
           status: "error",
@@ -236,6 +286,7 @@ export function buildOsWebFetchTool(
       if (challenge.challenged) {
         // ATO-968: the agent's own browser, then the readers the user
         // turned on. Only a page they actually read replaces the wall.
+        const dataBearing = findUrlData(args.url) !== null || findUrlData(outcome.finalUrl) !== null;
         const ladder = await readPastWall({
           url: outcome.finalUrl,
           timeoutMs: args.timeoutMs,
@@ -252,9 +303,9 @@ export function buildOsWebFetchTool(
           ...(options.renderPage ? { renderPage: options.renderPage } : {}),
           ...(options.lookup ? { lookup: options.lookup } : {}),
           ...(options.env ? { env: options.env } : {}),
-          ...(options.egressRefusal
-            ? { stepRefusal: (via: "browser" | "jina" | "firecrawl") => options.egressRefusal!(ctx.sessionId, webFetchStepEgress(via)) }
-            : {}),
+          stepRefusal: (via) => dataBearing
+            ? "fallback disabled for a data-bearing URL"
+            : options.egressRefusal?.(ctx.sessionId, webFetchStepEgress(via)) ?? null,
         });
         if (ladder.page === null) {
           const tried =
@@ -434,6 +485,7 @@ export interface FetchRequestHooks {
   afterResponse?: (url: URL, status: number, retryAfterMs: number | null) => void;
   /** Asked before a redirect hop is requested; `false` stops there (robots.txt in `os.web.crawl`). */
   allowRedirect?: (url: URL) => boolean;
+  authorizeRedirect?: (url: URL) => Promise<void>;
 }
 
 export interface FetchRawPageOptions {
@@ -516,6 +568,7 @@ async function fetchWithGuard(
           refusedRedirect: nextUrl.toString(),
         };
       }
+      await opts.hooks?.authorizeRedirect?.(nextUrl);
       currentUrl = nextUrl;
       continue;
     }

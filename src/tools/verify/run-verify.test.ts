@@ -3,13 +3,16 @@ import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AtomicAgentConfig } from "../../config/index.js";
 import type { Browser } from "playwright-core";
 
+import { findChromeExecutable } from "../browser/find-chrome-executable.js";
+
 import { defaultBrowserLauncher, isLoopbackHost, type BrowserLauncher } from "./run-page-kind.js";
 import { runChecks, runVerify, type VerifyRunContext } from "./run-verify.js";
+import { probeVerifyBrowser } from "./verify-browser-test-fixture.js";
 import { createVerifyWorkspace } from "./verify-workspace-copy.js";
 
 const NODE = process.execPath;
@@ -368,23 +371,124 @@ describe("isLoopbackHost", () => {
   });
 });
 
-describe("runVerify — page, real browser", () => {
-  let launchable = false;
-  beforeAll(async () => {
+describe("defaultBrowserLauncher — launch order", () => {
+  beforeEach(() => vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", undefined));
+  afterEach(() => vi.unstubAllEnvs());
+  type LaunchOpts = { executablePath?: string; headless?: boolean; args?: string[]; env?: NodeJS.ProcessEnv };
+  const fakeBrowser = {} as Browser;
+  const recorder = (fail: (opts: LaunchOpts) => boolean = () => false) => {
+    const calls: LaunchOpts[] = [];
+    const loadPlaywright = async () =>
+      ({
+        chromium: {
+          launch: async (opts: LaunchOpts) => {
+            calls.push(opts);
+            if (fail(opts)) throw new Error(opts.executablePath === undefined ? "Executable doesn't exist\nmore" : "spawn failed");
+            return fakeBrowser;
+          },
+        },
+      }) as never;
+    return { calls, loadPlaywright };
+  };
+  const findExecutable = () => ({ kind: "chrome" as const, path: "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" });
+
+  it("macOS with no explicit browser tries the Playwright Chromium first", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
+    const { calls, loadPlaywright } = recorder();
+    const browser = await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(browser).toBe(fakeBrowser);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.executablePath).toBeUndefined();
+    expect(calls[0]?.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+    expect(calls[0]?.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
+  });
+
+  it("macOS falls back to the system Chrome when the Playwright Chromium is missing", async () => {
+    vi.stubEnv("ATOMIC_AGENT_API_KEY", "verify-test-serve-key");
+    const { calls, loadPlaywright } = recorder((o) => o.executablePath === undefined);
+    await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(calls.map((c) => c.executablePath)).toEqual([undefined, findExecutable().path]);
+    for (const call of calls) {
+      expect(call.env?.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+      expect(call.env?.ATOMIC_AGENT_API_KEY).toBeUndefined();
+    }
+  });
+
+  it("macOS with an explicit executablePath keeps the host browser first", async () => {
+    const { calls, loadPlaywright } = recorder();
+    const config = { browser: { ...CONFIG.browser, executablePath: "/opt/chrome" } };
+    await defaultBrowserLauncher(config, { platform: "darwin", loadPlaywright, findExecutable: () => ({ kind: "custom", path: "/opt/chrome" }) })();
+    expect(calls.map((c) => c.executablePath)).toEqual(["/opt/chrome"]);
+  });
+
+  it("macOS honors an explicit Chrome environment override", async () => {
+    vi.stubEnv("ATOMIC_AGENT_BROWSER_CHANNEL", "chrome");
     try {
-      const browser = await defaultBrowserLauncher(CONFIG)();
-      await browser.close();
-      launchable = true;
-    } catch {
-      launchable = false;
+      const { calls, loadPlaywright } = recorder();
+      await defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })();
+      expect(calls.map((call) => call.executablePath)).toEqual([findExecutable().path]);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("macOS with a non-default channel keeps the host browser first", async () => {
+    const { calls, loadPlaywright } = recorder();
+    const config = { browser: { ...CONFIG.browser, channel: "msedge" as const } };
+    await defaultBrowserLauncher(config, { platform: "darwin", loadPlaywright, findExecutable })();
+    expect(calls[0]?.executablePath).toBe(findExecutable().path);
+  });
+
+  it.each(["linux", "win32"] as const)("%s keeps the host browser first", async (platform) => {
+    const { calls, loadPlaywright } = recorder();
+    await defaultBrowserLauncher(CONFIG, { platform, loadPlaywright, findExecutable })();
+    expect(calls.map((c) => c.executablePath)).toEqual([findExecutable().path]);
+  });
+
+  it("names both attempts when neither launches", async () => {
+    const { loadPlaywright } = recorder(() => true);
+    await expect(defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable })()).rejects.toThrow(
+      /^no browser available: playwright chromium: Executable doesn't exist; \/Applications\/Google Chrome\.app\/Contents\/MacOS\/Google Chrome: spawn failed$/,
+    );
+  });
+
+  it("says no browser was found when the host has none and Playwright fails", async () => {
+    const { loadPlaywright } = recorder(() => true);
+    await expect(defaultBrowserLauncher(CONFIG, { platform: "darwin", loadPlaywright, findExecutable: () => null })()).rejects.toThrow(
+      "no Chromium-family browser found",
+    );
+  });
+});
+
+const macBrowserExpectation = process.env.ATOMIC_AGENT_VERIFY_MAC_BROWSER;
+it.skipIf(!macBrowserExpectation)("launches the expected real macOS browser", async () => {
+  expect(process.platform).toBe("darwin");
+  let lookedUpSystemBrowser = false;
+  const browser = await defaultBrowserLauncher(CONFIG, {
+    findExecutable(options) {
+      lookedUpSystemBrowser = true;
+      return findChromeExecutable(options);
+    },
+  })();
+  try {
+    expect(lookedUpSystemBrowser).toBe(macBrowserExpectation === "system");
+  } finally {
+    await browser.close();
+  }
+}, 30_000);
+
+describe("runVerify — page, real browser", () => {
+  let browser: Awaited<ReturnType<typeof probeVerifyBrowser>>;
+  beforeAll(async () => {
+    if (process.env.ATAG_VERIFY_PAGE_TEST === "0" && process.env.ATAG_VERIFY_REQUIRE_BROWSER !== "1") {
+      browser = { skipReason: "ATAG_VERIFY_PAGE_TEST=0 disables the real browser fixture" };
+    } else {
+      browser = await probeVerifyBrowser(CONFIG);
     }
   }, 60_000);
 
-  it.runIf(process.env.ATAG_VERIFY_PAGE_TEST !== "0")("drives a local page: script, probes, errors, missing selectors", async (test) => {
-    if (!launchable) {
-      test.skip();
-      return;
-    }
+  it("drives a local page: script, probes, errors, missing selectors", async (test) => {
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(
       join(work, "index.html"),
       `<html><body><button id="launch">go</button>
@@ -408,7 +512,7 @@ describe("runVerify — page, real browser", () => {
         probes: [{ name: "score", expr: "window.game.score" }, { name: "launched", expr: "window.game.launched" }],
         checks: ["no errors", "missing selectors 2", "probe score increases", "probe launched stays true"],
       },
-      ctx(),
+      ctx({ launchBrowser: browser.launch }),
     );
     expect(out.errors).toEqual(["Error: boom on load"]);
     expect(out.consoleWarnings).toEqual(["just a warning"]);
@@ -424,11 +528,8 @@ describe("runVerify — page, real browser", () => {
   // A slow machine (the Windows CI runner, a loaded laptop) can take more than
   // 5 s to make a control clickable; the click step waited only 5 s, so a good
   // page failed its check with "page.click: Timeout 5000ms exceeded".
-  it.runIf(process.env.ATAG_VERIFY_PAGE_TEST !== "0")("a click waits for a control that becomes clickable after 6 s", async (test) => {
-    if (!launchable) {
-      test.skip();
-      return;
-    }
+  it("a click waits for a control that becomes clickable after 6 s", async (test) => {
+    if ("skipReason" in browser) return test.skip(browser.skipReason);
     await writeFile(
       join(work, "late.html"),
       `<html><body>
@@ -453,7 +554,7 @@ describe("runVerify — page, real browser", () => {
         probes: [{ name: "clicked", expr: "window.clicked" }],
         checks: ["no errors", "probe clicked stays true"],
       },
-      ctx(),
+      ctx({ launchBrowser: browser.launch }),
     );
     expect(out.errors).toEqual([]);
     expect(out.ok).toBe(true);
@@ -484,4 +585,12 @@ it("marks every verify child even with a differently cased environment override"
     args: ["-e", "console.log('marker:' + process.env.ATOMIC_AGENT_TOOL_CHILD)"],
   }, ctx());
   expect(result.stdoutTail).toContain("marker:1");
+});
+
+it("strips the serve key from a verification environment override", async () => {
+  const result = await runVerify({
+    kind: "command", cmd: NODE, env: { ATOMIC_AGENT_API_KEY: "synthetic-serve-key" },
+    args: ["-p", "typeof process.env.ATOMIC_AGENT_API_KEY"],
+  }, ctx());
+  expect(result.stdoutTail?.trim()).toBe("undefined");
 });

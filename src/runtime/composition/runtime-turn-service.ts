@@ -1,3 +1,6 @@
+import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
+import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
+import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { getConfig } from "../../config/index.js";
@@ -144,7 +147,7 @@ export interface RuntimeTurnDependencies {
      */
     sessionTeam?: SessionTeamChoices;
   };
-  traces: Pick<RuntimeTraces, "ensureRecorder" | "pinSession" | "readContextUsage" | "clearContextUsage" | "releaseSession">;
+  traces: Partial<Pick<RuntimeTraces, "touchRecorder">> & Pick<RuntimeTraces, "ensureRecorder" | "pinSession" | "readContextUsage" | "clearContextUsage" | "releaseSession">;
   telemetry: {
     observability: Pick<ReturnType<typeof createRuntimeObservability>, "getAnalytics">;
     analyticsStateStore: AnalyticsStateStore;
@@ -190,6 +193,7 @@ export function createRuntimeTurnService(
   const { observability, analyticsStateStore, turnUsageMeter, sessionUsage } = deps.telemetry;
   const { pendingSessionNamings, turnsInFlight } = deps.state;
   // Owned by this runtime, bounded by active turns; workers share their parent's snapshot.
+  const activeActors = new Map<string, ApprovalActors>();
   const turnModelModes = new Map<string, ModelModePolicy>();
   /**
    * The loop-side budget for one turn. An explicit `maxSteps` from a
@@ -395,6 +399,40 @@ export function createRuntimeTurnService(
    * (`SessionStore.beginTurn`). Bookkeeping only: a mark that cannot be
    * written must not stop the turn.
    */
+  const pendingArchiveCalls = new Map<string, Set<Promise<void>>>();
+  const trackArchiveCall = (id: string, call: Promise<void> | undefined): void => {
+    if (!call) return;
+    const calls = pendingArchiveCalls.get(id) ?? new Set<Promise<void>>();
+    pendingArchiveCalls.set(id, calls);
+    calls.add(call);
+    const settled = () => {
+      calls.delete(call);
+      if (calls.size === 0) pendingArchiveCalls.delete(id);
+    };
+    void call.then(settled, settled);
+  };
+
+  const releaseCompletedArchive = (state: SessionState): void => {
+    const pending = pendingArchiveCalls.get(state.id);
+    if (!pending?.size) {
+      forgetPrivacyVault(state.id);
+      return;
+    }
+    const release = pinPrivacyVault(state.id);
+    void Promise.allSettled(pending).then(() => {
+      if (lifecycle.isShutdown()) {
+        forgetPrivacyVault(state.id);
+        return;
+      }
+      const current = sessionStore.load(state.id);
+      if (!current || (current.status === "completed" && current.turnCount === state.turnCount)) {
+        forgetPrivacyVault(state.id);
+      }
+    }).catch(() => {
+      // The store can close while side calls settle.
+    }).finally(release);
+  };
+
   const markTurnRunning = (sessionId: string, progress: TurnProgress): void => {
     try {
       sessionStore.beginTurn(sessionId, progress.startedAt, progress);
@@ -653,6 +691,7 @@ export function createRuntimeTurnService(
       checkpoint?: TurnCheckpointOptions;
       /** Where the turn came in; picks the reply's `### answer-style`. */
       origin?: TurnOrigin;
+      requestedByToken?: string;
       /**
        * The reply's surface when the origin cannot tell it: an HTTP
        * extensions client is the desktop app. Wins over `origin`.
@@ -770,7 +809,9 @@ export function createRuntimeTurnService(
           // occupancy under its id; nothing persists it, so drop it.
           traces.clearContextUsage(session.id);
           // A worker's turn is its whole life: nothing waits on its jobs.
+          forgetPrivacyVault(session.id);
           shellJobs.endSession(session.id);
+          SHARED_URL_SEND_SITES.clearSession(session.id);
           // A throwaway worker must not keep its server slot pinned.
           slotManager.release(session.id);
           // Nor its browser tabs (ATO-961).
@@ -876,14 +917,20 @@ export function createRuntimeTurnService(
       [SESSION_LLM_METADATA_KEY]: llmStamp,
       [SESSION_ROUTE_METADATA_KEY]: turnRoute,
     });
-    recorder?.noteTurnRoute(turnRoute);
+    recorder?.noteTurnRoute(turnRoute, runOptions.requestedByToken);
     // Pin this session for the duration of the turn. Without it a burst of
     // new sessions can push this one's recorder out mid-turn, after which
     // `emitAgentLoopEvent`'s `recorders.get(...)?.` silently drops every
     // remaining event of the turn and any tool call whose `pendingCalls`
     // entry went with it is logged with empty args.
     traces.pinSession(session.id);
-    return turnContext.run({ sessionId: session.id, projectFolder: projectFolderOf(session) }, async () => {
+    const actors: ApprovalActors = {
+      sessionId: session.id,
+      requestedByToken: runOptions.requestedByToken,
+      steeredByTokens: new Set(),
+    };
+    activeActors.set(session.id, actors);
+    return approvalActors.run(actors, () => turnContext.run({ sessionId: session.id, projectFolder: projectFolderOf(session) }, async () => {
       // Registered before the mark and ended after the turn's end is
       // written, so `shutdown` waiting on it waits for the row to be right.
       const inFlight = turnsInFlight.begin(runOptions.signal);
@@ -1020,14 +1067,18 @@ export function createRuntimeTurnService(
           !isIncognitoSession(finished) &&
           shouldNameSession(finished)
         ) {
-          void nameSession(finished);
+          trackArchiveCall(session.id, nameSession(finished));
         }
         // Same contract as naming: fire-and-forget, never after a budget stop.
         if (!stoppedForMoney(result.stopCause)) {
-          nextStep.maybeSuggest(finished, runOptions.origin);
+          trackArchiveCall(session.id, nextStep.maybeSuggest(finished, runOptions.origin));
         }
         // `finish` ended the whole session: its kept jobs go with it.
-        if (finished.status === "completed") shellJobs.endSession(session.id);
+        if (finished.status === "completed") {
+          releaseCompletedArchive(finished);
+          shellJobs.endSession(session.id);
+          SHARED_URL_SEND_SITES.clearSession(session.id);
+        }
         return { ...result, session: finished };
       } catch (err) {
         // The loop hands back a state for every ending it can classify —
@@ -1055,6 +1106,8 @@ export function createRuntimeTurnService(
           fallbackChain.setTurnPrimary(session.id, null);
         }
       }
+    })).finally(() => {
+      if (activeActors.get(session.id) === actors) activeActors.delete(session.id);
     });
   };
 
@@ -1076,8 +1129,14 @@ export function createRuntimeTurnService(
    * running turn's window is open, and that window is closed by the
    * same call that performs the final drain.
    */
-  const steer = (sessionId: string, text: string): boolean =>
-    steeringInbox.push(sessionId, text);
+  const steer = (sessionId: string, text: string, requestedByToken?: string): boolean => {
+    if (!steeringInbox.push(sessionId, text)) return false;
+    if (requestedByToken) {
+      activeActors.get(sessionId)?.steeredByTokens.add(requestedByToken);
+      traces.touchRecorder?.(sessionId)?.noteSteer(requestedByToken);
+    }
+    return true;
+  };
 
   // Goal mode (ATO-451): rounds of ordinary turns until the acceptance
   // list is green. Owned here so every frontend gets it through runTurn.
@@ -1110,8 +1169,14 @@ export function createRuntimeTurnService(
       sessionId: session.id,
     });
   };
-  const executeTurn: typeof executeTurnInPolicy = (session, userMessage, runOptions) =>
-    inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+  const executeTurn: typeof executeTurnInPolicy = async (session, userMessage, runOptions) => {
+    const release = pinPrivacyVault(session.id);
+    try {
+      return await inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions));
+    } finally {
+      release();
+    }
+  };
 
   // ATO-646: every turn, whatever its origin, counted and timed for
   // `/metrics`. Timed from the queue's hand-over, so the wait behind
@@ -1144,6 +1209,7 @@ export function createRuntimeTurnService(
       signal?: AbortSignal;
       eventHook?: TurnEventHook;
       origin?: TurnOrigin;
+      requestedByToken?: string;
       providerId?: string;
       /** See `executeTurn`'s `model`. */
       model?: string;

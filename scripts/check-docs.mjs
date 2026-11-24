@@ -77,6 +77,16 @@ export function checkDocs(root = DEFAULT_ROOT) {
   let maxChain = 0;
   for (const file of files) {
     const text = readFileSync(join(root, file), 'utf8');
+    if (file === 'docs/user/upstream-2026-11-triage.md') {
+      for (const table of marked.lexer(text).filter((token) => token.type === 'table')) {
+        for (const row of table.raw.trimEnd().split('\n').slice(2)) {
+          const cells = row.trim().replace(/^\||\|$/g, '').split(/(?<!\\)\|/).length;
+          if (cells !== table.header.length) {
+            errors.push(`${file}: expected ${table.header.length} table cells, found ${cells}: ${row.slice(0, 90)}`);
+          }
+        }
+      }
+    }
     for (const href of hrefs(text)) {
       try {
         const target = localTarget(root, file, href);
@@ -170,6 +180,10 @@ function selfTest() {
     put('README.md', '[missing](not-here.md)\n'); expect('missing local target');
     put('README.md', '[web](https://example.invalid/)\n````\n[example](missing.md)\n````\n`[inline](missing.md)`\n');
     if (checkDocs(root).errors.length) throw new Error('external/code fixture failed'); cases++;
+    const triage = 'docs/user/upstream-2026-11-triage.md';
+    put(triage, 'Status: current\nOwner: docs/user/\n\n| A | B |\n| --- | --- |\n| cell |\n');
+    expect('expected 2 table cells, found 1');
+    rmSync(join(root, triage));
     put('src/feature/README.md', '# Feature\n'); expect('missing Status'); expect('missing Owner');
     put('src/feature/README.md', '# Feature\nStatus: current\nOwner: src/feature/\n');
     put('docs/archive/legacy.md', '[old broken link](missing.md)\n');

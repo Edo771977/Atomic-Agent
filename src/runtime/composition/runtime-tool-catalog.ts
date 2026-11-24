@@ -148,6 +148,7 @@ export function createRuntimeToolRegistry(
   hooks: Pick<ToolRegistryOptions, "onDispatch" | "dispatchGuard"> = {},
   /** The model `browser.extract` calls; bootstrap fills it in once the completer exists. */
   browserExtract: BrowserExtractModelRef = {},
+  fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
 ) {
   const toolRegistry = new ToolRegistry({
     ...(outputSpill ? { outputSpill } : {}),
@@ -163,7 +164,7 @@ export function createRuntimeToolRegistry(
       dangerous.approvals.noteUntrustedContent(sessionId, source),
     // "Roll back here" (ATO-1056): what a file tool is about to change is
     // saved first, per session, so a chat can be taken back with its files.
-    beforeInvoke: checkpointBeforeInvoke(new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir))),
+    beforeInvoke: checkpointBeforeInvoke(fileCheckpoints),
   });
   toolRegistry.register(finishTool);
   toolRegistry.register(replyTool);
@@ -174,6 +175,8 @@ export function createRuntimeToolRegistry(
       userProfile: config.browser.connect === "user-chrome",
       ...(config.browser.connect === "user-chrome" ? { userSites: new UserSiteApprovals() } : {}),
       localPages: localPageCheck(runtimeReadConfinement(config, dangerous)),
+      // ATO-1377: the same switch as os.web.fetch and os.http.request.
+      ...(config.http.urlDataGuard !== undefined ? { urlDataGuard: config.http.urlDataGuard } : {}),
     };
     for (const tool of buildBrowserTools(browserBackend, dangerous, domainPolicy, browserExtract)) {
       toolRegistry.register(tool);
@@ -290,6 +293,7 @@ export function registerRuntimeCoreTools(input: {
   // the review half of what they build.
   registerVerifyTools(toolRegistry, {
     ...dangerous,
+    ...(config.http.urlDataGuard === undefined ? {} : { urlDataGuard: config.http.urlDataGuard }),
     uiExceptionStateDir: config.paths.stateDir,
     config: { browser: config.browser, tools: { verify: config.tools.verify } },
     checkCommandReads: createCommandReadCheck(runtimeReadConfinement(config, dangerous)),
@@ -600,6 +604,7 @@ export async function connectRuntimeMcpCatalog(input: {
     // the default `approval_gated` trust get their calls routed
     // through `requireApproval` (issue #132).
     dangerous,
+    ...(config.http.urlDataGuard !== undefined ? { urlDataGuard: config.http.urlDataGuard } : {}),
     // Sampling handler is per-client; we install one for every
     // connecting server so the SDK advertises the capability. Routes
     // to LlamaServerClient with `slotId: -1` (invariant 1 in

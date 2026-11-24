@@ -364,6 +364,7 @@ describe("browser tools on a fake backend", () => {
     expect(backend.lastTabs).toEqual({
       action: "new",
       url: "https://example.com/docs",
+      redirectGuard: { signal: CTX.signal, authorize: expect.any(Function) },
     });
   });
 
