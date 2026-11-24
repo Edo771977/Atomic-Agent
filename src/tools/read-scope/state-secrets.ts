@@ -57,6 +57,8 @@ export interface StateSecrets {
    * to be read).
    */
   files: readonly string[];
+  /** Installed skill directories protected on recognized shell writes. */
+  skillWritePaths?: readonly string[];
 }
 
 /**
@@ -398,10 +400,28 @@ export function shellServerKeyMutation(
   if (files.some(path => /(?:^|[\\/])http-tokens\.json$/i.test(path)) &&
       managesHttpTokens(line)) return true;
   return line.split(/[;|&\n]+/).some(cmd => {
-    const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
-    return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
-      && findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
+    return isShellWrite(cmd) &&
+      findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
   });
+}
+
+function isShellWrite(command: string): boolean {
+  const writes = /(^|[\s\\/"'])(?:rm|rmdir|mkdir|mv|cp|rsync|patch|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
+  return writes.test(command) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(command) ||
+    /(^|[^<])>/.test(command);
+}
+
+export function findShellSkillWrites(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env?: ShellScopeEnv,
+): string[] {
+  const files = secrets.skillWritePaths;
+  if (!files?.length) return [];
+  return [...new Set(shellCommandLine(args).split(/[;|&\n]+/).flatMap((cmd) =>
+    isShellWrite(cmd) ? findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { stateDir: secrets.stateDir, files }, env) : [],
+  ))];
 }
 
 /** `file` appears in `line` as a whole path: not `.env` inside `.env.example`. */

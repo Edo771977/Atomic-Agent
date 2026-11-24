@@ -357,7 +357,7 @@ describe("fs approval scope", () => {
 
 describe("the fusion projects' records in the state dir (issue #109 review)", () => {
   it("protects mutations and shell path recognition for global and shared skill roots", async () => {
-    const { getTrustConfigPaths, getStateSecretPaths } = await import("../../../config/config-file.js");
+    const { getSkillWriteProtectionPaths, getTrustConfigPaths, getStateSecretPaths } = await import("../../../config/config-file.js");
     const home = await mkdtemp(join(tmpdir(), "fs-scope-skills-"));
     const restore = process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR;
     try {
@@ -374,8 +374,10 @@ describe("the fusion projects' records in the state dir (issue #109 review)", ()
         expect(await categorizeFsMutation("write", [join(home, "source"), target], options)).toBe("trust_config");
         expect(await categorizeFsMutation("trash", [target], options)).toBe("trust_config");
       }
-      const shellPaths = getStateSecretPaths(paths);
-      expect(shellPaths).toEqual(expect.arrayContaining([...trustConfigPaths]));
+      for (const root of getSkillWriteProtectionPaths(paths)) {
+        expect(trustConfigPaths).toContain(root);
+        expect(getStateSecretPaths(paths)).not.toContain(root);
+      }
     } finally {
       if (restore === undefined) delete process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR;
       else process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR = restore;

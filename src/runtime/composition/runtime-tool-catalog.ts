@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { AtomicAgentConfig } from "../../config/index.js";
-import { DEFAULT_MAX_AUDIO_BYTES, getConfig, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
+import { DEFAULT_MAX_AUDIO_BYTES, getConfig, getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
 import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
@@ -114,6 +114,7 @@ function runtimeReadConfinement(
     stateSecrets: {
       stateDir: config.paths.stateDir,
       files: getStateSecretPaths(config.paths),
+      skillWritePaths: getSkillWriteProtectionPaths(config.paths),
     },
   };
 }

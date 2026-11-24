@@ -17,7 +17,7 @@ import {
   workerRefusalFor,
 } from "../fusion/worker-tool-policy.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import { getStateSecretPaths, type ReadScope } from "../../config/index.js";
+import { getSkillWriteProtectionPaths, getStateSecretPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
@@ -255,7 +255,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: { stateDir: s.stateDir, files: [
+      stateSecrets: { stateDir: s.stateDir, skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
         ...s.secrets.files,
         ...getStateSecretPaths({
           stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
@@ -272,6 +272,20 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     innerShells = 0;
     readScope = "unrestricted";
     install(4);
+  });
+
+  it("allows installed skill reads and script execution but gates mutations as trust config", async () => {
+    const script = join(s.stateDir, "skills", "demo", "check.sh");
+    await read(script);
+    await shell({ cmd: "cat", args: [script] });
+    await shell({ cmd: "bash", args: [script] });
+    expect(prompts).toEqual([]);
+    answer = { approved: false };
+    await expect(shell({ cmd: "touch", args: [script] })).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "rm", args: ["-r", join(s.stateDir, "skills")] })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config", "trust_config"]);
+    expect(innerReads).toBe(1);
+    expect(innerShells).toBe(2);
   });
 
   it.each(["os.fs.read", "cat", "type", "Get-Content"])("requires approval for %s on the persisted serve key", async (reader) => {
@@ -357,7 +371,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: { stateDir: s.stateDir, files: [
+      stateSecrets: { stateDir: s.stateDir, skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
         ...s.secrets.files,
         ...getStateSecretPaths({
           stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
@@ -381,7 +395,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
 
   it("asks at level 4 for recognizable writes under the global skills directory", async () => {
     await shell({ cmd: "sed -i s/a/b/ ~/.atomic-agent/skills/notes/SKILL.md" });
-    expect(prompts.map(p => p.category)).toEqual(["state_secret"]);
+    expect(prompts.map(p => p.category)).toEqual(["trust_config"]);
     expect(innerShells).toBe(1);
   });
 

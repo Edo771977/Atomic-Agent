@@ -26,6 +26,18 @@ export function getDotenvPath(stateDir: string): string {
   return join(stateDir, ".env");
 }
 
+/** Installed skill roots are write-protected, without secret-read classification. */
+export function getSkillWriteProtectionPaths(paths: {
+  stateDir: string;
+  globalSkillsDir?: string;
+}): readonly string[] {
+  const shared = sharedAgentSkillsDir();
+  return [
+    (paths.globalSkillsDir ?? join(paths.stateDir, "skills")) + sep,
+    ...(shared === null ? [] : [shared + sep]),
+  ];
+}
+
 /**
  * The agent's own trust surface: `config.json` (holds
  * `agent.approvalLevel`), `.env` (API keys / bot tokens loaded at
@@ -74,8 +86,7 @@ export function getTrustConfigPaths(paths: {
     // write there could approve a gate or forge a run.
     join(paths.stateDir, "project-decisions") + sep,
     // Skill bodies can become durable instructions in every project.
-    (paths.globalSkillsDir ?? join(paths.stateDir, "skills")) + sep,
-    sharedAgentSkillsDir()! + sep,
+    ...getSkillWriteProtectionPaths(paths),
     // Drafts and activation records are operator-owned.
     join(paths.stateDir, "learned-projects") + sep,
     join(paths.stateDir, "receipts") + sep,
@@ -91,7 +102,7 @@ export function isTrustDirectoryEntry(entry: string): boolean {
 
 /**
  * Every file in the agent's state that holds a secret or the trust
- * config: the trust surface above (including the server keys), plus the session
+ * config: the trust surface above (including the server keys, excluding installed skill roots), plus the session
  * records Atomic Chat Core writes with their per-session key
  * (`coreSessionPath`), the cached Atomic Mail session
  * (`resolveSessionPath`) and the folder of saved prompt caches
@@ -111,8 +122,9 @@ export function getStateSecretPaths(paths: {
   localModelsDataDir: string;
   globalSkillsDir?: string;
 }): readonly string[] {
+  const skillWritePaths = getSkillWriteProtectionPaths(paths);
   return [
-    ...getTrustConfigPaths(paths),
+    ...getTrustConfigPaths(paths).filter((path) => !skillWritePaths.includes(path)),
     join(paths.localModelsDataDir, "core", "chat.json"),
     join(paths.localModelsDataDir, "core", "embedding.json"),
     join(paths.stateDir, "atomic-mail", "session.json"),

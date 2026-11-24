@@ -31,6 +31,7 @@ import {
 } from "./read-scope-targets.js";
 import {
   findShellStateSecrets,
+  findShellSkillWrites,
   findStateSecretReads,
   stateSecretReadPrompt,
   stateSecretShellPrompt,
@@ -157,6 +158,13 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
         mutatesKey ? "trust_config" : "state_secret",
       );
     }
+    const skillWrites = secrets === null ? [] : findShellSkillWrites(args, ctx, secrets, options.shellEnv);
+    if (skillWrites.length > 0) {
+      await asker.confirmStateSecret(tool, ctx, {
+        reason: "Change protected installed skills",
+        preview: shellCommandLine(args),
+      }, skillWrites, "trust_config");
+    }
     if (!scoped()) return null;
     if (isFusionWorkerSessionId(ctx.sessionId)) {
       // A worker's world is its task's directories, and there is
@@ -165,7 +173,7 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
       const outside = findShellPathOutsideScope(
         args,
         ctx,
-        [ctx.workingDir, ...granted, ...secretPaths],
+        [ctx.workingDir, ...granted, ...secretPaths, ...skillWrites],
         options.shellEnv,
       );
       return outside === null
