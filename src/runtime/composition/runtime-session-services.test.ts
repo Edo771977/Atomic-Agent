@@ -1,3 +1,5 @@
+import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
+import { createIncognitoSessions } from "../incognito-sessions.js";
 import { createRuntimeTaskStores } from "./runtime-task-services.js";
 import { traceFilePath } from "../../tracing/trace/trace-sink.js";
 import { privacyVaultFor, forgetPrivacyVault } from "../../privacy/index.js";
@@ -145,6 +147,114 @@ describe("runtime session phases", () => {
     stores.push(second);
     expect(second.load("s-dead")).toBeNull();
     expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false);
+  });
+
+  it("retries a failed private trace removal after the chat is gone", async () => {
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(recordTurn(sessions.createEmptySessionState({
+      id: "s-dead", workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }), userTurn("private")));
+    seeded.close();
+    const trace = traceFilePath(config.paths.tracesDir, "s-dead");
+    // A directory makes the non-recursive removal fail.
+    await mkdir(trace, { recursive: true });
+    const first = await open();
+    expect(first.load("s-dead")).toBeNull();
+    expect(existsSync(trace)).toBe(true);
+
+    await rm(trace, { recursive: true });
+    await writeFile(trace, "private trace");
+    const second = await open();
+    expect(second.load("s-dead")).toBeNull();
+    expect(existsSync(trace)).toBe(false);
+  });
+
+  it("keeps the new ordinary chat's artifacts when an ID with a pending marker is reused", async () => {
+    const id = "s-reused";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(recordTurn(sessions.createEmptySessionState({
+      id, workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }), userTurn("private")));
+    seeded.close();
+    const trace = traceFilePath(config.paths.tracesDir, id);
+    await mkdir(trace, { recursive: true });
+    const first = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(first);
+    expect(first.load(id)).toBeNull();
+    await rm(trace, { recursive: true });
+
+    first.save(recordTurn(sessions.createEmptySessionState({ id, workingDir: dir }), userTurn("ordinary")));
+    await writeFile(trace, "ordinary trace");
+    const file = join(dir, "ordinary.txt");
+    await writeFile(file, "ordinary content");
+    await checkpoints.capture(id, file, "os.fs.write");
+    const second = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(second);
+    expect(second.load(id)).not.toBeNull();
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+    second.delete(id);
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+  });
+
+  it("retries a private trace and file checkpoints that could not be removed on close", async () => {
+    const id = "s-closed";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const store = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(store);
+    installRuntimeSessionDelete(store, vi.fn(), { endSession: vi.fn() }, undefined, checkpoints,
+      { tracesDir: config.paths.tracesDir, logger });
+    store.save(recordTurn(sessions.createEmptySessionState({
+      id, workingDir: dir, incognito: store.newIncognitoMark(),
+    }), userTurn("private")));
+    const file = join(dir, "private.txt");
+    await writeFile(file, "private content");
+    await checkpoints.capture(id, file, "os.fs.write");
+    const trace = traceFilePath(config.paths.tracesDir, id);
+    await mkdir(trace, { recursive: true });
+    const removing = vi.spyOn(checkpoints, "removeSession").mockRejectedValue(new Error("checkpoint busy"));
+    const incognito = createIncognitoSessions({ sessionStore: store, tracesDir: undefined, isBusy: () => false, logger });
+    expect(incognito.discard(id)).toBe("deleted");
+    expect(store.load(id)).toBeNull();
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+    await vi.waitFor(() => expect(removing).toHaveBeenCalledWith(id));
+    removing.mockRestore();
+
+    await rm(trace, { recursive: true });
+    await writeFile(trace, "private trace");
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
+    expect(existsSync(trace)).toBe(false);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(false);
+  });
+
+  it.each(["fusion", "spill"] as const)("retries a failed private %s removal after boot", async (artifact) => {
+    const id = "s-dead";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const spill = new ToolOutputSpill({ baseDir: join(dir, "spill") });
+    const fusion = new FusionRunStore({ dir: join(dir, FUSION_RUNS_DIR_NAME) });
+    const run = fusion.start({ sessionId: id, workingDir: dir, args: { tasks: [] }, tasks: [], waveCount: 1 });
+    run.finish("interrupted");
+    await spill.spill("os.shell.run", id, compressToolResult({
+      tool: "os.shell.run", status: "ok", output: "private content\n".repeat(5000),
+    }));
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(sessions.createEmptySessionState({ id, workingDir: dir, incognito: seeded.newIncognitoMark() }));
+    seeded.close();
+    const removal = artifact === "fusion"
+      ? vi.spyOn(FusionRunStore.prototype, "removeForSession").mockImplementationOnce(() => { throw new Error("busy"); })
+      : vi.spyOn(spill, "removeSession").mockImplementationOnce(() => { throw new Error("busy"); });
+    const exists = () => artifact === "fusion" ? fusion.load(run.runId) !== null : existsSync(spill.dirFor(id));
+    const first = await prepareRuntimeSessionStore(config, logger, checkpoints, spill);
+    stores.push(first);
+    expect(first.load(id)).toBeNull();
+    expect(exists()).toBe(true);
+    removal.mockRestore();
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints, spill));
+    expect(exists()).toBe(false);
   });
 
   it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {

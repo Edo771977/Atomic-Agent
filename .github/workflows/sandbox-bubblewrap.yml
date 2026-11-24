@@ -84,26 +84,37 @@ jobs:
           if [[ "$TEST_MODE" == root ]]; then
             runner=(sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1 "ATOMIC_AGENT_TEST_NIX_STORE=$ATOMIC_AGENT_TEST_NIX_STORE" "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node")
           fi
-          # Report cold filesystem cost separately from the existing warm test budget.
+          # Report asynchronous cold inventory and the subsequent live checks.
           "${runner[@]}" --import tsx --input-type=module - <<'JS'
           import { spawnSync } from "node:child_process";
-          import { mkdtempSync, rmSync } from "node:fs";
+          import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
           import { join } from "node:path";
           import { tmpdir } from "node:os";
-          import { buildOsSandboxEnv, buildOsSandboxPolicy, wrapWithOsSandbox } from "./src/sandbox/os-sandbox.ts";
+          import { buildOsSandboxEnv, buildOsSandboxPolicy, warmLinuxSystemInventory, wrapWithOsSandbox } from "./src/sandbox/os-sandbox.ts";
 
           const cwd = mkdtempSync(join(tmpdir(), "atomic-cold-"));
           try {
-            const started = performance.now();
-            const policy = buildOsSandboxPolicy({ workspaceRoots: [cwd], network: false });
-            const built = performance.now();
-            const launch = wrapWithOsSandbox("/bin/ls", [], policy, { cwd });
-            const prepared = performance.now();
-            if (!launch.ok) throw new Error(launch.reason);
-            const child = spawnSync(launch.command, launch.args, { cwd, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
-            if (child.status !== 0) throw new Error(child.stderr || String(child.error));
-            const times = [built - started, prepared - built, performance.now() - prepared];
-            console.info("Safe Mode cold phase ms (policy/wrap/spawn): " + times.map(value => value.toFixed(1)).join("/"));
+            mkdirSync(join(cwd, ".git"));
+            for (let i = 0; i < 80; i++) mkdirSync(join(cwd, String(i)));
+            const coldStart = performance.now();
+            await warmLinuxSystemInventory();
+            console.info("Safe Mode cold system warmup ms: " + (performance.now() - coldStart).toFixed(1));
+            for (const label of ["first", "warm"]) {
+              const phases = { mounts: 0, git: 0, systemFind: 0, systemFallback: 0, workspaceFind: 0, workspaceFallback: 0 };
+              const started = performance.now();
+              const policy = buildOsSandboxPolicy({ workspaceRoots: [cwd], network: false });
+              const built = performance.now();
+              const launch = wrapWithOsSandbox("/bin/ls", [], policy, {
+                cwd, onInventoryTiming: (phase, elapsedMs) => { phases[phase] = elapsedMs; },
+              });
+              const prepared = performance.now();
+              if (!launch.ok) throw new Error(launch.reason);
+              const child = spawnSync(launch.command, launch.args, { cwd, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+              if (child.status !== 0) throw new Error(child.stderr || String(child.error));
+              const timings = { policy: built - started, wrap: prepared - built, spawn: performance.now() - prepared, ...phases };
+              console.info(`Safe Mode ${label} phase ms: ${JSON.stringify(timings, (_, value) =>
+                typeof value === "number" ? Number(value.toFixed(2)) : value)}`);
+            }
           } finally {
             rmSync(cwd, { recursive: true, force: true });
           }

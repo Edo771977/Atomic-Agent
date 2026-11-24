@@ -35,7 +35,9 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
     { roleLeg: true, target: "other", expected: true },
     { roleLeg: true, target: "role-model", expected: false },
     { roleLeg: true, target: null, expected: false },
-  ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target", async ({ roleLeg, target, expected }) => {
+    { roleLeg: true, target: "other", expected: false, unknownWorker: true },
+    { roleLeg: true, target: null, expected: false, knownWorker: true },
+  ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target, unknownWorker=$unknownWorker, knownWorker=$knownWorker", async ({ roleLeg, target, expected, unknownWorker, knownWorker }) => {
     const budget = new FusionTurnBudget();
     budget.begin("s-parent");
     const providers: Array<string | undefined> = [];
@@ -68,7 +70,7 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
         ...mode(),
         escalation: { ...mode().escalation!, model: target, ...(target === null ? {} : { pinModel: target }) },
         ...(roleLeg ? { roles: { byRole: {
-          review: { providerId: "third", model: target === null ? null : "role-model", local: false },
+          review: { providerId: "third", model: (target === null && !knownWorker) || unknownWorker ? null : "role-model", local: false },
         }, mixLocalModels: false, localLegProviderIds: [] } } : {}),
       }),
       workerSupportsSlotAffinity: () => false,
@@ -104,15 +106,16 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
 it.each([
   { withTeam: false, unknownJudge: false },
   { withTeam: true, unknownJudge: false },
+  { withTeam: true, unknownJudge: false, retry: true },
   { withTeam: false, unknownJudge: true },
-])("keeps the replacement independent from its reviewer (team=$withTeam, unknownJudge=$unknownJudge)", async ({ withTeam, unknownJudge }) => {
+])("keeps the replacement independent from its reviewer (team=$withTeam, unknownJudge=$unknownJudge, retry=$retry)", async ({ withTeam, unknownJudge, retry }) => {
   const reviews: string[] = [];
   const turns: Array<string | undefined> = [];
   const completionModel = "strong";
   const d: FusionDelegateDeps = {
     runTurn: async (_session, _message, options) => {
       turns.push(options.model);
-      if (options.model !== completionModel) {
+      if (turns.length === 1) {
         for (let i = 0; i < 6; i += 1) {
           options.eventHook?.({
             type: "llm_event",
@@ -153,6 +156,9 @@ it.each([
     escalationComplete: async ({ providerId, model, prompt }) => {
       if (prompt.startsWith("You are advising")) return { content: "Try a different approach" };
       reviews.push(`${providerId}:${model}`);
+      if (retry && reviews.length === 1) {
+        return { content: '{"decision":"needs-changes","issues":[{"item":"a1","file":"report.md","severity":"major","why":"Report is incomplete"}]}' };
+      }
       return { content: '{"decision":"accept","issues":[]}', ...(model === undefined ? {} : { model }) };
     },
     steerWorker: () => true,
@@ -161,8 +167,8 @@ it.each([
     { tasks: [{ id: "w", instructions: "Review the report" }] },
     { workingDir: "/repo", sessionId: "s-parent", stepIndex: 0, signal: new AbortController().signal },
   );
-  expect(turns).toEqual(["small", "strong"]);
-  expect(reviews).toEqual(withTeam ? ["other:reviewer"] : []);
+  expect(turns).toEqual(retry ? ["small", "strong", "small"] : ["small", "strong"]);
+  expect(reviews).toEqual(retry ? ["other:reviewer", "other:reviewer"] : withTeam ? ["other:reviewer"] : []);
   if (!withTeam) expect(result.details.tasks).toMatchObject([
     { judge: { unverified: expect.stringContaining("independent") } },
   ]);

@@ -1,3 +1,4 @@
+import { readOsSandboxSettings, warmLinuxSystemInventory } from "../sandbox/os-sandbox.js";
 import { SecretKeychain } from "../config/secret-store.js";
 import { writeMilestoneReportReceipt } from "../session/project-milestone-receipt.js";
 import { createProjectReceiptWriter } from "../session/project-receipts.js";
@@ -147,6 +148,7 @@ export async function createAgentRuntime(
   options: CreateAgentRuntimeOptions,
 ): Promise<AgentRuntime> {
   const config = getConfig();
+  const sandboxWarmup = readOsSandboxSettings().mode === "workspace" ? warmLinuxSystemInventory() : undefined;
   // Before anything can make a request: Node's global `fetch` applies a
   // 300 s deadline of its own under every AbortSignal this codebase
   // arms, which made `firstTokenTimeoutMs`, `streamTotalTimeoutMs`, the
@@ -429,9 +431,14 @@ export async function createAgentRuntime(
     parentsFor: (id) => fusionWorkerParents(id, (sid) => sessionReadTaint.liveSession(sid)?.metadata),
   });
   toolOutputSpill.sweepStale();
+  // Checkpoints of fan-outs (ATO-617), so one cut off by a restart can be
+  // resumed. Files, not a table: see `run-checkpoint.ts`.
+  const fusionRuns = new FusionRunStore({
+    dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME),
+  });
   installRuntimeSessionDelete(
     sessionStore, dropRecorder, shellJobs, toolOutputSpill,
-    fileCheckpoints,
+    fileCheckpoints, { tracesDir: config.paths.tracesDir, logger, fusionRuns },
   );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
@@ -567,11 +574,6 @@ export async function createAgentRuntime(
   const turnUsageMeter = new TurnUsageMeter({ onRecord: fusionOutcomes.onUsageRecord });
   const fusionTurnBudget = new FusionTurnBudget();
   const fusionLiveWorkers = new FusionLiveWorkers();
-  // Checkpoints of fan-outs (ATO-617), so one cut off by a restart can be
-  // resumed. Files, not a table: see `run-checkpoint.ts`.
-  const fusionRuns = new FusionRunStore({
-    dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME),
-  });
   // What past fan-outs showed on this machine (ATO-949): one line per
   // finished worker task, summarized into the `### fusion` facts once
   // per session start. `llm.runMode.fusion.outcomeJournal: false` turns
@@ -1137,7 +1139,7 @@ export async function createAgentRuntime(
   // ATO-586: an incognito chat closed mid-turn is deleted once the turn
   // has left the queue (`isBusy` is still true inside `executeTurn`).
   const incognitoSessions = createIncognitoSessions({
-    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore, fusionRuns,
+    sessionStore, tracesDir: undefined, isBusy: (id) => turnController.isBusy(id), logger, taskStore,
     // ATO-586: keep the chat's prompt out of the managed server's disk cache.
     promptCache: {
       markPrivate: () => { markPromptCachePrivate(config.paths.localModelsDataDir); },
@@ -1455,6 +1457,9 @@ export async function createAgentRuntime(
     get: () => effectiveToolDescriptors(),
   });
 
+  // The child warmed system metadata while the rest of the runtime initialized.
+  // Wait before channels or the scheduler can dispatch the first command.
+  if (sandboxWarmup !== undefined) await sandboxWarmup;
   connectRuntimeChannels({
     runtime, config, logger, metrics, approvals, approvalRouter, options,
     connectTelegram: (channel) => { telegramChannelForShutdown = channel; },
