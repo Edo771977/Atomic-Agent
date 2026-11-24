@@ -1587,13 +1587,20 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
-      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean =>
-        escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
-        (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
-          leg.pinModel === undefined && leg.model === leg.providerId ? leg.providerId : `${leg.providerId}:${leg.model}`,
-          `${escalationTarget.providerId}:${escalationTarget.pinModel ?? escalationTarget.model ?? "default"}`,
+      const isUnknownDefault = (model: string | null): boolean => model === null || model === "default";
+      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean => {
+        if (escalationTarget === null || escalationTarget.providerId !== leg.providerId) return false;
+        if (deps.workerSupportsSlotAffinity(leg.providerId)) return true;
+        const workerModel = leg.pinModel ?? (leg.model === leg.providerId ? null : leg.model);
+        const targetModel = escalationTarget.pinModel ?? escalationTarget.model;
+        if (deps.resolveDefaultModel?.(leg.providerId) === undefined &&
+            (isUnknownDefault(workerModel) || isUnknownDefault(targetModel))) return true;
+        return sameMember(
+          `${leg.providerId}:${workerModel ?? "default"}`,
+          `${leg.providerId}:${targetModel ?? "default"}`,
           deps.resolveDefaultModel,
-        ));
+        );
+      };
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;
       const escalationPricing =
         escalationTarget === null || escalationModel === undefined
@@ -2150,6 +2157,7 @@ export function buildFusionDelegateTool(
         run?.addSpend(usd);
         turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
       };
+      const replacementAuthors = new Map<string, NonNullable<WorkerTaskResult["escalationRerun"]>[]>();
       const isReplacementAuthor = (
         rerun: WorkerTaskResult["escalationRerun"],
         providerId: string,
@@ -2158,7 +2166,6 @@ export function buildFusionDelegateTool(
         if (rerun === undefined || providerId !== rerun.providerId) return false;
         if (deps.workerSupportsSlotAffinity(providerId)) return true;
         // A default we cannot identify on the same provider might be the author.
-        const isUnknownDefault = (value: string | null): boolean => value === null || value === "default";
         if (deps.resolveDefaultModel?.(providerId) === undefined &&
             (isUnknownDefault(model) || (isUnknownDefault(rerun.model) && isUnknownDefault(rerun.requestedModel)))) {
           return true;
@@ -2185,9 +2192,9 @@ export function buildFusionDelegateTool(
           : pickVisionJudge({
               taskReviewer: asMember(target),
               reviewers: team?.reviewers ?? [],
-              sees: (m) => !isReplacementAuthor(input.escalationRerun, m.providerId,
+              sees: (m) => !replacementAuthors.get(input.task.id)?.some(author => isReplacementAuthor(author, m.providerId,
                 (team?.pinsModel(m.providerId) ?? teamContext?.pinsModel(m.providerId) ?? true)
-                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null) &&
+                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null)) &&
                 currentPolicyAllows(m.providerId) && vj.sees(m),
               route: () => vj.route(),
             });
@@ -2229,14 +2236,25 @@ export function buildFusionDelegateTool(
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
         let target = judgeTargetFor(input.task.id);
-        const author = input.escalationRerun;
+        // A review retry can edit the same work without another escalation.
+        // Keep every replacement author for all subsequent reviews of this task.
+        const authors = replacementAuthors.get(input.task.id) ?? [];
+        const rerun = input.escalationRerun;
+        if (rerun !== undefined && !authors.some(author => author.providerId === rerun.providerId &&
+            author.model === rerun.model && author.requestedModel === rerun.requestedModel)) {
+          authors.push(rerun);
+          replacementAuthors.set(input.task.id, authors);
+        }
         const plannedReviewer = taskReviewerOf(input.task.id).member;
-        if (author !== undefined && target !== null && isReplacementAuthor(author, target.providerId,
-          plannedReviewer === null ? target.pinModel ?? target.model : teamReviewerModel(plannedReviewer))) {
+        const originalTarget = target;
+        const author = originalTarget === null ? undefined : authors.find(candidate =>
+          isReplacementAuthor(candidate, originalTarget.providerId,
+            plannedReviewer === null ? originalTarget.pinModel ?? originalTarget.model : teamReviewerModel(plannedReviewer)));
+        if (author !== undefined) {
           const model = author.model ?? "default";
           const reviewer = team?.reviewerFor(
             { providerId: author.providerId, model, ref: `${author.providerId}:${model}` },
-            member => !isReplacementAuthor(author, member.providerId, teamReviewerModel(member)),
+            member => !authors.some(candidate => isReplacementAuthor(candidate, member.providerId, teamReviewerModel(member))),
           ) ?? null;
           target = reviewer === null ? null : {
             providerId: reviewer.providerId,

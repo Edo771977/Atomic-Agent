@@ -11,9 +11,24 @@ import { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-checkpoint-store.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
-import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
+import { removeIncognitoTrace, sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
 import { forgetPrivacyVault } from "../../privacy/index.js";
+
+/** Try each private artifact even when another one is temporarily locked. */
+function removeIncognitoCompanionArtifacts(
+  id: string,
+  traceRemoved: boolean,
+  fusionRuns?: Pick<FusionRunStore, "removeForSession">,
+  outputSpill?: Pick<ToolOutputSpill, "removeSession">,
+): void {
+  try {
+    fusionRuns?.removeForSession(id, true);
+  } finally {
+    outputSpill?.removeSession(id, true);
+  }
+  if (!traceRemoved) throw new Error("incognito trace removal failed");
+}
 
 /** The fusion project store every runtime surface shares (issue #109). */
 export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectStore {
@@ -70,18 +85,18 @@ export async function prepareRuntimeSessionStore(
   // At boot, remove abandoned incognito chats and the state they own.
   const fusionRuns = new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) });
   await fileCheckpoints.retryIncognitoRemovals(error => {
-    logger.warn("could not retry incognito file checkpoint removal", {
+    logger.warn("could not retry incognito artifact removal", {
       error: error instanceof Error ? error.message : String(error),
     });
-  });
+  }, id => {
+    const traceRemoved = !config.paths.tracesDir || removeIncognitoTrace(config.paths.tracesDir, id);
+    removeIncognitoCompanionArtifacts(id, traceRemoved, fusionRuns, outputSpill);
+  }, id => !sessionStore.hasSession(id));
   const { retained } = await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },
-    async (id) => {
-      fusionRuns.removeForSession(id);
-      outputSpill.removeSession(id);
-      await fileCheckpoints.removeIncognitoSession(id);
-    },
+    (id, traceRemoved) => fileCheckpoints.removeIncognitoSession(id,
+      () => removeIncognitoCompanionArtifacts(id, traceRemoved, fusionRuns, outputSpill)),
   );
   onRetainedIncognito?.(retained);
   // `sessions.sqlite` and the traces beside it are the only state this
@@ -145,11 +160,17 @@ export async function prepareRuntimeSessionStore(
 }
 
 export function installRuntimeSessionDelete(
-  sessionStore: Pick<SessionStore, "delete">,
+  sessionStore: Pick<SessionStore, "delete"> & Partial<Pick<SessionStore, "isIncognito">>,
   dropRecorder: ReturnType<typeof createRuntimeTraces>["dropRecorder"],
   shellJobs: Pick<ShellJobRegistry, "endSession">,
   outputSpill?: Pick<ToolOutputSpill, "removeSession">,
-  fileCheckpoints?: Pick<FileCheckpointStore, "removeSession">,
+  fileCheckpoints?: Pick<FileCheckpointStore, "removeSession"> &
+    Partial<Pick<FileCheckpointStore, "markIncognitoRemoval" | "finishIncognitoRemoval">>,
+  incognito?: {
+    tracesDir: string | null | undefined;
+    logger: Pick<StructuredLogger, "warn">;
+    fusionRuns?: Pick<FusionRunStore, "removeForSession">;
+  },
 ) {
   // Drop a session's trace recorder — and stop its detached shell jobs,
   // kept ones included — when the session itself is deleted, so the map
@@ -163,13 +184,23 @@ export function installRuntimeSessionDelete(
     SHARED_URL_SEND_SITES.clearSession(id);
     // The full outputs its clipped results were saved to (ATO-663).
     // Best effort and never throws.
-    outputSpill?.removeSession(id);
     // The copies of files taken before the chat's edits (ATO-1501): they
     // can hold what the user's files said before, so they leave with the
     // chat instead of waiting for the 30-day sweep. Best effort, async,
     // and never throws into the delete.
-    if (fileCheckpoints) {
-      void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
+    if (incognito && sessionStore.isIncognito?.(id) &&
+        fileCheckpoints?.markIncognitoRemoval && fileCheckpoints.finishIncognitoRemoval) {
+      fileCheckpoints.markIncognitoRemoval(id);
+      const traceRemoved = !incognito.tracesDir || removeIncognitoTrace(incognito.tracesDir, id);
+      void fileCheckpoints.finishIncognitoRemoval(id,
+        () => removeIncognitoCompanionArtifacts(id, traceRemoved, incognito.fusionRuns, outputSpill),
+      ).catch(error => incognito.logger.warn("could not remove artifacts of a closed incognito chat", {
+        sessionId: id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    } else {
+      outputSpill?.removeSession(id);
+      if (fileCheckpoints) void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
     // Its Privacy Shield placeholders (ATO-1083), memory only.

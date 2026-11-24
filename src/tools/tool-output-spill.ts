@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { lstatSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { lstatSync, mkdirSync, readdirSync, rmdirSync, rmSync, statSync } from "node:fs";
 import { writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
@@ -220,16 +220,33 @@ export class ToolOutputSpill {
   }
 
   /** Remove one session's folder. Best effort. */
-  removeSession(sessionId: string): void {
+  removeSession(sessionId: string, strict = false): void {
     this.used.delete(sessionId);
     this.counters.delete(sessionId);
     this.stamped.delete(sessionId);
     const base = this.baseDir ?? toolOutputBaseDir();
-    if (!isOwnPlainDir(base)) return;
+    if (!isOwnPlainDir(base, strict)) return;
     // Only a folder whose marker names this session; anything else under
     // its name is left to the stale sweep.
-    if (!spillMarkerNames(this.dirFor(sessionId), sessionId)) return;
-    removeInside(base, this.dirFor(sessionId));
+    const dir = this.dirFor(sessionId);
+    if (!isOwnPlainDir(dir, strict)) return;
+    const marker = tempCopyMarkerPath("spill", dir);
+    if (readTempCopyMarkerAt(marker, "spill", strict)?.sessionId !== sessionId) return;
+    if (!strict) {
+      removeInside(base, dir);
+      return;
+    }
+    // Keep the ownership marker until all private contents are gone.
+    try {
+      for (const name of readdirSync(dir)) {
+        const entry = join(dir, name);
+        if (entry !== marker) rmSync(entry, { recursive: true, force: true, maxRetries: 3 });
+      }
+      rmSync(marker, { force: true });
+      rmdirSync(dir);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
   }
 
   /** Remove session folders not touched for `maxAgeMs`. Best effort; returns how many went. */
@@ -325,13 +342,14 @@ export class ToolOutputSpill {
 }
 
 /** A real directory (not a link) owned by this process's user. */
-function isOwnPlainDir(path: string): boolean {
+function isOwnPlainDir(path: string, strict = false): boolean {
   try {
     const info = lstatSync(path);
     if (!info.isDirectory() || info.isSymbolicLink()) return false;
     const uid = process.getuid?.();
     return uid === undefined || info.uid === uid;
-  } catch {
+  } catch (error) {
+    if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return false;
   }
 }

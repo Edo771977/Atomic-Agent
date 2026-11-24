@@ -8,6 +8,7 @@ import { createEmptySessionState, recordTurn } from "../session/session-state.js
 import { userTurn } from "../session/conversation-turn.js";
 import type { TurnOwnerProbe } from "../session/turn-owner.js";
 import { StructuredLogger, type LogRecord } from "../tracing/structured-logger.js";
+import { TaskRunner } from "../tasks/task-runner.js";
 import { TaskStore } from "../tasks/task-store.js";
 import {
   createIncognitoSessions,
@@ -92,6 +93,42 @@ describe("incognito sessions in the runtime", () => {
     expect(existsSync(trace("s-secret"))).toBe(false);
   });
 
+  it("purges the prompt and run history when closing during a recurring task turn", async () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    const tasks = new TaskStore({ dbFile: join(dir, "tasks.sqlite") });
+    try {
+      const closed = tasks.create({ sessionId: "s-secret", userMessage: "private", origin: "cli", maxAttempts: 1 });
+      tasks.markRunning(closed.id);
+      tasks.markFailed(closed.id, { category: "tool", message: "private failure" });
+      const recurring = tasks.create({
+        sessionId: "s-secret", userMessage: "private recurring", origin: "cli", maxAttempts: 1,
+        schedule: { kind: "interval", everyMs: 60_000 },
+      });
+      let busy = false;
+      const sessions = createIncognitoSessions({ sessionStore: store, tracesDir, isBusy: () => busy, logger, taskStore: tasks });
+      const runner = new TaskRunner({
+        store: tasks, sessionLoader: store, defaultMaxSteps: 5,
+        backoff: { initialMs: 1, maxMs: 10 }, enabled: true, runOnCreate: false,
+        runtime: { runTurn: async session => {
+          busy = true;
+          expect(sessions.discard(session.id)).toBe("deferred");
+          busy = false;
+          sessions.settle(session.id);
+          return { session, reason: "reply", stepCount: 1 };
+        } },
+      });
+      await runner.runOne(recurring.id);
+      expect(store.load("s-secret")).toBeNull();
+      expect(tasks.get(closed.id)).toBeNull();
+      expect(tasks.get(recurring.id)).toBeNull();
+      expect(tasks.listRuns(closed.id)).toEqual([]);
+      expect(tasks.listRuns(recurring.id)).toEqual([]);
+    } finally {
+      tasks.close();
+    }
+  });
+
   it("settle leaves sessions nobody discarded alone", () => {
     const store = open(1);
     save(store, "s-secret", true);
@@ -158,6 +195,54 @@ describe("incognito sessions in the runtime", () => {
     expect(liveRunner.get(killed)).toBeNull();
     expect(liveRunner.get(held)).toBeNull();
     liveRunner.close();
+  });
+
+  it("blocks later claims by a live runner that saved someone else's orphan chat", async () => {
+    alive.add(10).add(20);
+    save(open(10), "s-dead", true);
+    const runnerSessions = open(20);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({
+      dbFile, ownerProbe: probe(20, alive),
+      skipSession: id => runnerSessions.isOrphanIncognito(id),
+    });
+    try {
+      const create = (scheduled = false) => tasks.create({
+        sessionId: "s-dead", userMessage: "private", origin: "cli", maxAttempts: 1,
+        ...(scheduled ? { schedule: { kind: "interval" as const, everyMs: 60_000 } } : {}),
+      });
+      const held = create(true);
+      const pending = create();
+      expect(tasks.markRunning(held.id)?.status).toBe("running");
+      runnerSessions.save(runnerSessions.load("s-dead")!);
+      alive.delete(10);
+      expect(await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, dbFile, {
+        ownerProbe: probe(30, alive),
+      })).toEqual({ deleted: [], retained: ["s-dead"] });
+      expect(tasks.listDue(Date.now() + 120_000)).toEqual([]);
+      expect(tasks.markRunning(pending.id)).toBeNull();
+      expect(tasks.get(held.id)?.status).toBe("running");
+      const now = Date.now();
+      expect(tasks.markInterrupted(held.id, { nextScheduledFor: now + 60_000 }, now)?.status).toBe("pending");
+      expect(tasks.listDue(now + 120_000)).toEqual([]);
+      expect(tasks.markRunning(held.id, now + 120_000)).toBeNull();
+    } finally {
+      tasks.close();
+    }
+  });
+
+  it("rejects an old incognito mark with the same PID and no process start token", () => {
+    alive.add(20);
+    const prior = open(20);
+    save(prior, "s-old", true);
+    const current = open(20);
+    save(current, "s-current", true);
+    expect(current.isOrphanIncognito("s-current")).toBe(false);
+    // Loading and saving a previous process's row must not adopt its mark.
+    current.save(current.load("s-old")!);
+    expect(current.isOrphanIncognito("s-old")).toBe(true);
+    current.save(current.load("s-current")!);
+    expect(current.isOrphanIncognito("s-current")).toBe(false);
   });
 
   it("erases run history for purged private tasks and keeps ordinary history", async () => {
