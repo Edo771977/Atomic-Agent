@@ -243,7 +243,7 @@ describe("operator memory routes", () => {
     expect(harness.runtime.profileStore.list()).toEqual([]);
   });
 
-  it.each(["[redacted]", "[redacted:embedding-key]", "left\\u{202E}right", "left\u202eright"])
+  it.each(["left\\u{202E}right", "left\u202eright", "\u200b", "\u{E0061}", "\uE000"])
     ("rejects display text copied into a memory PATCH: %s", async (text) => {
       for (const [path, body] of [
         [`/api/memory/notes/${noteId}`, { text }],
@@ -257,6 +257,22 @@ describe("operator memory routes", () => {
       }
       expect(harness.runtime.notesStore.get(noteId)?.content).toBe("Visible note");
       expect(harness.runtime.profileStore.get("city")?.value).toBe("Rome");
+    });
+
+  it.each(["family 👨‍👩‍👧", "می‌خواهم", "soft\u00adhyphen", "[redacted]", "regex \\u{1F600}"])
+    ("allows literal memory edits: %s", async (text) => {
+      for (const [path, body] of [
+        [`/api/memory/notes/${noteId}`, { text }],
+        ["/api/memory/profile/city", { value: text }],
+      ] as const) {
+        const response = await fetch(harness.baseUrl + path, {
+          method: "PATCH", headers: { authorization: "Bearer admin-test-token", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(200);
+      }
+      expect(harness.runtime.notesStore.get(noteId)?.content).toBe(text);
+      expect(harness.runtime.profileStore.get("city")?.value).toBe(text);
     });
 
   it("logs dispatch failures without returning or logging exception text", async () => {

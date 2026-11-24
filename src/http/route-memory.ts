@@ -140,7 +140,9 @@ export function createEditMemoryNoteHandler(): HttpHandler {
       sendError(res, 400, openaiError("text must be a string"));
       return;
     }
-    if (!isEditableMemoryText(body.text)) {
+    const current = ctx.runtime.notesStore.get(id);
+    const displayed = current ? operatorMemoryPayload(current.content, ctx) as string : undefined;
+    if (!isEditableMemoryText(body.text, current?.content, displayed)) {
       return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
     }
     let note: NoteJson | null;
@@ -225,6 +227,11 @@ export function createEditProfileFactHandler(): HttpHandler {
       if (current === null) {
         sendError(res, 404, openaiError(`profile fact not found: ${key}`));
         return;
+      }
+      const displayed = safeOperatorFact(current)
+        ? operatorMemoryPayload(current.value, ctx) as string : "[redacted]";
+      if (!isEditableMemoryText(body.value, current.value, displayed)) {
+        return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
       }
       const fact = store.set(current.key, body.value, {
         pinned: current.pinned,
