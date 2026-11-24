@@ -1,5 +1,5 @@
 import { createSetupPrompter } from "../cli/setup-terminal-prompt.js";
-import { readOsSandboxSettings } from "../sandbox/os-sandbox.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings } from "../sandbox/os-sandbox.js";
 import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { applyWindowsSandboxGrant, hasWindowsSandboxGrants, planWindowsSandbox } from "../sandbox/windows-sandbox.js";
 
@@ -19,7 +19,8 @@ export async function runWindowsSandboxStartup(
       return;
     }
 
-    const plan = planWindowsSandbox(stateDir, workingDir, protectedPaths);
+    const policy = buildOsSandboxPolicy({ workspaceRoots: [workingDir], stateDir, protectedPaths, network: false });
+    const plan = planWindowsSandbox(stateDir, workingDir, policy.denyRead);
     if (plan === undefined) return;
     const terminal = createSetupPrompter();
     try {

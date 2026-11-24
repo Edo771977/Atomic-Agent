@@ -210,8 +210,10 @@ export function applyWindowsSandboxGrant(plan: WindowsSandboxPlan): void {
   withRegistryLock(plan.state, () => {
     const grants = readGrants(plan.state);
     const previous = grants.find(grant => grant.profile === plan.profile);
-    // Keep previous runtime paths until all entries from that grant have been revoked.
-    const roots = [...new Set([...(previous?.readOnlyRoots ?? []), ...plan.readOnlyRoots])];
+    if (previous !== undefined && JSON.stringify(previous.readOnlyRoots) !== JSON.stringify(plan.readOnlyRoots)) {
+      throw new Error("revoke the existing Windows sandbox grant before changing its runtime roots");
+    }
+    const roots = plan.readOnlyRoots;
     const remaining = grants.filter(grant => grant.profile !== plan.profile);
     const pending: Grant = {
       root: plan.root, profile: plan.profile, sid: previous?.sid ?? null, readOnlyRoots: roots,
@@ -231,7 +233,7 @@ export function revokeWindowsSandbox(statePath: string, selection: string | "--a
   requireOperator();
   if (!existsSync(statePath)) return 0;
   const state = canonical(statePath);
-  const selected = selection === "--all" ? undefined : win32.resolve(selection);
+  const selected = selection === "--all" ? undefined : existsSync(selection) ? canonical(selection) : win32.resolve(selection);
   if (readGrants(state).length === 0) return 0;
   const helper = sandboxHelper();
   initState(state, helper);
@@ -273,6 +275,7 @@ interface WindowsLaunch {
   env?: NodeJS.ProcessEnv;
   timeoutMs?: number;
   verbatim?: boolean;
+  protectedPaths?: readonly string[];
 }
 
 function createWindowsLaunch(command: string, args: readonly string[], root: string, state: string, options: WindowsLaunch): OsSandboxWrap {
@@ -285,7 +288,10 @@ function createWindowsLaunch(command: string, args: readonly string[], root: str
     if (grant?.status !== "granted" || !grant.readOnlyRoots.some(path => path.toLowerCase() === helper.toLowerCase())) {
       return { ok: false, reason: `Windows sandbox grant is missing or incomplete; ${REGRANT}` };
     }
-    if (rootProtected(grant.root, state, helper)) return { ok: false, reason: "Windows sandbox project overlaps protected data or the agent installation" };
+    if (rootProtected(grant.root, state, helper) || [grant.root, ...grant.readOnlyRoots].some(path =>
+      options.protectedPaths?.some(secret => overlaps(path, secret)))) {
+      return { ok: false, reason: "Windows sandbox grant overlaps protected data or the agent installation" };
+    }
     const cwd = canonical(options.cwd);
     if (!inside(root, cwd)) return { ok: false, reason: "working directory is outside the approved Windows sandbox project" };
     const projectFile = scanProject(root, 1).probe;
@@ -321,7 +327,7 @@ export function wrapWindowsSandbox(command: string, args: readonly string[], pol
   if (policy.denyRead.some(path => overlaps(root, path))) {
     return { ok: false, reason: "Windows sandbox project overlaps a protected credential path" };
   }
-  return createWindowsLaunch(command, args, root, policy.stateDir, options);
+  return createWindowsLaunch(command, args, root, policy.stateDir, { ...options, protectedPaths: policy.denyRead });
 }
 
 export function probeWindowsSandbox(root: string, state: string): boolean {
