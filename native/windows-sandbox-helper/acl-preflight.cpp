@@ -16,8 +16,8 @@ static void require(bool succeeded, const char* operation, DWORD error = GetLast
     }
 }
 
-static DWORD checkFile(const wchar_t* name, DWORD disposition) {
-    HANDLE file = CreateFileW(name, disposition == OPEN_EXISTING ? GENERIC_READ : GENERIC_WRITE,
+static DWORD checkFile(const wchar_t* name, DWORD disposition, DWORD access = 0) {
+    HANDLE file = CreateFileW(name, access ? access : (disposition == OPEN_EXISTING ? GENERIC_READ : GENERIC_WRITE),
         FILE_SHARE_READ, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     CloseHandle(file);
@@ -76,23 +76,44 @@ static bool hasLpacAccess(HANDLE token) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-    if (argc == 2 && std::wstring(argv[1]) == L"--child") {
-        DWORD existing = checkFile(L"before", OPEN_EXISTING);
+    if (argc == 3 && std::wstring(argv[1]) == L"--child") {
+        DWORD existing = checkFile(L"deep\\nested\\before", OPEN_EXISTING);
+        DWORD modified = checkFile(L"deep\\nested\\before", OPEN_EXISTING, GENERIC_WRITE);
         DWORD inherited = checkFile(L"after", OPEN_EXISTING);
         DWORD created = checkFile(L"created-by-lpac", CREATE_NEW);
-        std::printf("existing=%lu inherited=%lu created=%lu\n", existing, inherited, created);
-        if (inherited != ERROR_SUCCESS) return 1000 + inherited;
-        if (created != ERROR_SUCCESS) return 2000 + created;
-        if (existing != ERROR_SUCCESS) return 3000 + existing;
-        return 0;
+        DWORD key = checkFile(L"..\\state\\serve-api.key", OPEN_EXISTING);
+        DWORD outside = checkFile(L"..\\state\\outside", OPEN_EXISTING, GENERIC_WRITE);
+        DWORD profileRead = checkFile(argv[2], OPEN_EXISTING);
+        DWORD profileWrite = checkFile(argv[2], OPEN_EXISTING, GENERIC_WRITE);
+        std::printf("existing=%lu modified=%lu inherited=%lu created=%lu key=%lu outside=%lu profileRead=%lu profileWrite=%lu\n",
+            existing, modified, inherited, created, key, outside, profileRead, profileWrite);
+        return existing == ERROR_SUCCESS && modified == ERROR_SUCCESS &&
+            inherited == ERROR_SUCCESS && created == ERROR_SUCCESS &&
+            key == ERROR_ACCESS_DENIED && outside == ERROR_ACCESS_DENIED &&
+            profileRead == ERROR_ACCESS_DENIED && profileWrite == ERROR_ACCESS_DENIED ? 0 : 3;
     }
 
     wchar_t executable[MAX_PATH]{};
     DWORD length = GetModuleFileNameW(nullptr, executable, MAX_PATH);
     require(length > 0 && length < MAX_PATH, "resolve test executable");
     require(CreateDirectoryW(L"fixture", nullptr) != FALSE, "create fixture");
-    require(checkFile(L"fixture\\before", CREATE_NEW) == ERROR_SUCCESS, "create existing file");
-    require(checkFile(L"fixture\\before", OPEN_EXISTING) == ERROR_SUCCESS, "unconfined read");
+    require(CreateDirectoryW(L"fixture\\deep", nullptr) != FALSE, "create nested directory");
+    require(CreateDirectoryW(L"fixture\\deep\\nested", nullptr) != FALSE, "create deep directory");
+    require(CreateDirectoryW(L"state", nullptr) != FALSE, "create synthetic state");
+    require(checkFile(L"fixture\\deep\\nested\\before", CREATE_NEW) == ERROR_SUCCESS, "create existing file");
+    require(checkFile(L"state\\serve-api.key", CREATE_NEW) == ERROR_SUCCESS, "create synthetic key");
+    require(checkFile(L"state\\outside", CREATE_NEW) == ERROR_SUCCESS, "create outside control");
+    wchar_t userProfile[MAX_PATH]{};
+    DWORD profileLength = GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH);
+    require(profileLength > 0 && profileLength < MAX_PATH, "locate user profile");
+    std::wstring profileFile = std::wstring(userProfile) + L"\\atomic-lpac-preflight-" +
+        std::to_wstring(GetCurrentProcessId());
+    require(checkFile(profileFile.c_str(), CREATE_NEW) == ERROR_SUCCESS, "create profile control");
+    require(checkFile(L"fixture\\deep\\nested\\before", OPEN_EXISTING) == ERROR_SUCCESS, "unconfined read");
+    require(checkFile(L"state\\serve-api.key", OPEN_EXISTING) == ERROR_SUCCESS, "unconfined key read");
+    require(checkFile(L"state\\outside", OPEN_EXISTING, GENERIC_WRITE) == ERROR_SUCCESS, "unconfined outside write");
+    require(checkFile(profileFile.c_str(), OPEN_EXISTING) == ERROR_SUCCESS, "unconfined profile read");
+    require(checkFile(profileFile.c_str(), OPEN_EXISTING, GENERIC_WRITE) == ERROR_SUCCESS, "unconfined profile write");
     std::wstring profile = L"AtomicAgent.AclPreflight." + std::to_wstring(GetCurrentProcessId());
     PSID sid = nullptr;
     HRESULT result = CreateAppContainerProfile(profile.c_str(), profile.c_str(), L"ACL preflight",
@@ -117,7 +138,7 @@ int wmain(int argc, wchar_t** argv) {
     startup.StartupInfo.cb = sizeof(startup);
     startup.lpAttributeList = attributes;
     PROCESS_INFORMATION process{};
-    std::wstring command = L"\"" + std::wstring(executable) + L"\" --child";
+    std::wstring command = L"\"" + std::wstring(executable) + L"\" --child \"" + profileFile + L"\"";
     require(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE,
         EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
         "launch LPAC probe");
@@ -157,6 +178,7 @@ int wmain(int argc, wchar_t** argv) {
     HeapFree(GetProcessHeap(), 0, attributes);
     FreeSid(sid);
     DeleteAppContainerProfile(profile.c_str());
-    std::printf("probe status=%lu (1000+error: inherited read, 2000+error: create, 3000+error: existing read)\n", status);
+    require(DeleteFileW(profileFile.c_str()) != FALSE, "remove synthetic profile file");
+    std::printf("probe status=%lu\n", status);
     return static_cast<int>(status);
 }
