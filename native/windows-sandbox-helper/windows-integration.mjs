@@ -48,7 +48,7 @@ function stageRequest(argv, timeoutMs = 10_000, env = {}) {
 }
 
 const run = (argv, timeout) => call(helper, ["run", stageRequest(argv, timeout)]);
-let server;
+const servers = [];
 let granted = false;
 try {
   mkdirSync(root);
@@ -86,11 +86,16 @@ try {
   console.log(call(helper, ["grant", ...operator]));
   const lan = Object.values(networkInterfaces()).flat().find(item => item?.family === "IPv4" && !item.internal);
   assert.ok(lan, "the runner needs a reachable LAN address");
-  server = createServer(socket => socket.destroy());
-  server.listen(0, "0.0.0.0");
-  await once(server, "listening");
-  const port = String(server.address().port);
-  const endpoints = [["127.0.0.1", port], [lan.address, port], ["1.1.1.1", "443"]];
+  async function listen(host) {
+    const server = createServer(socket => socket.destroy());
+    servers.push(server);
+    server.listen(0, host);
+    await once(server, "listening");
+    return String(server.address().port);
+  }
+  const loopbackPort = await listen(appcontainer ? "127.0.0.1" : "0.0.0.0");
+  const lanPort = appcontainer ? await listen(lan.address) : loopbackPort;
+  const endpoints = [["127.0.0.1", loopbackPort], [lan.address, lanPort], ["1.1.1.1", "443"]];
   if (appcontainer) {
     // Prove endpoint reachability before interpreting any negative result.
     for (const [host, target] of endpoints) {
@@ -111,13 +116,22 @@ try {
     check("NUL read/write", () => assert.match(launch([helper, "--null-device-host"]), /NUL read\/write result: 0/));
     check("Node", () => assert.equal(launch([node, "-e", "console.log(1)"]).trim(), "1"));
     const cmd = join(process.env.SystemRoot, "System32", "cmd.exe");
-    call(cmd, ["/d", "/c", "echo x > nul"]);
-    check("cmd redirect NUL", () => launch([cmd, "/d", "/c", "echo x > nul"]));
+    const redirect = ["/d", "/s", "/c", "echo x > nul"];
+    assert.equal(call(cmd, redirect).trim(), "");
+    check("cmd redirect NUL", () => assert.equal(launch([cmd, ...redirect]).trim(), ""));
     check("Git status", () => assert.match(launch([git, "status", "--short"]), /existing\.txt/));
     for (const [host, target] of endpoints) {
       check(`TCP denial ${host}`, () =>
         assert.match(launch([helper, "--socket-deny", host, target], 35_000), /TCP result: 10013/));
     }
+    check("read-only packaged-app ACL audit", () => {
+      const audit = call("pwsh.exe", ["-NoProfile", "-File",
+        fileURLToPath(new URL("./audit-app-packages.ps1", import.meta.url)), state], { timeout: 240_000 });
+      const entries = audit.trim().split(/\r?\n/).map(line => JSON.parse(line));
+      assert.equal(entries.length, 2);
+      for (const entry of entries) console.log("APPCONTAINER audit " + JSON.stringify(entry));
+      assert.ok(entries.every(entry => entry.inaccessibleToAudit === 0));
+    });
     assert.deepEqual(failures, [], "AppContainer compatibility and containment preflight failures");
   } else if (targeted) {
     const errors = [];
@@ -294,7 +308,7 @@ try {
     }
   }
 } finally {
-  server?.close();
+  for (const server of servers) server.close();
   if (granted) console.log(call(helper, ["revoke", ...operator]));
   for (const [, path] of protectedFiles) rmSync(path, { force: true });
   rmSync(base, { recursive: true, force: true });
