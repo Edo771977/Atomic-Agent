@@ -55,7 +55,7 @@ int wmain(int argc, wchar_t** argv) {
     require(CreateDirectoryW(L"outside", nullptr) != FALSE, "create unapproved directory");
 
     LpacHandle original;
-    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE, original.receive()) != FALSE,
+    require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT, original.receive()) != FALSE,
         "open user token");
     const auto user = tokenInfo(original.get(), TokenUser);
     wchar_t* userSid = nullptr;
@@ -104,6 +104,9 @@ int wmain(int argc, wchar_t** argv) {
             TOKEN_MANDATORY_LABEL label{{low.value, SE_GROUP_INTEGRITY}};
             require(SetTokenInformation(restricted.get(), TokenIntegrityLevel, &label,
                 sizeof(label) + GetLengthSid(low.value)) != FALSE, "set Low integrity");
+            const auto integrity = tokenInfo(restricted.get(), TokenIntegrityLevel);
+            const auto actual = reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(integrity.data());
+            require(EqualSid(actual->Label.Sid, low.value) != FALSE, "verify Low integrity");
         }
         const auto restrictions = tokenInfo(restricted.get(), TokenRestrictedSids);
         const auto groups = reinterpret_cast<const TOKEN_GROUPS*>(restrictions.data());
