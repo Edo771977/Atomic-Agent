@@ -656,7 +656,7 @@ describe("TaskStore", () => {
     }
   });
 
-  it("migrates a real v2 database to v3: notify column added, old rows read as null, new writes work", () => {
+  it("migrates a real v2 database: notify column added, old rows read as null, new writes work", () => {
     // Build a genuine v2-shaped database by hand: v1 base + v2 columns,
     // NO notify column, schema_meta version stamped '2', one live row.
     const dbFile = join(tmp, "tasks-v2.sqlite");
@@ -706,7 +706,7 @@ describe("TaskStore", () => {
     expect(before.n).toBe(0);
     raw.close();
 
-    // Opening the store runs applyMigrations: v2 -> v3.
+    // Opening the store runs all migrations after v2.
     const migrated = new TaskStore({ dbFile });
     try {
       // Pre-migration row reads back intact with notify clamped to null.
@@ -730,7 +730,7 @@ describe("TaskStore", () => {
       migrated.close();
     }
 
-    // Column exists and the on-disk version was bumped to '3'.
+    // Column exists and the on-disk version was bumped to the current schema.
     const after = new DatabaseCtor(dbFile);
     try {
       const col = after
@@ -742,7 +742,7 @@ describe("TaskStore", () => {
       const version = after
         .prepare("SELECT value FROM schema_meta WHERE key = 'version'")
         .get() as { value: string };
-      expect(version.value).toBe("3");
+      expect(version.value).toBe(String(TASK_SCHEMA_VERSION));
     } finally {
       after.close();
     }

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "../native/load-better-sqlite3.js";
 
 import { CancelledError, GrammarError, TransportError } from "../llm/index.js";
 import { createEmptySessionState } from "../session/index.js";
@@ -277,7 +278,54 @@ describe("TaskRunner", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it("does not recreate a deleted recurring session with unknown privacy and folder policy", async () => {
+  it.each(["current", "pre-migration"])("recreates a missing ordinary recurring session (%s task) and keeps its run history", async (format) => {
+    const dbFile = join(tmp, "tasks.sqlite");
+    const taskId = "t-reminder";
+    const now = Date.now();
+    if (format === "pre-migration") {
+      store.close();
+      const db = new Database(dbFile);
+      try {
+        if (db.prepare("SELECT 1 FROM pragma_table_info('tasks') WHERE name = 'incognito'").get()) {
+          db.exec("ALTER TABLE tasks DROP COLUMN incognito");
+        }
+        db.exec("UPDATE schema_meta SET value = '3' WHERE key = 'version'");
+        db.prepare(`INSERT INTO tasks (
+          id, session_id, user_message, status, origin, max_attempts, created_at, updated_at,
+          schedule_kind, schedule_value, scheduled_for, recurring
+        ) VALUES (?, ?, ?, 'pending', 'cli', 1, ?, ?, 'interval', '{"everyMs":300000}', ?, 1)`)
+          .run(taskId, "s-deleted", "daily reminder", now, now, now);
+      } finally {
+        db.close();
+      }
+      store = new TaskStore({ dbFile });
+    } else {
+      store.create({
+        id: taskId, sessionId: "s-deleted", userMessage: "daily reminder", origin: "cli", maxAttempts: 1,
+        schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: now,
+      });
+    }
+    store.markRunning(taskId);
+    store.markCompleted(taskId);
+    store.requeueRecurring(taskId, now + 300_000);
+    const [previous] = store.listRuns(taskId);
+    expect(previous?.sessionId).toBe("s-deleted");
+
+    const { runtime, calls } = fakeRuntime();
+    const create = vi.fn(() => createEmptySessionState({ id: "s-fresh", workingDir: "/home/u" }));
+    const runner = new TaskRunner({
+      store, runtime, sessionLoader: fakeSessionLoader(null), sessionFactory: { create, save: () => {} },
+      defaultMaxSteps: 5, backoff: { initialMs: 1, maxMs: 10 }, enabled: true, runOnCreate: false,
+    });
+    await runner.runOne(taskId);
+    expect(create).toHaveBeenCalledOnce();
+    expect(calls).toMatchObject([{ sessionId: "s-fresh", userMessage: "daily reminder" }]);
+    expect(store.get(taskId)).toMatchObject({ status: "pending", sessionId: "s-fresh", incognito: false });
+    expect(store.listRuns(taskId)).toHaveLength(2);
+    expect(store.listRuns(taskId)).toContainEqual(previous);
+  });
+
+  it("does not recreate a deleted recurring session in the runtime's folder while a constraint refuses it (issue #33)", async () => {
     const { runtime, calls } = fakeRuntime();
     const create = vi.fn(() => createEmptySessionState({ id: "s-fresh", workingDir: "/home/u" }));
     const runner = new TaskRunner({
@@ -290,6 +338,7 @@ describe("TaskRunner", () => {
       enabled: true,
       runOnCreate: false,
       sleep: async () => undefined,
+      recreateSessionRefusal: () => "provider constraints are configured",
     });
     const t = store.create({
       sessionId: "s-deleted",
@@ -302,9 +351,9 @@ describe("TaskRunner", () => {
     const final = await runner.runOne(t.id);
     expect(create).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
-    expect(final).toBeNull();
-    expect(store.get(t.id)).toBeNull();
-    expect(store.listRuns(t.id)).toEqual([]);
+    expect(final?.status).toBe("blocked");
+    expect(final?.lastError).toContain("provider constraints are configured");
+    expect(store.get(t.id)?.status).toBe("blocked");
   });
 
   it("a recurring task that fails retryably waits out its backoff, then rearms for its next firing", async () => {

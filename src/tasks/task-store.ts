@@ -47,6 +47,8 @@ export interface TaskStoreOptions {
   dbFile: string;
   /** Refuse due selection, claims and recovery for these sessions. */
   skipSession?: (sessionId: string) => boolean;
+  /** Read the bound session’s privacy flag when creating a task. */
+  isIncognitoSession?: (sessionId: string) => boolean;
   /**
    * The process and host a claim records as the run's owner, and that
    * `recoverInterrupted` judges an owner against. Defaults to this
@@ -125,6 +127,7 @@ export interface TaskFailureInput {
 interface TaskRow {
   id: string;
   session_id: string | null;
+  incognito: number;
   user_message: string;
   max_steps: number | null;
   status: TaskStatus;
@@ -224,12 +227,12 @@ export class TaskStore {
   /** The database file's real path, as owners record it. */
   private readonly dbIdentity: string | undefined;
 
-  constructor(options: TaskStoreOptions) {
+  constructor(private readonly options: TaskStoreOptions) {
     mkdirSync(dirname(options.dbFile), { recursive: true });
     this.db = new DatabaseCtor(options.dbFile);
     try {
       this.db.pragma("journal_mode = WAL");
-      applyMigrations(this.db);
+      this.db.transaction(() => applyMigrations(this.db)).immediate();
       this.runOwnersUnavailable = ensureRunOwnerColumn(this.db);
       const withOwners = this.runOwnersUnavailable === null;
       this.budgetsUnavailable = ensureBudgetColumns(this.db);
@@ -250,13 +253,13 @@ export class TaskStore {
 
       this.insertStmt = this.db.prepare(
         `INSERT INTO tasks (
-           id, session_id, user_message, max_steps, status, origin,
+           id, session_id, incognito, user_message, max_steps, status, origin,
            attempts, max_attempts, last_error, last_error_cat,
            created_at, updated_at, started_at, completed_at,
            schedule_kind, schedule_value, scheduled_for, recurring,
            last_scheduled_at, trigger_source, notify${budgetColumns}${levelColumn}
          ) VALUES (
-           @id, @session_id, @user_message, @max_steps, @status, @origin,
+           @id, @session_id, @incognito, @user_message, @max_steps, @status, @origin,
            @attempts, @max_attempts, @last_error, @last_error_cat,
            @created_at, @updated_at, @started_at, @completed_at,
            @schedule_kind, @schedule_value, @scheduled_for, @recurring,
@@ -266,13 +269,13 @@ export class TaskStore {
       // Names no `run_owner`: a copied row never carries a claim.
       this.insertIfAbsentStmt = this.db.prepare(
         `INSERT OR IGNORE INTO tasks (
-           id, session_id, user_message, max_steps, status, origin,
+           id, session_id, incognito, user_message, max_steps, status, origin,
            attempts, max_attempts, last_error, last_error_cat,
            created_at, updated_at, started_at, completed_at,
            schedule_kind, schedule_value, scheduled_for, recurring,
            last_scheduled_at, trigger_source, notify${budgetColumns}${levelColumn}
          ) VALUES (
-           @id, @session_id, @user_message, @max_steps, @status, @origin,
+           @id, @session_id, @incognito, @user_message, @max_steps, @status, @origin,
            @attempts, @max_attempts, @last_error, @last_error_cat,
            @created_at, @updated_at, @started_at, @completed_at,
            @schedule_kind, @schedule_value, @scheduled_for, @recurring,
@@ -494,6 +497,7 @@ export class TaskStore {
     const row: TaskRow = {
       id,
       session_id: sessionId,
+      incognito: sessionId !== null && this.options.isIncognitoSession?.(sessionId) ? 1 : 0,
       user_message: userMessage,
       max_steps: maxSteps,
       status: "pending",
@@ -810,11 +814,11 @@ export class TaskStore {
     return this.runLog.unavailable;
   }
 
-  /** Remove a claimed recurring task whose missing session cannot establish its privacy. */
-  purgeMissingSessionTask(id: string, sessionId: string): void {
+  /** Remove a claimed incognito task whose session is missing, including its run log. */
+  purgeMissingIncognitoTask(id: string, sessionId: string | null): void {
     this.db.transaction(() => {
       const removed = this.db.prepare(
-        "DELETE FROM tasks WHERE id = ? AND session_id = ? AND status = 'running'",
+        "DELETE FROM tasks WHERE id = ? AND session_id IS ? AND incognito = 1 AND status = 'running'",
       ).run(id, sessionId).changes;
       if (removed && this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'task_runs'").get()) {
         this.db.prepare("DELETE FROM task_runs WHERE task_id = ?").run(id);
@@ -1173,6 +1177,7 @@ function rowToRecord(row: TaskRow): TaskRecord {
   return {
     id: row.id,
     sessionId: row.session_id,
+    incognito: row.incognito === 1,
     userMessage: row.user_message,
     maxSteps: row.max_steps,
     status: row.status,
@@ -1204,6 +1209,7 @@ function recordToRow(record: TaskRecord): TaskRow {
   return {
     id: record.id,
     session_id: record.sessionId,
+    incognito: record.incognito ? 1 : 0,
     user_message: record.userMessage,
     max_steps: record.maxSteps,
     status: record.status,

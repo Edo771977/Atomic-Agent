@@ -42,13 +42,14 @@ import { createPushTaskReportSink, readCurrentPushConfig } from "../../notificat
 export function createRuntimeTaskStores(args: {
   config: Pick<AtomicAgentConfig, "paths" | "tasks">;
   logger: StructuredLogger;
-  sessionStore?: Pick<SessionStore, "isOrphanIncognito">;
+  sessionStore?: Pick<SessionStore, "isOrphanIncognito" | "isIncognito">;
   retainedIncognitoIds?: readonly string[];
 }): { taskStore: TaskStore; webhookSessionStore: WebhookSessionStore } {
   const { config, logger } = args;
   const retained = new Set(args.retainedIncognitoIds);
   const taskStore = new TaskStore({
     dbFile: config.paths.tasksDbFile,
+    isIncognitoSession: id => args.sessionStore?.isIncognito(id) === true,
     skipSession: id => retained.has(id) || args.sessionStore?.isOrphanIncognito(id) === true,
   });
   const webhookSessionStore = new WebhookSessionStore(
@@ -110,7 +111,9 @@ export function createRuntimeTaskRunner(args: {
   notifyRefusal?: (task: TaskRecord) => string | null;
   /**
    * Per-folder provider constraints (issue #33): a session a task tool
-   * creates keeps its caller's folder and policy (`childSessionSeed`).
+   * creates keeps its caller's folder and policy (`childSessionSeed`),
+   * and a recurring task's deleted session is not recreated while any
+   * constraint exists.
    */
   providerPolicy?: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">;
   /** Sleep inhibitor held while a drain runs (ATO-592). */
@@ -174,6 +177,7 @@ export function createRuntimeTaskRunner(args: {
     metrics,
     ...(args.approvalLevel ? { approvalLevel: args.approvalLevel } : {}),
     ...(args.notifyRefusal ? { notifyRefusal: args.notifyRefusal } : {}),
+    ...(args.providerPolicy ? { recreateSessionRefusal: recreateRefusalFor(args.providerPolicy) } : {}),
     ...(args.keepAwake ? { keepAwake: args.keepAwake } : {}),
     // Continue a run a crash, a kill or a restart cut off from its
     // session's checkpoint (ATO-1109).
@@ -231,6 +235,14 @@ export function createTaskToolSession(
       : childSessionSeed(providerPolicy, parent);
     return createSession({ workingDir: seed.workingDir, metadata: { ...metadata, ...seed.metadata } });
   };
+}
+
+function recreateRefusalFor(
+  providerPolicy: Pick<SessionProviderPolicy, "constraintsActive">,
+): () => string | null {
+  return () => providerPolicy.constraintsActive()
+    ? "provider constraints are configured; a recreated session would lose the original folder and read taint"
+    : null;
 }
 
 /**

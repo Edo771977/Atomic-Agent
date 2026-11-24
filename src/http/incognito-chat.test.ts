@@ -26,9 +26,11 @@ function reply(text: string) {
 
 describe("incognito chats over HTTP", () => {
   let harness: Harness;
+  const complete = vi.fn(reply("hi back"));
 
   beforeEach(async () => {
-    harness = await startTestHarness({ llamaComplete: reply("hi back") });
+    complete.mockClear();
+    harness = await startTestHarness({ llamaComplete: complete });
   });
 
   afterEach(async () => {
@@ -103,10 +105,13 @@ describe("incognito chats over HTTP", () => {
       sessionId: id, userMessage: "private prompt", origin: "cli", maxAttempts: 1,
       schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: Date.now() + 300_000,
     });
+    expect(harness.runtime.taskStore.get(task.id)?.incognito).toBe(true);
     // Simulate the legacy fallback that dropped the session without purging tasks.
     harness.runtime.sessionStore.delete(id);
     const sessions = await listed();
+    complete.mockClear();
     await harness.runtime.taskRunner.runOne(task.id);
+    expect(complete).not.toHaveBeenCalled();
     expect(await listed()).toEqual(sessions);
     expect(harness.runtime.taskStore.get(task.id)).toBeNull();
     expect(harness.runtime.taskStore.listRuns(task.id)).toEqual([]);
