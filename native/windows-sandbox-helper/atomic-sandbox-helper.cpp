@@ -48,6 +48,50 @@ static bool isOperator() {
         appContainer == 0;
 }
 
+static int initState(const std::wstring& state, const std::wstring& folder) {
+    if (!localAclTree(state, true) || !windowsPathEqual(folder, state + L"\\windows-sandbox")) return 4;
+    LpacHandle token;
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, token.receive())) return 4;
+    alignas(TOKEN_USER) BYTE info[sizeof(TOKEN_USER) + SECURITY_MAX_SID_SIZE]{};
+    DWORD bytes = 0;
+    if (!GetTokenInformation(token.get(), TokenUser, &info, sizeof(info), &bytes)) return 4;
+    PSID user = reinterpret_cast<const TOKEN_USER*>(info)->User.Sid;
+    wchar_t* userSid = nullptr;
+    if (!ConvertSidToStringSidW(user, &userSid)) return 4;
+    const std::wstring sddl = L"D:P(A;OICI;FA;;;" + std::wstring(userSid) + L")";
+    LocalFree(userSid);
+    PSECURITY_DESCRIPTOR privateDacl = nullptr;
+    if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,
+        &privateDacl, nullptr)) return 4;
+    SECURITY_ATTRIBUTES security{sizeof(security), privateDacl, FALSE};
+    const BOOL created = CreateDirectoryW(folder.c_str(), &security);
+    const DWORD createError = created ? ERROR_SUCCESS : GetLastError();
+    LocalFree(privateDacl);
+    if (!created && createError != ERROR_ALREADY_EXISTS) return 4;
+
+    LpacHandle directory(CreateFileW(folder.c_str(), READ_CONTROL, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr));
+    if (!directory || !localAclTree(folder, true)) return 4;
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PACL dacl = nullptr;
+    PSID owner = nullptr;
+    if (GetSecurityInfo(directory.get(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION | OWNER_SECURITY_INFORMATION,
+        &owner, nullptr, &dacl, nullptr, &descriptor) != ERROR_SUCCESS) return 4;
+    SECURITY_DESCRIPTOR_CONTROL controls = 0;
+    DWORD revision = 0;
+    void* entry = nullptr;
+    const bool valid = owner && EqualSid(owner, user) && dacl && dacl->AceCount == 1 &&
+        GetSecurityDescriptorControl(descriptor, &controls, &revision) && (controls & SE_DACL_PROTECTED) &&
+        GetAce(dacl, 0, &entry) && static_cast<ACE_HEADER*>(entry)->AceType == ACCESS_ALLOWED_ACE_TYPE &&
+        (static_cast<ACE_HEADER*>(entry)->AceFlags & (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE)) ==
+            (OBJECT_INHERIT_ACE | CONTAINER_INHERIT_ACE) &&
+        EqualSid(&static_cast<ACCESS_ALLOWED_ACE*>(entry)->SidStart, user) &&
+        (static_cast<ACCESS_ALLOWED_ACE*>(entry)->Mask & FILE_ALL_ACCESS) == FILE_ALL_ACCESS;
+    LocalFree(descriptor);
+    if (!valid) return static_cast<int>(lpacError("verify private state directory ACL", ERROR_ACCESS_DENIED));
+    return 0;
+}
+
 static int changeGrants(int argc, wchar_t** argv, bool revoke) {
     if (argc < 5 || !isOperator()) return static_cast<int>(lpacError("require operator session", ERROR_ACCESS_DENIED));
     SandboxSid sid;
@@ -273,6 +317,7 @@ int wmain(int argc, wchar_t** argv) {
         std::printf("TCP result: %d\n", status);
         return status == (action == L"--socket-allow" ? 0 : WSAEACCES) ? 0 : 5;
     }
+    if (action == L"init-state" && argc == 4) return initState(argv[2], argv[3]);
     if (action == L"run" && argc == 3) return run(argv[2]);
     if (action == L"grant" || action == L"revoke") return changeGrants(argc, argv, action == L"revoke");
     return static_cast<int>(lpacError("read helper arguments", ERROR_INVALID_PARAMETER));

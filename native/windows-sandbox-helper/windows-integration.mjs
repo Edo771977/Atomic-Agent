@@ -4,7 +4,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
@@ -50,7 +50,7 @@ try {
   call("git", ["add", "existing.txt"], { cwd: root });
 
   copyFileSync(process.execPath, node);
-  const gitSource = join(dirname(call("git", ["--exec-path"]).trim()), "bin");
+  const gitSource = resolve(call("git", ["--exec-path"]).trim(), "..", "..", "bin");
   for (const name of readdirSync(gitSource).filter(name => name === "git.exe" || name.endsWith(".dll"))) {
     copyFileSync(join(gitSource, name), join(gitTools, name));
   }
