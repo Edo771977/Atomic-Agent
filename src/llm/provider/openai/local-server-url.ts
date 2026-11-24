@@ -26,12 +26,12 @@ export function isLocalServerUrl(url: string | undefined): boolean {
   }
   if (host.includes(":")) return /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host);
   if (!host.includes(".")) return true;
-  const wildcard = WILDCARD_DNS_SUFFIXES.find((suffix) => host.endsWith(suffix));
+  const wildcard = wildcardDnsSuffix(host);
   if (wildcard) {
     // `192.168.1.5.nip.io` resolves to 192.168.1.5: judge it as that
-    // address, and a name with no readable address as the operator's own.
+    // address. A name without a readable address is public.
     const inside = wildcardDnsIpv4(host.slice(0, -wildcard.length));
-    return inside === null || isLocalServerUrl(`http://${inside}`);
+    return inside !== null && isLocalServerUrl(`http://${inside}`);
   }
   return OWN_NETWORK_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }
@@ -47,6 +47,18 @@ const OWN_NETWORK_SUFFIXES = [
 
 /** Public wildcard DNS services whose names spell the address they resolve to. */
 const WILDCARD_DNS_SUFFIXES = [".nip.io", ".sslip.io"] as const;
+
+function wildcardDnsSuffix(host: string): string | undefined {
+  return WILDCARD_DNS_SUFFIXES.find((suffix) => host.endsWith(suffix) || host === suffix.slice(1));
+}
+
+/** A wildcard DNS name whose address cannot be inferred from its spelling. */
+export function hasUnresolvedWildcardDnsAddress(url: string | undefined): boolean {
+  const host = classifiableHostOf(url);
+  if (host === null) return false;
+  const suffix = wildcardDnsSuffix(host);
+  return suffix !== undefined && wildcardDnsIpv4(host.slice(0, -suffix.length)) === null;
+}
 
 /**
  * The IPv4 address a nip.io / sslip.io name spells before its suffix, in

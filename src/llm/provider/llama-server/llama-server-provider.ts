@@ -1,3 +1,7 @@
+import { createHash } from "node:crypto";
+import type { ProviderPrivacyConfig } from "../../../config/llm-config.js";
+import { isLocalServerUrl } from "../openai/local-server-url.js";
+import { createChunkUnmasker, maskWithArchiveRecovery, shieldVaultFor, unmaskCompletion } from "../openai/openai-privacy-shield.js";
 import { getConfig } from "../../../config/index.js";
 import { checkLlamaServer } from "../../llama-server-health.js";
 import { apiKeyForUrl } from "../../../local-llm/server/managed-api-key.js";
@@ -94,6 +98,7 @@ export class LlamaServerProvider implements LlmProvider {
       /** The model whose template is in force; keys the rendered-prefix cache. */
       getModelId?: () => string | null;
       logger?: StructuredLogger;
+      privacyShield?: ProviderPrivacyConfig["shield"];
     },
   ) {
     this.id = options.id ?? "local-llama";
@@ -110,6 +115,7 @@ export class LlamaServerProvider implements LlmProvider {
     this.fetchImpl = options.fetchImpl ?? fetch;
     this.baseUrlOverride = options.baseUrlOverride;
     this.requestTimeoutMs = options.requestTimeoutMs;
+    this.privacyShield = options.privacyShield;
   }
 
   private readonly getProfile: () => ModelProfile;
@@ -123,14 +129,53 @@ export class LlamaServerProvider implements LlmProvider {
   private readonly baseUrlOverride: string | undefined;
   private readonly requestTimeoutMs: number;
 
+  private readonly privacyShield: ProviderPrivacyConfig["shield"];
+
   async complete(request: CompletionRequest): Promise<CompletionResult> {
-    return this.client.complete(await this.rendered(request));
+    const shield = this.shieldRequest(request);
+    const result = await this.client.complete(await this.rendered(shield.request));
+    return shield.vault ? unmaskCompletion(result, shield.vault) : result;
   }
 
   async *completeStream(
     request: CompletionRequest,
   ): AsyncGenerator<StreamChunk, CompletionResult, void> {
-    return yield* this.client.completeStream(await this.rendered(request));
+    const shield = this.shieldRequest(request);
+    const stream = this.client.completeStream(await this.rendered(shield.request));
+    if (!shield.vault) return yield* stream;
+    const unmasker = createChunkUnmasker(shield.vault);
+    try {
+      let next = await stream.next();
+      while (!next.done) {
+        const chunk = unmasker.push(next.value);
+        if (chunk.done) {
+          const tail = unmasker.flush();
+          if (tail) yield tail;
+        }
+        yield chunk;
+        next = await stream.next();
+      }
+      const tail = unmasker.flush();
+      if (tail) yield tail;
+      return unmaskCompletion(next.value, shield.vault);
+    } finally {
+      await stream.return(undefined as never);
+    }
+  }
+
+  private shieldRequest(request: CompletionRequest) {
+    const vault = shieldVaultFor(request.sessionId, isLocalServerUrl(this.textRequestBaseUrl), this.privacyShield);
+    if (!vault) return { request, vault };
+    const { chat } = request;
+    const body = { messages: chat ? [chat.system, chat.user, request.prompt] : [request.prompt] };
+    const active = maskWithArchiveRecovery(body, vault, request.sessionId);
+    const prompt = body.messages.at(-1)!;
+    if (!chat) return { request: { ...request, prompt }, vault: active };
+    const [system, user] = body.messages as [string, string, string];
+    // The template cache must distinguish raw and masked system messages,
+    // as well as masking that produced different references in another chat.
+    const prefixHash = createHash("sha256").update(chat.prefixHash).update(system).digest("hex");
+    return { request: { ...request, prompt, chat: { ...chat, system, user, prefixHash } }, vault: active };
   }
 
   /**

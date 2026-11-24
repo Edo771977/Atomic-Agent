@@ -23,7 +23,7 @@ import {
  *    to the same placeholders.
  *
  * Auto mode skips local-looking addresses. An explicit on covers a gateway
- * there that forwards to the cloud. Managed llama-server bypasses this adapter.
+ * there that forwards to the cloud. The llama-server text adapter reuses these helpers for raw and templated prompts.
  */
 
 /** The vault for this request, or `null` when the shield does not apply. */

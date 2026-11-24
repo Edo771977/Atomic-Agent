@@ -149,6 +149,13 @@ describe("a local provider whose endpoint is another machine (issue #60)", () =>
     await expect(runWithProviderPolicy(policy, () => at(url).complete({ prompt: "x" } as never))).resolves.toBe(ok);
   });
 
+  it("still requires a folder opt-in for a wildcard DNS name without a readable address", () => {
+    const host = "gpu.nip.io";
+    const endpoint = providerEndpointOf({ kind: "llama-server", url: "https://" + host }, undefined);
+    expect(providerEndpointRefusal(policy, endpoint)).toEqual({ host });
+    expect(providerEndpointRefusal(makeProviderPolicy({ ...policy, allowedProviderHosts: [host] }), endpoint)).toBeUndefined();
+  });
+
   it("lets the host through when the folder lists it in allowedProviderHosts (any spelling of the same host)", async () => {
     const optedIn = makeProviderPolicy({ ...policy, allowedProviderHosts: ["192.168.1.20", "gpu-box.lan"] });
     await expect(runWithProviderPolicy(optedIn, () => at("http://192.168.1.20:8080").complete({ prompt: "x" } as never))).resolves.toBe(ok);
