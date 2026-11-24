@@ -431,6 +431,8 @@ export class SessionStore {
    * chat about half again its write time.
    */
   private readonly openIncognito = new Set<string>();
+  private readonly issuedIncognitoMarks = new WeakSet<IncognitoMark>();
+  private readonly ownedIncognitoMarks = new Map<string, string>();
   private secureDelete = false;
   /** Built on the first search (ATO-1149); see `session-search.ts`. */
   private searchIndex: SessionSearchIndex | null = null;
@@ -888,6 +890,8 @@ export class SessionStore {
   ): boolean {
     if (isIncognitoSession(state)) {
       this.openIncognito.add(state.id);
+      const mark = state.incognito!;
+      if (this.issuedIncognitoMarks.has(mark)) this.ownedIncognitoMarks.set(state.id, mark.owner);
       this.setSecureDelete(true);
     }
     const archive = this.turnArchive();
@@ -1246,7 +1250,9 @@ export class SessionStore {
    * process in this database file — what `sweepOrphanIncognito` judges.
    */
   newIncognitoMark(now: number = Date.now()): IncognitoMark {
-    return newIncognitoMark(this.turnOwnerProbe, now, this.dbIdentity);
+    const mark = newIncognitoMark(this.turnOwnerProbe, now, this.dbIdentity);
+    this.issuedIncognitoMarks.add(mark);
+    return mark;
   }
 
   hasSession(id: string): boolean {
@@ -1260,7 +1266,7 @@ export class SessionStore {
 
   /** Runtime task guard, including chats whose owner died since boot. */
   isOrphanIncognito(id: string): boolean {
-    return storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity, this.openIncognito.has(id));
+    return storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity, this.ownedIncognitoMarks.get(id));
   }
 
   /**
@@ -1306,6 +1312,7 @@ export class SessionStore {
     })();
     if (!incognito) return;
     this.openIncognito.delete(id);
+    this.ownedIncognitoMarks.delete(id);
     // ATO-586: the zeroed pages reach the database file and the WAL that
     // still holds the chat's earlier pages is emptied. A reader holding
     // an older snapshot can keep frames until the next checkpoint.

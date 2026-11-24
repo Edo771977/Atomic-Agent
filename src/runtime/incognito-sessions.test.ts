@@ -231,6 +231,20 @@ describe("incognito sessions in the runtime", () => {
     }
   });
 
+  it("rejects an old incognito mark with the same PID and no process start token", () => {
+    alive.add(20);
+    const prior = open(20);
+    save(prior, "s-old", true);
+    const current = open(20);
+    save(current, "s-current", true);
+    expect(current.isOrphanIncognito("s-current")).toBe(false);
+    // Loading and saving a previous process's row must not adopt its mark.
+    current.save(current.load("s-old")!);
+    expect(current.isOrphanIncognito("s-old")).toBe(true);
+    current.save(current.load("s-current")!);
+    expect(current.isOrphanIncognito("s-current")).toBe(false);
+  });
+
   it("erases run history for purged private tasks and keeps ordinary history", async () => {
     alive.add(10);
     save(open(10), "s-dead", true);

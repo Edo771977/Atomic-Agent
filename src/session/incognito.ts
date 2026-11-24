@@ -2,7 +2,6 @@ import type Database from "better-sqlite3";
 
 import {
   isTurnOwnerGone,
-  parseTurnOwner,
   serializeTurnOwner,
   turnOwnerFor,
   type TurnOwnerProbe,
@@ -116,17 +115,11 @@ export function storedIncognitoOwnerGone(
   id: string,
   probe: TurnOwnerProbe,
   dbIdentity?: string,
-  openedHere = false,
+  issuedOwner?: string,
 ): boolean {
   const row = db.prepare(SELECT_INCOGNITO_SQL + " AND id = ?").get(id) as { owner: unknown } | undefined;
   if (row === undefined) return false;
   const raw = typeof row.owner === "string" ? row.owner : null;
-  if (openedHere) {
-    const owner = parseTurnOwner(raw);
-    if (owner?.pid === probe.pid && owner.host === probe.host && owner.db === dbIdentity &&
-        owner.processStart === (probe.processStartOf(probe.pid) ?? undefined)) {
-      return false;
-    }
-  }
+  if (raw !== null && raw === issuedOwner) return false;
   return isTurnOwnerGone(raw, probe, dbIdentity);
 }
