@@ -1200,11 +1200,13 @@ export class MemoryStore {
     return this.changeDisabledAt(id, disabled ? now : null, now);
   }
 
-  changeDisabledAt(id: number, disabledAt: number | null, now = this.now()): MemoryEntry | null {
+  changeDisabledAt(id: number, disabledAt: number | null, now = this.now(), check?: (entry: MemoryEntry) => void): MemoryEntry | null {
     const normalizedId = validateId(id);
     return this.db.transaction(() => {
       const before = this.get(normalizedId);
-      if (before === null || (before.disabledAt !== undefined) === (disabledAt !== null)) return before;
+      if (before === null) return null;
+      check?.(before);
+      if ((before.disabledAt !== undefined) === (disabledAt !== null)) return before;
       this.db.prepare(`UPDATE memories SET disabled_at = ? WHERE id = ?`).run(disabledAt, normalizedId);
       this.changeLog.record({
         kind: "note", target: String(normalizedId), op: "set_disabled", by: "user",

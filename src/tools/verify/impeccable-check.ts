@@ -181,7 +181,7 @@ export async function runImpeccableCheck(
         : buildDirectInvocation(executable, argv);
       if (batch) invocation.args.unshift("/v:off");
       const processRun = spawnVerifyProcess(executable, argv, {
-        cwd: scanCwd, signal, timeoutMs: remaining, network: false,
+        cwd: scanCwd, workspaceRoot: root, signal, timeoutMs: remaining, network: false,
         invocation: { ...invocation, commandLine: ["impeccable", ...argv].join(" ") },
         env: {
           ...(batch ? { ATOMIC_IMPECCABLE_EXECUTABLE: executable, ATOMIC_IMPECCABLE_TARGET: scanTarget } : {}),

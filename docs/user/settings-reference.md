@@ -602,6 +602,10 @@ Read from the process environment or from `~/.atomic-agent/.env` (a variable alr
 | `ATOMIC_AGENT_JUDGE_MODEL` | unset | env only | Model the ATOMIC_AGENT_JUDGE_URL judge runs (or --judge-model). |
 | `ATOMIC_AGENT_JUDGE_API_KEY` | unset | env only | API key sent to the ATOMIC_AGENT_JUDGE_URL judge. Unset: OPENROUTER_API_KEY. |
 | `ATOMIC_AGENT_JUDGE_TIMEOUT_MS` | `60000` | env only | Per-call timeout of the skill eval judge, in ms. |
+| `ATOMIC_AGENT_SANDBOX` | `"off"` | env only | Set to workspace to run the agent's shell and verification commands in the OS sandbox: writes only in the working folder and temporary folders, no reads of credential folders or the state directory. Where no sandbox exists (Windows, Linux without bwrap) commands are refused. Unset or any other value: off. |
+| `ATOMIC_AGENT_SANDBOX_ALLOW_ROOT` | `"0"` | env only | Set to 1 only with operator consent to allow Linux Safe Mode under host UID 0. Prefer an ordinary user. |
+| `ATOMIC_AGENT_SANDBOX_NETWORK` | `"off"` | env only | Set to on to permit one-time shell network requests. Each command also needs network: true, explicit approval and an unrestricted egress policy. |
+| `ATOMIC_AGENT_SANDBOX_TOOLCHAINS` | unset | env only | Additional absolute read-only toolchain directories for Safe Mode, separated like PATH. Entire private roots and their ancestors stay hidden. |
 | `ATOMIC_AGENT_BROWSER_ENABLED` | `true` | env only | Register the browser tools. |
 | `ATOMIC_AGENT_BROWSER_CHANNEL` | `"chrome"` | env only | Browser to launch: chrome, msedge or chromium. |
 | `ATOMIC_AGENT_BROWSER_HEADLESS` | `false` | env only | Run the agent's browser without a window. |

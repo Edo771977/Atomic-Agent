@@ -19,7 +19,16 @@
  */
 import { spawn, type ChildProcess } from "node:child_process";
 
+import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
+import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
+import {
+  buildOsSandboxPolicy,
+  formatSandboxUnavailable,
+  readOsSandboxSettings,
+  wrapWithOsSandbox,
+  buildOsSandboxEnv,
+} from "../../sandbox/os-sandbox.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
 import {
   buildDirectInvocation,
@@ -75,6 +84,8 @@ export function networkBlockEnv(): Record<string, string> {
 
 export interface SpawnVerifyOptions {
   cwd: string;
+  relayDir?: string;
+  workspaceRoot: string;
   env?: Readonly<Record<string, string>>;
   network: boolean;
   timeoutMs: number;
@@ -97,6 +108,7 @@ export interface VerifyProcessExit {
 export interface VerifyProcess {
   readonly child: ChildProcess;
   readonly commandLine: string;
+  readonly sandboxNotice?: string;
   readonly stdout: TailBuffer;
   readonly stderr: TailBuffer;
   readonly exited: Promise<VerifyProcessExit>;
@@ -139,12 +151,24 @@ export function spawnVerifyProcess(
 ): VerifyProcess {
   const invocation = options.invocation ?? resolveInvocation(cmd, args);
   const detached = process.platform !== "win32";
-  const child = spawn(invocation.command, invocation.args, {
-    cwd: options.cwd,
-    env: markAgentToolChild(withEnvOverrides({
-      ...buildCommandEnv(process.env),
-      ...(options.network ? {} : networkBlockEnv()),
-    }, options.env ?? {})),
+  const sandboxed = readOsSandboxSettings().mode === "workspace";
+  const cwd = sandboxed ? canonicalVerifyCwd(options.workspaceRoot, options.cwd) : options.cwd;
+  const wrapped = sandboxed
+    ? wrapWithOsSandbox(invocation.command, invocation.args, buildOsSandboxPolicy({
+      workspaceRoots: [options.workspaceRoot, ...(options.relayDir === undefined ? [] : [options.relayDir])],
+      stateDir: resolveStateDir(),
+      protectedPaths: getStateSecretPaths(getConfig().paths),
+      network: false,
+    }), { cwd })
+    : { ok: true as const, command: invocation.command, args: invocation.args };
+  if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
+  const env = withEnvOverrides({
+    ...buildCommandEnv(process.env),
+    ...(options.network ? {} : networkBlockEnv()),
+  }, options.env ?? {});
+  const child = spawn(wrapped.command, wrapped.args, {
+    cwd,
+    env: markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,
@@ -208,5 +232,8 @@ export function spawnVerifyProcess(
     });
   });
 
-  return { child, commandLine: invocation.commandLine, stdout, stderr, exited, killGroup };
+  return {
+    child, commandLine: invocation.commandLine, stdout, stderr, exited, killGroup,
+    ...(sandboxed && options.network ? { sandboxNotice: "Safe Mode: external network access is disabled for this check." } : {}),
+  };
 }

@@ -243,11 +243,14 @@ export function createApprovalEventsHandler(): HttpHandler {
       sse.writeEvent("project_gate", { session_id: event.sessionId, view: event.view });
     };
     for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);
+    const onMemoryChange = () => sse.writeEvent("memory_state_changed", {});
+    ctx.memoryEvents?.on("state", onMemoryChange);
     const unsubscribeGates = ctx.projectGateBus?.subscribe(writeGate);
     await new Promise<void>((resolvePromise) => {
       res.once("close", () => {
         unsubscribe();
         unsubscribeGates?.();
+        ctx.memoryEvents?.off("state", onMemoryChange);
         sse.close();
         resolvePromise();
       });

@@ -13,4 +13,10 @@ Windows internal executables use [windows-system-executable.ts](windows-system-e
 
 [command-toolchain-env.ts](command-toolchain-env.ts) adds, for `os.shell.run` only and after the filter, fixed non-interactive switches and the user's toolchain PATH (macOS `/etc/paths`, Homebrew, nvm, pyenv and similar folders that exist; never the login shell, whose rc files the agent can write), appended after the inherited PATH so nothing already found is shadowed (ATO-1252). It reads no variable back from the agent's environment except PATH.
 
+[os-sandbox.ts](os-sandbox.ts) applies the OS sandbox to shell jobs and verification command processes. Set `ATOMIC_AGENT_SANDBOX=workspace` to enable it or `off` to disable it. Linux uses Bubblewrap with a private PID namespace and procfs. macOS uses a parameterized Seatbelt profile and keeps its host loopback available. Windows has no backend. A requested sandbox that fails to start never reruns the command without confinement.
+
+The working directory and temporary directories are writable. A command-supplied `cwd` adds no permissions. The state directory and known credential locations are hidden. On Linux, the available mounts also limit ordinary reads. OS permissions and the dispatch read scope still apply. See the user guide for the Linux mount list and coverage of local and directory-service homes. Linux blocks direct IP access to the host and the outside network when isolated. Pathname Unix sockets on Linux and process metadata on macOS have separate security boundaries.
+
+For activation, one-time network consent and service verification limits, see the [user guide](../../docs/user/os-sandbox.md).
+
 Checks: `npx vitest run src/sandbox` when tests are present; `npm run lint`; `npm run docs:check`.

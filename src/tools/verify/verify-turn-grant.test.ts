@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -59,6 +59,14 @@ describe("a verify_page_local yes stands for the turn in the plan's folder", () 
   it("a contract check's yes in the plan's folder covers the director's later probe", async () => {
     await authorizeVerifyBatch([page], { approvals: gate, approvalRequired: true, turnGrantFolder: work }, { ...ctx(), project: undefined, ruleWorkdir: work, checkInputs: [] });
     await tool().run(page, ctx());
+    expect(asked).toHaveLength(1);
+  });
+
+  it("reuses an explicit turn grant through a second spelling of the same folder", async () => {
+    const alias = join(work, "alias");
+    symlinkSync(other, alias, process.platform === "win32" ? "junction" : "dir");
+    await tool().run(page, ctx({ workingDir: other }));
+    expect(gate.verifyPageGrantedForTurn("director", alias)).toBe(true);
     expect(asked).toHaveLength(1);
   });
 

@@ -55,6 +55,8 @@ export interface McpServeToolDeps {
   shell?: {
     defaultTimeoutMs?: number;
     envPassthrough?: readonly string[];
+    stateDir?: string;
+    protectedPaths?: readonly string[];
     jobs?: ShellJobRegistry;
   };
 }
@@ -117,6 +119,8 @@ export function buildMcpServeTools(
         // Always through the gate: the level and saved rules decide, and
         // the session's refuse policy answers whatever would prompt.
         approvalRequired: true,
+        stateDir: deps.shell?.stateDir,
+        protectedPaths: deps.shell?.protectedPaths,
         ...(deps.shell?.defaultTimeoutMs !== undefined
           ? { defaultTimeoutMs: deps.shell.defaultTimeoutMs }
           : {}),

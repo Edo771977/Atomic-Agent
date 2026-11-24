@@ -11,7 +11,7 @@
 
 import { join } from "node:path";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { getConfig } from "../config/index.js";
+import { getConfig, getStateSecretPaths } from "../config/index.js";
 import type { AtomicAgentConfig } from "../config/config-schema.js";
 import { ApprovalGate } from "../approval/approval-gate.js";
 import { ApprovalRulesStore } from "../approval/approval-rules-store.js";
@@ -125,6 +125,8 @@ export async function mcpServerCommand(args: string[]): Promise<number> {
       skillRegistry,
       approvals,
       shell: {
+        stateDir: config.paths.stateDir,
+        protectedPaths: getStateSecretPaths(config.paths),
         defaultTimeoutMs: config.tools.shell.defaultTimeoutMs,
         envPassthrough: config.tools.shell.envPassthrough,
         jobs,
