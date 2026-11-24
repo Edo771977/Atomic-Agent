@@ -1580,13 +1580,20 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
-      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean =>
-        escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
-        (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
-          leg.pinModel === undefined && leg.model === leg.providerId ? leg.providerId : `${leg.providerId}:${leg.model}`,
-          `${escalationTarget.providerId}:${escalationTarget.pinModel ?? escalationTarget.model ?? "default"}`,
+      const isUnknownDefault = (model: string | null): boolean => model === null || model === "default";
+      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean => {
+        if (escalationTarget === null || escalationTarget.providerId !== leg.providerId) return false;
+        if (deps.workerSupportsSlotAffinity(leg.providerId)) return true;
+        const workerModel = leg.pinModel ?? (leg.model === leg.providerId ? null : leg.model);
+        const targetModel = escalationTarget.pinModel ?? escalationTarget.model;
+        if (deps.resolveDefaultModel?.(leg.providerId) === undefined &&
+            (isUnknownDefault(workerModel) || isUnknownDefault(targetModel))) return true;
+        return sameMember(
+          `${leg.providerId}:${workerModel ?? "default"}`,
+          `${leg.providerId}:${targetModel ?? "default"}`,
           deps.resolveDefaultModel,
-        ));
+        );
+      };
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;
       const escalationPricing =
         escalationTarget === null || escalationModel === undefined
@@ -2135,7 +2142,6 @@ export function buildFusionDelegateTool(
         if (rerun === undefined || providerId !== rerun.providerId) return false;
         if (deps.workerSupportsSlotAffinity(providerId)) return true;
         // A default we cannot identify on the same provider might be the author.
-        const isUnknownDefault = (value: string | null): boolean => value === null || value === "default";
         if (deps.resolveDefaultModel?.(providerId) === undefined &&
             (isUnknownDefault(model) || (isUnknownDefault(rerun.model) && isUnknownDefault(rerun.requestedModel)))) {
           return true;

@@ -35,7 +35,9 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
     { roleLeg: true, target: "other", expected: true },
     { roleLeg: true, target: "role-model", expected: false },
     { roleLeg: true, target: null, expected: false },
-  ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target", async ({ roleLeg, target, expected }) => {
+    { roleLeg: true, target: "other", expected: false, unknownWorker: true },
+    { roleLeg: true, target: null, expected: false, knownWorker: true },
+  ])("keeps the snapshot pricing rules with roleLeg=$roleLeg and target=$target, unknownWorker=$unknownWorker, knownWorker=$knownWorker", async ({ roleLeg, target, expected, unknownWorker, knownWorker }) => {
     const budget = new FusionTurnBudget();
     budget.begin("s-parent");
     const providers: Array<string | undefined> = [];
@@ -68,7 +70,7 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
         ...mode(),
         escalation: { ...mode().escalation!, model: target, ...(target === null ? {} : { pinModel: target }) },
         ...(roleLeg ? { roles: { byRole: {
-          review: { providerId: "third", model: target === null ? null : "role-model", local: false },
+          review: { providerId: "third", model: (target === null && !knownWorker) || unknownWorker ? null : "role-model", local: false },
         }, mixLocalModels: false, localLegProviderIds: [] } } : {}),
       }),
       workerSupportsSlotAffinity: () => false,
