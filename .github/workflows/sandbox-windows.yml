@@ -24,3 +24,25 @@ jobs:
           cd /d "%RUNNER_TEMP%"
           cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
           acl-preflight.exe --benchmark
+  build-helper:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Windows sandbox helper with MSVC x64
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cd /d "%RUNNER_TEMP%"
+          cl /nologo /std:c++20 /W4 /O2 /MT /Fe:atomic-sandbox-helper.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\atomic-sandbox-helper.cpp" || exit /b 1
+      - name: Measure helper size
+        shell: pwsh
+        run: |
+          $size = (Get-Item "$env:RUNNER_TEMP/atomic-sandbox-helper.exe").Length
+          "Unsigned Windows x64 helper: $size bytes" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: atomic-sandbox-helper-win32-x64
+          path: ${{ runner.temp }}/atomic-sandbox-helper.exe
+          if-no-files-found: error
