@@ -48,8 +48,8 @@ vi.mock("node:fs", async importOriginal => {
       if (args[0] === mountFixture.blocked) mountFixture.directoryReads++;
       return Reflect.apply(fs.readdirSync, fs, args);
     },
-    readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && mountFixture.contents !== undefined
-      ? mountFixture.contents
+    readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && (mountFixture.contents !== undefined || !useHostSystemInventory)
+      ? mountFixture.contents ?? ""
       : Reflect.apply(fs.readFileSync, fs, args),
   };
 });
@@ -309,7 +309,7 @@ describe("wrapWithOsSandbox", () => {
       const wrapped = wrapWithOsSandbox("true", [], policy(), {
         platform: "linux", bwrap: "/usr/bin/bwrap", disableUsernsAvailable: true,
       });
-      expect(wrapped).toEqual({ ok: false, reason: "Linux host inventory exceeded the 30-second preparation limit" });
+      expect(wrapped).toEqual({ ok: false, reason: expect.stringContaining("30-second preparation limit while checking system socket masks. Retry") });
       expect(mountFixture.findTimeout).toBeGreaterThan(0);
       expect(mountFixture.findTimeout).toBeLessThanOrEqual(30_000);
       expect(mountFixture.directoryReads).toBe(0);

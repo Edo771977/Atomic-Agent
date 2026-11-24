@@ -1,3 +1,4 @@
+import { readOsSandboxSettings, warmLinuxSystemInventory } from "../sandbox/os-sandbox.js";
 import { SecretKeychain } from "../config/secret-store.js";
 import { writeMilestoneReportReceipt } from "../session/project-milestone-receipt.js";
 import { createProjectReceiptWriter } from "../session/project-receipts.js";
@@ -147,6 +148,7 @@ export async function createAgentRuntime(
   options: CreateAgentRuntimeOptions,
 ): Promise<AgentRuntime> {
   const config = getConfig();
+  const sandboxWarmup = readOsSandboxSettings().mode === "workspace" ? warmLinuxSystemInventory() : undefined;
   // Before anything can make a request: Node's global `fetch` applies a
   // 300 s deadline of its own under every AbortSignal this codebase
   // arms, which made `firstTokenTimeoutMs`, `streamTotalTimeoutMs`, the
@@ -1455,6 +1457,9 @@ export async function createAgentRuntime(
     get: () => effectiveToolDescriptors(),
   });
 
+  // The child warmed system metadata while the rest of the runtime initialized.
+  // Wait before channels or the scheduler can dispatch the first command.
+  if (sandboxWarmup !== undefined) await sandboxWarmup;
   connectRuntimeChannels({
     runtime, config, logger, metrics, approvals, approvalRouter, options,
     connectTelegram: (channel) => { telegramChannelForShutdown = channel; },
