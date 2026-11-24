@@ -167,6 +167,26 @@ int wmain(int argc, wchar_t** argv) {
             require(acl_tree::containsSid(path, sid, present) && !present, "verify SID removed from DACL");
         }
     }
+    if (status == 0 && argc == 2 && std::wstring(argv[1]) == L"--benchmark") {
+        require(CreateDirectoryW(L"fixture\\node_modules", nullptr) != FALSE, "create benchmark root");
+        for (unsigned directory = 0; directory < 100; ++directory) {
+            const std::wstring folder = L"fixture\\node_modules\\package-" + std::to_wstring(directory);
+            require(CreateDirectoryW(folder.c_str(), nullptr) != FALSE, "create benchmark package");
+            for (unsigned file = 0; file < 500; ++file) {
+                const std::wstring path = folder + L"\\file-" + std::to_wstring(file);
+                require(checkFile(path.c_str(), CREATE_NEW) == ERROR_SUCCESS, "create benchmark file");
+            }
+        }
+        acl_tree::Result benchmark;
+        const ULONGLONG start = GetTickCount64();
+        acl_tree::walk(L"fixture", sid, acl_tree::modify, benchmark);
+        std::printf("benchmark: %zu objects, %zu skips, %zu errors, %llu ms\n",
+            benchmark.objects, benchmark.skipped, benchmark.errors, GetTickCount64() - start);
+        require(benchmark.objects >= 50000 && benchmark.skipped == 0 && benchmark.errors == 0, "benchmark grant");
+        acl_tree::Result benchmarkRevoke;
+        acl_tree::walk(L"fixture", sid, 0, benchmarkRevoke);
+        require(benchmarkRevoke.errors == 0, "benchmark revoke");
+    }
     FreeSid(sid);
     DeleteAppContainerProfile(profile.c_str());
     require(DeleteFileW(profileFile.c_str()) != FALSE, "remove synthetic profile file");
