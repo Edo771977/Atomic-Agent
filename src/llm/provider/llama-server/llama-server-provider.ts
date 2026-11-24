@@ -178,7 +178,7 @@ export class LlamaServerProvider implements LlmProvider {
     const { chat } = request;
     const body = { messages: chat ? [chat.system, chat.user, request.prompt] : [request.prompt] };
     const active = maskWithArchiveRecovery(body, vault, request.sessionId, false);
-    const prompt = addPrivacyInstructionsToText(body.messages.at(-1)!);
+    const prompt = body.messages.at(-1)!;
     if (!chat) return { request: { ...request, prompt }, vault: active };
     const [maskedSystem, user] = body.messages as [string, string, string];
     const system = addPrivacyInstructionsToText(maskedSystem);
