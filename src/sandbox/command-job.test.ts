@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+import { isProcessRunning } from "../../test/helpers/process-liveness.js";
 
 import {
   awaitJobExit,
@@ -17,11 +19,7 @@ const cwd = process.cwd();
 
 async function waitForExit(pid: number): Promise<void> {
   for (let i = 0; i < 80; i += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!isProcessRunning(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`process ${pid} survived the stop`);
@@ -76,17 +74,23 @@ describe.skipIf(process.platform === "win32")("startCommandJob", () => {
     const job = startCommandJob("sh", ["-c", "sleep 30 & echo $!; sleep 30"], {
       cwd,
     });
-    // Long enough for the shell to have run `echo` on a loaded host.
-    await job.waitFor(1_500);
-    const pid = Number(job.output().stdout.trim());
-    expect(pid).toBeGreaterThan(0);
-    job.stop();
-    const exit = await awaitJobExit(job);
-    expect(exit.signal).toBe("SIGTERM");
-    // Without the group the orphaned `sleep` would keep stdout open and
-    // the exit would not close for 30 s.
-    expect(exit.durationMs).toBeLessThan(5_000);
-    await waitForExit(pid);
+    try {
+      const pid = await vi.waitFor(() => {
+        const childPid = Number(job.output().stdout.trim());
+        expect(childPid).toBeGreaterThan(0);
+        expect(isProcessRunning(childPid)).toBe(true);
+        return childPid;
+      }, { timeout: 1_500 });
+      job.stop();
+      const exit = await awaitJobExit(job);
+      expect(exit.signal).toBe("SIGTERM");
+      // Without the group the orphaned `sleep` would keep stdout open and
+      // the exit would not close for 30 s.
+      expect(exit.durationMs).toBeLessThan(5_000);
+      await waitForExit(pid);
+    } finally {
+      if (!job.exited()) job.kill();
+    }
   });
 
   it("escalates to SIGKILL after the grace when the group ignores SIGTERM", async () => {

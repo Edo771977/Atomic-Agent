@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
+import { isProcessRunning } from "../test/helpers/process-liveness.js";
+
 const SCRIPT = resolve(import.meta.dirname, "sample-run-memory.mjs");
 
 type SampleRecord = Record<string, unknown> & { kind: string; elapsedMs: number };
@@ -29,26 +31,10 @@ function sampler(args: string[]): Promise<Ran> {
 const read = (path: string): SampleRecord[] =>
   readFileSync(path, "utf8").split("\n").filter((l) => l.length > 0).map((l) => JSON.parse(l) as SampleRecord);
 
-const isRunning = (pid: number): boolean => {
-  try {
-    process.kill(pid, 0);
-    if (process.platform === "linux") {
-      // kill(pid, 0) also succeeds for zombies. A container's PID 1 may
-      // leave an orphaned child in that state indefinitely.
-      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
-      const state = stat[stat.lastIndexOf(")") + 2];
-      return state !== "Z";
-    }
-    return true;
-  } catch (err) {
-    if (["ESRCH", "ENOENT"].includes((err as NodeJS.ErrnoException).code ?? "")) return false;
-    throw err;
-  }
-};
 /** Still there 3 s on (an orphan killed with its parent is reaped a moment later). */
 async function alive(pid: number): Promise<boolean> {
-  for (let i = 0; i < 30 && isRunning(pid); i += 1) await new Promise((r) => setTimeout(r, 100));
-  return isRunning(pid);
+  for (let i = 0; i < 30 && isProcessRunning(pid); i += 1) await new Promise((r) => setTimeout(r, 100));
+  return isProcessRunning(pid);
 }
 
 /** Grows by 8 MiB every 50 ms, up to 800 MiB. Self-cleans if the sampler fails. */
@@ -103,6 +89,7 @@ describe("sample-run-memory", () => {
     const stop = read(out).find((r) => r.kind === "stop")!;
     expect((stop.processes as unknown[]).length).toBeGreaterThanOrEqual(2);
     const pid = Number(/pid (\d+)/.exec(ran.stderr)?.[1]);
+    expect(pid).toBeGreaterThan(0);
     expect(await alive(pid)).toBe(false);
   }, 45_000);
 

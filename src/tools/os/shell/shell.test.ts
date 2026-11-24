@@ -2,6 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { copyFile, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+import { isProcessRunning } from "../../../../test/helpers/process-liveness.js";
+
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import type { ToolContext } from "../../tool-registry.js";
 import {
@@ -23,11 +26,7 @@ function approvingTool(defaultTimeoutMs?: number) {
 
 async function waitForExit(pid: number): Promise<void> {
   for (let i = 0; i < 80; i += 1) {
-    try {
-      process.kill(pid, 0);
-    } catch {
-      return;
-    }
+    if (!isProcessRunning(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`process ${pid} survived the timeout kill`);
