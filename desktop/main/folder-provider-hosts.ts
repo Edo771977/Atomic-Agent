@@ -286,10 +286,11 @@ export function isPrivateNetworkUrl(url: string | undefined): boolean {
   }
   if (host.includes(":")) return /^f[cd][0-9a-f]{0,2}:/.test(host) || /^fe[89ab][0-9a-f]?:/.test(host);
   if (!host.includes(".")) return true;
-  const wildcard = WILDCARD_DNS_SUFFIXES.find((suffix) => host.endsWith(suffix));
+  const wildcard = WILDCARD_DNS_SUFFIXES.find((suffix) => host.endsWith(suffix) || host === suffix.slice(1));
   if (wildcard) {
+    // A name without a readable address is public, as in the agent (#208).
     const inside = wildcardDnsIpv4(host.slice(0, -wildcard.length));
-    return inside === null || isPrivateNetworkUrl(`http://${inside}`);
+    return inside !== null && isPrivateNetworkUrl(`http://${inside}`);
   }
   return OWN_NETWORK_SUFFIXES.some((suffix) => host.endsWith(suffix));
 }

@@ -23,6 +23,45 @@ function expectNotDangerous(line: string): void {
   expect(verdict.action).not.toBe("block");
 }
 
+it.each(["install", "update", "restore", "uninstall", "enable", "disable", "tap", "curate"])(
+  "marks global skill %s as dangerous",
+  (verb) => expect(guardLine(`atomic-agent skill ${verb} demo`).rule).toBe("dangerous.skill_global_mutation"),
+);
+
+it("marks third-party global skill installs as dangerous", () => {
+  expect(guardLine("npx skills add example/skills -g").rule).toBe("dangerous.skill_global_mutation");
+});
+
+it.each([
+  "env -i atag skill list",
+  "env -i0 atag skill list",
+  "env -vi atag skill list",
+  "env -iu SAMPLE atag skill list",
+  "env - atag skill list",
+  "env -S '-vi atag skill list'",
+  "env --split-string='-i atag skill list'",
+  "env --ignore-environment atomic-agent skill list",
+  "env --i atag skill list",
+  "env --ignore-env atag skill list",
+  "env -S '--ig atag skill list'",
+  'atag "$TOPIC" list',
+  'atomic-agent skill "$ACTION" demo',
+])("flags opaque agent-command provenance: %s", (line) => {
+  expect(guardLine(line).rule).toBe("dangerous.skill_approval_origin");
+});
+
+it.each(["env -u limi atag skill list", "env -- printf -i", "env printf -i"])(
+  "does not treat an operand as an environment reset: %s", expectNotDangerous,
+);
+
+it("allows reading workspace project trust status", () => {
+  expectNotDangerous("atag skill project status --workspace /work");
+});
+
+it("classifies workspace project trust changes as dangerous", () => {
+  expect(guardLine("atag skill project on --workspace /work").rule).toBe("dangerous.skill_global_mutation");
+});
+
 describe("dangerous git rules: table", () => {
   it.each([
     "git -C repo push --force",
@@ -345,6 +384,46 @@ describe("dangerous.plugin_code_consent", () => {
     "atomic-agent plugin deny-code demo",
     "atomic-agent plugin install ./demo",
     "atomic-agent plugin update demo",
+  ])("%s stays on the ordinary path", (line) => {
+    expectNotDangerous(line);
+  });
+});
+
+it.each([
+  ["script", ["--version"]],
+  ["python3", ["-c", "print('ATOMIC_AGENT_TOOL_CHILD')"]],
+  ["env", ["-u", "atomic_agent_tool_child", "true"]],
+])("classifies opaque approval origins through %s", (cmd, args) => {
+  expect(guardArgv(cmd as string, args as string[]).rule).toBe("dangerous.skill_approval_origin");
+});
+
+describe("dangerous.skill_draft_consent (ATO-67)", () => {
+  it.each([
+    `atomic-agent skill learned approve a1b2c3@${"a".repeat(64)}`,
+    "atomic-agent skill learned approve a1b2c3",
+    "atag skill learned approve a1b2c3",
+    "atag skill learned unknown",
+    "atag skill learned \"$verb\"",
+    "npx atomic-agent skill learned approve a1b2c3",
+    "node dist/cli/index.js skill learned approve a1b2c3",
+    "/usr/local/bin/atomic-agent skill learned APPROVE a1b2c3",
+    "cd x && atomic-agent skill learned approve a1b2c3",
+    "atomic-agent skill learned list; atomic-agent skill learned approve a1b2c3",
+  ])("%s requires approval as dangerous", (line) => {
+    expect(guardLine(line)).toMatchObject({
+      action: "approval_required",
+      rule: "dangerous.skill_draft_consent",
+    });
+  });
+
+  it.each([
+    "atomic-agent skill learned",
+    "atomic-agent skill learned show a1b2c3",
+    "atomic-agent skill learned show a1b2c3 --json",
+    "atomic-agent skill learned discard a1b2c3",
+    "atomic-agent skill learned undo a1b2c3",
+    "atomic-agent skill list",
+    "echo approve",
   ])("%s stays on the ordinary path", (line) => {
     expectNotDangerous(line);
   });

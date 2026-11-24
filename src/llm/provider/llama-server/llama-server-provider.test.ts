@@ -1,3 +1,4 @@
+import { linkPrivacyVault, resetPrivacyVaults, setPrivacyShieldEnabled, withPrivacyShieldTurn } from "../../../privacy/index.js";
 import { getEventListeners } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
@@ -137,6 +138,105 @@ async function settledWithin(
 }
 
 describe("LlamaServerProvider", () => {
+  it.each([
+    ["https://gpu.example.test", "auto", true, "[EMAIL_1]"],
+    ["http://127.0.0.1:8080", "on", false, "[EMAIL_1]"],
+    ["http://127.0.0.1:8080", "auto", true, "person@example.test"],
+    ["https://gpu.example.test", "off", true, "person@example.test"],
+  ] as const)("applies text Privacy Shield for %s in %s mode", async (url, shield, enabled, sent) => {
+    setPrivacyShieldEnabled(enabled);
+    const complete = vi.fn<LlamaServerClient["complete"]>().mockImplementation(async (request) => ({
+      content: request.prompt, reasoningContent: "", stop: true, truncated: false,
+      timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+      cacheHitTokens: 0, slotId: -1, modelId: null,
+    }));
+    const client = fakeClient(complete);
+    Object.defineProperty(client, "textRequestBaseUrl", { value: url });
+    const provider = new LlamaServerProvider(client, {
+      privacyShield: shield,
+      getProfile: () => PLAIN_INSTRUCT_PROFILE,
+      visionEnabledByConfig: false,
+      visionAutoDetect: false,
+      maxImageBytes: 1024,
+      maxImagesPerCall: 2,
+      requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    try {
+      const result = await provider.complete({ prompt: "person@example.test", sessionId: "shield-llama" });
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent }));
+      expect(result.content).toBe("person@example.test");
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
+  it("masks chat-template input and restores buffered tool JSON before the done chunk", async () => {
+    const applyTemplate = vi.fn<LlamaServerClient["applyTemplate"]>(
+      async ([system, user]) => system!.content + " | " + user!.content,
+    );
+    const completeStream = vi.fn<LlamaServerClient["completeStream"]>(async function* () {
+      const content = '[{"tool":"os.example","args":{"email":"[EMAIL_1]"}}]';
+      yield { delta: content.slice(0, -9), reasoningDelta: "", done: false };
+      yield { delta: content.slice(-9), reasoningDelta: "", done: false };
+      yield { delta: "", reasoningDelta: "", done: true };
+      return {
+        content, reasoningContent: "", stop: true, truncated: false,
+        timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+        cacheHitTokens: 0, slotId: -1, modelId: null,
+      };
+    });
+    const provider = new LlamaServerProvider(Object.assign(fakeClient(vi.fn(), applyTemplate), { completeStream }), {
+      privacyShield: "on", getProfile: () => PLAIN_INSTRUCT_PROFILE, visionEnabledByConfig: false,
+      visionAutoDetect: false, maxImageBytes: 1024, maxImagesPerCall: 2, requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    try {
+      const stream = provider.completeStream({
+        prompt: "Contact person@example.test",
+        chat: { system: "Contact person@example.test", user: "Continue", prefixHash: "prefix" },
+      });
+      const chunks = [];
+      let next = await stream.next();
+      while (!next.done) {
+        chunks.push(next.value);
+        next = await stream.next();
+      }
+      expect(applyTemplate).toHaveBeenCalledWith(expect.arrayContaining([
+        { role: "system", content: "Contact [EMAIL_1]" },
+      ]), undefined);
+      expect(completeStream).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Contact [EMAIL_1] | Continue" }));
+      expect(chunks.at(-1)?.done).toBe(true);
+      expect(chunks.map((chunk) => chunk.delta).join("")).toContain("person@example.test");
+      expect(next.value.content).toContain("person@example.test");
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
+  it("limits a Fusion worker to references from the actual formatted prompt", async () => {
+    const complete = vi.fn<LlamaServerClient["complete"]>().mockResolvedValue({
+      content: "[EMAIL_1] [EMAIL_2]", reasoningContent: "", stop: true, truncated: false,
+      timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+      cacheHitTokens: 0, slotId: -1, modelId: null,
+    });
+    const provider = new LlamaServerProvider(fakeClient(complete, async ([system, user]) => system!.content + user!.content), {
+      privacyShield: "on", getProfile: () => PLAIN_INSTRUCT_PROFILE, visionEnabledByConfig: false,
+      visionAutoDetect: false, maxImageBytes: 1024, maxImagesPerCall: 2, requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    linkPrivacyVault("llama-worker", "llama-director");
+    try {
+      await withPrivacyShieldTurn("llama-worker", async () => {
+        const result = await provider.complete({
+          sessionId: "llama-worker",
+          prompt: "raw-only@example.test",
+          chat: { system: "worker@example.test", user: "Continue", prefixHash: "worker-prefix" },
+        });
+        expect(result.content).toBe("worker@example.test [EMAIL_2]");
+      });
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
   it("reports vision supported when config + profile both allow it", () => {
     const provider = new LlamaServerProvider(fakeClient(vi.fn()), {
       getProfile: () => VISION_PROFILE,

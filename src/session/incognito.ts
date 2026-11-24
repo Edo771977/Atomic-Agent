@@ -115,8 +115,11 @@ export function storedIncognitoOwnerGone(
   id: string,
   probe: TurnOwnerProbe,
   dbIdentity?: string,
+  issuedOwner?: string,
 ): boolean {
   const row = db.prepare(SELECT_INCOGNITO_SQL + " AND id = ?").get(id) as { owner: unknown } | undefined;
-  return row !== undefined &&
-    isTurnOwnerGone(typeof row.owner === "string" ? row.owner : null, probe, dbIdentity);
+  if (row === undefined) return false;
+  const raw = typeof row.owner === "string" ? row.owner : null;
+  if (raw !== null && raw === issuedOwner) return false;
+  return isTurnOwnerGone(raw, probe, dbIdentity);
 }

@@ -1,3 +1,4 @@
+import { hasUnresolvedWildcardDnsAddress } from "../llm/provider/openai/local-server-url.js";
 import { isOtherComputerOnNetworkUrl } from "../llm/provider/openai/network-server-address.js";
 import { isLoopbackUrl } from "../llm/provider/url-host.js";
 import { describeMalformedApiKey } from "./api-key-shape.js";
@@ -129,11 +130,12 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
  * http:// to this machine. Plain http:// to any other host (a public IP,
  * a box on the LAN) and a server on another computer on the network, over
  * either scheme (ATO-1066), get no shared key; an entry that wants one
- * there sets `apiKey` or `apiKeyEnvVar`.
+ * there sets `apiKey` or `apiKeyEnvVar`. Wildcard DNS names without a
+ * readable address also need an explicit key.
  */
 export function maySendSharedOpenAiKey(baseUrl: string | undefined): boolean {
   if (baseUrl === undefined || baseUrl.trim().length === 0) return true;
-  if (isOtherComputerOnNetworkUrl(baseUrl)) return false;
+  if (isOtherComputerOnNetworkUrl(baseUrl) || hasUnresolvedWildcardDnsAddress(baseUrl)) return false;
   let protocol: string;
   try {
     protocol = new URL(baseUrl).protocol;

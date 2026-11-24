@@ -1,5 +1,7 @@
 import { openaiError } from "./openai-errors.js";
-import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
+import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
+import { isIncognitoSession } from "../session/incognito.js";
+import { serveWithheld } from "./serve-egress.js";
 import type { PrivacyShieldControl } from "../runtime/runtime-contract.js";
 
 /**
@@ -14,13 +16,17 @@ import type { PrivacyShieldControl } from "../runtime/runtime-contract.js";
  * `privacy.shield.enabled`, applies it to new turns and
  * answers the same shape.
  */
-function snapshot(control: PrivacyShieldControl, sessionId: string | null) {
-  const { masked, sessions, session } = control.stats(sessionId ?? undefined);
+function snapshot(control: PrivacyShieldControl, sessionId: string | null, ctx: HandlerContext) {
+  const viewer = sessionId && ctx.caller?.role === "viewer" ? ctx.runtime.sessionStore.load(sessionId) : null;
+  const unavailable = sessionId !== null && ctx.caller?.role === "viewer"
+    && (viewer === null || isIncognitoSession(viewer) || serveWithheld(ctx, viewer)());
+  const { masked, sessions, session } = control.stats(unavailable ? undefined : sessionId ?? undefined);
   return {
     enabled: control.isEnabled(),
     masked,
     sessions,
-    ...(session ? { session: { masked: session.masked, lastRequest: session.lastRequest } } : {}),
+    ...(unavailable ? { session: { masked: 0, lastRequest: 0 } }
+      : session ? { session: { masked: session.masked, lastRequest: session.lastRequest } } : {}),
   };
 }
 
@@ -36,7 +42,7 @@ export function createGetPrivacyShieldHandler(): HttpHandler {
       sendError(res, 501, openaiError("privacy shield is not available in this runtime"));
       return;
     }
-    sendJson(res, 200, snapshot(control, sessionIdOf(req.url)));
+    sendJson(res, 200, snapshot(control, sessionIdOf(req.url), ctx));
   };
 }
 
@@ -64,6 +70,6 @@ export function createSetPrivacyShieldHandler(): HttpHandler {
       sendError(res, 500, openaiError("could not switch privacy shield", "server_error"));
       return;
     }
-    sendJson(res, 200, snapshot(control, sessionIdOf(req.url)));
+    sendJson(res, 200, snapshot(control, sessionIdOf(req.url), ctx));
   };
 }

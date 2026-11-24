@@ -28,11 +28,14 @@ atomic-agent skill list --workspace /path/to/repo
 atomic-agent skill show example --workspace /path/to/repo
 atomic-agent skill disable example --workspace /path/to/repo
 atomic-agent skill enable example --workspace /path/to/repo
+atomic-agent skill project status --workspace /path/to/repo
 atomic-agent skill project off --workspace /path/to/repo  # also revokes trust
 atomic-agent skill project on --workspace /path/to/repo   # also trusts what the folder ships now
 atomic-agent skill disable example  # global, including every cloud workspace
 atomic-agent skill enable example   # global; workspace bans remain
 ```
+
+Agent tool processes can read project trust counts with `skill project status`. The operator owns the `on`, `off`, `enable` and `disable` decisions.
 
 In the cloud Skills panel, `w` toggles the selected skill in this project, `e` toggles globally and `p` toggles all project skills. The clickable controls call the same keyboard handlers. Detail and selected rows display the source path and disabled reasons. Local sessions retain their existing Atomic registry and global controls.
 

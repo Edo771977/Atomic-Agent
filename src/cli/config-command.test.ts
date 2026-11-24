@@ -561,6 +561,22 @@ describe("configCommand", () => {
       resetConfigCache();
     }
 
+    it.each([
+      ["set", "privacy.shield.enabled", "true"],
+      ["unset", "privacy.shield.enabled"],
+    ])("reserves config %s of privacy settings for the operator", async (...args) => {
+      seedSparseConfig({ privacy: { shield: { enabled: false } } });
+      vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+      try {
+        const before = readFileSync(join(stateDir, "config.json"), "utf8");
+        expect(await configCommand(args)).toBe(1);
+        expect(stderr).toMatch(/only the operator/i);
+        expect(readFileSync(join(stateDir, "config.json"), "utf8")).toBe(before);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("set <key> <value> writes one key and leaves the rest of the file alone", async () => {
       seedSparseConfig({ agent: { maxSteps: 7 } });
       const code = await configCommand(["set", "log.level", "debug"]);

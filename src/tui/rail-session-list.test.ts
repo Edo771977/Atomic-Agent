@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   blank,
@@ -9,6 +9,7 @@ import {
   summaryPageOf,
 } from "./rail-session-harness.js";
 import { RAIL_PAGE_SIZE } from "./session-rail/index.js";
+import { createIncognitoSessions } from "../runtime/incognito-sessions.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
 import { ChatOrchestrator } from "./chat-orchestrator.js";
 import { makeTuiEventBus } from "./make-event-bus.js";
@@ -178,6 +179,38 @@ describe("rail session list", () => {
     expect(picker().map((entry) => entry.sessionId)).toEqual(["s-old"]);
   });
 
+  it("reports a failed incognito cleanup and lets the operator retry deletion", () => {
+    const secret = { ...spokenTo("s-private", "private"), incognito: { since: 1, owner: "test" } };
+    const runtime = stubRuntime([secret]);
+    const wrappedDelete = vi.spyOn(runtime.sessionStore, "delete").mockImplementationOnce(() => {
+      throw new Error("ENOSPC");
+    });
+    runtime.discardIncognitoSession = createIncognitoSessions({
+      sessionStore: {
+        isIncognito: (id) => runtime.sessionStore.load(id)?.incognito !== undefined,
+        delete: (id) => runtime.sessionStore.delete(id),
+      },
+      tracesDir: null,
+      logger: runtime.logger,
+      isBusy: () => false,
+    }).discard;
+    const bus = makeTuiEventBus();
+    const notices: TuiAction[] = [];
+    bus.subscribe((event) => notices.push(event));
+    const orchestrator = new ChatOrchestrator(runtime, bus, {
+      maxSteps: 5, llamaUrl: "http://localhost:8080", readGateFacts: cloudGateFacts,
+    });
+
+    orchestrator.deleteSession(secret.id);
+    expect(notices).toContainEqual(expect.objectContaining({
+      type: "system_message", variant: "warn", text: expect.stringMatching(/retry/i),
+    }));
+    expect(runtime.sessionStore.load(secret.id)?.incognito).toBeDefined();
+    orchestrator.deleteSession(secret.id);
+    expect(wrappedDelete).toHaveBeenCalledTimes(2);
+    expect(runtime.sessionStore.load(secret.id)).toBeNull();
+  });
+
   it("drops the stand-in when that session is deleted", async () => {
     // Deletion is refused while a turn holds the session, so let the
     // turn settle first — the stored row still has no user turn (the
@@ -307,7 +340,11 @@ describe("rail session list — manual order", () => {
   });
 
   it("writes nothing for a move that changes nothing or names no row", () => {
-    const stored = [spokenTo("s-2", "second"), spokenTo("s-1", "first")];
+    // Make s-2 the first row regardless of the clock or id tiebreak.
+    const stored = [
+      { ...spokenTo("s-2", "second"), updatedAt: 2 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1 },
+    ];
     const { orchestrator, written, actions } = harness(stored);
     orchestrator.refreshRecentSessions();
     const emitted = actions.length;

@@ -42,13 +42,14 @@ import { createPushTaskReportSink, readCurrentPushConfig } from "../../notificat
 export function createRuntimeTaskStores(args: {
   config: Pick<AtomicAgentConfig, "paths" | "tasks">;
   logger: StructuredLogger;
-  sessionStore?: Pick<SessionStore, "isOrphanIncognito">;
+  sessionStore?: Pick<SessionStore, "isOrphanIncognito" | "isIncognito">;
   retainedIncognitoIds?: readonly string[];
 }): { taskStore: TaskStore; webhookSessionStore: WebhookSessionStore } {
   const { config, logger } = args;
   const retained = new Set(args.retainedIncognitoIds);
   const taskStore = new TaskStore({
     dbFile: config.paths.tasksDbFile,
+    isIncognitoSession: id => args.sessionStore?.isIncognito(id) === true,
     skipSession: id => retained.has(id) || args.sessionStore?.isOrphanIncognito(id) === true,
   });
   const webhookSessionStore = new WebhookSessionStore(

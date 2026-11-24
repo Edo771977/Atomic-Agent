@@ -47,6 +47,8 @@ Rules:
 | Global | `<stateDir>/skills/<name>/SKILL.md` (default `~/.atomic-agent/skills/`) |
 | Project | `<workingDir>/.atomic-agent/skills/<name>/SKILL.md` — overrides global on name clash |
 
+For a global or shared skill, prepare its source in the workspace and have the operator install it from their own terminal. Changes to installed global and shared skill files require trust approval. Reading a skill or running an installed script follows the ordinary read and shell rules.
+
 One folder per skill; single `SKILL.md` at folder root.
 
 ## Workflow

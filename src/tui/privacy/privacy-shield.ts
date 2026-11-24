@@ -19,6 +19,7 @@ export interface ShieldPanelState {
   masked: number | null;
   /** The same for the active chat, when the tab knows which one it is. */
   sessionMasked: number | null;
+  fusionUsesSubscriptionCli?: boolean;
 }
 
 export function createInitialShieldPanelState(): ShieldPanelState {

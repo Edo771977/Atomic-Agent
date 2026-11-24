@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -17,12 +18,15 @@ import {
   workerRefusalFor,
 } from "../fusion/worker-tool-policy.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import { getStateSecretPaths, type ReadScope } from "../../config/index.js";
+import { getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
+import { buildOsShellTool } from "../os/shell/shell.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
 import {
   findShellStateSecrets,
+  findShellSkillWrites,
+  findShellTrustDeletes,
   findStateSecretReads,
   type StateSecrets,
 } from "./state-secrets.js";
@@ -198,8 +202,6 @@ posix("which calls touch the agent's secret files", () => {
     for (const args of [
       { cmd: "ls -la" },
       { cmd: "cat .env" },
-      { cmd: "cat ~/.atomic-agent/skills/notes/SKILL.md" },
-      { cmd: "ls ~/.atomic-agent/skills" },
       { cmd: "cat ~/.atomic-agent/.env.example" },
       { cmd: "git", args: ["status"] },
       { cmd: "npm test -- --reporter=dot" },
@@ -239,7 +241,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     },
   });
 
-  function install(level: ApprovalLevel): void {
+  function install(level: ApprovalLevel, useRealShell = false, protectDeletes = false): void {
     gate = new ApprovalGate({
       level,
       emit: (request) => {
@@ -251,13 +253,19 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     });
     registry = new ToolRegistry();
     registry.register(stub("os.fs.read", () => (innerReads += 1)));
-    registry.register(stub("os.shell.run", () => (innerShells += 1)));
+    registry.register(useRealShell
+      ? buildOsShellTool({ approvals: gate, approvalRequired: true })
+      : stub("os.shell.run", () => (innerShells += 1)));
     confineReads(registry, {
       grantedDirs: () => [],
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: { stateDir: s.stateDir, files: [
+      stateSecrets: { stateDir: s.stateDir,
+        ...(protectDeletes ? { trustDeletePaths: getTrustConfigPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }) } : {}),
+        skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
         ...s.secrets.files,
         ...getStateSecretPaths({
           stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
@@ -274,6 +282,134 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     innerShells = 0;
     readScope = "unrestricted";
     install(4);
+  });
+
+  it("gates deletion of a parent of a custom trusted directory", async () => {
+    const parent = join(s.home, "custom");
+    const globalSkillsDir = join(parent, "installed");
+    mkdirSync(globalSkillsDir, { recursive: true });
+    const cfg = { stateDir: s.stateDir, globalSkillsDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models") };
+    const isolated = new ToolRegistry();
+    isolated.register(stub("os.shell.run", () => (innerShells += 1)));
+    confineReads(isolated, {
+      grantedDirs: () => [],
+      approvals: { approvals: gate, approvalRequired: true },
+      stateSecrets: {
+        stateDir: s.stateDir, files: getStateSecretPaths(cfg),
+        skillWritePaths: getSkillWriteProtectionPaths(cfg),
+        trustDeletePaths: getTrustConfigPaths(cfg),
+      },
+    });
+    answer = { approved: false };
+    await expect(isolated.invoke("os.shell.run", { cmd: "rm", args: ["-r", parent] }, ctx())).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config"]);
+    expect(innerShells).toBe(0);
+  });
+
+  it.each([
+    "cd /scratch && tar -xf demo.tar --directory=shared",
+    "tar -xC /scratch/shared -f sample.tar",
+    "tar -xC/scratch/shared -f sample.tar",
+    "unzip archive.zip -d /scratch/shared",
+    "unzip -Psample archive.zip -d /scratch/shared",
+    "git clone example.invalid/repo /scratch/shared/demo",
+    "git clone --separate-git-dir=/scratch/shared/repo.git example.invalid/repo /tmp/clone",
+    "git -C /scratch clone https://example.invalid/shared.git",
+    "curl --output=/scratch/shared/demo https://example.invalid/demo",
+    "curl -sSLo/scratch/shared/demo https://example.invalid/demo",
+    "cd /scratch/shared && curl -O https://example.invalid/demo",
+    "cd /scratch && curl -OJ https://example.invalid/demo",
+    "wget -P /scratch/shared https://example.invalid/demo",
+    "wget -qO/scratch/shared/demo https://example.invalid/demo",
+    "wget --output-document=/scratch/shared/file https://example.invalid/demo",
+    "cd /scratch/shared && dd if=/dev/zero of=demo",
+    "bash -c 'cd /scratch/shared && touch demo'",
+    "cp -rt /scratch /elsewhere/shared",
+    "cp -rt/scratch /elsewhere/shared",
+    "mv /elsewhere/shared /scratch",
+    'DEST=/scratch/shared/demo; touch "$DEST"',
+  ])("classifies a write target for %s", (cmd) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    })).toContain("/scratch/shared/");
+  });
+
+  it("matches the direct-exec glob expansion when it resolves into an installed skill", () => {
+    const root = join(s.home, "glob-shared");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "SKILL.md"), "fixture");
+    expect(findShellSkillWrites(
+      { cmd: "touch", args: [join(s.home, "glob-*", "SKILL.md")] },
+      { workingDir: s.work },
+      { stateDir: s.stateDir, files: [], skillWritePaths: [root + sep] },
+    )).toContain(root + sep);
+  });
+
+  it.each([
+    'cat input > "$UNKNOWN"',
+    "bash /scratch/shared/script.sh 2>/dev/null",
+    'cat "${SKILL_FILE}" 2>&1',
+    "cat /scratch/shared/SKILL.md 2>&1",
+    "grep marker /scratch/shared/SKILL.md > /tmp/result",
+    "diff /scratch/shared/SKILL.md /tmp/reference > /tmp/result",
+    "cp /scratch/shared/SKILL.md /tmp/copy",
+  ])("does not classify a read or script input as a write: %s", (cmd) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    })).toEqual([]);
+  });
+
+  it.each([
+    "trash /scratch", "gio trash /scratch",
+    "kioclient move /scratch trash:/", "mv /scratch /tmp/stash",
+  ])("protects trusted descendants for %s", (cmd) => {
+    expect(findShellTrustDeletes({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], trustDeletePaths: ["/scratch/shared/"],
+    })).toContain("/scratch/shared/");
+  });
+
+  it("allows a Fusion worker to run git log with a computed date", async () => {
+    execFileSync("git", ["init", "--quiet", s.work]);
+    install(4, true);
+    const worker = "s-w-shell-history-1";
+    gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED });
+    execFileSync("git", ["-C", s.work, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "--quiet", "--allow-empty", "-m", "Worker log fixture"]);
+    const result = await registry.invoke("os.shell.run", { cmd: "git log --since=$(date +%F)" }, ctx(worker));
+    expect(result.status).toBe("ok");
+    expect(result.summary).toContain("Worker log fixture");
+    expect(prompts).toEqual([]);
+  });
+
+  it("allows computed reads and ordinary dynamic output at approval level four", async () => {
+    for (const cmd of [
+      "echo $(date)", "ls $(pwd)", "git log --since=$(date +%F)",
+      "cat \`which node\`", 'echo "${PATH%:*}"',
+      'cd "$(git rev-parse --show-toplevel)" && git status',
+      'npm test > "$LOG"', "echo ok | tee /tmp/test.log",
+      'echo ok > "$TMPDIR/test.log"', "cp report /tmp/report",
+    ]) {
+      await shell({ cmd });
+      expect(prompts.filter((prompt) => prompt.category === "trust_config"), cmd).toEqual([]);
+    }
+    answer = { approved: false };
+    await expect(shell({ cmd: `DEST='${join(s.stateDir, "skills")}'; cp report "$DEST"` }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.at(-1)?.category).toBe("trust_config");
+  });
+
+  it("allows installed skill reads and script execution but gates mutations as trust config", async () => {
+    const script = join(s.stateDir, "skills", "demo", "check.sh");
+    await read(script);
+    await shell({ cmd: "cat", args: [script] });
+    await shell({ cmd: "bash", args: [script] });
+    expect(prompts).toEqual([]);
+    answer = { approved: false };
+    await expect(shell({ cmd: "touch", args: [script] })).rejects.toThrow(ApprovalDeniedError);
+    await expect(shell({ cmd: "rm", args: ["-r", join(s.stateDir, "skills")] })).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config", "trust_config"]);
+    expect(innerReads).toBe(1);
+    expect(innerShells).toBe(2);
   });
 
   it.each(["os.fs.read", "cat", "type", "Get-Content"])("requires approval for %s on the persisted serve key", async (reader) => {
@@ -314,7 +450,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
 
   it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
     answer = { approved: false };
-    await expect(shell({ cmd, args: [...(cmd === "sed -i" ? ["s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
+    await expect(shell({ cmd: cmd === "sed -i" ? "sed" : cmd, args: [...(cmd === "sed -i" ? ["-i", "s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
       .rejects.toThrow(ApprovalDeniedError);
     expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
   });
@@ -359,7 +495,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: { stateDir: s.stateDir, files: [
+      stateSecrets: { stateDir: s.stateDir, skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
         ...s.secrets.files,
         ...getStateSecretPaths({
           stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
@@ -378,6 +514,23 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     await shell({ cmd: "sed -i s/4/5/ ~/.atomic-agent/config.json" });
     expect(prompts.map((p) => p.category)).toEqual(["state_secret"]);
     expect(prompts[0]!.affectedResources).toEqual([s.config]);
+    expect(innerShells).toBe(1);
+  });
+
+  it("asks both approvals for an explicit hooks deletion in nested subshells", async () => {
+    install(4, false, true);
+    const hooks = join(s.stateDir, "hooks.json");
+    writeFileSync(hooks, "{}");
+    await shell({ cmd: '(( rm "$HOME/.atomic-agent/hooks.json" ))' });
+    expect(prompts.map((prompt) => [prompt.category, prompt.affectedResources])).toEqual([
+      ["state_secret", [hooks]], ["trust_config", [hooks]],
+    ]);
+    expect(innerShells).toBe(1);
+  });
+
+  it("asks at level 4 for recognizable writes under the global skills directory", async () => {
+    await shell({ cmd: "sed -i s/a/b/ ~/.atomic-agent/skills/notes/SKILL.md" });
+    expect(prompts.map(p => p.category)).toEqual(["trust_config"]);
     expect(innerShells).toBe(1);
   });
 
@@ -465,6 +618,27 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       expect(innerShells).toBe(ORDINARY_COMMANDS.length);
     });
   }
+
+  it.each(["patch -i changes.diff", "tar -xf bundle.tar", "7z x bundle.7z", "unzip bundle.zip"])(
+    "refuses a Fusion worker's home extraction requiring trust: %s", async (cmd) => {
+      const worker = "s-w-home-extraction";
+      gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED, reasonFor: workerRefusalFor });
+      await expect(registry.invoke("os.shell.run", { cmd, cwd: s.home }, ctx(worker)))
+        .rejects.toThrow(FUSION_WORKER_OPERATOR_ONLY_MARKER);
+      expect(prompts).toEqual([]);
+      expect(innerShells).toBe(0);
+    },
+  );
+
+  it("refuses a Fusion worker's unresolved destination under protected state", async () => {
+    const worker = "s-w-variable-skill";
+    gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED, reasonFor: workerRefusalFor });
+    await expect(registry.invoke("os.shell.run", {
+      cmd: 'mkdir -p "$HOME/.atomic-agent/$NAME"',
+    }, ctx(worker))).rejects.toThrow(FUSION_WORKER_OPERATOR_ONLY_MARKER);
+    expect(prompts).toEqual([]);
+    expect(innerShells).toBe(0);
+  });
 
   it("a fusion worker is refused at once, with a reason that says not to re-send it", async () => {
     install(1);

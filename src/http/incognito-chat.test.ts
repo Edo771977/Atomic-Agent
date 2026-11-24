@@ -1,8 +1,9 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FileCheckpointStore } from "../tools/os/fs/fs-checkpoint-store.js";
 import type { CompletionResult } from "../llm/llama-server-client.js";
 
 import { deriveChatSessionId } from "./openai-session-id.js";
@@ -25,9 +26,11 @@ function reply(text: string) {
 
 describe("incognito chats over HTTP", () => {
   let harness: Harness;
+  const complete = vi.fn(reply("hi back"));
 
   beforeEach(async () => {
-    harness = await startTestHarness({ llamaComplete: reply("hi back") });
+    complete.mockClear();
+    harness = await startTestHarness({ llamaComplete: complete });
   });
 
   afterEach(async () => {
@@ -76,6 +79,44 @@ describe("incognito chats over HTTP", () => {
     expect(existsSync(join(harness.stateDir, "traces", `${id}.ndjson`))).toBe(false);
   });
 
+  it("keeps a private chat retryable when deleting its tasks fails", async () => {
+    const id = await chat({ incognito: true });
+    const task = harness.runtime.taskStore.create({
+      sessionId: id, userMessage: "private prompt", origin: "cli", maxAttempts: 1,
+      schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: Date.now() + 300_000,
+    });
+    vi.spyOn(harness.runtime.taskStore, "removeForSession").mockImplementationOnce(() => {
+      throw new Error("SQLITE_BUSY");
+    });
+    const remove = () => fetch(`${harness.baseUrl}/api/sessions/${id}`, { method: "DELETE" });
+    const failed = await remove();
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ error: { code: "incognito_cleanup_failed" } });
+    expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+    expect(harness.runtime.taskStore.get(task.id)).not.toBeNull();
+    expect((await remove()).status).toBe(200);
+    expect(harness.runtime.sessionStore.load(id)).toBeNull();
+    expect(harness.runtime.taskStore.get(task.id)).toBeNull();
+  });
+
+  it("purges a recurring private task whose session row was lost", async () => {
+    const id = await chat({ incognito: true });
+    const task = harness.runtime.taskStore.create({
+      sessionId: id, userMessage: "private prompt", origin: "cli", maxAttempts: 1,
+      schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: Date.now() + 300_000,
+    });
+    expect(harness.runtime.taskStore.get(task.id)?.incognito).toBe(true);
+    // Simulate the legacy fallback that dropped the session without purging tasks.
+    harness.runtime.sessionStore.delete(id);
+    const sessions = await listed();
+    complete.mockClear();
+    await harness.runtime.taskRunner.runOne(task.id);
+    expect(complete).not.toHaveBeenCalled();
+    expect(await listed()).toEqual(sessions);
+    expect(harness.runtime.taskStore.get(task.id)).toBeNull();
+    expect(harness.runtime.taskStore.listRuns(task.id)).toEqual([]);
+  });
+
   it("refuses incognito: true on an existing ordinary chat, which would remember", async () => {
     const plain = await chat({});
     const response = await fetch(`${harness.baseUrl}/v1/chat/completions`, {
@@ -94,6 +135,22 @@ describe("incognito chats over HTTP", () => {
     const id = await chat({ incognito: true });
     expect(await chat({ session_id: id, incognito: false })).toBe(id);
     expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+  });
+
+  it("retries a private chat after server close could not write the cleanup marker", async () => {
+    const id = await chat({ incognito: true });
+    const marker = vi.spyOn(FileCheckpointStore.prototype, "markIncognitoRemoval").mockImplementationOnce(() => {
+      throw new Error("ENOSPC");
+    });
+    try {
+      await harness.handle.close();
+      expect(marker).toHaveBeenCalledWith(id);
+      expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+      await harness.handle.close();
+      expect(harness.runtime.sessionStore.load(id)).toBeNull();
+    } finally {
+      marker.mockRestore();
+    }
   });
 
   it("closing the server discards the incognito chats it opened", async () => {

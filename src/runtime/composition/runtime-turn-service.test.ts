@@ -647,6 +647,29 @@ describe("runtime turn ownership recipes", () => {
     expect(vi.getTimerCount()).toBe(1);
   });
 
+  it("retains the parent archive until the learned review settles", async () => {
+    const id = "completed-learn-review";
+    const archive = privacyVaultFor(id);
+    const gate = deferred<void>();
+    const withTurn = vi.fn(<T>(_state: SessionState, run: () => Promise<T>) => run());
+    Object.assign(fixture.deps, { experienceReview: { withTurn, maybeReview: () => true, whenIdle: () => gate.promise } });
+    fixture.loop.runTurn.mockImplementationOnce(async (state, options) => {
+      const turn = result(state, options);
+      return { ...turn, session: { ...turn.session, status: "completed" } };
+    });
+    try {
+      await createRuntimeTurnService(fixture.config, fixture.deps).executeTurn(session(id), "request");
+      expect(withTurn).toHaveBeenCalledOnce();
+      expect(privacyVaultFor(id)).toBe(archive);
+      gate.resolve();
+      await flushNaming();
+      expect(privacyVaultFor(id)).not.toBe(archive);
+    } finally {
+      gate.resolve();
+      forgetPrivacyVault(id);
+    }
+  });
+
   it("keeps a completed session archive until late side calls settle", async () => {
     vi.useFakeTimers();
     fixture.config.agent.nameSessions = true;

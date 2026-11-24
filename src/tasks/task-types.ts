@@ -109,9 +109,11 @@ export interface TaskRecord {
    * the first `runOne` attempt and writes it back so subsequent reads
    * observe a stable id. Recurring tasks always carry a non-null
    * session (created at `create()` time and reused across firings);
-   * the runner auto-recreates it if it ever goes missing.
+   * eligible ordinary tasks can recreate it if it goes missing.
    */
   sessionId: string | null;
+  /** Whether the task was created in a stored incognito session. */
+  incognito?: boolean;
   userMessage: string;
   /**
    * Per-task override for `agent.maxSteps`. `null` falls back to the

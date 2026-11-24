@@ -84,7 +84,13 @@ export class PrivacyVault {
   private maskedRequests = 0;
 
   /** `known` is read on every mask: the agent's own keys, which can change. */
-  constructor(private readonly known: () => readonly KnownSecret[] = () => []) {}
+  constructor(
+    private readonly known: () => readonly KnownSecret[] = () => [],
+    private readonly access?: {
+      record(vault: PrivacyVault, references: ReadonlySet<string>): void;
+      canRestore(vault: PrivacyVault, reference: string): boolean;
+    },
+  ) {}
 
   /** The placeholder for `value`, minted on first sight. */
   private placeholderFor(value: string, kind: PrivateKind): string {
@@ -107,9 +113,20 @@ export class PrivacyVault {
     return new Set();
   }
 
-  endRequest(request: ReadonlySet<string>): void {
+  endRequest(request: ReadonlySet<string>, recordVisible = true): void {
+    if (recordVisible) this.access?.record(this, request);
     this.lastRequest = request.size;
     if (this.lastRequest > 0) this.maskedRequests += 1;
+  }
+
+  /** Record references in the masked parts selected for a formatted request. */
+  recordMaskedText(...parts: readonly string[]): void {
+    if (!this.access) return;
+    const references = new Set<string>();
+    for (const part of parts) {
+      for (const [reference] of part.matchAll(PLACEHOLDER)) references.add(reference);
+    }
+    this.access.record(this, references);
   }
 
   /**
@@ -170,6 +187,7 @@ export class PrivacyVault {
     if (this.#byPlaceholder.size === 0 || !text.includes("[")) return text;
     PLACEHOLDER.lastIndex = 0;
     return text.replace(PLACEHOLDER, (match) => {
+      if (this.access?.canRestore(this, match) === false) return match;
       const value = this.#byPlaceholder.get(match);
       if (value === undefined) return match;
       return options.json ? JSON.stringify(value).slice(1, -1) : value;

@@ -13,6 +13,7 @@ import {
   type UserConfigFile,
 } from "./config-schema.js";
 import { writeOwnerOnlyFileAtomicSync } from "./owner-only-file.js";
+import { sharedAgentSkillsDir } from "./shared-skills-dir.js";
 import { SECRETS_STORE_FILE } from "./secret-store.js";
 
 /** Resolve the absolute path to the user config file inside a state dir. */
@@ -23,6 +24,18 @@ export function getUserConfigPath(stateDir: string): string {
 /** Resolve the absolute path to the `.env` file inside a state dir. */
 export function getDotenvPath(stateDir: string): string {
   return join(stateDir, ".env");
+}
+
+/** Installed skill roots are write-protected, without secret-read classification. */
+export function getSkillWriteProtectionPaths(paths: {
+  stateDir: string;
+  globalSkillsDir?: string;
+}): readonly string[] {
+  const shared = sharedAgentSkillsDir();
+  return [
+    (paths.globalSkillsDir ?? join(paths.stateDir, "skills")) + sep,
+    ...(shared === null ? [] : [shared + sep]),
+  ];
 }
 
 /**
@@ -52,6 +65,7 @@ export function getTrustConfigPaths(paths: {
   userConfigFile: string;
   stateDir: string;
   localModelsDataDir: string;
+  globalSkillsDir?: string;
 }): readonly string[] {
   return [
     paths.userConfigFile,
@@ -71,6 +85,10 @@ export function getTrustConfigPaths(paths: {
     // `session/project-decisions.ts`, `session/project-registry.ts`): a
     // write there could approve a gate or forge a run.
     join(paths.stateDir, "project-decisions") + sep,
+    // Skill bodies can become durable instructions in every project.
+    ...getSkillWriteProtectionPaths(paths),
+    // Drafts and activation records are operator-owned.
+    join(paths.stateDir, "learned-projects") + sep,
     join(paths.stateDir, "receipts") + sep,
     join(paths.stateDir, "signing") + sep,
     join(paths.stateDir, "projects") + sep,
@@ -84,7 +102,7 @@ export function isTrustDirectoryEntry(entry: string): boolean {
 
 /**
  * Every file in the agent's state that holds a secret or the trust
- * config: the trust surface above (including the server keys), plus the session
+ * config: the trust surface above (including the server keys, excluding installed skill roots), plus the session
  * records Atomic Chat Core writes with their per-session key
  * (`coreSessionPath`), the cached Atomic Mail session
  * (`resolveSessionPath`) and the folder of saved prompt caches
@@ -102,9 +120,11 @@ export function getStateSecretPaths(paths: {
   userConfigFile: string;
   stateDir: string;
   localModelsDataDir: string;
+  globalSkillsDir?: string;
 }): readonly string[] {
+  const skillWritePaths = getSkillWriteProtectionPaths(paths);
   return [
-    ...getTrustConfigPaths(paths),
+    ...getTrustConfigPaths(paths).filter((path) => !skillWritePaths.includes(path)),
     join(paths.localModelsDataDir, "core", "chat.json"),
     join(paths.localModelsDataDir, "core", "embedding.json"),
     join(paths.stateDir, "atomic-mail", "session.json"),

@@ -49,6 +49,15 @@ describe("installLocalSkill", () => {
       () => false,
     );
 
+  it("refuses implicit promotion from an approved project skill folder", async () => {
+    const sourceDir = join(base, "learned-projects", "a".repeat(64), "skills", "local-only");
+    await mkdir(sourceDir, { recursive: true });
+    await writeFile(join(sourceDir, "SKILL.md"), manifest("local-only"));
+    await expect(installLocalSkill({ sourceDir, targetRoot: target })).rejects.toThrow(/project-scoped/);
+    expect(await installed("local-only")).toBe(false);
+    await expect(installLocalSkill({ sourceDir, targetRoot: target, allowLearnedPromotion: true })).resolves.toMatchObject({ manifest: { name: "local-only" } });
+  });
+
   it("installs a clean folder and reports the ok scan", async () => {
     const src = await makeSkill("clean");
     const result = await installLocalSkill({ sourceDir: src, targetRoot: target });

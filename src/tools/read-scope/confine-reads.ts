@@ -31,6 +31,8 @@ import {
 } from "./read-scope-targets.js";
 import {
   findShellStateSecrets,
+  findShellSkillWrites,
+  findShellTrustDeletes,
   findStateSecretReads,
   stateSecretReadPrompt,
   stateSecretShellPrompt,
@@ -139,23 +141,42 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
     // nor a `shell` grant speaks for the agent's keys (ATO-877,
     // ATO-760). A fusion worker's question is refused by its session
     // policy, like any other it cannot have answered.
+    const trustDeletes = secrets === null ? [] : findShellTrustDeletes(args, ctx, secrets, options.shellEnv);
     const secretPaths =
       secrets === null
         ? []
         : findShellStateSecrets(args, ctx, secrets, options.shellEnv);
-    if (secretPaths.length > 0) {
+    // A named hooks file can contain sensitive commands while its
+    // deletion changes what the agent executes on future calls.
+    const hooks = secrets === null ? undefined : resolve(secrets.stateDir, "hooks.json");
+    const secretReview = trustDeletes.length === 0 ? secretPaths :
+      secretPaths.filter((path) => resolve(path) === hooks);
+    if (secretReview.length > 0) {
       const commandLine = shellCommandLine(args);
-      const mutatesKey = secrets !== null && shellServerKeyMutation(args, ctx, secrets, options.shellEnv);
+      const mutatesKey = trustDeletes.length === 0 && secrets !== null && shellServerKeyMutation(args, ctx, secrets, options.shellEnv);
       await asker.confirmStateSecret(
         tool,
         ctx,
         {
-          reason: mutatesKey ? "Change a protected server credential" : stateSecretShellPrompt(commandLine, secretPaths),
+          reason: mutatesKey ? "Change a protected server credential" : stateSecretShellPrompt(commandLine, secretReview),
           preview: commandLine,
         },
-        secretPaths,
+        secretReview,
         mutatesKey ? "trust_config" : "state_secret",
       );
+    }
+    const skillWrites = secrets === null || trustDeletes.length > 0 ? [] : findShellSkillWrites(args, ctx, secrets, options.shellEnv);
+    if (trustDeletes.length > 0) {
+      await asker.confirmStateSecret(tool, ctx, {
+        reason: "Delete a protected path or a folder that contains one",
+        preview: shellCommandLine(args),
+      }, trustDeletes, "trust_config");
+    }
+    if (skillWrites.length > 0) {
+      await asker.confirmStateSecret(tool, ctx, {
+        reason: "Change protected installed skills",
+        preview: shellCommandLine(args),
+      }, skillWrites, "trust_config");
     }
     if (!scoped()) return null;
     if (isFusionWorkerSessionId(ctx.sessionId)) {
@@ -165,7 +186,7 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
       const outside = findShellPathOutsideScope(
         args,
         ctx,
-        [ctx.workingDir, ...granted, ...secretPaths],
+        [ctx.workingDir, ...granted, ...secretPaths, ...skillWrites],
         options.shellEnv,
       );
       return outside === null

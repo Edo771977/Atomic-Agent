@@ -30,7 +30,7 @@ export interface NextStepSuggesterDeps {
   sessionStore: Pick<SessionStore, "save" | "load">;
   llmComplete: (params: LlmStreamParams) => Promise<CompletionResult>;
   slotManager: Pick<SlotManager, "sideCallSlotId">;
-  resolveTransport: () => ToolCallTransport;
+  resolveTransport: (providerId?: string) => ToolCallTransport;
   /** Teardown's handles (`pendingSessionNamings`, shared with naming). */
   pending: Set<AbortController>;
   isShutdown: () => boolean;
@@ -50,7 +50,7 @@ const UNWATCHED_ORIGINS: ReadonlySet<TurnOrigin> = new Set(["scheduler", "fusion
 export { nextStepSuggestionsEnabled };
 
 export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
-  const store = async (state: SessionState): Promise<void> => {
+  const store = async (state: SessionState, providerId?: string): Promise<void> => {
     if (deps.isShutdown()) return;
     const abort = new AbortController();
     const timer = setTimeout(() => abort.abort(), NEXT_STEP_TIMEOUT_MS);
@@ -59,14 +59,14 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
     try {
       const text = await generateNextStep(state, {
         complete: async (params) => {
-          const result = await deps.llmComplete({ ...params, signal: abort.signal });
+          const result = await deps.llmComplete({ ...params, ...(providerId === undefined ? {} : { providerId }), signal: abort.signal });
           return {
             content: result.content,
             ...(result.toolCalls ? { toolCalls: result.toolCalls } : {}),
           };
         },
         slotId: () => deps.slotManager.sideCallSlotId(),
-        toolTransport: deps.resolveTransport(),
+        toolTransport: deps.resolveTransport(providerId),
         serverTemplate: deps.getConfig().localModels.useServerTemplate !== "off",
         onError: (err: unknown) =>
           deps.logger.debug("next-step suggestion failed", {
@@ -101,7 +101,7 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
    * origin and the transcript all allow it. Returns the work to its owner and
    * never throws: the caller has already saved and is about to return.
    */
-  const maybeSuggest = (state: SessionState, origin: TurnOrigin | undefined): Promise<void> | undefined => {
+  const maybeSuggest = (state: SessionState, origin: TurnOrigin | undefined, providerId?: string): Promise<void> | undefined => {
     try {
       if (origin !== undefined && UNWATCHED_ORIGINS.has(origin)) return;
       if (!nextStepSuggestionsEnabled(deps.getConfig())) return;
@@ -109,7 +109,7 @@ export function createNextStepSuggester(deps: NextStepSuggesterDeps) {
       // the late save would write back a row its close deleted.
       if (isIncognitoSession(state)) return;
       if (!shouldSuggestNextStep(state)) return;
-      return store(state);
+      return store(state, providerId);
     } catch (err) {
       deps.logger.warn("next-step suggestion skipped", {
         sessionId: state.id,

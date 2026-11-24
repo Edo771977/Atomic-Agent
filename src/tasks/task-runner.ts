@@ -164,11 +164,11 @@ export interface TaskRunnerOptions {
    */
   notifyRefusal?: (task: TaskRecord) => string | null;
   /**
-   * Asked before a recurring task's deleted session is recreated: a
+   * Asked before an ordinary recurring task's deleted session is recreated: a
    * reason not to, or `null`. The factory would put the new session in
    * the runtime's folder, without the original's folder or read taint,
    * so while provider constraints exist (issue #33) the task is blocked
-   * instead (fail closed). Absent ⇒ always recreated.
+   * instead (fail closed). Without this check, eligible tasks recreate it.
    */
   recreateSessionRefusal?: (task: TaskRecord) => string | null;
   snapshotCadence?: { everySteps: number; everyMs: number } | null;
@@ -453,8 +453,8 @@ export class TaskRunner {
     );
     if (!claimed) return this.options.store.get(resolvedTask.id);
     if (pausedClaim) pausedClaim.fromPaused = fromPaused;
-    // Anything that throws after the claim (saving the wake reason or a
-    // recreated session, starting the snapshot sink) must not leave the
+    // Anything that throws after the claim (saving the wake reason or
+    // starting the snapshot sink) must not leave the
     // row `running` with nobody on it: it ends like a failed run.
     try {
       return await this.runClaimed(task, claimed, runtimeSignal);
@@ -514,6 +514,14 @@ export class TaskRunner {
     });
 
     const session = this.loadOrRecreateSession(claimed);
+    if (!session && claimed.incognito) {
+      this.options.store.purgeMissingIncognitoTask(claimed.id, claimed.sessionId);
+      this.options.logger?.warn("incognito task removed: session not found", {
+        taskId: claimed.id,
+        sessionId: claimed.sessionId,
+      });
+      return null;
+    }
     if (!session || typeof session === "string") {
       const blocked = this.options.store.markBlocked(claimed.id, {
         category: "tool",
@@ -1388,18 +1396,15 @@ export class TaskRunner {
   }
 
   /**
-   * Load the task's session. Recurring tasks auto-recreate a fresh
-   * session if the previous one has been deleted since the last
-   * firing; one-shot tasks fall through to the `session_not_found`
-   * block path. Returns `null` when neither branch can produce a
-   * session so the caller can block the task, or the reason
-   * `recreateSessionRefusal` gave (a throwing check refuses).
+   * Load the task's session, or recreate it for an ordinary recurring
+   * task when allowed. Returns null if the session is unavailable, or
+   * the reason recreation was refused. The caller handles either case.
    */
   private loadOrRecreateSession(task: TaskRecord): SessionState | string | null {
     if (task.sessionId === null) return null;
     const existing = this.options.sessionLoader.load(task.sessionId);
     if (existing) return existing;
-    if (!task.recurring || !this.options.sessionFactory) return null;
+    if (task.incognito || !task.recurring || !this.options.sessionFactory) return null;
     let refusal: string | null = null;
     try {
       refusal = this.options.recreateSessionRefusal?.(task) ?? null;

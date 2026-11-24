@@ -1,3 +1,4 @@
+import { routeErrorDiagnostics } from "./route-error-diagnostics.js";
 import {
   createServer,
   type IncomingMessage,
@@ -107,6 +108,7 @@ export interface HttpServerHandle {
 interface CompiledRoute {
   method: string;
   pattern: RegExp;
+  template: string;
   paramNames: string[];
   handler: HttpHandler;
   requiresAuth: boolean;
@@ -134,6 +136,7 @@ function compileRoute(route: RouteDefinition): CompiledRoute {
   return {
     method: route.method.toUpperCase(),
     pattern,
+    template: route.path,
     paramNames,
     handler: route.handler,
     requiresAuth: /^\/(?:api|v1)(?:\/|$)/.test(route.path) || route.requiresAuth !== false,
@@ -192,6 +195,7 @@ export function createHttpServer(
   const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
 
   const server = createServer(async (req, res) => {
+    let template: string | null = null;
     try {
       await dispatch(req, res, compiled, {
         runtime: options.runtime,
@@ -203,9 +207,9 @@ export function createHttpServer(
         incognitoChats,
         memoryEvents,
         networkServe,
-      }, options.namedTokens);
+      }, (path) => { template = path; }, options.namedTokens);
     } catch (err) {
-      handleRouteError(res, err, options.runtime.logger);
+      handleRouteError(res, err, options.runtime.logger, req.method ?? "GET", template);
     }
   });
 
@@ -247,15 +251,15 @@ export function createHttpServer(
           await closeServer(server, sockets);
           // ATO-586: the incognito chats this server opened. A chat whose
           // turn is still ending is deleted when it settles; one that
-          // cannot be deleted now is the next start's sweep.
+          // cannot be deleted stays tracked for another close or the boot sweep.
           for (const id of incognitoChats) {
             try {
-              options.runtime.discardIncognitoSession?.(id);
+              const outcome = options.runtime.discardIncognitoSession?.(id);
+              if (outcome !== "failed" && outcome !== "deferred") incognitoChats.delete(id);
             } catch {
-              /* left for the boot sweep */
+              /* Keep the id for another close or the boot sweep. */
             }
           }
-          incognitoChats.clear();
         },
       });
     };
@@ -270,6 +274,7 @@ async function dispatch(
   res: ServerResponse,
   routes: CompiledRoute[],
   baseCtx: Omit<HandlerContext, "params">,
+  onMatch: (template: string) => void,
   namedTokens?: () => readonly StoredHttpToken[],
 ): Promise<void> {
   const url = parseRequestUrl(req);
@@ -292,7 +297,8 @@ async function dispatch(
     );
     return;
   }
-  const ctx: HandlerContext = { ...baseCtx, params: matched.params };
+  onMatch(matched.route.template);
+  const ctx: HandlerContext = { ...baseCtx, params: matched.params, routeTemplate: matched.route.template };
   if (matched.route.requiresAuth && !authorizeRequest(req, res, {
     apiKey: baseCtx.apiKey,
     namedTokens,
@@ -347,7 +353,9 @@ function parseRequestUrl(req: IncomingMessage): URL | null {
   }
 }
 
-function handleRouteError(res: ServerResponse, err: unknown, logger: AgentRuntime["logger"]): void {
+function handleRouteError(
+  res: ServerResponse, err: unknown, logger: AgentRuntime["logger"], method: string, route: string | null,
+): void {
   if (res.headersSent) {
     try {
       res.end();
@@ -373,7 +381,7 @@ function handleRouteError(res: ServerResponse, err: unknown, logger: AgentRuntim
     sendError(res, 400, openaiError(err.message));
     return;
   }
-  logger?.error("HTTP route failed");
+  logger?.error("HTTP route failed", { method, route, ...routeErrorDiagnostics(err) });
   sendJson(
     res,
     500,

@@ -12,6 +12,7 @@ import {
   type TurnOwnerProbe,
 } from "../session/turn-owner.js";
 
+import { TaskRunLog } from "./task-run-log.js";
 import { applyMigrations, TASK_SCHEMA_VERSION } from "./task-schema.js";
 import {
   TASK_INTERRUPTED_ERROR,
@@ -39,6 +40,24 @@ function probe(overrides: Partial<TurnOwnerProbe> = {}): TurnOwnerProbe {
 describe("TaskStore", () => {
   let tmp: string;
   let store: TaskStore;
+
+  it("purges orphan tasks when the optional run history table is absent", () => {
+    const abandoned = store.create({ sessionId: "private", userMessage: "secret", origin: "cli", maxAttempts: 1 });
+    const ordinary = store.create({ sessionId: "ordinary", userMessage: "public", origin: "cli", maxAttempts: 1 });
+    rawDb(db => db.exec("DROP TABLE task_runs"));
+    expect(store.removeForSessionAtBoot("private", { staleAfterMs: 0 })).toBe(1);
+    expect(store.get(abandoned.id)).toBeNull();
+    expect(store.get(ordinary.id)?.status).toBe("pending");
+  });
+
+  it("cannot append a run for a claim already purged by incognito close", () => {
+    const task = store.create({ sessionId: "private", userMessage: "secret", origin: "cli", maxAttempts: 1 });
+    const now = Date.now();
+    const claim = store.markRunning(task.id, now)!;
+    expect(store.removeForSession("private")).toBe(1);
+    rawDb(db => new TaskRunLog(db).open(claim.id, claim.attempts, claim.sessionId, now));
+    expect(store.listRuns(task.id)).toEqual([]);
+  });
 
   /** Write to the store's file from outside, as another binary would. */
   function rawDb(write: (db: BetterSqlite3.Database) => void): void {
@@ -637,7 +656,7 @@ describe("TaskStore", () => {
     }
   });
 
-  it("migrates a real v2 database to v3: notify column added, old rows read as null, new writes work", () => {
+  it("migrates a real v2 database: notify column added, old rows read as null, new writes work", () => {
     // Build a genuine v2-shaped database by hand: v1 base + v2 columns,
     // NO notify column, schema_meta version stamped '2', one live row.
     const dbFile = join(tmp, "tasks-v2.sqlite");
@@ -687,7 +706,7 @@ describe("TaskStore", () => {
     expect(before.n).toBe(0);
     raw.close();
 
-    // Opening the store runs applyMigrations: v2 -> v3.
+    // Opening the store runs all migrations after v2.
     const migrated = new TaskStore({ dbFile });
     try {
       // Pre-migration row reads back intact with notify clamped to null.
@@ -711,7 +730,7 @@ describe("TaskStore", () => {
       migrated.close();
     }
 
-    // Column exists and the on-disk version was bumped to '3'.
+    // Column exists and the on-disk version was bumped to the current schema.
     const after = new DatabaseCtor(dbFile);
     try {
       const col = after
@@ -723,7 +742,7 @@ describe("TaskStore", () => {
       const version = after
         .prepare("SELECT value FROM schema_meta WHERE key = 'version'")
         .get() as { value: string };
-      expect(version.value).toBe("3");
+      expect(version.value).toBe(String(TASK_SCHEMA_VERSION));
     } finally {
       after.close();
     }

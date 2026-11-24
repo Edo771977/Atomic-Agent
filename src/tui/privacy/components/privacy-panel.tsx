@@ -191,11 +191,20 @@ function ShieldSection({
       </Box>
       <Box marginTop={1}>
         <Text color={theme.colors.muted}>
-          {"   "}When on, emails, phone numbers, card numbers, IBANs and keys are
-          replaced with placeholders before a request goes to a cloud model, and
-          put back in the answer on this computer. Local models see the real text.
+          {"   "}Masks detected emails, phone numbers, card numbers, IBANs and keys
+          in covered model text requests. The agent restores values locally. Local
+          endpoints receive original values in auto mode. Claude and Codex CLI,
+          image and audio descriptions, web search and remote MCP tool arguments
+          bypass the shield.
         </Text>
       </Box>
+      {shield.enabled && shield.fusionUsesSubscriptionCli ? (
+        <Box marginTop={1}>
+          <Text color={theme.colors.error}>
+            {"   "}This Fusion team includes a subscription CLI member that receives original values.
+          </Text>
+        </Box>
+      ) : null}
     </Box>
   );
 }

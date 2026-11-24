@@ -23,7 +23,7 @@ import {
  *    to the same placeholders.
  *
  * Auto mode skips local-looking addresses. An explicit on covers a gateway
- * there that forwards to the cloud. Managed llama-server bypasses this adapter.
+ * there that forwards to the cloud. The llama-server text adapter reuses these helpers for raw and templated prompts.
  */
 
 /** The vault for this request, or `null` when the shield does not apply. */
@@ -40,12 +40,14 @@ export function shieldVaultFor(
  * Mask `body.messages` in place (the body is freshly built per send) and
  * count what this request masked (`vault.stats().lastRequest`).
  */
-export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVault): void {
+export function maskOpenAiBody(body: Record<string, unknown>, vault: PrivacyVault, recordVisible = true): void {
   const request = vault.beginRequest();
+  let masked = false;
   try {
     if (body.messages !== undefined) body.messages = vault.maskDeep(body.messages, { jsonField: "arguments", request });
+    masked = true;
   } finally {
-    vault.endRequest(request);
+    vault.endRequest(request, masked && recordVisible);
   }
 }
 
@@ -53,14 +55,15 @@ export function maskWithArchiveRecovery(
   body: Record<string, unknown>,
   vault: PrivacyVault,
   sessionId: string | undefined,
+  recordVisible = true,
 ): PrivacyVault {
   const couldRebuild = !vault.isEmpty;
   try {
-    maskOpenAiBody(body, vault);
+    maskOpenAiBody(body, vault, recordVisible);
     return vault;
   } catch (error) {
     if (!couldRebuild || !(error instanceof PrivacyArchiveLimitError)) throw error;
-    return rebuildPrivacyVault(sessionId, vault, fresh => maskOpenAiBody(body, fresh));
+    return rebuildPrivacyVault(sessionId, vault, fresh => maskOpenAiBody(body, fresh, recordVisible));
   }
 }
 
