@@ -431,7 +431,7 @@ export async function createAgentRuntime(
   toolOutputSpill.sweepStale();
   installRuntimeSessionDelete(
     sessionStore, dropRecorder, shellJobs, toolOutputSpill,
-    fileCheckpoints,
+    fileCheckpoints, { tracesDir: config.paths.tracesDir, logger },
   );
 
   // Read taint (issue #33 group C): a read inside a constrained folder
@@ -1137,7 +1137,7 @@ export async function createAgentRuntime(
   // ATO-586: an incognito chat closed mid-turn is deleted once the turn
   // has left the queue (`isBusy` is still true inside `executeTurn`).
   const incognitoSessions = createIncognitoSessions({
-    sessionStore, tracesDir: config.paths.tracesDir, isBusy: (id) => turnController.isBusy(id), logger, taskStore, fusionRuns,
+    sessionStore, tracesDir: undefined, isBusy: (id) => turnController.isBusy(id), logger, taskStore, fusionRuns,
     // ATO-586: keep the chat's prompt out of the managed server's disk cache.
     promptCache: {
       markPrivate: () => { markPromptCachePrivate(config.paths.localModelsDataDir); },

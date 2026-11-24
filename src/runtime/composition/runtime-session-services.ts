@@ -154,11 +154,13 @@ export async function prepareRuntimeSessionStore(
 }
 
 export function installRuntimeSessionDelete(
-  sessionStore: Pick<SessionStore, "delete">,
+  sessionStore: Pick<SessionStore, "delete"> & Partial<Pick<SessionStore, "isIncognito">>,
   dropRecorder: ReturnType<typeof createRuntimeTraces>["dropRecorder"],
   shellJobs: Pick<ShellJobRegistry, "endSession">,
   outputSpill?: Pick<ToolOutputSpill, "removeSession">,
-  fileCheckpoints?: Pick<FileCheckpointStore, "removeSession">,
+  fileCheckpoints?: Pick<FileCheckpointStore, "removeSession"> &
+    Partial<Pick<FileCheckpointStore, "markIncognitoRemoval" | "finishIncognitoRemoval">>,
+  incognito?: { tracesDir: string | null | undefined; logger: Pick<StructuredLogger, "warn"> },
 ) {
   // Drop a session's trace recorder — and stop its detached shell jobs,
   // kept ones included — when the session itself is deleted, so the map
@@ -177,7 +179,17 @@ export function installRuntimeSessionDelete(
     // can hold what the user's files said before, so they leave with the
     // chat instead of waiting for the 30-day sweep. Best effort, async,
     // and never throws into the delete.
-    if (fileCheckpoints) {
+    if (incognito && sessionStore.isIncognito?.(id) &&
+        fileCheckpoints?.markIncognitoRemoval && fileCheckpoints.finishIncognitoRemoval) {
+      fileCheckpoints.markIncognitoRemoval(id);
+      const traceRemoved = !incognito.tracesDir || removeIncognitoTrace(incognito.tracesDir, id);
+      void fileCheckpoints.finishIncognitoRemoval(id, () => {
+        if (!traceRemoved) throw new Error("incognito trace removal failed");
+      }).catch(error => incognito.logger.warn("could not remove artifacts of a closed incognito chat", {
+        sessionId: id,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+    } else if (fileCheckpoints) {
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);

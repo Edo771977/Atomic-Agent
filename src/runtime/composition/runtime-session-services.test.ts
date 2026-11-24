@@ -1,3 +1,4 @@
+import { createIncognitoSessions } from "../incognito-sessions.js";
 import { createRuntimeTaskStores } from "./runtime-task-services.js";
 import { traceFilePath } from "../../tracing/trace/trace-sink.js";
 import { privacyVaultFor, forgetPrivacyVault } from "../../privacy/index.js";
@@ -196,6 +197,37 @@ describe("runtime session phases", () => {
     stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
     expect(existsSync(trace)).toBe(true);
     expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+  });
+
+  it("retries a private trace and file checkpoints that could not be removed on close", async () => {
+    const id = "s-closed";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const store = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(store);
+    installRuntimeSessionDelete(store, vi.fn(), { endSession: vi.fn() }, undefined, checkpoints,
+      { tracesDir: config.paths.tracesDir, logger });
+    store.save(recordTurn(sessions.createEmptySessionState({
+      id, workingDir: dir, incognito: store.newIncognitoMark(),
+    }), userTurn("private")));
+    const file = join(dir, "private.txt");
+    await writeFile(file, "private content");
+    await checkpoints.capture(id, file, "os.fs.write");
+    const trace = traceFilePath(config.paths.tracesDir, id);
+    await mkdir(trace, { recursive: true });
+    const removing = vi.spyOn(checkpoints, "removeSession").mockRejectedValue(new Error("checkpoint busy"));
+    const incognito = createIncognitoSessions({ sessionStore: store, tracesDir: undefined, isBusy: () => false, logger });
+    expect(incognito.discard(id)).toBe("deleted");
+    expect(store.load(id)).toBeNull();
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+    await vi.waitFor(() => expect(removing).toHaveBeenCalledWith(id));
+    removing.mockRestore();
+
+    await rm(trace, { recursive: true });
+    await writeFile(trace, "private trace");
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
+    expect(existsSync(trace)).toBe(false);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(false);
   });
 
   it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {

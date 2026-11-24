@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
-import type { Stats } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdirSync, renameSync, rmSync, writeFileSync, type Stats } from "node:fs";
 import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { sessionFileName } from "../../../session/session-id.js";
 import { safeSegment, writeJsonAtomically } from "./fs-restore-manifest.js";
 
@@ -209,14 +209,32 @@ export class FileCheckpointStore {
     });
   }
 
-  async removeIncognitoSession(sessionId: string, complete?: () => void): Promise<void> {
-    const pending = join(this.root, ".pending-incognito-removals");
-    await mkdir(pending, { recursive: true, mode: 0o700 });
-    const marker = join(pending, sha256Of(Buffer.from(sessionId)) + ".json");
-    await writeJsonAtomically(marker, sessionId);
+  private incognitoRemovalMarker(sessionId: string): string {
+    return join(this.root, ".pending-incognito-removals", sha256Of(Buffer.from(sessionId)) + ".json");
+  }
+
+  /** Record the retry before a synchronous session delete can remove the row. */
+  markIncognitoRemoval(sessionId: string): void {
+    const marker = this.incognitoRemovalMarker(sessionId);
+    mkdirSync(dirname(marker), { recursive: true, mode: 0o700 });
+    const temporary = marker + "." + randomUUID() + ".tmp";
+    try {
+      writeFileSync(temporary, JSON.stringify(sessionId), { flag: "wx", mode: 0o600 });
+      renameSync(temporary, marker);
+    } finally {
+      rmSync(temporary, { force: true });
+    }
+  }
+
+  async finishIncognitoRemoval(sessionId: string, complete?: () => void): Promise<void> {
     await this.removeSession(sessionId);
     complete?.();
-    await rm(marker, { force: true });
+    await rm(this.incognitoRemovalMarker(sessionId), { force: true });
+  }
+
+  async removeIncognitoSession(sessionId: string, complete?: () => void): Promise<void> {
+    this.markIncognitoRemoval(sessionId);
+    await this.finishIncognitoRemoval(sessionId, complete);
   }
 
   async retryIncognitoRemovals(onError: (error: unknown) => void, complete?: (id: string) => void, shouldRemove?: (id: string) => boolean): Promise<void> {
