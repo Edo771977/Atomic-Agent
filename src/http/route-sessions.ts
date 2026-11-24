@@ -535,6 +535,7 @@ export function createDeleteSessionHandler(): HttpHandler {
     // messages for a conversation the caller just said it is done with,
     // and leaving them would strand rows nobody will ever ack.
     ctx.undeliveredSteers.clear(id);
+    ctx.incognitoChats?.delete(id);
     sendJson(res, 200, { deleted: true, id });
   };
 }

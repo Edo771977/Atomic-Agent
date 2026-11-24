@@ -106,6 +106,23 @@ describe("operator memory routes", () => {
     expect(await (await send("/api/memory/changes")).text()).not.toContain("4821");
   });
 
+  it("allows a backup again after deleting an incognito chat", async () => {
+    const response = await send("/v1/chat/completions", {
+      model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
+    });
+    expect(response.status).toBe(200);
+    const { session_id: id } = await response.json() as { session_id: string };
+    expect(id).toBeTruthy();
+    const blocked = await send("/api/memory/backup", {});
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
+    const deleted = await fetch(harness.baseUrl + `/api/sessions/${id}`, {
+      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+    });
+    expect(deleted.status).toBe(200);
+    expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
+  });
+
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
     const response = await send("/api/memory/backup", {});

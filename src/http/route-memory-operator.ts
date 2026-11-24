@@ -17,7 +17,8 @@ class MemoryChoiceConflict extends Error {
 function assertIdle(ctx: HandlerContext): void {
   if (ctx.stillAuthorized?.() === false) throw new RequestError(403, "Authorization expired");
   const busy = ctx.runtime.turnController.busySessionIds();
-  if (ctx.incognitoChats?.size || ctx.runtime.anyIncognitoOpen?.()
+  if (ctx.runtime.anyIncognitoOpen?.()
+    || [...(ctx.incognitoChats ?? [])].some((id) => ctx.runtime.sessionStore.isIncognito(id))
     || busy.some((id) => ctx.runtime.sessionStore.isIncognito(id))) {
     throw new MemoryChoiceConflict("incognito");
   }
