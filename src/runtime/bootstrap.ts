@@ -71,6 +71,8 @@ import { SwarmRegistry } from "../channels/swarm/index.js";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 
 import { installTransportDeadlines } from "../llm/transport-deadlines.js";
+import { setPrivacyKnownSecrets, setPrivacyShieldEnabled } from "../privacy/index.js";
+import { runtimeKnownSecrets } from "./runtime-known-secrets.js";
 
 import { ApprovalGate } from "../approval/approval-gate.js";
 import { ApprovalRulesStore } from "../approval/approval-rules-store.js";
@@ -151,6 +153,9 @@ export async function createAgentRuntime(
   // unreachable, and turned a wedged llama-server into a bare
   // `fetch failed` at 306 s. See `installTransportDeadlines`.
   installTransportDeadlines(config);
+  // ATO-1081: Privacy Shield, read per cloud request by the providers.
+  setPrivacyShieldEnabled(config.privacy?.shield.enabled === true);
+  setPrivacyKnownSecrets(() => runtimeKnownSecrets(getConfig()));
   const workingDir = resolve(options.workingDir);
 
   const observability = createRuntimeObservability(config, options);
@@ -385,7 +390,10 @@ export async function createAgentRuntime(
   });
 
   const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
-  const sessionStore = prepareRuntimeSessionStore(config, logger, fileCheckpoints);
+  let retainedIncognitoIds: readonly string[] = [];
+  const sessionStore = await prepareRuntimeSessionStore(config, logger, fileCheckpoints, undefined, ids => {
+    retainedIncognitoIds = ids;
+  });
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -658,7 +666,7 @@ export async function createAgentRuntime(
     slotId: () => slotManager.sideCallSlotId(),
     serverTemplate: () => getConfig().localModels.useServerTemplate !== "off",
   };
-  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger });
+  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger, sessionStore, retainedIncognitoIds });
   const { reflectionRunner, memoryContextProvider } = createRuntimeMemoryServices({
     config, profileStore, notesStore, linkStore, lessonStore, procedureStore, voteStore, embeddingClient,
     slotManager, llmComplete, toolTransport: bootstrapLlmSlice.transport, logger, metrics, touchRecorder, memoryHealth,

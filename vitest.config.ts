@@ -28,7 +28,8 @@ export default defineConfig({
     // Keep their real command deadlines meaningful even on many-core developer machines.
     ...(process.platform === "win32" ? { maxWorkers: 2 } : {}),
     testTimeout: 15_000,
-    reporters: ["default"],
+    reporters: process.env.ATAG_VERIFY_TEST_REPORT ? ["default", "json"] : ["default"],
+    ...(process.env.ATAG_VERIFY_TEST_REPORT ? { outputFile: { json: process.env.ATAG_VERIFY_TEST_REPORT } } : {}),
     setupFiles: ["src/test-setup.ts"],
   },
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { spawn } from "node:child_process";
 import { createVerify, generateKeyPairSync } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -214,6 +214,9 @@ describe("the traffic-analytics starter skill", () => {
       async () => {
         const { dir, config, env } = setup("http://127.0.0.1:9", 0o644);
         try {
+          // File creation applies the host umask. Set the intentionally
+          // loose mode explicitly to exercise both the warning and repair.
+          chmodSync(config, 0o644);
           const warned = await runScript(["check"], env);
           expect(warned.stdout).toMatch(/can be read by other users/);
           const fixed = await runScript(["init"], env);

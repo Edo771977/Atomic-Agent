@@ -48,11 +48,14 @@ describe("createTraceRecorder", () => {
       main: { providerId: "aimlapi", model: "anthropic/claude-sonnet-5" },
       worker: null,
     };
-    rec.noteTurnRoute(route);
+    rec.noteTurnRoute(route, "operator-test");
     rec.onAgentEvent({ type: "turn_started", turnIndex: 0 } as AgentLoopEvent);
     // A turn nobody noted a route for must not inherit the last one.
     rec.onAgentEvent({ type: "turn_started", turnIndex: 1 } as AgentLoopEvent);
-    expect(events[0]).toMatchObject({ type: "turn_started", route });
+    rec.noteSteer("steerer-test");
+    expect(events[0]).toMatchObject({ type: "turn_started", route, requestedByToken: "operator-test" });
+    expect(events[2]).toMatchObject({ type: "token_steer", requestedByToken: "steerer-test" });
+    expect(events[1]).not.toHaveProperty("requestedByToken");
     expect(events[1]).toMatchObject({ type: "turn_started", turnIndex: 1 });
     expect(events[1]).not.toHaveProperty("route");
   });

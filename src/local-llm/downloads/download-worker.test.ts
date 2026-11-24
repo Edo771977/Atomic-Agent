@@ -383,7 +383,7 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
-    await waitFor(() => releaseGate.release !== null);
+    await waitFor(() => readDownloadJob(dataDir, jobId)?.transferredBytes === 2);
     requestDownloadPause(dataDir, jobId);
     controller.abort();
     releaseGate.release?.();
@@ -426,7 +426,8 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
-    await waitFor(() => releaseGate.release !== null);
+    const id = downloadJobId("chat", CHAT.id);
+    await waitFor(() => readDownloadJob(dataDir, id)?.transferredBytes === 2);
     controller.abort();
     releaseGate.release?.();
 
@@ -501,19 +502,17 @@ describe("download-worker", () => {
     // repo no longer serves costs vision, not a multi-GB download. The
     // weights leg is no longer cancelled by the projector's 404.
     const releaseGgufGate: { release: (() => void) | null } = { release: null };
-    const ggufDest = resolveModelFilePath(dataDir, VISION.id, VISION.filename);
     globalThis.fetch = vi.fn(async (url: unknown) => {
       if (String(url) === VISION.mmprojUrl) {
-        // Fail only once the weights have bytes on disk, so the test
-        // shows the cancel keeps them rather than racing the first chunk.
-        await waitFor(() => {
-          try {
-            return readFileSync(resolvePartialPath(ggufDest), "utf-8") === "ab";
-          } catch {
-            return false;
-          }
-        });
-        return new Response(null, { status: 404, statusText: "Not Found" });
+        // Hold the weights open until their first chunk has been written
+        // and the projector mock has reached its failure point.
+        const id = downloadJobId("chat", VISION.id);
+        try {
+          await waitFor(() => readDownloadJob(dataDir, id)?.transferredBytes === 2);
+          return new Response(null, { status: 404, statusText: "Not Found" });
+        } finally {
+          releaseGgufGate.release?.();
+        }
       }
       const body = new ReadableStream({
         async pull(controller) {
@@ -542,8 +541,6 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
-    await waitFor(() => releaseGgufGate.release !== null);
-    releaseGgufGate.release?.();
     const outcome = await pending;
 
     expect(outcome).toBe("done");

@@ -112,6 +112,12 @@ Before saving, the carried history is fitted into a local model's window (ATO-11
 `--gist` is the only path off the machine ([share-gist.ts](share-gist.ts)). After writing the file it prints a preview (title, message count, what was removed, first messages, who can read a secret gist) and asks `[y/N]` in a terminal; only a typed y/yes uploads, with `gh gist create <file> --desc <title>` (secret, `--public` never passed; the token stays in gh). Without a terminal it refuses and exits 1. It also refuses (the file stays local) in offline mode and for a chat whose folder constraint or read taint lacks the `github` egress class (issue #33); an incognito chat is not shared at all. With `--gist` and no `--format` the file is Markdown, since GitHub renders Markdown and shows HTML as source. `--gist` cannot be combined with `--json`.
 
 
+## Named HTTP tokens
+
+Run `atag http tokens add <name> --role <viewer|member|operator|admin>` from your terminal. The token appears once on stdout. Store it securely and send it in the HTTP bearer header. `atag http tokens list` shows metadata, and `atag http tokens remove <name>` revokes it immediately for new requests. The CLI refuses token management from agent tools.
+
+Use `viewer` for read-only access, `member` for ordinary agent work, `operator` to also make human decisions, and `admin` to also manage server resources. See the [HTTP authorization matrix](../http/README.md#named-http-tokens).
+
 ## MCP server
 
 `mcp-server [--allow-write] [--allow-exec] [--tool <name>]... [--cwd <dir>]` (ATO-549) serves the agent's own tools to another MCP client (Claude Code, Codex, Cursor) over stdio, e.g. `claude mcp add atomic-agent -- atag mcp-server`. It boots no runtime and no model: [mcp-server-command.ts](mcp-server-command.ts) opens the memory database and the skill folders, [mcp-server-tools.ts](mcp-server-tools.ts) builds the tools with the runtime's own builders, and [mcp-server-bridge.ts](mcp-server-bridge.ts) answers `tools/list` and `tools/call` through a `ToolRegistry`, so secret masking applies. It exits when the client closes stdin; stdout carries only the protocol.

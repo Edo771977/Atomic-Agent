@@ -58,6 +58,7 @@ export {
 } from "./config-file.js";
 export { loadConfig, resolveStateDir } from "./load-config.js";
 export { OFFLINE_ENV, type NetworkConfig } from "./network-config.js";
+export type { PrivacyConfig, PrivacyShieldConfig } from "./privacy-config.js";
 export { getConfig, resetConfigCache, withFreshConfig } from "./config-cache.js";
 export {
   formatDotenvReadWarning,

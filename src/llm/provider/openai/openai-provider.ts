@@ -1,3 +1,4 @@
+import type { ProviderPrivacyConfig } from "../../../config/llm-config.js";
 import {
   AudioUnsupportedError,
   ModelCannotSeeError,
@@ -65,6 +66,15 @@ import { describeAudioViaOpenAi } from "./openai-describe-audio.js";
 import { isAnthropicHost, isAnthropicModel } from "./prompt-cache-control.js";
 import { isLocalServerUrl } from "./local-server-url.js";
 import {
+  addPrivacyInstructions,
+  createChunkUnmasker,
+  maskWithArchiveRecovery,
+  shieldVaultFor,
+  unmaskCompletion,
+  type ChunkUnmasker,
+} from "./openai-privacy-shield.js";
+import type { PrivacyVault } from "../../../privacy/index.js";
+import {
   adaptQwenCompletionResult,
   adaptQwenTaggedToolResponse,
   type TaggedToolAdaptOptions,
@@ -89,6 +99,7 @@ import {
 } from "../model-vision-rejections.js";
 
 export interface OpenAiProviderOptions {
+  privacy?: ProviderPrivacyConfig | undefined;
   id: string;
   baseUrl: string;
   apiKey: string;
@@ -262,6 +273,12 @@ export class OpenAiProvider implements LlmProvider {
   private readonly messageShape: "native" | "flat";
   private readonly wire: OpenAiWireDialect | undefined;
   /**
+   * Whether the base URL is this machine or the local network. Privacy
+   * Shield (ATO-1081) never masks for such a server: it is not a cloud.
+   */
+  private readonly privacyShield: ProviderPrivacyConfig["shield"];
+  private readonly localServer: boolean;
+  /**
    * Sessions whose requests go out flat after the service rejected the
    * native layout (`"*"` for requests without a session id). Per
    * session rather than per provider so one shim-backed session cannot
@@ -330,6 +347,8 @@ export class OpenAiProvider implements LlmProvider {
     this.providerPreferences = options.providerPreferences;
     this.messageShape = options.messageShape ?? "native";
     this.wire = options.wire;
+    this.privacyShield = options.privacy?.shield;
+    this.localServer = isLocalServerUrl(options.baseUrl);
     this.bodyOptions = {
       nameEscape: (name) => this.toolCallAdapter.nameEscape(name),
       ...(options.providerKind ? { providerKind: options.providerKind } : {}),
@@ -451,6 +470,8 @@ export class OpenAiProvider implements LlmProvider {
     }
     // The body the response actually came from; see `OnOpenAiRequestBody`.
     let sentBody: Record<string, unknown> | undefined;
+    // Privacy Shield (ATO-1081): one vault for the body and the reply.
+    const shield = { vault: shieldVaultFor(request.sessionId, this.localServer, this.privacyShield) };
     const post = (body: Record<string, unknown>) =>
       openAiPostJson(
         this.http,
@@ -471,10 +492,10 @@ export class OpenAiProvider implements LlmProvider {
               logger: this.http.logger,
             },
             request,
-            (req) => this.buildBody(req, false, shape),
+            (req) => this.buildBody(req, false, shape, shield),
             post,
           )
-        : post(this.buildBody(request, false, shape));
+        : post(this.buildBody(request, false, shape, shield));
     // One resend per completion when the service names the only
     // temperature it takes, or refuses the field altogether
     // (`allowed-temperature.ts`); the rebuilt body carries the lesson.
@@ -512,12 +533,13 @@ export class OpenAiProvider implements LlmProvider {
       request,
       this.taggedToolOptions(),
     );
+    const normalised = normaliseOpenAiChatResponse(
+      adapted,
+      model,
+      this.reasoningFormat,
+    );
     return this.withRateLimits(withSentMaxTokens(
-      normaliseOpenAiChatResponse(
-        adapted,
-        model,
-        this.reasoningFormat,
-      ),
+      shield.vault ? unmaskCompletion(normalised, shield.vault, sentJsonResponseFormat(sentBody)) : normalised,
       sentBody,
     ));
   }
@@ -536,6 +558,7 @@ export class OpenAiProvider implements LlmProvider {
     request: CompletionRequest,
     stream: boolean,
     shape: "native" | "flat",
+    shield: { vault: PrivacyVault | null },
   ): Record<string, unknown> {
     const body = buildOpenAiChatBody(
       request,
@@ -562,6 +585,10 @@ export class OpenAiProvider implements LlmProvider {
       isGeminiOpenAiCompatUrl(this.http.baseUrl)
     ) {
       body.response_format = toGeminiResponseFormat(body.response_format);
+    }
+    if (shield.vault) {
+      shield.vault = maskWithArchiveRecovery(body, shield.vault, request.sessionId);
+      addPrivacyInstructions(body);
     }
     return this.wire ? this.wire.toWireBody(body) : body;
   }
@@ -865,7 +892,10 @@ export class OpenAiProvider implements LlmProvider {
     // a schema error names one more to leave out (`withoutRejectedTool`).
     const known = this.withoutRememberedTools(request);
     let activeRequest = known.request;
-    let body = this.buildBody(activeRequest, true, shape);
+    // Privacy Shield (ATO-1081): one vault for every attempt of this
+    // completion, so a reopen masks the same way and the reply unmasks.
+    const shield = { vault: shieldVaultFor(request.sessionId, this.localServer, this.privacyShield) };
+    let body = this.buildBody(activeRequest, true, shape, shield);
     const path = this.chatPath();
     let accumulated = "";
     let accumulatedReasoning = "";
@@ -938,6 +968,9 @@ export class OpenAiProvider implements LlmProvider {
         accumulatedReasoning = "";
         streamFinal = undefined;
         const stream = this.streamConsumer.consume(res.body, request.signal);
+        // Placeholders back in the text as it streams; a fresh hold-back
+        // per attempt, like the transcript above.
+        const unmasker: ChunkUnmasker | null = shield.vault ? createChunkUnmasker(shield.vault, sentJsonResponseFormat(sentBody)) : null;
         // Whether this pump reached the consumer's own `done`. A pump that
         // did not has abandoned a live stream; see the release below.
         let drained = false;
@@ -948,19 +981,31 @@ export class OpenAiProvider implements LlmProvider {
               streamFinal = next.value;
               streamEnded = true;
               drained = true;
+              // A placeholder the stream ended on was held back: it goes
+              // out now, under the same rules as any other chunk.
+              const tail = unmasker?.flush() ?? null;
+              if (tail) {
+                const shown = holdContent ? { ...tail, delta: "" } : tail;
+                if (shown.delta.length > 0 || shown.reasoningDelta.length > 0) {
+                  committed = true;
+                  yield shown;
+                }
+              }
               break attempts;
             }
-            const received = next.value;
-            if (received.delta) accumulated += received.delta;
-            if (received.reasoningDelta)
-              accumulatedReasoning += received.reasoningDelta;
+            const received = unmasker ? unmasker.push(next.value) : next.value;
+            if (next.value.delta) accumulated += next.value.delta;
+            if (next.value.reasoningDelta)
+              accumulatedReasoning += next.value.reasoningDelta;
             const chunk =
               holdContent && received.delta
                 ? { ...received, delta: "" }
                 : received;
             if (
               !chunk.done &&
-              (!holdContent || chunk.reasoningDelta.length > 0)
+              (!holdContent || chunk.reasoningDelta.length > 0) &&
+              (unmasker === null || chunk.delta.length > 0 || chunk.reasoningDelta.length > 0 ||
+                (next.value.delta.length === 0 && next.value.reasoningDelta.length === 0))
             ) {
               // Set before the yield, deliberately: a caller that throws
               // into this generator (`generator.throw()`, which is how a
@@ -1038,7 +1083,7 @@ export class OpenAiProvider implements LlmProvider {
             toolDropped = reduced.dropped;
             schemaError = err;
             activeRequest = reduced.request;
-            body = this.buildBody(activeRequest, true, shape);
+            body = this.buildBody(activeRequest, true, shape, shield);
             continue;
           }
         }
@@ -1052,7 +1097,7 @@ export class OpenAiProvider implements LlmProvider {
           this.learnTemperature(request, err, body)
         ) {
           temperatureRetried = true;
-          body = this.buildBody(activeRequest, true, shape);
+          body = this.buildBody(activeRequest, true, shape, shield);
           continue;
         }
         // The service refused the message layout, before any byte of
@@ -1063,7 +1108,7 @@ export class OpenAiProvider implements LlmProvider {
         if (!committed && this.shouldFallBackToFlat(request, shape, err)) {
           this.markFlat(request, err);
           shape = "flat";
-          body = this.buildBody(activeRequest, true, shape);
+          body = this.buildBody(activeRequest, true, shape, shield);
           continue;
         }
         // An error event inside the stream (OpenRouter's `504 Upstream
@@ -1111,12 +1156,13 @@ export class OpenAiProvider implements LlmProvider {
         "openai stream retry loop ended without a completion — canReopenStream and OPENAI_MAX_ATTEMPTS disagree",
       );
     }
-    const final = completionFromStreamFinal(
+    const built = completionFromStreamFinal(
       streamFinal,
       model,
       accumulated,
       accumulatedReasoning,
     );
+    const final = built;
     if (accumulated.length > 0 && final.content.length === 0) {
       final.content = accumulated;
     }
@@ -1138,7 +1184,7 @@ export class OpenAiProvider implements LlmProvider {
     );
     const safe = withSentMaxTokens(
       applyToolCallTerminationSafety(
-        adaptedFinal,
+        shield.vault ? unmaskCompletion(adaptedFinal, shield.vault, sentJsonResponseFormat(sentBody)) : adaptedFinal,
         // A stream the consumer ended itself has no provider terminal
         // event by definition, and it kept only calls whose arguments had
         // fully arrived — so the missing terminal is not a sign of a cut
@@ -1415,6 +1461,14 @@ function completionFromStreamFinal(
       ? { earlyStop: streamFinal.earlyStop }
       : {}),
   };
+}
+
+/** See the request that actually succeeded, including any provider wire conversion. */
+function sentJsonResponseFormat(body: Record<string, unknown> | undefined): boolean {
+  const openAi = body?.response_format as { type?: unknown } | undefined;
+  const anthropic = body?.output_config as { format?: { type?: unknown } } | undefined;
+  return openAi?.type === "json_schema" || openAi?.type === "json_object" ||
+    anthropic?.format?.type === "json_schema";
 }
 
 /**

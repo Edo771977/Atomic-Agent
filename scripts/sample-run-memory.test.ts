@@ -29,22 +29,30 @@ function sampler(args: string[]): Promise<Ran> {
 const read = (path: string): SampleRecord[] =>
   readFileSync(path, "utf8").split("\n").filter((l) => l.length > 0).map((l) => JSON.parse(l) as SampleRecord);
 
-const exists = (pid: number): boolean => {
+const isRunning = (pid: number): boolean => {
   try {
     process.kill(pid, 0);
+    if (process.platform === "linux") {
+      // kill(pid, 0) also succeeds for zombies. A container's PID 1 may
+      // leave an orphaned child in that state indefinitely.
+      const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+      const state = stat[stat.lastIndexOf(")") + 2];
+      return state !== "Z";
+    }
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    if (["ESRCH", "ENOENT"].includes((err as NodeJS.ErrnoException).code ?? "")) return false;
+    throw err;
   }
 };
 /** Still there 3 s on (an orphan killed with its parent is reaped a moment later). */
 async function alive(pid: number): Promise<boolean> {
-  for (let i = 0; i < 30 && exists(pid); i += 1) await new Promise((r) => setTimeout(r, 100));
-  return exists(pid);
+  for (let i = 0; i < 30 && isRunning(pid); i += 1) await new Promise((r) => setTimeout(r, 100));
+  return isRunning(pid);
 }
 
-/** Grows by 8 MiB every 50 ms, never past 800 MiB; prints its pid first. */
-const GROWER = "console.error('pid ' + process.pid); const k = []; setInterval(() => { if (k.length < 100) k.push(Buffer.alloc(8 << 20, 1)); }, 50);";
+/** Grows by 8 MiB every 50 ms, up to 800 MiB. Self-cleans if the sampler fails. */
+const GROWER = "console.error('pid ' + process.pid); setTimeout(() => process.exit(1), 40_000); const k = []; setInterval(() => { if (k.length < 100) k.push(Buffer.alloc(8 << 20, 1)); }, 50);";
 
 describe("sample-run-memory", () => {
   let dir: string;

@@ -101,7 +101,15 @@ function shape(
 const PEM_PRIVATE_KEY =
   /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----(?:(?:\\r\\n|\\n|\r?\n)[ \t]*(?:[A-Za-z0-9+/=]{1,4096}|(?:Proc-Type|DEK-Info): [^\r\n\\]{0,200})?)*(?:(?:\\r\\n|\\n|\r?\n)[ \t]*)?(?:-----END (?:[A-Z0-9]+ )*PRIVATE KEY-----)?/g;
 
+const HTTP_TOKEN_RULE = shape(/atag_[A-Za-z0-9_-]{43}/g, "atag_", "http-token");
+
+/** Mask named HTTP bearer tokens in persisted trace records without changing other trace data. */
+export function maskNamedHttpTokens(text: string): string {
+  return HTTP_TOKEN_RULE.applies(text) ? HTTP_TOKEN_RULE.apply(text) : text;
+}
+
 const SHAPE_RULES: readonly Rule[] = [
+  HTTP_TOKEN_RULE,
   // Anthropic (`sk-ant-api03-…`, `sk-ant-oat01-…`) and OpenRouter
   // (`sk-or-v1-…`) before the generic `sk-` shape that would also match.
   shape(/(?<![A-Za-z0-9_-])sk-ant-[A-Za-z0-9_-]{20,}/g, "sk-ant-", "anthropic-key", hasLongRun),

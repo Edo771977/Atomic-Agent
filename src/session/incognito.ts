@@ -108,3 +108,15 @@ export function orphanIncognitoSessionIds(
     )
     .map((row) => row.id);
 }
+
+/** Check just one saved session before claiming a task. */
+export function storedIncognitoOwnerGone(
+  db: Database.Database,
+  id: string,
+  probe: TurnOwnerProbe,
+  dbIdentity?: string,
+): boolean {
+  const row = db.prepare(SELECT_INCOGNITO_SQL + " AND id = ?").get(id) as { owner: unknown } | undefined;
+  return row !== undefined &&
+    isTurnOwnerGone(typeof row.owner === "string" ? row.owner : null, probe, dbIdentity);
+}
