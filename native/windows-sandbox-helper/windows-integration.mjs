@@ -77,6 +77,7 @@ try {
   const port = String(server.address().port);
   for (const [host, target] of [["127.0.0.1", port], [lan.address, port], ["1.1.1.1", "443"]]) {
     assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
+    call(helper, ["--socket-winrt-allow", host, target]);
     assert.match(run([helper, "--socket-deny", host, target]), /TCP result: 10013/);
   }
 

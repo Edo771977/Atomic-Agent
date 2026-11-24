@@ -8,6 +8,7 @@
 #include <string>
 #include "acl-tree.h"
 #include "lpac-process.h"
+#include "network-winrt.h"
 #include "sandbox-paths.h"
 #include "sandbox-request.h"
 
@@ -222,20 +223,29 @@ static int startWinsock() {
     return WSAStartup(MAKEWORD(2, 2), &information);
 }
 
+static int networkProbe(const wchar_t* host, unsigned short port) {
+    const int startup = startWinsock();
+    if (startup == 0) {
+        const int status = tcpConnect(host, port);
+        WSACleanup();
+        return status;
+    }
+    std::fprintf(stderr, "WSAStartup result: %d; trying StreamSocket\n", startup);
+    const HRESULT fallback = connectWinRt(host, port);
+    if (fallback == S_OK) return 0;
+    if (fallback == E_ACCESSDENIED) return WSAEACCES;
+    return startup;
+}
+
 static int probeChild(wchar_t** argv) {
     const DWORD readProject = fileProbe(argv[2], GENERIC_READ);
     const DWORD readKey = fileProbe(argv[3], GENERIC_READ);
     const DWORD writeOutside = fileProbe(argv[4], GENERIC_WRITE);
-    const int winsock = startWinsock();
-    int network = winsock;
-    if (winsock == 0) {
-        network = tcpConnect(L"127.0.0.1", static_cast<unsigned short>(std::wcstoul(argv[5], nullptr, 10)));
-        WSACleanup();
-    }
+    const int network = networkProbe(L"127.0.0.1", static_cast<unsigned short>(std::wcstoul(argv[5], nullptr, 10)));
     if (readProject == ERROR_SUCCESS && readKey == ERROR_ACCESS_DENIED &&
         writeOutside == ERROR_ACCESS_DENIED && network == WSAEACCES) return 0;
-    std::fprintf(stderr, "Windows sandbox probe failed (project=%lu, state=%lu, outside=%lu, WSAStartup=%d, loopback=%d)\n",
-        readProject, readKey, writeOutside, winsock, network);
+    std::fprintf(stderr, "Windows sandbox probe failed (project=%lu, state=%lu, outside=%lu, loopback=%d)\n",
+        readProject, readKey, writeOutside, network);
     return 5;
 }
 
@@ -320,15 +330,12 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring action = argc > 1 ? argv[1] : L"";
     if (action == L"--probe-child" && argc == 6) return probeChild(argv);
     if ((action == L"--socket-allow" || action == L"--socket-deny") && argc == 4) {
-        const int startup = startWinsock();
-        if (startup != 0) {
-            std::fprintf(stderr, "WSAStartup result: %d\n", startup);
-            return 5;
-        }
-        int status = tcpConnect(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10)));
-        WSACleanup();
+        const int status = networkProbe(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10)));
         std::printf("TCP result: %d\n", status);
         return status == (action == L"--socket-allow" ? 0 : WSAEACCES) ? 0 : 5;
+    }
+    if (action == L"--socket-winrt-allow" && argc == 4) {
+        return connectWinRt(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10))) == S_OK ? 0 : 5;
     }
     if (action == L"init-state" && argc == 4) return initState(argv[2], argv[3]);
     if (action == L"run" && argc == 3) return run(argv[2]);
