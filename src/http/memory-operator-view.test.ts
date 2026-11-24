@@ -11,3 +11,8 @@ it.each([0x200e, 0x200f, 0x061c, 0x2028, 0x2029, 0x206a, 0x206b, 0x206c, 0x206d,
     expect(isEditableMemoryText(escaped)).toBe(false);
   },
 );
+
+it("rejects modified copies containing a display-only redaction marker", () => {
+  expect(isEditableMemoryText("token [redacted] end!", "token original end", "token [redacted] end")).toBe(false);
+  expect(isEditableMemoryText("token [redacted] end!", "token [redacted] end", "token [redacted] end")).toBe(true);
+});

@@ -58,5 +58,9 @@ export function isEditableMemoryText(value: string, original?: string, displayed
     const character = String.fromCodePoint(codePoint);
     if (!isAllowedFormatCharacter(character) && character.search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
   }
-  return value !== displayed || value === original || !/\[redacted(?::[^\]]*)?\]/i.test(value);
+  if (displayed === undefined || displayed === original) return true;
+  const markers = (text: string) => text.toLowerCase().match(/\[redacted(?::[^\]]*)?\]/g) ?? [];
+  const sourceMarkers = new Set(markers(original ?? ""));
+  const displayOnly = new Set(markers(displayed).filter((marker) => !sourceMarkers.has(marker)));
+  return !markers(value).some((marker) => displayOnly.has(marker));
 }
