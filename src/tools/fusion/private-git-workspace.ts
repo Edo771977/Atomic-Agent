@@ -11,7 +11,7 @@ import { pipeline } from "node:stream/promises";
 import { createDeflate } from "node:zlib";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
-import { buildOsSandboxPolicy, readOsSandboxSettings, resolveSandboxGitExcludePath, resolveSandboxGitExcludes } from "../../sandbox/os-sandbox.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings, selectSandboxGitExclude } from "../../sandbox/os-sandbox.js";
 import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES } from "../../config/tool-config.js";
 
@@ -215,14 +215,8 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
       workspaceRoots: [input.source], stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths), network: false, gitMetadataWritable: true,
     });
-    const ignore = resolveSandboxGitExcludes(input.source, policy);
-    if (global.exitCode === 0) {
-      const selected = resolveSandboxGitExcludePath(configured, policy);
-      if (selected === undefined || selected !== ignore?.source) {
-        throw new Error("Safe Mode: Git exclusions must name the operator's absolute, read-only ignore file");
-      }
-    }
-    if (ignore !== undefined) snapshot.globalExclude = await freezeRule(ignore.source, snapshot);
+    const source = selectSandboxGitExclude(global.exitCode === 0 ? configured : undefined, input.source, policy);
+    if (source !== undefined) snapshot.globalExclude = await freezeRule(source, snapshot);
   }
   const shallowPath = (await git(["rev-parse", "--git-path", "shallow"], input.source, snapshot)).trim();
   try {

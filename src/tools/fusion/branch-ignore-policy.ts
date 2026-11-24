@@ -1,3 +1,5 @@
+import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings, selectSandboxGitExclude } from "../../sandbox/os-sandbox.js";
 import { sandboxGitArgs, sandboxGitEnv, runSandboxGit } from "../../sandbox/sandbox-git.js";
 import { lstat, mkdir, readdir, realpath, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -143,10 +145,15 @@ export async function createDirectoryIgnorePolicy(input: {
   const global = await git(["config", "--path", "--null", "--get", "core.excludesFile"], { cwd: input.originalDir });
   if (!completed(global) || (global.exitCode !== 0 && global.exitCode !== 1)) throw new Error("Git could not locate the workspace's global ignore rules");
   const configuredGlobal = global.stdout.replace(/\0$/, "");
-  const globalSource = global.exitCode === 0
-    ? configuredGlobal.length === 0 ? null : resolve(input.originalDir, configuredGlobal)
-    : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
-  if (globalSource !== null) await freeze(globalSource, globalFile, true);
+  const globalSource = readOsSandboxSettings().mode === "workspace"
+    ? selectSandboxGitExclude(global.exitCode === 0 ? configuredGlobal : undefined, input.originalDir, buildOsSandboxPolicy({
+      workspaceRoots: [input.originalDir, input.baseDir, input.probeDir],
+      stateDir: resolveStateDir(), protectedPaths: getStateSecretPaths(getConfig().paths), network: false,
+    }))
+    : global.exitCode === 0
+      ? configuredGlobal.length === 0 ? undefined : resolve(input.originalDir, configuredGlobal)
+      : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
+  if (globalSource !== undefined) await freeze(globalSource, globalFile, true);
   return async (paths, signal) => {
     signal?.throwIfAborted();
     if (paths.length === 0) return new Set();

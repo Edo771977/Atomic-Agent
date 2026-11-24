@@ -97,3 +97,29 @@ it.skipIf(!realBubblewrap).each(["configured", "xdg"])("round 4 point 3: Git sta
     await rm(root, { recursive: true, force: true });
   }
 }, 45_000);
+
+it.skipIf(!realBubblewrap)("round 5 point 8: Fusion rejects workspace-supplied ignore sources at both launch paths", async () => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-git-ignore-source-"));
+  try {
+    const repo = join(root, "repo");
+    await mkdir(repo);
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+    const git = (args: string[]) => runGit({
+      workingDir: repo, args, signal: new AbortController().signal,
+      env: { GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" },
+    });
+    expect((await git(["init", "-q"])).exitCode).toBe(0);
+    expect((await git(["commit", "--allow-empty", "-m", "fixture"])).exitCode).toBe(0);
+    await writeFile(join(repo, "rules"), "synthetic\n");
+    expect((await git(["config", "--local", "core.excludesFile", "rules"])).exitCode).toBe(0);
+    const head = (await git(["rev-parse", "HEAD"])).stdout.trim();
+    await expect(preparePrivateGitSnapshot({ source: repo, head, seed: join(root, "snapshot.git") }))
+      .rejects.toThrow("absolute, read-only ignore file");
+    await expect(createDirectoryIgnorePolicy({
+      originalDir: repo, baseDir: repo, probeDir: join(root, "probe"), copy: copyFile,
+    })).rejects.toThrow("absolute, read-only ignore file");
+  } finally {
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true });
+  }
+});

@@ -595,7 +595,7 @@ function linuxSystemMounts(out: string[]): string[] {
 }
 
 /** An ignore source imported by Safe Mode must stay outside writable mounts. */
-export function resolveSandboxGitExcludePath(path: string, policy: OsSandboxPolicy): string | undefined {
+function resolveSandboxGitExcludePath(path: string, policy: OsSandboxPolicy): string | undefined {
   const candidate = path.replace(/^~(?=\/|$)/, homedir());
   if (!isAbsolute(candidate)) return undefined;
   const source = canonicalFuturePath(candidate);
@@ -630,6 +630,19 @@ export function resolveSandboxGitExcludes(cwd: string, policy: OsSandboxPolicy):
     // Git treats a missing or unreadable ignore file as empty.
   }
   return undefined;
+}
+
+/** Reuse the approved global source when host code freezes exclusions for Fusion. */
+export function selectSandboxGitExclude(configured: string | undefined, cwd: string, policy: OsSandboxPolicy): string | undefined {
+  if (configured === "") return undefined;
+  const source = resolveSandboxGitExcludes(cwd, policy)?.source;
+  if (configured !== undefined) {
+    const selected = resolveSandboxGitExcludePath(configured, policy);
+    if (selected === undefined || selected !== source) {
+      throw new Error("Safe Mode: Git exclusions must name the operator's absolute, read-only ignore file");
+    }
+  }
+  return source;
 }
 
 /** Mount the workspace before read-only overlays, then mask host endpoints. */
