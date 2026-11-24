@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CompletionResult } from "../llm/llama-server-client.js";
 
@@ -74,6 +74,41 @@ describe("incognito chats over HTTP", () => {
     expect(response.status).toBe(200);
     expect(harness.runtime.sessionStore.load(id)).toBeNull();
     expect(existsSync(join(harness.stateDir, "traces", `${id}.ndjson`))).toBe(false);
+  });
+
+  it("keeps a private chat retryable when deleting its tasks fails", async () => {
+    const id = await chat({ incognito: true });
+    const task = harness.runtime.taskStore.create({
+      sessionId: id, userMessage: "private prompt", origin: "cli", maxAttempts: 1,
+      schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: Date.now() + 300_000,
+    });
+    vi.spyOn(harness.runtime.taskStore, "removeForSession").mockImplementationOnce(() => {
+      throw new Error("SQLITE_BUSY");
+    });
+    const remove = () => fetch(`${harness.baseUrl}/api/sessions/${id}`, { method: "DELETE" });
+    const failed = await remove();
+    expect(failed.status).toBe(503);
+    expect(await failed.json()).toMatchObject({ error: { code: "incognito_cleanup_failed" } });
+    expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+    expect(harness.runtime.taskStore.get(task.id)).not.toBeNull();
+    expect((await remove()).status).toBe(200);
+    expect(harness.runtime.sessionStore.load(id)).toBeNull();
+    expect(harness.runtime.taskStore.get(task.id)).toBeNull();
+  });
+
+  it("purges a recurring private task whose session row was lost", async () => {
+    const id = await chat({ incognito: true });
+    const task = harness.runtime.taskStore.create({
+      sessionId: id, userMessage: "private prompt", origin: "cli", maxAttempts: 1,
+      schedule: { kind: "interval", everyMs: 300_000 }, scheduledFor: Date.now() + 300_000,
+    });
+    // Simulate the legacy fallback that dropped the session without purging tasks.
+    harness.runtime.sessionStore.delete(id);
+    const sessions = await listed();
+    await harness.runtime.taskRunner.runOne(task.id);
+    expect(await listed()).toEqual(sessions);
+    expect(harness.runtime.taskStore.get(task.id)).toBeNull();
+    expect(harness.runtime.taskStore.listRuns(task.id)).toEqual([]);
   });
 
   it("refuses incognito: true on an existing ordinary chat, which would remember", async () => {

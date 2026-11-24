@@ -588,7 +588,8 @@ export interface AgentRuntime {
    * Close an incognito chat (ATO-586): delete its row, archived turns and
    * trace file — once its running turn has ended, if one is running. A
    * session that is not a stored incognito chat is left alone
-   * (`"not_incognito"`). Optional so test runtimes need not provide it.
+   * (`"not_incognito"`). A cleanup failure returns `"failed"` so callers can
+   * retry. Optional so test runtimes need not provide it.
    */
   discardIncognitoSession?(sessionId: string): IncognitoDiscardOutcome;
   /** Whether this runtime is tracking an open incognito chat. */

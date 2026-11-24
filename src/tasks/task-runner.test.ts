@@ -277,7 +277,7 @@ describe("TaskRunner", () => {
     expect(calls).toHaveLength(2);
   });
 
-  it("does not recreate a deleted recurring session in the runtime's folder while a constraint refuses it (issue #33)", async () => {
+  it("does not recreate a deleted recurring session with unknown privacy and folder policy", async () => {
     const { runtime, calls } = fakeRuntime();
     const create = vi.fn(() => createEmptySessionState({ id: "s-fresh", workingDir: "/home/u" }));
     const runner = new TaskRunner({
@@ -290,7 +290,6 @@ describe("TaskRunner", () => {
       enabled: true,
       runOnCreate: false,
       sleep: async () => undefined,
-      recreateSessionRefusal: () => "provider constraints are configured",
     });
     const t = store.create({
       sessionId: "s-deleted",
@@ -303,8 +302,9 @@ describe("TaskRunner", () => {
     const final = await runner.runOne(t.id);
     expect(create).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
-    expect(final?.status).toBe("blocked");
-    expect(final?.lastError).toContain("provider constraints are configured");
+    expect(final).toBeNull();
+    expect(store.get(t.id)).toBeNull();
+    expect(store.listRuns(t.id)).toEqual([]);
   });
 
   it("a recurring task that fails retryably waits out its backoff, then rearms for its next firing", async () => {

@@ -110,9 +110,7 @@ export function createRuntimeTaskRunner(args: {
   notifyRefusal?: (task: TaskRecord) => string | null;
   /**
    * Per-folder provider constraints (issue #33): a session a task tool
-   * creates keeps its caller's folder and policy (`childSessionSeed`),
-   * and a recurring task's deleted session is not recreated while any
-   * constraint exists.
+   * creates keeps its caller's folder and policy (`childSessionSeed`).
    */
   providerPolicy?: Pick<SessionProviderPolicy, "constraintsActive" | "effectivePolicyForSession">;
   /** Sleep inhibitor held while a drain runs (ATO-592). */
@@ -176,7 +174,6 @@ export function createRuntimeTaskRunner(args: {
     metrics,
     ...(args.approvalLevel ? { approvalLevel: args.approvalLevel } : {}),
     ...(args.notifyRefusal ? { notifyRefusal: args.notifyRefusal } : {}),
-    ...(args.providerPolicy ? { recreateSessionRefusal: recreateRefusalFor(args.providerPolicy) } : {}),
     ...(args.keepAwake ? { keepAwake: args.keepAwake } : {}),
     // Continue a run a crash, a kill or a restart cut off from its
     // session's checkpoint (ATO-1109).
@@ -234,14 +231,6 @@ export function createTaskToolSession(
       : childSessionSeed(providerPolicy, parent);
     return createSession({ workingDir: seed.workingDir, metadata: { ...metadata, ...seed.metadata } });
   };
-}
-
-function recreateRefusalFor(
-  providerPolicy: Pick<SessionProviderPolicy, "constraintsActive">,
-): () => string | null {
-  return () => providerPolicy.constraintsActive()
-    ? "provider constraints are configured; a recreated session would lose the original folder and read taint"
-    : null;
 }
 
 /**

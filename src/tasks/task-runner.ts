@@ -163,14 +163,6 @@ export interface TaskRunnerOptions {
    * an info note; the task's result stays local. Absent ⇒ never refused.
    */
   notifyRefusal?: (task: TaskRecord) => string | null;
-  /**
-   * Asked before a recurring task's deleted session is recreated: a
-   * reason not to, or `null`. The factory would put the new session in
-   * the runtime's folder, without the original's folder or read taint,
-   * so while provider constraints exist (issue #33) the task is blocked
-   * instead (fail closed). Absent ⇒ always recreated.
-   */
-  recreateSessionRefusal?: (task: TaskRecord) => string | null;
   snapshotCadence?: { everySteps: number; everyMs: number } | null;
   /**
    * Heartbeats (ATO-454): recurring `interval` tasks with a checklist
@@ -453,8 +445,8 @@ export class TaskRunner {
     );
     if (!claimed) return this.options.store.get(resolvedTask.id);
     if (pausedClaim) pausedClaim.fromPaused = fromPaused;
-    // Anything that throws after the claim (saving the wake reason or a
-    // recreated session, starting the snapshot sink) must not leave the
+    // Anything that throws after the claim (saving the wake reason or
+    // starting the snapshot sink) must not leave the
     // row `running` with nobody on it: it ends like a failed run.
     try {
       return await this.runClaimed(task, claimed, runtimeSignal);
@@ -513,13 +505,21 @@ export class TaskRunner {
       attempt: claimed.attempts,
     });
 
-    const session = this.loadOrRecreateSession(claimed);
-    if (!session || typeof session === "string") {
+    const session = claimed.sessionId === null ? null : this.options.sessionLoader.load(claimed.sessionId);
+    if (!session && claimed.sessionId !== null && claimed.recurring) {
+      // Without the original session, neither the incognito mark nor the
+      // folder's provider restrictions can be established.
+      this.options.store.purgeMissingSessionTask(claimed.id, claimed.sessionId);
+      this.options.logger?.warn("recurring task removed: session not found", {
+        taskId: claimed.id,
+        sessionId: claimed.sessionId,
+      });
+      return null;
+    }
+    if (!session) {
       const blocked = this.options.store.markBlocked(claimed.id, {
         category: "tool",
-        message: typeof session === "string"
-          ? `session_not_recreated: ${claimed.sessionId ?? "<null>"}: ${session}`
-          : `session_not_found: ${claimed.sessionId ?? "<null>"}`,
+        message: `session_not_found: ${claimed.sessionId ?? "<null>"}`,
       });
       this.recordTerminal(blocked);
       this.maybeReport(blocked, null);
@@ -1385,46 +1385,6 @@ export class TaskRunner {
       reason: "one_shot_lazy",
     });
     return this.options.store.assignSession(task.id, fresh.id);
-  }
-
-  /**
-   * Load the task's session. Recurring tasks auto-recreate a fresh
-   * session if the previous one has been deleted since the last
-   * firing; one-shot tasks fall through to the `session_not_found`
-   * block path. Returns `null` when neither branch can produce a
-   * session so the caller can block the task, or the reason
-   * `recreateSessionRefusal` gave (a throwing check refuses).
-   */
-  private loadOrRecreateSession(task: TaskRecord): SessionState | string | null {
-    if (task.sessionId === null) return null;
-    const existing = this.options.sessionLoader.load(task.sessionId);
-    if (existing) return existing;
-    if (!task.recurring || !this.options.sessionFactory) return null;
-    let refusal: string | null = null;
-    try {
-      refusal = this.options.recreateSessionRefusal?.(task) ?? null;
-    } catch (err) {
-      refusal = `recreate check failed: ${err instanceof Error ? err.message : String(err)}`;
-    }
-    if (refusal !== null) return refusal;
-    const fresh = this.options.sessionFactory.create({
-      metadata: {
-        recurringTask: true,
-        recreatedFrom: task.sessionId,
-      },
-    });
-    this.options.store.assignSession(task.id, fresh.id);
-    this.options.logger?.warn("recurring task session recreated", {
-      taskId: task.id,
-      previousSessionId: task.sessionId,
-      newSessionId: fresh.id,
-    });
-    this.options.metrics?.recordTaskSessionRecreated({
-      taskId: task.id,
-      previousSessionId: task.sessionId,
-      newSessionId: fresh.id,
-    });
-    return fresh;
   }
 
   /**

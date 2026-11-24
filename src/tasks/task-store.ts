@@ -810,6 +810,18 @@ export class TaskStore {
     return this.runLog.unavailable;
   }
 
+  /** Remove a claimed recurring task whose missing session cannot establish its privacy. */
+  purgeMissingSessionTask(id: string, sessionId: string): void {
+    this.db.transaction(() => {
+      const removed = this.db.prepare(
+        "DELETE FROM tasks WHERE id = ? AND session_id = ? AND status = 'running'",
+      ).run(id, sessionId).changes;
+      if (removed && this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'task_runs'").get()) {
+        this.db.prepare("DELETE FROM task_runs WHERE task_id = ?").run(id);
+      }
+    }).immediate();
+  }
+
   /** Purge a closed incognito chat's task rows and run history, including active claims. */
   removeForSession(sessionId: string): number {
     return this.db.transaction(() => this.purgeSessionTasks(sessionId)).immediate();
