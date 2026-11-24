@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
   mkdirSync,
@@ -324,4 +325,28 @@ it("round 4 point 7: refuses a cwd outside the workspace", () => {
   expect(wrapWithOsSandbox("true", [], policy(), {
     platform: "linux", bwrap: "/usr/bin/bwrap", cwd: "/home/op/other",
   })).toEqual({ ok: false, reason: expect.stringContaining("outside the authorized workspace") });
+});
+
+it("round 4 point 4: mounts a workspace toolchain read-only after the writable workspace", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-toolchain-"));
+  try {
+    const toolchain = join(root, "toolchain");
+    mkdirSync(toolchain);
+    const wrapped = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({
+      workspaceRoots: [root], network: false, toolchainDirectories: [toolchain],
+    }), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+    if (!wrapped.ok) throw new Error(wrapped.reason);
+    expect(wrapped.args.lastIndexOf(toolchain)).toBeGreaterThan(wrapped.args.lastIndexOf(root));
+    if (process.env.ATOMIC_AGENT_REQUIRE_BWRAP === "1") {
+      const real = wrapWithOsSandbox(process.execPath, ["-e",
+        "try{require('node:fs').writeFileSync(process.argv[1],'fixture');process.exit(2)}catch(e){process.exit(e.code==='EROFS'?0:3)}",
+        join(toolchain, "marker"),
+      ], buildOsSandboxPolicy({ workspaceRoots: [root], network: false, toolchainDirectories: [toolchain] }), { cwd: root });
+      if (!real.ok) throw new Error(real.reason);
+      const child = spawnSync(real.command, real.args, { cwd: root, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

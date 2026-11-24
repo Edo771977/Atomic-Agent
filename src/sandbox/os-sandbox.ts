@@ -385,12 +385,12 @@ function bwrapArgs(
   }
   const homeMasks = unique([policy.home, ...policy.maskedHomes]);
   for (const path of homeMasks) if (path !== policy.home && isDirectory(path)) out.push("--tmpfs", path);
-  for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const dir of unique(policy.writableRoots.map(real))) {
     if (dir === "/tmp") continue;
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
+  for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const path of policy.readOnlyWorkspaceRoots) out.push("--ro-bind", path, path);
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
   out.push("--proc", "/proc");

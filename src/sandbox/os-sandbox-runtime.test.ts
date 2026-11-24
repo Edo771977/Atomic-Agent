@@ -12,7 +12,7 @@ function fixtureCommand(source: string, args: string[], network: boolean): Promi
   const cwd = "/";
   const launch = wrapWithOsSandbox(process.execPath, ["-e", source, ...args], buildOsSandboxPolicy({
     workspaceRoots: [], network,
-  }), { cwd, bwrap });
+  }), { bwrap });
   if (!launch.ok) throw new Error(launch.reason);
   return new Promise((resolve, reject) => {
     const child = spawn(launch.command, launch.args, { cwd, env: buildOsSandboxEnv(process.env), timeout: 5000 });
