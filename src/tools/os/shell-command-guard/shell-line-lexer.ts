@@ -166,6 +166,7 @@ export function lexShellLine(
     return read.next;
   };
 
+  let expressionEnd = -1;
   let i = 0;
   while (i < line.length) {
     const c = line[i]!;
@@ -245,15 +246,18 @@ export function lexShellLine(
       continue;
     }
     if (recoverPrefix && dialect === "posix" && !inWord && (c === "(" || c === "[")) {
-      const end = shellExpressionEnd(line, i);
-      if (end !== -1) {
-        i = end + 1;
-        continue;
-      }
+      expressionEnd = Math.max(expressionEnd, shellExpressionEnd(line, i));
     }
     const match = operators.find(([text]) => line.startsWith(text, i));
     if (match !== undefined) {
       const [text, operator] = match;
+      if (operator.kind === "heredoc" && i < expressionEnd) {
+        // dash can run parentheses as subshells and brackets as ordinary
+        // commands. Keep scanning their words, separators and redirects.
+        endWord();
+        i += text.length;
+        continue;
+      }
       const redirect = operator.kind === "redirect" || operator.kind === "heredoc";
       // `2>err.txt`: a word of bare digits right before a redirect is
       // the descriptor it applies to, not a word of the command.

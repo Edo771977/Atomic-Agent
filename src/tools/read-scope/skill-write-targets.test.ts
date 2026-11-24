@@ -462,4 +462,17 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       rmSync(base, { recursive: true, force: true });
     }
   });
+
+  it.each([
+    "(( cd /scratch/.agents/skills; touch demo ))",
+    "(( true ); touch /scratch/.agents/skills/demo )",
+    "(( echo data ) > /scratch/.agents/skills/demo )",
+    "((cp input /scratch/.agents/skills/demo))",
+    "((mkdir /scratch/.agents/skills/demo))",
+    "[[ ok; touch /scratch/.agents/skills/demo; ]]",
+    "[[ ok <<'END'; touch /scratch/.agents/skills/demo; ]]\nbody\nEND",
+    "[[ a || touch /scratch/.agents/skills/demo || ]]",
+  ])("keeps POSIX shell write targets in parentheses and brackets: %s", (cmd) => {
+    expect(checkRoundSeven(cmd)).toEqual(["/scratch/.agents/skills/"]);
+  });
 });
