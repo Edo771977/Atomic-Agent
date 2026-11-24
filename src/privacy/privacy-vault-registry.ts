@@ -140,6 +140,11 @@ export function unlinkPrivacyVault(sessionId: string): void {
   aliases.delete(sessionId);
 }
 
+/** Release the archive of a finished chat that can still be continued. */
+export function releasePrivacyVault(sessionId: string): void {
+  vaults.delete(sessionId);
+}
+
 /** Drop a session's vault (the session was deleted), and its worker links. */
 export function forgetPrivacyVault(sessionId: string): void {
   closedSessions.add(sessionId);
