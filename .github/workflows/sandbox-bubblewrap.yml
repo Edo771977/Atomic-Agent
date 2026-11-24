@@ -80,8 +80,32 @@ jobs:
           fi
           export ATOMIC_AGENT_TEST_NIX_STORE="$nix_fixture"
           args=(run --maxWorkers=2 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
+          runner=("$fixtures/bin/node")
           if [[ "$TEST_MODE" == root ]]; then
-            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1 "ATOMIC_AGENT_TEST_NIX_STORE=$ATOMIC_AGENT_TEST_NIX_STORE" "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
-          else
-            "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
+            runner=(sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1 "ATOMIC_AGENT_TEST_NIX_STORE=$ATOMIC_AGENT_TEST_NIX_STORE" "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node")
           fi
+          # Report cold filesystem cost separately from the existing warm test budget.
+          "${runner[@]}" --import tsx --input-type=module - <<'JS'
+          import { spawnSync } from "node:child_process";
+          import { mkdtempSync, rmSync } from "node:fs";
+          import { join } from "node:path";
+          import { tmpdir } from "node:os";
+          import { buildOsSandboxEnv, buildOsSandboxPolicy, wrapWithOsSandbox } from "./src/sandbox/os-sandbox.ts";
+
+          const cwd = mkdtempSync(join(tmpdir(), "atomic-cold-"));
+          try {
+            const started = performance.now();
+            const policy = buildOsSandboxPolicy({ workspaceRoots: [cwd], network: false });
+            const built = performance.now();
+            const launch = wrapWithOsSandbox("/bin/ls", [], policy, { cwd });
+            const prepared = performance.now();
+            if (!launch.ok) throw new Error(launch.reason);
+            const child = spawnSync(launch.command, launch.args, { cwd, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+            if (child.status !== 0) throw new Error(child.stderr || String(child.error));
+            const times = [built - started, prepared - built, performance.now() - prepared];
+            console.info("Safe Mode cold phase ms (policy/wrap/spawn): " + times.map(value => value.toFixed(1)).join("/"));
+          } finally {
+            rmSync(cwd, { recursive: true, force: true });
+          }
+          JS
+          "${runner[@]}" node_modules/vitest/vitest.mjs "${args[@]}"
