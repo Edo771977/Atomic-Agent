@@ -24,6 +24,7 @@ import type { ShellScopeEnv } from "./read-scope-shell.js";
 import {
   findShellStateSecrets,
   findShellSkillWrites,
+  findShellTrustDeletes,
   findStateSecretReads,
   type StateSecrets,
 } from "./state-secrets.js";
@@ -326,6 +327,17 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     })).toContain("/scratch/shared/");
   });
 
+  it("matches the direct-exec glob expansion when it resolves into an installed skill", () => {
+    const root = join(s.home, "glob-shared");
+    mkdirSync(root, { recursive: true });
+    writeFileSync(join(root, "SKILL.md"), "fixture");
+    expect(findShellSkillWrites(
+      { cmd: "touch", args: [join(s.home, "glob-*", "SKILL.md")] },
+      { workingDir: s.work },
+      { stateDir: s.stateDir, files: [], skillWritePaths: [root + sep] },
+    )).toContain(root + sep);
+  });
+
   it.each([
     "bash /scratch/shared/script.sh 2>/dev/null",
     'cat "${SKILL_FILE}" 2>&1',
@@ -337,6 +349,15 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     })).toEqual([]);
+  });
+
+  it.each([
+    "trash /scratch", "gio trash /scratch",
+    "kioclient move /scratch trash:/", "mv /scratch /tmp/stash",
+  ])("protects trusted descendants for %s", (cmd) => {
+    expect(findShellTrustDeletes({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], trustDeletePaths: ["/scratch/shared/"],
+    })).toContain("/scratch/shared/");
   });
 
   it("allows installed skill reads and script execution but gates mutations as trust config", async () => {

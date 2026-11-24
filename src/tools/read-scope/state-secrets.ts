@@ -6,6 +6,7 @@ import { isTrustDirectoryEntry } from "../../config/config-file.js";
 import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
 import { checkShellCommandGuard } from "../os/shell-command-guard/index.js";
 import { execWriteTargets, shellWriteTargets, type WriteTargetScope } from "../os/shell-command-guard/write-targets.js";
+import { expandShellGlobArgs } from "../os/shell/expand-shell-glob-args.js";
 import { coerceShellArgs, needsShellInterpretation } from "../os/shell/shell-interpretation.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
@@ -414,14 +415,9 @@ function protectedWritePaths(
   env = { home: homedir(), platform: process.platform },
   includeUnresolved = false,
 ): string[] {
-  if (entries.length === 0 || typeof args.cmd !== "string") return [];
-  const argv = coerceShellArgs(args.args);
-  if (!argv) return [];
-  const cwd = typeof args.cwd === "string" && args.cwd ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
+  if (entries.length === 0) return [];
   const scope: WriteTargetScope = { unresolved: false, recursive: [], placed: [], home: env.home };
-  const targets = needsShellInterpretation(args.cmd, argv)
-    ? shellWriteTargets(shellCommandLine(args), cwd, scope)
-    : execWriteTargets(args.cmd, argv, cwd, scope);
+  const targets = scanWritePaths(args, ctx, scope);
   if (includeUnresolved && scope.unresolved) return [...entries];
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
@@ -443,7 +439,19 @@ export function findShellSkillWrites(
   return protectedWritePaths(args, ctx, secrets.skillWritePaths ?? [], env, true);
 }
 
-const DELETE_PROGRAMS = ["rm", "rmdir", "unlink", "del", "erase", "rd", "remove-item"];
+function scanWritePaths(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  scope: WriteTargetScope,
+): string[] {
+  if (typeof args.cmd !== "string") return [];
+  const argv = coerceShellArgs(args.args);
+  if (!argv) return [];
+  const cwd = typeof args.cwd === "string" && args.cwd ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
+  return needsShellInterpretation(args.cmd, argv)
+    ? shellWriteTargets(shellCommandLine(args), cwd, scope)
+    : execWriteTargets(args.cmd, expandShellGlobArgs(args.cmd, argv, cwd), cwd, scope);
+}
 
 export function findShellTrustDeletes(
   args: Record<string, unknown>,
@@ -452,21 +460,17 @@ export function findShellTrustDeletes(
   env: ShellScopeEnv = { home: homedir(), platform: process.platform },
 ): string[] {
   if (!secrets.trustDeletePaths?.length) return [];
-  const cwd = typeof args.cwd === "string" ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
-  const segments = splitCommandSegments(expandVariables(shellCommandLine(args), env.home, secrets.stateDir));
-  const words = DELETE_PROGRAMS.flatMap((program) =>
-    invocationsOf(segments, program)
-      .filter((rawArgs) => checkShellCommandGuard({ cmd: program, rawArgs, cwd }).action !== "block")
-      .flat(),
-  );
-  const targets = words.filter((word) => !word.startsWith("-")).flatMap((word) => {
-    const path = pathOfToken(word, cwd, env.home);
-    return path === null ? [] : [canonical(path)];
+  const removals: string[] = [];
+  scanWritePaths(args, ctx, {
+    unresolved: false, recursive: [], placed: [], home: env.home, removals,
+    skipRemovals: (cmd, rawArgs, cwd) => checkShellCommandGuard({ cmd, rawArgs, cwd }).action === "block",
   });
+  const targets = removals.flatMap((path) => [resolve(path), canonical(path)]);
   return secrets.trustDeletePaths.filter((trusted) => {
-    const path = canonical(resolve(trusted));
-    return targets.some((target) => isInside(target, path) ||
-      (isTrustDirectoryEntry(trusted) && isInside(path, target)));
+    const path = resolve(trusted);
+    return [path, canonical(path)].some((root) => targets.some((target) =>
+      isInside(target, root) || (isTrustDirectoryEntry(trusted) && isInside(root, target))));
+
   });
 }
 

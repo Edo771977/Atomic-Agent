@@ -37,6 +37,8 @@ export interface WriteTargetScope {
   home?: string;
   recursive: string[];
   placed: string[];
+  removals?: string[];
+  skipRemovals?: (program: string, argv: string[], cwd: string) => boolean;
 }
 
 export function shellWriteTargets(commandLine: string, cwd: string, scope?: WriteTargetScope): string[] {
@@ -305,6 +307,14 @@ function commandTargets(
       }
     }
   }
+  const removed = scope?.removals ? removalWords(name, args) : [];
+  if (scope?.removals && removed.length > 0 &&
+    !scope.skipRemovals?.(name, args.map(({ text }) => text), dir ?? scope.home ?? homedir())) {
+    for (const operand of removed) {
+      const target = resolveWord(operand, dir, scope.home);
+      if (target !== undefined) scope.removals.push(target);
+    }
+  }
   return { targets, dir };
 }
 
@@ -386,6 +396,16 @@ function changedWords(
   }
   const cmdlet = POWERSHELL_TARGETS[name];
   return cmdlet === undefined ? [] : powershellTargets(args, cmdlet);
+}
+
+function removalWords(name: string, args: readonly ShellWord[]): ShellWord[] {
+  if (name === "mv") return copyOperands(name, args).sources;
+  if (name === "gio" && args[0]?.text === "trash") return plainOperands(args.slice(1));
+  if (/^kioclient[56]?$/.test(name) && args[0]?.text === "move") return plainOperands(args.slice(1, -1));
+  if (["rm", "rmdir", "unlink", "trash"].includes(name)) return plainOperands(args);
+  if (["del", "erase", "rd"].includes(name)) return cmdOperands(args);
+  if (name === "remove-item") return powershellTargets(args, POWERSHELL_TARGETS[name]!);
+  return [];
 }
 
 function word(text: string): ShellWord {
