@@ -1,0 +1,26 @@
+name: Windows sandbox
+on:
+  push:
+    branches: [codex/windows-lpac-stage-1]
+  pull_request:
+    paths:
+      - native/windows-sandbox-helper/**
+      - .github/workflows/sandbox-windows.yml
+
+permissions:
+  contents: read
+
+jobs:
+  lpac-acl-preflight:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run the ACL feasibility test
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cd /d "%RUNNER_TEMP%"
+          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
+          acl-preflight.exe
