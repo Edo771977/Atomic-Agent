@@ -97,14 +97,13 @@ try {
       ...capabilityOrder.slice(1).map((_, i) => ["lpac", ...capabilityOrder.slice(0, i + 2)]),
       ["appcontainer"]];
     let selected;
-    const verdicts = [];
     for (const candidate of candidates) {
       const launch = argv => call(helper, ["diagnose", stageRequest(argv), ...candidate]);
       const results = {};
       const record = (name, check) => {
         try { check(); results[name] = "pass"; }
         catch (error) {
-          const diagnostic = String(error.stderr ?? error.message).trim().split(/\r?\n/).slice(0, 4).join(" | ");
+          const diagnostic = ([error.stderr, error.stdout].filter(Boolean).join(" | ") || error.message).trim().split(/\r?\n/).slice(0, 4).join(" | ");
           results[name] = `fail: ${diagnostic}`;
         }
       };
@@ -138,7 +137,6 @@ try {
       }
       const passed = Object.values(results).every(value => value === "pass");
       const verdict = { candidate, passed, results };
-      verdicts.push(verdict);
       console.log("LPAC_MATRIX " + JSON.stringify(verdict));
       if (passed) { selected = candidate; break; }
     }
@@ -158,46 +156,46 @@ try {
   }
 
   if (!matrix) {
-  const family = [
-    node, "-e",
-    "const cp = require('node:child_process'); const child = cp.spawn(process.execPath, " +
-      "['-e', \"const cp = require('node:child_process'); const grandchild=cp.spawn(process.execPath, " +
-      "['-e','setInterval(()=>{},1000)'], {stdio:'ignore'}); console.log(grandchild.pid); setInterval(()=>{},1000)\"], " +
-      "{stdio:['ignore','inherit','inherit']}); console.log(child.pid); setInterval(()=>{},1000);",
-  ];
-  for (const cancel of [false, true]) {
-    const child = spawn(helper, ["run", stageRequest(family, cancel ? 60_000 : 8000)], {
-      stdio: ["ignore", "pipe", "inherit"], windowsHide: true,
-    });
-    const closed = once(child, "close");
-    let output = "";
-    let seen = false;
-    child.stdout.setEncoding("utf8").on("data", chunk => {
-      output += chunk;
-      if (cancel && !seen && output.trim().split(/\s+/).length === 2) {
-        seen = true;
-        child.kill();
-      }
-    });
-    const [status] = await closed;
-    const pids = output.trim().split(/\s+/).map(Number);
-    assert.equal(pids.length, 2, "both child and grandchild must start");
-    if (!cancel) assert.equal(status >>> 0, 0xe0000002, "native launcher must report timeout");
-    else assert.ok(seen, "cancel after the grandchild starts");
-    for (const pid of pids) {
-      assert.ok(Number.isInteger(pid) && pid > 0);
-      for (let attempt = 0; attempt < 30; ++attempt) {
-        try {
-          process.kill(pid, 0);
-        } catch (error) {
-          if (error.code === "ESRCH") break;
-          throw error;
+    const family = [
+      node, "-e",
+      "const cp = require('node:child_process'); const child = cp.spawn(process.execPath, " +
+        "['-e', \"const cp = require('node:child_process'); const grandchild=cp.spawn(process.execPath, " +
+        "['-e','setInterval(()=>{},1000)'], {stdio:'ignore'}); console.log(grandchild.pid); setInterval(()=>{},1000)\"], " +
+        "{stdio:['ignore','inherit','inherit']}); console.log(child.pid); setInterval(()=>{},1000);",
+    ];
+    for (const cancel of [false, true]) {
+      const child = spawn(helper, ["run", stageRequest(family, cancel ? 60_000 : 8000)], {
+        stdio: ["ignore", "pipe", "inherit"], windowsHide: true,
+      });
+      const closed = once(child, "close");
+      let output = "";
+      let seen = false;
+      child.stdout.setEncoding("utf8").on("data", chunk => {
+        output += chunk;
+        if (cancel && !seen && output.trim().split(/\s+/).length === 2) {
+          seen = true;
+          child.kill();
         }
-        assert.notEqual(attempt, 29, `process ${pid} survived sandbox shutdown`);
-        await delay(100);
+      });
+      const [status] = await closed;
+      const pids = output.trim().split(/\s+/).map(Number);
+      assert.equal(pids.length, 2, "both child and grandchild must start");
+      if (!cancel) assert.equal(status >>> 0, 0xe0000002, "native launcher must report timeout");
+      else assert.ok(seen, "cancel after the grandchild starts");
+      for (const pid of pids) {
+        assert.ok(Number.isInteger(pid) && pid > 0);
+        for (let attempt = 0; attempt < 30; ++attempt) {
+          try {
+            process.kill(pid, 0);
+          } catch (error) {
+            if (error.code === "ESRCH") break;
+            throw error;
+          }
+          assert.notEqual(attempt, 29, `process ${pid} survived sandbox shutdown`);
+          await delay(100);
+        }
       }
     }
-  }
   }
 } finally {
   server?.close();
