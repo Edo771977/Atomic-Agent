@@ -170,7 +170,7 @@ interface ServiceVerification {
 }
 
 async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable, approveResearch?: ResearchApproval, service?: ServiceVerification): Promise<VerifyRunResult> {
-  const cwd = resolveVerifyCwd(dir, args.cwd);
+  const cwd = resolveVerifyCwd(dir, args.cwd, true);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
   const guard = guardVerifyRun(args, cwd, ctx.shellPolicy);

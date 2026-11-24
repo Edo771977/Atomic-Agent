@@ -1,3 +1,4 @@
+import { verifyPageFolderKey } from "../../approval/verify-page-folder.js";
 import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
@@ -96,12 +97,13 @@ function opensFileInside(args: VerifyRunArgs, folder: string): boolean {
   return rel !== "" && !rel.startsWith("..") && !isAbsolute(rel);
 }
 
-export function resolveVerifyCwd(root: string, cwd: string | undefined): string {
+export function resolveVerifyCwd(root: string, cwd: string | undefined, preserveRootSpelling = false): string {
   const target = cwd === undefined ? resolve(root) : resolve(root, cwd);
   // Windows may spell an existing directory with a drive-case or 8.3
   // alias. Check its filesystem identity, including junctions.
-  if ((process.platform === "win32" || readOsSandboxSettings().mode === "workspace") && existsSync(target)) {
-    return canonicalVerifyCwd(root, target);
+  const sandboxed = readOsSandboxSettings().mode === "workspace";
+  if ((process.platform === "win32" || sandboxed) && existsSync(target)) {
+    return canonicalVerifyCwd(root, target, preserveRootSpelling && !sandboxed);
   }
   const rel = relative(resolve(root), target);
   if (rel === ".." || rel.startsWith(`..${process.platform === "win32" ? "\\" : "/"}`) || isAbsolute(rel)) {
@@ -185,11 +187,11 @@ export async function authorizeVerifyBatch(
     }
     const policySpec = spec.cmd === undefined && kind === "command" && typeof spec.command === "string" ? { ...spec, kind, cmd: spec.command } : { ...spec, kind };
     const actual = parseVerifyRunArgs(policySpec);
-    const actualCwd = resolveVerifyCwd(ctx.workingDir, actual.cwd);
+    const actualCwd = resolveVerifyCwd(ctx.workingDir, actual.cwd, true);
     const guard = guardVerifyRun(actual, actualCwd, options.shellPolicy);
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
-    const cwd = resolveVerifyCwd(project, logical.cwd);
+    const cwd = resolveVerifyCwd(project, logical.cwd, true);
     const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
     const ui = logical.kind === "ui";
     const ready = logical.service === undefined ? undefined : services.get(logical.service);
@@ -387,8 +389,9 @@ export async function authorizeVerifyBatch(
       continue;
     }
     // The gate records the turn grant only if a person approves this request.
-    const withdraw = page && options.approvalRequired && options.turnGrantFolder !== undefined &&
-      relative(resolve(options.turnGrantFolder), resolve(cwd)) === ""
+    const grantFolder = page && options.turnGrantFolder !== undefined ? verifyPageFolderKey(options.turnGrantFolder) : undefined;
+    const withdraw = options.approvalRequired && grantFolder !== undefined &&
+      grantFolder === verifyPageFolderKey(cwd)
       ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
       : undefined;
     try {

@@ -1,3 +1,4 @@
+import { verifyPageFolderKey } from "./verify-page-folder.js";
 import { FanoutScopeRegistry, isInside } from "./fanout-scope.js";
 import { ReadScopeGrants } from "./read-scope-grants.js";
 import { randomUUID } from "node:crypto";
@@ -653,7 +654,8 @@ export class ApprovalGate {
    * settled to withdraw the offer.
    */
   offerVerifyPageTurnGrant(sessionId: string, folder: string): () => void {
-    const offer = resolvePath(folder);
+    const offer = verifyPageFolderKey(folder);
+    if (offer === undefined) return () => {};
     const offers = this.verifyPageOffersBySession.get(sessionId) ?? [];
     offers.push(offer);
     this.verifyPageOffersBySession.set(sessionId, offers);
@@ -669,8 +671,10 @@ export class ApprovalGate {
   private recordVerifyPageTurnGrant(request: ApprovalRequest): void {
     if (request.category !== "verify_page_local") return;
     const offers = this.verifyPageOffersBySession.get(request.sessionId) ?? [];
-    const folders = (request.affectedResources ?? []).map((path) => resolvePath(path));
-    const granted = folders.filter((folder) => offers.some((offer) => relative(offer, folder) === ""));
+    const granted = (request.affectedResources ?? []).flatMap((path) => {
+      const folder = verifyPageFolderKey(path);
+      return folder !== undefined && offers.includes(folder) ? [folder] : [];
+    });
     if (granted.length === 0) return;
     // Kept on the top orchestrator, whose turn start and session reset
     // drop it: a worker's entry would outlive the fan-out.
@@ -692,9 +696,9 @@ export class ApprovalGate {
     // Any outside content this turn, on the session or its orchestrator,
     // whatever `agent.taintReview` says: the yes was given before it.
     if (this.taintSourcesOf(sessionId).length > 0) return false;
-    const target = resolvePath(folder);
-    return [sessionId, ...this.taintAncestors(sessionId)].some((id) =>
-      [...(this.verifyPageFoldersBySession.get(id) ?? [])].some((granted) => relative(granted, target) === ""));
+    const target = verifyPageFolderKey(folder);
+    return target !== undefined && [sessionId, ...this.taintAncestors(sessionId)].some((id) =>
+      this.verifyPageFoldersBySession.get(id)?.has(target) === true);
   }
 
   /** Remove the session's policy so its requests prompt again. */
