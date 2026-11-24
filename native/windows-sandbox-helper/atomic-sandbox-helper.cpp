@@ -398,6 +398,14 @@ static int diagnosticAncestors(wchar_t** argv) {
     return errors == 0 ? 0 : 4;
 }
 
+static int diagnosticNullDevice(bool expectAccess) {
+    LpacHandle device(CreateFileW(L"NUL", GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    const DWORD result = device ? ERROR_SUCCESS : GetLastError();
+    std::printf("NUL read/write result: %lu\n", result);
+    return result == (expectAccess ? ERROR_SUCCESS : ERROR_ACCESS_DENIED) ? 0 : 5;
+}
+
 static int diagnosticFile(wchar_t** argv) {
     const std::wstring kind = argv[2];
     const DWORD access = kind == L"write-deny" ? GENERIC_WRITE : GENERIC_READ;
@@ -489,6 +497,8 @@ int wmain(int argc, wchar_t** argv) {
         return connectWinRt(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10))) == S_OK ? 0 : 5;
     }
 #ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+    if (action == L"--null-device-host" && argc == 2) return diagnosticNullDevice(true);
+    if (action == L"--null-device-deny" && argc == 2) return diagnosticNullDevice(false);
     if (action == L"--ancestor-acl" && argc == 6) return diagnosticAncestors(argv);
     if (action == L"diagnose") return diagnose(argc, argv);
     if (action == L"--file-check" && argc == 4) return diagnosticFile(argv);

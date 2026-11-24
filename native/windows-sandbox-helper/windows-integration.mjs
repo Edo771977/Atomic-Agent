@@ -107,6 +107,10 @@ try {
     writeFileSync(ancestorFile, "synthetic data outside the checkout");
     const emptyConfig = join(privateTemp, "empty-git-config");
     writeFileSync(emptyConfig, "");
+    check("null-device-read-write-denied", () => {
+      assert.match(call(helper, ["--null-device-host"]), /NUL read\/write result: 0/);
+      assert.match(launch([helper, "--null-device-deny"]), /NUL read\/write result: 5/);
+    });
     const gitEnv = { ATOMIC_DIAGNOSTIC_GIT: "trace" };
     check("git-config-and-trace", () => assert.match(launch([git, "status", "--short"], gitEnv), /existing\.txt/));
     check("git-empty-config-file", () =>
