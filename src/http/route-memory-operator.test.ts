@@ -173,6 +173,16 @@ describe("operator memory routes", () => {
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 
+  it("limits the frequency of HTTP backup attempts", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1_000);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+    const limited = await send("/api/memory/backup", {});
+    expect(limited.status).toBe(429);
+    expect(await limited.json()).toMatchObject({ error: { code: "backup-cooldown" } });
+    now.mockReturnValue(61_000);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+  });
+
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
     const response = await send("/api/memory/backup", {});

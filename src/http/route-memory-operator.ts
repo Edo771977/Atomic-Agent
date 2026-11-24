@@ -61,7 +61,7 @@ function operatorPost(
         return sendError(res, 400, openaiError("Invalid memory entry"));
       }
       if (error instanceof RequestError) {
-        return sendError(res, error.status, openaiError(error.message));
+        return sendError(res, error.status, openaiError(error.message, "invalid_request_error", null, error.code));
       }
       if (error instanceof MemoryBackupError && error.code) {
         const message = {
@@ -79,7 +79,7 @@ function operatorPost(
 }
 
 class RequestError extends Error {
-  constructor(readonly status: 400 | 403, message: string) {
+  constructor(readonly status: 400 | 403 | 429, message: string, readonly code: string | null = null) {
     super(message);
   }
 }
@@ -115,9 +115,13 @@ export function createMemoryStateHandler(kind: "note" | "profile"): HttpHandler 
 
 export function createMemoryBackupHandler(): HttpHandler {
   let running = false;
+  let lastAttempt = -Infinity;
   return operatorPost(async (body, ctx) => {
     if (Object.keys(body).length !== 0) throw new RequestError(400, "Backup accepts an empty JSON object");
     if (running) throw new MemoryChoiceConflict("backup-running");
+    const now = performance.now();
+    if (now - lastAttempt < 60_000) throw new RequestError(429, "Wait one minute between HTTP backup attempts.", "backup-cooldown");
+    lastAttempt = now;
     running = true;
     try {
       const paths = ctx.runtime.config.paths;
