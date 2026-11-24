@@ -5,8 +5,9 @@
  * feed the "masked N" line of the Privacy tab and Settings › Privacy.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret-detector.js";
-import { PrivacyVault } from "./privacy-vault.js";
+import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
 
 const MAX_SESSION_VAULTS = 128;
 const vaults = new Map<string, PrivacyVault>();
@@ -19,7 +20,8 @@ function trimVaults(): void {
   }
 }
 
-export function pinPrivacyVault(id: string): () => void {
+export function pinPrivacyVault(sessionId: string): () => void {
+  const id = vaultKey(sessionId);
   activeTurns.set(id, (activeTurns.get(id) ?? 0) + 1);
   return () => {
     const remaining = (activeTurns.get(id) ?? 1) - 1;
@@ -35,8 +37,21 @@ export function pinPrivacyVault(id: string): () => void {
  * counts a value once per chat however many workers saw it.
  */
 const aliases = new Map<string, string>();
-/** Worker ids are ephemeral; the oldest links go past this many. */
-const MAX_ALIASES = 1024;
+const vaultKey = (id: string): string => aliases.get(id) ?? id;
+const turnShield = new AsyncLocalStorage<{ id: string; enabled: boolean; shared: boolean }>();
+
+/** Workers inherit their parent turn's setting, including after a live toggle. */
+export function withPrivacyShieldTurn<T>(sessionId: string, run: () => T): T {
+  const owner = aliases.get(sessionId);
+  const parent = turnShield.getStore();
+  if (owner !== undefined && parent?.id === owner) return turnShield.run(parent, run);
+  return turnShield.run({ id: owner ?? sessionId, enabled: shieldEnabled, shared: owner !== undefined }, run);
+}
+
+export function isPrivacyShieldEnabledForRequest(sessionId?: string): boolean {
+  const turn = turnShield.getStore();
+  return turn && (!sessionId || turn.id === vaultKey(sessionId)) ? turn.enabled : shieldEnabled;
+}
 /** The agent's own keys (its `.env` is loaded into `process.env`). */
 let knownSecrets: () => readonly KnownSecret[] = () => knownSecretsFromEnv();
 let shieldEnabled = false;
@@ -61,7 +76,7 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
   // Auxiliary calls have no session lifetime and must not share substitutions.
   if (!sessionId) return new PrivacyVault(() => knownSecrets());
-  const key = aliases.get(sessionId) ?? sessionId;
+  const key = vaultKey(sessionId);
   const vault = vaults.get(key) ?? new PrivacyVault(() => knownSecrets());
   vaults.delete(key);
   vaults.set(key, vault);
@@ -75,26 +90,27 @@ export function rebuildPrivacyVault(
   previous: PrivacyVault,
   mask: (fresh: PrivacyVault) => void,
 ): PrivacyVault {
+  const turn = turnShield.getStore();
+  if (turn?.shared && sessionId && turn.id === vaultKey(sessionId)) throw new PrivacyArchiveLimitError();
   const fresh = new PrivacyVault(() => knownSecrets());
   mask(fresh);
-  if (sessionId && vaults.get(sessionId) === previous) vaults.set(sessionId, fresh);
+  if (sessionId) {
+    const key = vaultKey(sessionId);
+    if (vaults.get(key) === previous) vaults.set(key, fresh);
+  }
   return fresh;
 }
 
-/** Drop a session's vault (the session was deleted). */
 /**
  * Make `sessionId` (a Fusion worker) use `parentSessionId`'s vault. A
  * parent that is itself linked resolves to its own parent.
  */
 export function linkPrivacyVault(sessionId: string, parentSessionId: string): void {
   if (sessionId === parentSessionId) return;
-  aliases.delete(sessionId);
-  aliases.set(sessionId, aliases.get(parentSessionId) ?? parentSessionId);
-  while (aliases.size > MAX_ALIASES) {
-    const oldest = aliases.keys().next().value;
-    if (oldest === undefined) break;
-    aliases.delete(oldest);
-  }
+  const parent = vaultKey(parentSessionId);
+  aliases.set(sessionId, parent);
+  const turn = turnShield.getStore();
+  if (turn?.id === parent) turn.shared = true;
 }
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
@@ -106,8 +122,23 @@ export function forgetPrivacyVault(sessionId: string): void {
   }
 }
 
+/** Protect evidence from restored provider values without changing the archive. */
+export function redactPrivacyEvidence<T>(sessionId: string, value: T): T {
+  const vault = vaults.get(vaultKey(sessionId));
+  if (vault) return vault.redactEvidence(value);
+  return isPrivacyShieldEnabledForRequest(sessionId)
+    ? new PrivacyVault(() => knownSecrets()).redactEvidence(value)
+    : value;
+}
+
+/** A status read must not create a vault or change eviction order. */
+export function privacyShieldSessionStats(id: string): { masked: number; lastRequest: number } {
+  const stats = vaults.get(vaultKey(id))?.stats();
+  return { masked: stats?.distinct ?? 0, lastRequest: stats?.lastRequest ?? 0 };
+}
+
 export interface PrivacyShieldTotals {
-  /** Distinct values masked, summed over every session of this process. */
+  /** Distinct values masked, summed across retained session archives. */
   masked: number;
   /** Sessions that had anything masked. */
   sessions: number;

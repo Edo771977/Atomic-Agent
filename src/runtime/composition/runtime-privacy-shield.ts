@@ -8,9 +8,10 @@ import {
 import {
   isPrivacyShieldEnabled,
   privacyShieldTotals,
-  privacyVaultFor,
+  privacyShieldSessionStats,
   setPrivacyShieldEnabled,
 } from "../../privacy/index.js";
+import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
 import type { PrivacyShieldControl, PrivacyShieldStats } from "../runtime-contract.js";
 
 export interface PrivacyShieldDeps {
@@ -21,23 +22,24 @@ export interface PrivacyShieldDeps {
 /**
  * `runtime.privacyShield` (ATO-1082): the live switch the TUI Privacy
  * tab, `/api/privacy-shield` and the desktop's Settings › Privacy row
- * drive. `setEnabled` persists the key, then flips the process switch the
- * cloud providers read per request, so the next request is masked (or
- * not) without rebuilding anything. Same shape as `runtime.offlineMode`.
+ * drive. `setEnabled` persists the default that new turns snapshot.
+ * Active turns keep their original setting.
  */
 export function createPrivacyShieldControl(deps: PrivacyShieldDeps = {}): PrivacyShieldControl {
   const persist = deps.persist ?? persistPrivacyShield;
   return {
     isEnabled: () => isPrivacyShieldEnabled(),
     async setEnabled(enabled: boolean): Promise<void> {
+      if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+        throw new Error("privacy shield can only be changed by the operator");
+      }
       persist(enabled);
       setPrivacyShieldEnabled(enabled);
     },
     stats(sessionId?: string): PrivacyShieldStats {
       const totals = privacyShieldTotals();
       if (!sessionId) return totals;
-      const vault = privacyVaultFor(sessionId).stats();
-      return { ...totals, session: { masked: vault.distinct, lastRequest: vault.lastRequest } };
+      return { ...totals, session: privacyShieldSessionStats(sessionId) };
     },
   };
 }

@@ -23,6 +23,8 @@ Selective imports for offline use and chat data cleanup:
 Selective Privacy Shield imports:
 
 - `feat/ato-599-privacy-shield-detector` (`31592d25ad9f28d75d60b09efdfa68f026331ba1`) and `feat/ato-1081-privacy-shield-providers` (`6a5ae1845c713bed46e0abd6f2faa0d852a8863a`) bring reversible masking to remote OpenAI-compatible providers and native Anthropic Messages. The fork reuses its known credentials and drops the in-memory archive on chat deletion, including incognito close. Enable it with `privacy.shield.enabled`. [Coverage and session behavior](../../src/privacy/README.md).
+- ATO-1082 adds the TUI Privacy Shield switch and count-only status. GET /api/privacy-shield requires read scope. POST and PATCH require admin because the persisted default applies to the whole runtime. Changes take effect when each next turn begins. ATO-1083 shares the session archive across covered Fusion cloud calls. Local providers in auto mode receive original values, and incognito uses a private archive that is removed on close. [Toggle](https://github.com/AtomicBot-ai/atomic-agent/pull/1695) · [Fusion](https://github.com/AtomicBot-ai/atomic-agent/pull/1689)
+
 - The HTTP/TUI toggle and the shared Fusion planner/worker archive are deferred.
 
 Earlier upstream PRs came in as batches:

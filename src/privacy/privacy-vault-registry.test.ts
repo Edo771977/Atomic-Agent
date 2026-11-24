@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   forgetPrivacyVault,
   isPrivacyShieldEnabled,
+  isPrivacyShieldEnabledForRequest,
+  redactPrivacyEvidence,
+  withPrivacyShieldTurn,
   linkPrivacyVault,
   privacyShieldTotals,
   privacyVaultFor,
@@ -80,4 +83,48 @@ it("keeps an active turn's vault through registry pressure", () => {
   } finally {
     release();
   }
+});
+
+it("keeps the turn setting across awaits and worker fan-out after a toggle", async () => {
+  setPrivacyShieldEnabled(true);
+  await withPrivacyShieldTurn("chat", async () => {
+    await Promise.resolve();
+    setPrivacyShieldEnabled(false);
+    expect(isPrivacyShieldEnabledForRequest("chat")).toBe(true);
+    expect(isPrivacyShieldEnabledForRequest("unrelated")).toBe(false);
+    withPrivacyShieldTurn("chat", () => {
+      expect(isPrivacyShieldEnabledForRequest("chat")).toBe(false);
+    });
+    linkPrivacyVault("worker", "chat");
+    withPrivacyShieldTurn("worker", () => {
+      expect(isPrivacyShieldEnabledForRequest("worker")).toBe(true);
+    });
+  });
+  withPrivacyShieldTurn("chat", () => {
+    expect(isPrivacyShieldEnabledForRequest("chat")).toBe(false);
+  });
+});
+
+it("pins the shared archive during a worker turn and releases the worker link on exit", () => {
+  linkPrivacyVault("worker", "planner");
+  const release = pinPrivacyVault("worker");
+  const planner = privacyVaultFor("planner");
+  expect(planner.mask("first@example.test second@example.test")).toBe("[EMAIL_1] [EMAIL_2]");
+  for (let i = 0; i < 140; i++) privacyVaultFor("idle-" + i);
+  expect(privacyVaultFor("worker").mask("second@example.test")).toBe("[EMAIL_2]");
+  forgetPrivacyVault("worker");
+  expect(privacyVaultFor("worker")).not.toBe(planner);
+  expect(privacyVaultFor("planner")).toBe(planner);
+  release();
+  forgetPrivacyVault("planner");
+  expect(privacyVaultFor("planner").isEmpty).toBe(true);
+});
+
+it("redacts evidence independently of provider counters and placeholder numbering", () => {
+  const vault = privacyVaultFor("fusion");
+  vault.mask("password=Qf8zT2Mk5Kn");
+  const evidence = { path: "build/Qf8zT2Mk5Kn.html", label: "owner@example.test", count: 1 };
+  expect(redactPrivacyEvidence("fusion", evidence)).toEqual({ path: "[redacted]", label: "[redacted]", count: 1 });
+  expect(vault.stats().distinct).toBe(1);
+  expect(vault.mask("owner@example.test")).toBe("[EMAIL_1]");
 });

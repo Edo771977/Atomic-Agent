@@ -18,7 +18,6 @@ import { StructuredLogger, type LogRecord } from "../../tracing/structured-logge
 import { TaskStore } from "../../tasks/task-store.js";
 import { FileCheckpointStore } from "../../tools/os/fs/fs-checkpoint-store.js";
 import { createRuntimeSessionFactories, installRuntimeSessionDelete, prepareRuntimeSessionStore } from "./runtime-session-services.js";
-import { privacyVaultFor, resetPrivacyVaults } from "../../privacy/index.js";
 
 describe("runtime session phases", () => {
   let dir: string;
@@ -54,6 +53,7 @@ describe("runtime session phases", () => {
         id, workingDir: dir, ...(incognito ? { incognito: store.newIncognitoMark() } : {}),
       });
       try {
+        expect(privacyVaultFor(id)).not.toBe(privacyVaultFor("another-chat"));
         expect(privacyVaultFor(id).mask("archive-only@example.test")).toBe("[EMAIL_1]");
         store.save(recordTurn(session, userTurn("Transcript text")));
         const transcript = JSON.stringify(store.load(id));
@@ -311,16 +311,6 @@ describe("runtime session phases", () => {
     expect(calls).toEqual([]);
     const persistent = factories.createSession();
     expect(calls).toEqual([`save:${persistent.id}`, `trace:${persistent.id}`]);
-  });
-
-  it("a Fusion worker masks with its chat's Privacy Shield vault (ATO-1083)", () => {
-    const factories = createRuntimeSessionFactories(dir, { save: () => {} }, () => null);
-    const parent = factories.createSession({ persist: false });
-    const worker = factories.createEphemeralSession({ parentSessionId: parent.id, taskId: "t" });
-    expect(privacyVaultFor(worker.id)).toBe(privacyVaultFor(parent.id));
-    expect(privacyVaultFor(parent.id).mask("mail a@b.io")).toBe("mail [EMAIL_1]");
-    expect(privacyVaultFor(worker.id).mask("again a@b.io")).toBe("again [EMAIL_1]");
-    resetPrivacyVaults();
   });
 
   it("createSession starts in the folder it is given, else the launch folder (ATO-570)", () => {

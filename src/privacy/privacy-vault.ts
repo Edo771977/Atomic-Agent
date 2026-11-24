@@ -237,6 +237,18 @@ export class PrivacyVault {
     return walk(options.request) as T;
   }
 
+  /** Redact evidence without learning values or modifying request counts. */
+  redactEvidence<T>(value: T): T {
+    const known = this.known();
+    return mapStrings(value, text => {
+      if (findPrivateSpans(text, known).length > 0) return "[redacted]";
+      for (const privateValue of this.#byValue.keys()) {
+        if (text.includes(privateValue)) return "[redacted]";
+      }
+      return text;
+    }) as T;
+  }
+
   /** {@link unmask} on every string inside plain objects and arrays. */
   unmaskDeep<T>(value: T): T {
     if (this.#byPlaceholder.size === 0) return value;

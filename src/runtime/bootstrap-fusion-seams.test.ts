@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { createAgentRuntime } from "./bootstrap.js";
 import { resetConfigCache } from "../config/index.js";
 import type { LlmStreamParams } from "../agent/step-executor.js";
+import { privacyVaultFor, forgetPrivacyVault } from "../privacy/index.js";
 import { FUSION_GUIDANCE } from "../prompt/fusion-guidance.js";
 import { readSessionLlmStamp } from "../session/session-llm.js";
 import { isFusionWorkerSessionId } from "../session/fusion-worker-session.js";
@@ -67,6 +68,53 @@ describe("createAgentRuntime fusion seams", () => {
     timing: { promptTokens: 10, predictedTokens: 5 },
     slotId: 0,
     cacheReused: false,
+  });
+
+  it("shares the planner archive only for the worker turn and sends real text to the local model", async () => {
+    const address = "operator@example.test";
+    let workerId = "";
+    let parentId = "";
+    const runtime = await createAgentRuntime({
+      workingDir,
+      approvalLevel: 5,
+      overrides: {
+        browserBackend: backend,
+        skipLlamaHealthCheck: true,
+        llamaComplete: async (request) => {
+          expect(JSON.stringify(request)).toContain(address);
+          expect(privacyVaultFor(workerId)).toBe(privacyVaultFor(parentId));
+          expect(privacyVaultFor(workerId).mask(address)).toBe("[EMAIL_2]");
+          const reply = await replyCompletion();
+          return {
+            ...reply,
+            reasoningContent: "",
+            stop: true,
+            truncated: false,
+            timing: { ...reply.timing, promptMs: 0, predictedMs: 0 },
+            cacheHitTokens: 0,
+            modelId: null,
+          };
+        },
+      },
+    });
+    try {
+      await runtime.privacyShield!.setEnabled(true);
+      const parent = runtime.createSession();
+      parentId = parent.id;
+      privacyVaultFor(parentId).mask("first@example.test " + address);
+      const worker = runtime.createEphemeralSession({ parentSessionId: parentId, taskId: "privacy" });
+      workerId = worker.id;
+      const result = await runtime.runTurn(worker, "Use " + address, {
+        origin: "fusion", providerId: "local-llama", maxSteps: 3,
+      });
+      expect(result.reason).toBe("reply");
+      expect(privacyVaultFor(workerId)).not.toBe(privacyVaultFor(parentId));
+      expect(privacyVaultFor(parentId).unmask("[EMAIL_2]")).toBe(address);
+    } finally {
+      forgetPrivacyVault(workerId);
+      forgetPrivacyVault(parentId);
+      await runtime.shutdown();
+    }
   });
 
   it("rejects a providerId the registry does not know, before the turn is queued", async () => {

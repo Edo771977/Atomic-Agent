@@ -13,7 +13,7 @@ import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
-import { forgetPrivacyVault, linkPrivacyVault } from "../../privacy/index.js";
+import { forgetPrivacyVault } from "../../privacy/index.js";
 
 /** The fusion project store every runtime surface shares (issue #109). */
 export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectStore {
@@ -223,10 +223,8 @@ export function createRuntimeSessionFactories(
     // runs; its own folder (often a temp copy) is never matched again.
     const stamp = meta.providerPolicy !== undefined ? meta.providerPolicy : workerPolicyStampFromFrame();
     const stamped = stamp === undefined ? meta : { ...meta, providerPolicy: stamp };
-    const state = createFusionWorkerSession({ workingDir: dir ?? workingDir, meta: stamped });
-    linkPrivacyVault(state.id, meta.parentSessionId);
     return {
-      ...state,
+      ...createFusionWorkerSession({ workingDir: dir ?? workingDir, meta: stamped }),
       ...(inheritWorkspace ? { inheritedWorkspace: true } : {}),
     };
   };
