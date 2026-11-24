@@ -259,6 +259,18 @@ describe("operator memory routes", () => {
       expect(harness.runtime.profileStore.get("city")?.value).toBe("Rome");
     });
 
+  it("logs dispatch failures without returning or logging exception text", async () => {
+    const logger = vi.spyOn(harness.runtime.logger, "error");
+    vi.spyOn(harness.runtime.notesStore, "list").mockImplementationOnce(() => {
+      throw new Error("private detail for test");
+    });
+    const response = await send("/api/memory/notes");
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("private detail");
+    expect(logger).toHaveBeenCalledWith("HTTP route failed");
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
+  });
+
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
     const response = await send("/api/memory/backup", {});
