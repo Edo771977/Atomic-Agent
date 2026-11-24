@@ -1,4 +1,3 @@
-import { verifyPageFolderKey } from "./verify-page-folder.js";
 import { FanoutScopeRegistry, isInside } from "./fanout-scope.js";
 import { ReadScopeGrants } from "./read-scope-grants.js";
 import { randomUUID } from "node:crypto";
@@ -28,6 +27,7 @@ import {
 } from "./approval-rules.js";
 import type { ApprovalRulesSource } from "./approval-rules-store.js";
 import { currentApprovalWorkdir } from "./approval-workdir.js";
+import { verifyPageFolderKey } from "./verify-page-folder.js";
 import {
   isSiteScopedCategory,
   parseSiteGrantKey,
