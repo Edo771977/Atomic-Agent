@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { findShellSkillWrites } from "./state-secrets.js";
 
+function checkRoundSeven(cmd: string): string[] {
+  const home = "/scratch";
+  return findShellSkillWrites({ cmd }, { workingDir: home }, {
+    stateDir: "/settings", files: [], skillWritePaths: ["/scratch/.agents/skills/"],
+  }, { home, platform: "linux" });
+}
+
 describe.skipIf(process.platform === "win32")("skill write destinations", () => {
   it.each([
     "install input /scratch/shared/out",
@@ -396,5 +403,16 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     const env = { home: "/scratch", platform: "linux" } as const;
     expect(findShellSkillWrites({ cmd }, { workingDir: env.home }, state, env)).toEqual([skills]);
     expect(findShellSkillWrites({ cmd }, { workingDir: "/scratch/project" }, state, env)).toEqual([]);
+  });
+
+  it.each([
+    "echo $((1<<2))",
+    "((value<<2))",
+    "echo $((value << 2))",
+    "[[ -n \"$value\" ]] && ((value << 2))",
+    "echo ${value:-<<literal}",
+  ])("round seven point 1: %s", (prefix) => {
+    const cmd = prefix + '\nprintf "%s" "$(touch /scratch/.agents/skills/demo)"';
+    expect(checkRoundSeven(cmd)).toEqual(["/scratch/.agents/skills/"]);
   });
 });

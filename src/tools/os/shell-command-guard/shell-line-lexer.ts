@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { matchingClose } from "./command-substitution.js";
+import { matchingClose, shellExpressionEnd } from "./command-substitution.js";
 
 /**
  * Which shell a command line is written for. `posix` is `sh -c`'s line;
@@ -243,6 +243,13 @@ export function lexShellLine(
       const newline = line.indexOf("\n", i);
       i = newline === -1 ? line.length : newline;
       continue;
+    }
+    if (recoverPrefix && dialect === "posix" && !inWord && (c === "(" || c === "[")) {
+      const end = shellExpressionEnd(line, i);
+      if (end !== -1) {
+        i = end + 1;
+        continue;
+      }
     }
     const match = operators.find(([text]) => line.startsWith(text, i));
     if (match !== undefined) {

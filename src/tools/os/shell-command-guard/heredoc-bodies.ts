@@ -1,3 +1,5 @@
+import { shellExpressionEnd } from "./command-substitution.js";
+
 /** Keep heredoc data out of the shell substitution scanner. The placeholder
  * survives extraction of a surrounding command substitution. */
 export function maskHeredocBodies(line: string): { text: string; restore: (value: string) => string } {
@@ -17,6 +19,13 @@ export function maskHeredocBodies(line: string): { text: string; restore: (value
     }
     if (quote === "'") {
       if (c === "'") quote = "";
+      continue;
+    }
+    const expression = c === "$" || !quote && (c === "(" || c === "[")
+      ? shellExpressionEnd(line, i) : -1;
+    if (expression !== -1) {
+      text += line.slice(i + 1, expression + 1);
+      i = expression;
       continue;
     }
     if (c === "$" && line[i + 1] === "(") {
@@ -68,12 +77,8 @@ export function maskHeredocBodies(line: string): { text: string; restore: (value
         }
         cursor = next;
       }
-      if (cursor >= line.length) {
-        const marker = prefix + bodies.size + "__";
-        bodies.set(marker, line.slice(start));
-        text += marker + "\n";
-        i = line.length;
-      }
+      // Leave an unterminated candidate intact for the substitution scanner.
+      if (cursor >= line.length) break;
     }
   }
   return {

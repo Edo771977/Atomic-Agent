@@ -146,6 +146,20 @@ export function matchingClose(
   return -1;
 }
 
+/** End of a POSIX expression that cannot contain a heredoc redirect. */
+export function shellExpressionEnd(line: string, from: number): number {
+  if (line.startsWith("${", from)) return matchingClose(line, from + 2, "{", "}");
+  const expansion = line.startsWith("$((", from);
+  if (expansion || line.startsWith("((", from)) {
+    return matchingClose(line, from + (expansion ? 2 : 1), "(", ")");
+  }
+  if (line.startsWith("[[", from) && /\s/.test(line[from + 2] ?? "")) {
+    const end = matchingClose(line, from + 2, "[", "]");
+    return end >= 0 && line[end + 1] === "]" ? end + 1 : -1;
+  }
+  return -1;
+}
+
 function closingBacktick(line: string, from: number): number {
   for (let i = from; i < line.length; i += 1) {
     if (line[i] === "\\") {
