@@ -22,8 +22,14 @@ static DWORD checkFile(const wchar_t* name, DWORD disposition, DWORD access = 0)
     HANDLE file = CreateFileW(name, access ? access : (disposition == OPEN_EXISTING ? GENERIC_READ : GENERIC_WRITE),
         FILE_SHARE_READ, nullptr, disposition, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
+    DWORD result = ERROR_SUCCESS;
+    if (access == GENERIC_WRITE) {
+        const char marker = '1';
+        DWORD bytes = 0;
+        if (!WriteFile(file, &marker, sizeof(marker), &bytes, nullptr) || bytes != sizeof(marker)) result = GetLastError();
+    }
     CloseHandle(file);
-    return ERROR_SUCCESS;
+    return result;
 }
 
 int wmain(int argc, wchar_t** argv) {

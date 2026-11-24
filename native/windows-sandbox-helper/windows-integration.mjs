@@ -13,7 +13,8 @@ const base = realpathSync.native(mkdtempSync(join(process.env.RUNNER_TEMP ?? tmp
 const profile = `AtomicAgent.Workspace.${randomBytes(16).toString("hex")}`;
 const root = join(base, "project");
 const state = join(base, "state");
-const privateTemp = join(state, "private");
+const stateFolder = join(state, "windows-sandbox");
+const privateTemp = join(stateFolder, "private");
 const outside = join(state, "outside");
 const source = join(root, "existing.txt");
 const tools = join(base, "runtime");
@@ -41,7 +42,10 @@ let server;
 let granted = false;
 try {
   mkdirSync(root);
-  mkdirSync(privateTemp, { recursive: true });
+  mkdirSync(state);
+  call(helper, ["init-state", state, stateFolder]);
+  call(helper, ["init-state", state, stateFolder]);
+  mkdirSync(privateTemp);
   mkdirSync(gitTools, { recursive: true });
   writeFileSync(source, "checkout fixture\n");
   writeFileSync(join(state, "serve-api.key"), "synthetic-key\n");

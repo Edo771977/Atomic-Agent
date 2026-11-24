@@ -67,13 +67,12 @@ inline bool sandboxGrantRoot(const std::wstring& root, const std::wstring& state
     if (isPrivateTemp) return windowsContains(state, root);
     if (windowsContains(state, root) || (!writable && windowsContains(home, root))) return false;
 
-    // Reject writable grants into the system's application and shared-data trees.
-    if (writable) {
-        const std::wstring drive = windows.substr(0, 3);
-        for (const wchar_t* name : {L"Program Files", L"Program Files (x86)", L"ProgramData"}) {
-            const std::wstring system = drive + name;
-            if (windowsContains(root, system) || windowsContains(system, root)) return false;
-        }
+    // Reject broad shared-system roots. Read-only grants may target a
+    // specific runtime installation there if the operator owns its ACLs.
+    const std::wstring drive = windows.substr(0, 3);
+    for (const wchar_t* name : {L"Program Files", L"Program Files (x86)", L"ProgramData"}) {
+        const std::wstring system = drive + name;
+        if (windowsContains(root, system) || (writable && windowsContains(system, root))) return false;
     }
     return true;
 }

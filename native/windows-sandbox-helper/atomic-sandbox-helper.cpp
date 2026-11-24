@@ -299,7 +299,7 @@ static int run(const wchar_t* file) {
     std::wstring probe = quoteArgument(executable) + L" --probe-child " + quoteArgument(request.projectFile) +
         L" " + quoteArgument(key) + L" " + quoteArgument(request.outsideCanary) + L" " + std::to_wstring(port);
     auto environment = childEnvironment(request);
-    const DWORD probeStatus = runLpac(sid.value, executable, probe, request.cwd.c_str(), environment.data(), 5000, false);
+    const DWORD probeStatus = runLpac(sid.value, executable, probe, request.cwd.c_str(), environment.data(), 5000, true);
     closesocket(listener);
     WSACleanup();
     if (probeStatus != 0) return static_cast<int>(lpacError("verify workspace grant and network isolation; reopen the project in the TUI to regrant", probeStatus));
