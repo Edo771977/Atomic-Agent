@@ -31,6 +31,9 @@ import { buildPrompt, type BuildPromptInput } from "../prompt/build-prompt.js";
 import { executeStep } from "./step-executor.js";
 import { prepareStepInference, refreshStepWorkspace } from "./step/step-inference.js";
 import type { StepContext, StepDependencies } from "./step/step-contract.js";
+import type { AgentRuntime } from "../runtime/bootstrap.js";
+import { makeTuiEventBus } from "../tui/make-event-bus.js";
+import { SkillsOrchestrator } from "../tui/skills/skills-orchestrator.js";
 import { AgentLoop } from "./agent-loop.js";
 
 const cloud = { mode: "cloud" as const, source: "provider" as const, providerId: "cloud", modelId: "big" };
@@ -69,9 +72,9 @@ describe("cloud session workspace integration", () => {
       writeFileSync(userConfigFile, JSON.stringify(data));
       resetConfigCache();
     };
-    const render = (dir: string) => {
+    const render = (dir: string, modelMode: "cloud" | "local" = mode) => {
       const ctx = context(dir);
-      const d = { ...deps(), modelMode: { ...cloud, mode } };
+      const d = { ...deps(), modelMode: { ...cloud, mode: modelMode } };
       return prepareStepInference(ctx, d).prompt;
     };
     const native = join(a, ".atomic-agent", "skills", "native");
@@ -109,7 +112,36 @@ describe("cloud session workspace integration", () => {
     const shown = await runLearnCommand({ kind: "show", id: draft!.id, json: true }, scope);
     const preview = JSON.parse(shown.text) as { fingerprint: string; skillMd: string };
     expect(preview.skillMd).toBe(skillMd);
-    expect(await runLearnCommand({ kind: "approve", id: draft!.id, fingerprint: preview.fingerprint }, scope)).toMatchObject({ ok: true });
+    const bus = makeTuiEventBus();
+    const messages: string[] = [];
+    bus.subscribe((event) => {
+      if (event.type === "system_message") messages.push(event.text);
+    });
+    const runtime = {
+      config: getConfig(),
+      turnController: { isBusy: () => false },
+      sessionStore: { liveFolderTurn: () => false },
+      skillRegistry: { listAll: () => [] },
+      refreshSkills: async () => {},
+    } as unknown as AgentRuntime;
+    const tui = new SkillsOrchestrator(runtime, bus, { currentSession: () => reviewState });
+    const expectHidden = () => {
+      for (const promptMode of ["cloud", "local"] as const) {
+        expect(render(a, promptMode).text).not.toContain(draftDescription);
+        expect(render(a, promptMode).text).not.toContain(draftBody);
+      }
+    };
+    expectHidden();
+    await tui.runLearnCommand({ kind: "approve", id: draft!.id, fingerprint: preview.fingerprint });
+    expectHidden();
+    const review = messages.at(-1);
+    expect(review).toContain(preview.skillMd.trimEnd());
+    const confirmation = review?.match(/\/learn confirm ([a-f0-9]{16})/)?.[1];
+    if (!confirmation) throw new Error("TUI did not issue a confirmation code");
+    await tui.runLearnCommand({ kind: "confirm", confirmation });
+    expect(await listPendingDrafts(scope.stateDir)).toHaveLength(0);
+    await tui.runLearnCommand({ kind: "confirm", confirmation });
+    expect(messages.at(-1)).toContain("expired");
     expect(render(a).text).toContain(draftDescription);
     if (mode === "local") {
       expect(enabledBefore.stablePrefix).not.toContain("Native project guide.");
