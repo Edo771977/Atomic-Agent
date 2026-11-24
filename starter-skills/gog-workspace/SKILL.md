@@ -57,6 +57,8 @@ The check is diagnostic and may exit successfully even when setup is incomplete.
 
 ## Setup Script
 
+The installed skill directory is protected against writes. Run the documented diagnostics in place and write generated files or changes to a workspace location.
+
 Do not run `setup-gog.sh` or `setup-gog.ps1` through tools: it bundles the install, the credentials and the browser sign-in into one interactive script. Run its steps one at a time yourself instead (see the outcome map above). Offer the script only when the user prefers to do the whole setup in their own terminal:
 
 macOS / Linux:

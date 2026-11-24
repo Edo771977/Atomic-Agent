@@ -893,6 +893,19 @@ export const MENU: readonly MenuNode[] = [
   },
   {
     kind: "action",
+    id: "setup.learn",
+    label: "Learned skills…",
+    group: "setup",
+    slash: {
+      name: "learn",
+      description:
+        "review learned skills: `/learn` lists drafts and changes · `/learn show <id>` displays the draft and fingerprint · `/learn approve <id>@<fingerprint>` opens confirmation · `/learn undo <id>` takes back a change",
+      // ATO-67: right after /skill.
+      rank: 22.5,
+    },
+  },
+  {
+    kind: "action",
     id: "setup.task",
     label: "Create, cancel or run a task…",
     group: "setup",

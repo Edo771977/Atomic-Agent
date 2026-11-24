@@ -33,7 +33,7 @@ export function buildSkillViewTool(
               name: record.manifest.name,
               version: record.manifest.version,
               body,
-              ...(scoped && ctx.modelMode === "cloud" ? { workspace: ctx.workspaceSkills!.workingDir, sourcePath: record.manifestPath, fingerprint: scoped.fingerprint } : {}),
+              ...(scoped && (ctx.modelMode === "cloud" || record.learned) ? { workspace: ctx.workspaceSkills!.workingDir, sourcePath: record.manifestPath, fingerprint: scoped.fingerprint, ...(record.learned ? { learned: true } : {}) } : {}),
             },
             source: record.source,
             rootDir: record.rootDir,

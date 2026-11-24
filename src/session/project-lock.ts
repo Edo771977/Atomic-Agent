@@ -99,7 +99,7 @@ function takeOver(lock: string, seen: string): boolean {
 export type FileLockResult<T> = { ok: true; value: T } | { ok: false; locked: true };
 
 /** Run `fn` holding `lock`; `locked` when a live holder keeps it past `waitMs`. */
-export function withFileLock<T>(lock: string, fn: () => T, options: FileLockOptions = {}): FileLockResult<T> {
+function acquireFileLock(lock: string, options: FileLockOptions): (() => void) | null {
   const now = options.now ?? Date.now;
   const waitMs = options.waitMs ?? 2_000;
   const staleMs = options.staleMs ?? 30_000;
@@ -117,16 +117,28 @@ export function withFileLock<T>(lock: string, fn: () => T, options: FileLockOpti
       if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
       const read = readBody(lock);
       if (read !== null && isStale(read, now(), staleMs, host) && takeOver(lock, read.text)) continue;
-      if (Date.now() >= deadline) return { ok: false, locked: true };
+      if (Date.now() >= deadline) return null;
       sleepSync(25);
     } finally {
       if (fd !== null) closeSync(fd);
     }
   }
-  try {
-    return { ok: true, value: fn() };
-  } finally {
+  return () => {
     const mine = readBody(lock);
     if (mine?.body?.token === token) rmSync(lock, { force: true });
-  }
+  };
+}
+
+export function withFileLock<T>(lock: string, fn: () => T, options: FileLockOptions = {}): FileLockResult<T> {
+  const release = acquireFileLock(lock, options);
+  if (!release) return { ok: false, locked: true };
+  try { return { ok: true, value: fn() }; }
+  finally { release(); }
+}
+
+export async function withAsyncFileLock<T>(lock: string, fn: () => Promise<T>, options: FileLockOptions = {}): Promise<FileLockResult<T>> {
+  const release = acquireFileLock(lock, options);
+  if (!release) return { ok: false, locked: true };
+  try { return { ok: true, value: await fn() }; }
+  finally { release(); }
 }

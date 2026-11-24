@@ -1,9 +1,14 @@
+import { globSync, lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
 import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
+import { checkShellCommandGuard } from "../os/shell-command-guard/index.js";
+import { execWriteTargets, shellWriteTargets, type FindSelection, type WriteTargetScope } from "../os/shell-command-guard/write-targets.js";
+import { expandShellGlobArgs } from "../os/shell/expand-shell-glob-args.js";
+import { coerceShellArgs, needsShellInterpretation } from "../os/shell/shell-interpretation.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -57,6 +62,10 @@ export interface StateSecrets {
    * to be read).
    */
   files: readonly string[];
+  /** Installed skill directories protected on recognized shell writes. */
+  skillWritePaths?: readonly string[];
+  /** Trust paths used to detect deletion of a containing folder. */
+  trustDeletePaths?: readonly string[];
 }
 
 /**
@@ -188,7 +197,7 @@ function namesProcSecret(name: string): boolean {
 
 /** Compile glob atoms plus nested brace lists, retaining empty alternatives. */
 function matchesName(pattern: string, file: string, platform: NodeJS.Platform): boolean {
-  const atom = (value: string) => globToRegExp(value, platform).source.slice(1, -1);
+  const atom = (value: string) => globToRegExp(value, platform, true).source.slice(1, -1);
   function compile(value: string, depth: number): string {
     if (depth > 24) return atom(value);
     const open = value.indexOf("{");
@@ -240,15 +249,19 @@ function expandVariables(line: string, home: string, stateDir: string): string {
 }
 
 /** A glob token as a whole-path regular expression: `*` and `?` stay inside one segment. */
-function globToRegExp(pattern: string, platform: NodeJS.Platform): RegExp {
+function globToRegExp(pattern: string, platform: NodeJS.Platform, includeHidden = false): RegExp {
   const sep = platform === "win32" ? "[\\\\/]" : "/";
   const notSep = platform === "win32" ? "[^\\\\/]" : "[^/]";
   let out = "";
+  let segmentStart = true;
   for (let i = 0; i < pattern.length; i += 1) {
     const c = pattern[i]!;
+    const isSeparator = c === "/" || (platform === "win32" && c === "\\");
+    if (!includeHidden && segmentStart && /[*?\[]/.test(c)) out += "(?!\\.)";
+    segmentStart = isSeparator;
     if (c === "*") {
       if (pattern[i + 1] === "*") {
-        out += ".*";
+        out += includeHidden ? ".*" : `(?:(?!${sep}\\.).)*`;
         i += 1;
       } else out += `${notSep}*`;
     } else if (c === "?") out += notSep;
@@ -259,10 +272,59 @@ function globToRegExp(pattern: string, platform: NodeJS.Platform): RegExp {
         out += `[${pattern.slice(i + 1, close).replace(/^!/, "^").replace(/\\/g, "\\\\")}]`;
         i = close;
       }
-    } else if (c === "/" || (platform === "win32" && c === "\\")) out += sep;
+    } else if (isSeparator) out += sep;
     else out += c.replace(/[.+^${}()|\\]/g, "\\$&");
   }
   return new RegExp(`^${out}$`, platform === "win32" ? "i" : "");
+}
+
+/** Expand literal brace alternatives before compiling shell path patterns. */
+function globAlternatives(pattern: string, budget = 4): string[] {
+  const start = pattern.indexOf("{");
+  const end = pattern.indexOf("}", start + 1);
+  if (budget === 0 || start === -1 || end === -1) return [pattern];
+  const choices = pattern.slice(start + 1, end).split(",");
+  if (choices.length < 2 || choices.length > 16) return [pattern];
+  return choices.flatMap((choice) =>
+    globAlternatives(pattern.slice(0, start) + choice + pattern.slice(end + 1), budget - 1));
+}
+
+function globTouchesPath(pattern: string, root: string, platform: NodeJS.Platform, includeAncestors = false): boolean {
+  try {
+    const expression = globToRegExp(pattern, platform);
+    for (let path = root; ; path = dirname(path)) {
+      if (expression.test(path)) return true;
+      if (!includeAncestors || dirname(path) === path) break;
+    }
+    for (let path = dirname(pattern); dirname(path) !== path; path = dirname(path)) {
+      if (globToRegExp(path, platform).test(root)) return true;
+    }
+  } catch {
+    // Malformed character classes have no usable match.
+  }
+  return false;
+}
+
+/** A recursive copy can merge into an existing child with the same name. */
+function copyTouchesPath(source: string, destination: string, root: string, platform: NodeJS.Platform): boolean {
+  if (!isInside(destination, root)) return false;
+  const child = resolve(destination, relative(destination, root).split(sep)[0]!);
+  if (child === destination || child === root) return false;
+  try {
+    if (!lstatSync(child).isDirectory()) return false;
+    const leaf = basename(child);
+    return globAlternatives(source).some((pattern) => {
+      if (!globToRegExp(basename(pattern), platform).test(leaf)) return false;
+      const parent = dirname(pattern);
+      const directories = /[*?\[]/.test(parent) ? globSync(parent) : [parent];
+      return directories.some((dir) => {
+        try { return lstatSync(resolve(dir, leaf)).isDirectory(); }
+        catch { return false; }
+      });
+    });
+  } catch {
+    return false;
+  }
 }
 
 /** What a word of the command names on disk, or `null` when it names nothing. */
@@ -373,7 +435,7 @@ export function findShellStateSecrets(
     if (path === null) continue;
     for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
     if (GLOB.test(path)) {
-      const pattern = globToRegExp(path, env.platform);
+      const pattern = globToRegExp(path, env.platform, true);
       for (const candidate of candidates) {
         if (pattern.test(candidate)) hits.add(candidate);
       }
@@ -397,10 +459,128 @@ export function shellServerKeyMutation(
   const line = shellCommandLine(args);
   if (files.some(path => /(?:^|[\\/])http-tokens\.json$/i.test(path)) &&
       managesHttpTokens(line)) return true;
-  return line.split(/[;|&\n]+/).some(cmd => {
-    const writes = /(^|[\s\\/"'])(?:rm|mv|cp|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
-    return (writes.test(cmd) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(cmd) || /(^|[^<])>/.test(cmd))
-      && findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
+  return protectedWritePaths(args, ctx, files, env).length > 0;
+}
+
+function findTouchesPath(selection: FindSelection, protectedPath: string, platform: NodeJS.Platform): boolean {
+  const { root, name, type, maxDepth = Infinity } = selection;
+  if (isInside(protectedPath, root)) return true;
+  if (!isInside(root, protectedPath)) return false;
+  const depth = relative(root, protectedPath).split(sep).filter(Boolean).length;
+  if (depth > maxDepth) return false;
+  if (!name && !type) return true;
+  let pattern: RegExp | undefined;
+  try {
+    pattern = name ? globToRegExp(name, platform, true) : undefined;
+  } catch {
+    return false;
+  }
+  const pending = [{ path: protectedPath, depth }];
+  for (let inspected = 0; pending.length > 0; inspected += 1) {
+    if (inspected >= 512) return true;
+    const item = pending.pop()!;
+    try {
+      const stat = lstatSync(item.path);
+      const kind = stat.isDirectory() ? "d" : stat.isFile() ? "f" : stat.isSymbolicLink() ? "l" : undefined;
+      if ((!type || kind === type) && (!pattern || pattern.test(basename(item.path)))) return true;
+      if (stat.isDirectory() && item.depth < maxDepth) {
+        for (const child of readdirSync(item.path)) pending.push({ path: resolve(item.path, child), depth: item.depth + 1 });
+      }
+    } catch {
+      // A missing entry cannot be emitted by this search.
+    }
+  }
+  return false;
+}
+
+function protectedVariableParent(entries: readonly string[], home: string): NonNullable<WriteTargetScope["protectedVariableParent"]> {
+  const roots = entries.flatMap((entry) => [resolve(entry), canonical(entry)]);
+  const homePath = canonical(home);
+  return (path, cwd) => {
+    const candidate = canonical(path);
+    const cwdPath = cwd === undefined ? undefined : canonical(cwd);
+    return roots.some((root) => isInside(root, candidate) ||
+      (!samePath(candidate, homePath) && (cwdPath === undefined || !samePath(candidate, cwdPath)) &&
+        isInside(candidate, root)));
+  };
+}
+
+function protectedWritePaths(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  entries: readonly string[],
+  env = { home: homedir(), platform: process.platform },
+): string[] {
+  if (entries.length === 0) return [];
+  const scope: WriteTargetScope = { recursive: [], placed: [], home: env.home,
+    protectedVariableParent: protectedVariableParent(entries, env.home) };
+  const targets = scanWritePaths(args, ctx, scope);
+  const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
+  const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
+  const patterns = scope.patterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
+  const removalPatterns = scope.removalPatterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
+  const findSelections = scope.findSelections?.flatMap((selection) => {
+    const root = canonical(selection.root);
+    return root === selection.root ? [selection] : [selection, { ...selection, root }];
+  }) ?? [];
+  return entries.filter((entry) => {
+    const path = resolve(entry);
+    return [path, canonical(path)].some((root) =>
+      writes.some((target) => samePath(root, target) ||
+        (isTrustDirectoryEntry(entry) && isInside(root, target))) ||
+      recursive.some((target) => isInside(target, root)) ||
+      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform)) ||
+      removalPatterns.some((pattern) => globTouchesPath(pattern, root, env.platform, true)) ||
+      scope.recursiveCopies?.some(({ source, destination }) => copyTouchesPath(source, destination, root, env.platform)) ||
+      findSelections.some((selection) => findTouchesPath(selection, root, env.platform)));
+  });
+}
+
+export function findShellSkillWrites(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env?: ShellScopeEnv,
+): string[] {
+  return protectedWritePaths(args, ctx, secrets.skillWritePaths ?? [], env);
+}
+
+function scanWritePaths(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  scope: WriteTargetScope,
+): string[] {
+  if (typeof args.cmd !== "string") return [];
+  const argv = coerceShellArgs(args.args);
+  if (!argv) return [];
+  const cwd = typeof args.cwd === "string" && args.cwd ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
+  return needsShellInterpretation(args.cmd, argv)
+    ? shellWriteTargets(shellCommandLine(args), cwd, scope)
+    : execWriteTargets(args.cmd, expandShellGlobArgs(args.cmd, argv, cwd), cwd, scope);
+}
+
+export function findShellTrustDeletes(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env: ShellScopeEnv = { home: homedir(), platform: process.platform },
+): string[] {
+  if (!secrets.trustDeletePaths?.length) return [];
+  const removals: string[] = [];
+  const scope: WriteTargetScope = {
+    recursive: [], placed: [], home: env.home, removals,
+    protectedVariableParent: protectedVariableParent(secrets.trustDeletePaths, env.home),
+    skipRemovals: (cmd, rawArgs, cwd) => checkShellCommandGuard({ cmd, rawArgs, cwd }).action === "block",
+  };
+  scanWritePaths(args, ctx, scope);
+  const patterns = scope.removalPatterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
+  const targets = removals.flatMap((path) => [resolve(path), canonical(path)]);
+  return secrets.trustDeletePaths.filter((trusted) => {
+    const path = resolve(trusted);
+    return [path, canonical(path)].some((root) => targets.some((target) =>
+      isInside(target, root) || (isTrustDirectoryEntry(trusted) && isInside(root, target))) ||
+      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform, true)));
+
   });
 }
 

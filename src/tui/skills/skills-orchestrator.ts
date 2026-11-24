@@ -1,3 +1,7 @@
+import { randomBytes } from "node:crypto";
+import { projectDecisionOriginRefusal } from "../../sandbox/project-decision-origin.js";
+import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
+import { isIncognitoSession } from "../../session/incognito.js";
 import { rememberRenderedCommand } from "../../session/rendered-command-texts.js";
 import { pluginSkillPart, setPluginPartEnabled } from "../../plugins/plugin-install.js";
 import {
@@ -32,6 +36,11 @@ import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import type { TuiEventBus } from "../tui-app.js";
 import type { HubSkillRow } from "./skills-panel-state.js";
 import { toSkillSummaryRows } from "./skills-summary.js";
+import { formatDraftView, runLearnCommand, showPendingDraft, type LearnCommand } from "../../skills/learning/learn-command.js";
+import { loadSkills } from "../../skills/skill-loader.js";
+import { join } from "node:path";
+import { takenSkillNames } from "../../skills/learning/learn-targets.js";
+import { skillCuratorPaths } from "../../skills/curator/skill-curator-config.js";
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { setSkillDisabled as setWorkspaceSkillDisabled, setProjectSkillsEnabled } from "../../config/skill-policy-commands.js";
 import { readUserConfigFileSync } from "../../config/config-file.js";
@@ -65,6 +74,13 @@ const DEFAULT_REFRESH_INTERVAL_MS = 5_000;
  *    catalog/stable-prefix subscribers update.
  */
 export class SkillsOrchestrator {
+  private learnConfirmation?: {
+    sessionId: string;
+    scope: string;
+    code: string;
+    expiresAt: number;
+    command: Extract<LearnCommand, { kind: "approve" }>;
+  };
   private readonly currentSession: () => SessionState | null;
   private refreshTimer: NodeJS.Timeout | null = null;
   private readonly refreshIntervalMs: number;
@@ -356,6 +372,89 @@ export class SkillsOrchestrator {
         error: null,
       },
     });
+  }
+
+  /**
+   * `/learn` (ATO-67): list what the experience review saved and the
+   * drafts pending review, undo one change, approve or discard a draft.
+   * An undo or an approve changes a skill folder, so the registry and the
+   * stable prefix are rebuilt after it like after an uninstall.
+   */
+  async runLearnCommand(command: LearnCommand): Promise<void> {
+    const paths = this.runtime.config.paths;
+    const session = this.currentSession();
+    if (!session || isIncognitoSession(session)) {
+      delete this.learnConfirmation;
+      this.bus.emit({ type: "system_message", text: "Open a regular chat in this folder to review learned skills." });
+      return;
+    }
+    const scope = learnedSkillScope(paths.stateDir, session.projectRef?.folder ?? session.workingDir);
+    const message = (text: string) => this.bus.emit({ type: "system_message", text });
+    const activationRefusal = () => {
+      const current = this.currentSession();
+      if (!current || current.id !== session.id || current.workingDir !== session.workingDir || current.projectRef?.folder !== session.projectRef?.folder || isIncognitoSession(current)) return "The current chat changed. Review the draft again.";
+      if (this.runtime.turnController.isBusy(session.id) || this.runtime.sessionStore.liveFolderTurn(scope.folder)) return "A turn is running in this folder. Wait for it to finish.";
+      return projectDecisionOriginRefusal();
+    };
+    if (command.kind === "approve") {
+      delete this.learnConfirmation;
+      const refusal = activationRefusal();
+      if (refusal) { message(refusal); return; }
+      try {
+        const view = await showPendingDraft(scope, command.id);
+        if (!view) { message("The draft is no longer available."); return; }
+        if (this.currentSession()?.id !== session.id) return;
+        if (view.fingerprint !== command.fingerprint) {
+          message("The draft changed since review.\n\n" + formatDraftView(view, "/learn"));
+          return;
+        }
+        const code = randomBytes(8).toString("hex");
+        this.learnConfirmation = { sessionId: session.id, scope: scope.stateDir, code, expiresAt: Date.now() + 120_000, command };
+        message(`${formatDraftView(view, "/learn")}\n\nTo activate this draft, confirm with /learn confirm ${code}.`);
+      } catch (error) {
+        message(error instanceof Error ? error.message : String(error));
+      }
+      return;
+    }
+    let confirmedDraft: Extract<LearnCommand, { kind: "approve" }> | undefined;
+    if (command.kind === "confirm") {
+      const pending = this.learnConfirmation;
+      delete this.learnConfirmation;
+      if (!pending || pending.code !== command.confirmation || pending.sessionId !== session.id ||
+          pending.scope !== scope.stateDir || Date.now() > pending.expiresAt) {
+        message("The confirmation expired or does not match. Review the draft again.");
+        return;
+      }
+      confirmedDraft = pending.command;
+      command = confirmedDraft;
+    }
+    const result = await runLearnCommand(command, {
+      ...scope,
+      activationRefusal,
+      ...(confirmedDraft ? { confirmedDraft } : {}),
+      takenNames: async () => {
+        const { skills } = await loadSkills({
+          globalDir: paths.globalSkillsDir,
+          projectDir: join(scope.folder, paths.projectSkillsDirName),
+        });
+        const global = this.runtime.skillRegistry.listAll().map(e => e.record).filter(record => record.source === "global");
+        return takenSkillNames({
+          records: [...global, ...skills],
+          starterNames: await listStarterSkillNames(),
+          globalSkillsDir: scope.skillsDir,
+          archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
+        });
+      },
+    });
+    if (this.currentSession()?.id !== session.id) return;
+    this.bus.emit({ type: "system_message", text: result.text });
+    if (!result.skillsChanged) return;
+    try {
+      await this.runtime.refreshSkills();
+      this.refresh();
+    } catch (err) {
+      this.bus.emit({ type: "runtime_info", line: `skills refresh failed: ${err instanceof Error ? err.message : String(err)}` });
+    }
   }
 
   /**
