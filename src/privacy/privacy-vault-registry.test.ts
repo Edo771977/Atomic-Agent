@@ -138,3 +138,23 @@ it("uses disposable archives for a closed chat and its former workers", () => {
   }
   expect(privacyShieldTotals()).toEqual({ masked: 0, sessions: 0 });
 });
+
+it("restores only references delivered to the current worker", async () => {
+  await withPrivacyShieldTurn("brief-owner", async () => {
+    const vault = privacyVaultFor("brief-owner");
+    const ownerReference = vault.mask("owner@example.test");
+    linkPrivacyVault("brief-worker", "brief-owner");
+    await withPrivacyShieldTurn("brief-worker", async () => {
+      const worker = privacyVaultFor("brief-worker");
+      const request = worker.beginRequest();
+      const workerReference = worker.mask("worker@example.test", undefined, request);
+      worker.endRequest(request);
+      await Promise.resolve();
+      expect(worker.unmaskDeep({ email: workerReference, other: ownerReference })).toEqual({
+        email: "worker@example.test",
+        other: ownerReference,
+      });
+    });
+    expect(vault.unmask(ownerReference)).toBe("owner@example.test");
+  });
+});

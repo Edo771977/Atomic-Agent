@@ -132,16 +132,16 @@ export class LlamaServerProvider implements LlmProvider {
   private readonly privacyShield: ProviderPrivacyConfig["shield"];
 
   async complete(request: CompletionRequest): Promise<CompletionResult> {
-    const shield = this.shieldRequest(request);
-    const result = await this.client.complete(await this.rendered(shield.request));
+    const shield = await this.prepareRequest(request);
+    const result = await this.client.complete(shield.request);
     return shield.vault ? unmaskCompletion(result, shield.vault) : result;
   }
 
   async *completeStream(
     request: CompletionRequest,
   ): AsyncGenerator<StreamChunk, CompletionResult, void> {
-    const shield = this.shieldRequest(request);
-    const stream = this.client.completeStream(await this.rendered(shield.request));
+    const shield = await this.prepareRequest(request);
+    const stream = this.client.completeStream(shield.request);
     if (!shield.vault) return yield* stream;
     const unmasker = createChunkUnmasker(shield.vault);
     try {
@@ -163,12 +163,21 @@ export class LlamaServerProvider implements LlmProvider {
     }
   }
 
+  private async prepareRequest(request: CompletionRequest) {
+    const masked = this.shieldRequest(request);
+    const formatted = await this.rendered(masked.request);
+    const chat = masked.request.chat;
+    if (formatted !== masked.request && chat) masked.vault?.recordMaskedText(chat.system, chat.user);
+    else masked.vault?.recordMaskedText(formatted.prompt);
+    return { request: formatted, vault: masked.vault };
+  }
+
   private shieldRequest(request: CompletionRequest) {
     const vault = shieldVaultFor(request.sessionId, isLocalServerUrl(this.textRequestBaseUrl), this.privacyShield);
     if (!vault) return { request, vault };
     const { chat } = request;
     const body = { messages: chat ? [chat.system, chat.user, request.prompt] : [request.prompt] };
-    const active = maskWithArchiveRecovery(body, vault, request.sessionId);
+    const active = maskWithArchiveRecovery(body, vault, request.sessionId, false);
     const prompt = body.messages.at(-1)!;
     if (!chat) return { request: { ...request, prompt }, vault: active };
     const [system, user] = body.messages as [string, string, string];

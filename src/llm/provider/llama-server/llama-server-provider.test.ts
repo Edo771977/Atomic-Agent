@@ -1,4 +1,4 @@
-import { resetPrivacyVaults, setPrivacyShieldEnabled } from "../../../privacy/index.js";
+import { linkPrivacyVault, resetPrivacyVaults, setPrivacyShieldEnabled, withPrivacyShieldTurn } from "../../../privacy/index.js";
 import { getEventListeners } from "node:events";
 
 import { describe, expect, it, vi } from "vitest";
@@ -207,6 +207,31 @@ describe("LlamaServerProvider", () => {
       expect(chunks.at(-1)?.done).toBe(true);
       expect(chunks.map((chunk) => chunk.delta).join("")).toContain("person@example.test");
       expect(next.value.content).toContain("person@example.test");
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
+  it("limits a Fusion worker to references from the actual formatted prompt", async () => {
+    const complete = vi.fn<LlamaServerClient["complete"]>().mockResolvedValue({
+      content: "[EMAIL_1] [EMAIL_2]", reasoningContent: "", stop: true, truncated: false,
+      timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+      cacheHitTokens: 0, slotId: -1, modelId: null,
+    });
+    const provider = new LlamaServerProvider(fakeClient(complete, async ([system, user]) => system!.content + user!.content), {
+      privacyShield: "on", getProfile: () => PLAIN_INSTRUCT_PROFILE, visionEnabledByConfig: false,
+      visionAutoDetect: false, maxImageBytes: 1024, maxImagesPerCall: 2, requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    linkPrivacyVault("llama-worker", "llama-director");
+    try {
+      await withPrivacyShieldTurn("llama-worker", async () => {
+        const result = await provider.complete({
+          sessionId: "llama-worker",
+          prompt: "raw-only@example.test",
+          chat: { system: "worker@example.test", user: "Continue", prefixHash: "worker-prefix" },
+        });
+        expect(result.content).toBe("worker@example.test [EMAIL_2]");
+      });
     } finally {
       resetPrivacyVaults();
     }

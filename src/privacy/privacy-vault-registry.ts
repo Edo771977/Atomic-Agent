@@ -40,13 +40,32 @@ export function pinPrivacyVault(sessionId: string): () => void {
 const aliases = new Map<string, string>();
 const vaultKey = (id: string): string => aliases.get(id) ?? id;
 const turnShield = new AsyncLocalStorage<{ id: string; enabled: boolean; shared: boolean }>();
+const workerReferences = new AsyncLocalStorage<Map<PrivacyVault, Set<string>> | null>();
+
+function newVault(): PrivacyVault {
+  return new PrivacyVault(() => knownSecrets(), {
+    record(vault, references) {
+      const scope = workerReferences.getStore();
+      if (!scope) return;
+      const seen = scope.get(vault) ?? new Set<string>();
+      for (const reference of references) seen.add(reference);
+      scope.set(vault, seen);
+    },
+    canRestore(vault, reference) {
+      const scope = workerReferences.getStore();
+      return !scope || scope.get(vault)?.has(reference) === true;
+    },
+  });
+}
 
 /** Workers inherit their parent turn's setting, including after a live toggle. */
 export function withPrivacyShieldTurn<T>(sessionId: string, run: () => T): T {
   const owner = aliases.get(sessionId);
   const parent = turnShield.getStore();
-  if (owner !== undefined && parent?.id === owner) return turnShield.run(parent, run);
-  return turnShield.run({ id: owner ?? sessionId, enabled: shieldEnabled, shared: owner !== undefined }, run);
+  const turn = owner !== undefined && parent?.id === owner
+    ? parent
+    : { id: owner ?? sessionId, enabled: shieldEnabled, shared: owner !== undefined };
+  return workerReferences.run(owner === undefined ? null : new Map(), () => turnShield.run(turn, run));
 }
 
 export function isPrivacyShieldEnabledForRequest(sessionId?: string): boolean {
@@ -76,9 +95,9 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
   // Auxiliary calls have no session lifetime and must not share substitutions.
-  if (!sessionId || closedSessions.has(sessionId)) return new PrivacyVault(() => knownSecrets());
+  if (!sessionId || closedSessions.has(sessionId)) return newVault();
   const key = vaultKey(sessionId);
-  const vault = vaults.get(key) ?? new PrivacyVault(() => knownSecrets());
+  const vault = vaults.get(key) ?? newVault();
   vaults.delete(key);
   vaults.set(key, vault);
   trimVaults();
@@ -93,7 +112,7 @@ export function rebuildPrivacyVault(
 ): PrivacyVault {
   const turn = turnShield.getStore();
   if (turn?.shared && sessionId && turn.id === vaultKey(sessionId)) throw new PrivacyArchiveLimitError();
-  const fresh = new PrivacyVault(() => knownSecrets());
+  const fresh = newVault();
   mask(fresh);
   if (sessionId) {
     const key = vaultKey(sessionId);
@@ -114,6 +133,11 @@ export function linkPrivacyVault(sessionId: string, parentSessionId: string): vo
   aliases.set(sessionId, parent);
   const turn = turnShield.getStore();
   if (turn?.id === parent) turn.shared = true;
+}
+
+/** A worker can run another turn under the same ID. */
+export function unlinkPrivacyVault(sessionId: string): void {
+  aliases.delete(sessionId);
 }
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
