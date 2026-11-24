@@ -87,7 +87,7 @@ export async function sweepOrphanIncognitoSessions(
   logger: Pick<StructuredLogger, "info" | "warn">,
   tasksDbFile?: string | null,
   taskOptions: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
-  removeArtifacts?: (sessionId: string) => void | Promise<void>,
+  removeArtifacts?: (sessionId: string, traceRemoved: boolean) => void | Promise<void>,
 ): Promise<{ deleted: string[]; retained: string[] }> {
   const retained: string[] = [];
   const tasks = createIncognitoTaskSweeper(tasksDbFile, taskOptions);
@@ -106,9 +106,9 @@ export async function sweepOrphanIncognitoSessions(
         });
         throw err;
       }
-      removeIncognitoTrace(tracesDir, id);
+      const traceRemoved = !tracesDir || removeIncognitoTrace(tracesDir, id);
       try {
-        await removeArtifacts?.(id);
+        await removeArtifacts?.(id, traceRemoved);
       } catch (err) {
         logger.warn("could not remove artifacts of an incognito chat", {
           sessionId: id,

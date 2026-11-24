@@ -209,16 +209,17 @@ export class FileCheckpointStore {
     });
   }
 
-  async removeIncognitoSession(sessionId: string): Promise<void> {
+  async removeIncognitoSession(sessionId: string, complete?: () => void): Promise<void> {
     const pending = join(this.root, ".pending-incognito-removals");
     await mkdir(pending, { recursive: true, mode: 0o700 });
     const marker = join(pending, sha256Of(Buffer.from(sessionId)) + ".json");
     await writeJsonAtomically(marker, sessionId);
     await this.removeSession(sessionId);
+    complete?.();
     await rm(marker, { force: true });
   }
 
-  async retryIncognitoRemovals(onError: (error: unknown) => void): Promise<void> {
+  async retryIncognitoRemovals(onError: (error: unknown) => void, complete?: (id: string) => void): Promise<void> {
     const pending = join(this.root, ".pending-incognito-removals");
     const entries = await readdir(pending).catch(error => {
       if (error.code !== "ENOENT") onError(error);
@@ -231,6 +232,7 @@ export class FileCheckpointStore {
         const id: unknown = JSON.parse(await readFile(marker, "utf8"));
         if (typeof id !== "string" || name !== sha256Of(Buffer.from(id)) + ".json") continue;
         await this.removeSession(id);
+        complete?.(id);
         await rm(marker, { force: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") onError(error);

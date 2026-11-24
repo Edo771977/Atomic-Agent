@@ -11,7 +11,7 @@ import { ToolOutputSpill } from "../../tools/tool-output-spill.js";
 import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-checkpoint-store.js";
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
-import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
+import { removeIncognitoTrace, sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
 import { forgetPrivacyVault } from "../../privacy/index.js";
 
@@ -70,17 +70,26 @@ export async function prepareRuntimeSessionStore(
   // At boot, remove abandoned incognito chats and the state they own.
   const fusionRuns = new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) });
   await fileCheckpoints.retryIncognitoRemovals(error => {
-    logger.warn("could not retry incognito file checkpoint removal", {
+    logger.warn("could not retry incognito artifact removal", {
       error: error instanceof Error ? error.message : String(error),
     });
+  }, id => {
+    if (config.paths.tracesDir && !removeIncognitoTrace(config.paths.tracesDir, id)) {
+      throw new Error("incognito trace removal failed");
+    }
   });
   const { retained } = await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },
-    async (id) => {
-      fusionRuns.removeForSession(id);
-      outputSpill.removeSession(id);
-      await fileCheckpoints.removeIncognitoSession(id);
+    async (id, traceRemoved) => {
+      try {
+        fusionRuns.removeForSession(id);
+        outputSpill.removeSession(id);
+      } finally {
+        await fileCheckpoints.removeIncognitoSession(id, () => {
+          if (!traceRemoved) throw new Error("incognito trace removal failed");
+        });
+      }
     },
   );
   onRetainedIncognito?.(retained);

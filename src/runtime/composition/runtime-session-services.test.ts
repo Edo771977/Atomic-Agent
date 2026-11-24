@@ -147,6 +147,26 @@ describe("runtime session phases", () => {
     expect(existsSync(checkpoints.sessionDir("s-dead"))).toBe(false);
   });
 
+  it("retries a failed private trace removal after the chat is gone", async () => {
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(recordTurn(sessions.createEmptySessionState({
+      id: "s-dead", workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }), userTurn("private")));
+    seeded.close();
+    const trace = traceFilePath(config.paths.tracesDir, "s-dead");
+    // A directory makes the non-recursive removal fail.
+    await mkdir(trace, { recursive: true });
+    const first = await open();
+    expect(first.load("s-dead")).toBeNull();
+    expect(existsSync(trace)).toBe(true);
+
+    await rm(trace, { recursive: true });
+    await writeFile(trace, "private trace");
+    const second = await open();
+    expect(second.load("s-dead")).toBeNull();
+    expect(existsSync(trace)).toBe(false);
+  });
+
   it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {
     const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
     seeded.save(sessions.createEmptySessionState({
