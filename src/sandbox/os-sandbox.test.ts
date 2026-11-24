@@ -101,7 +101,12 @@ it.skipIf(process.platform !== "linux" || process.env.ATOMIC_AGENT_REQUIRE_BWRAP
       [0, 1, 2].map(phase => median(warm.map(sample => sample[phase]!))),
     )}`);
     const preparation = warm.map(([policyMs, wrapMs]) => policyMs! + wrapMs!);
-    expect(median(preparation), `warm preparation in ms: ${format(preparation)}`).toBeLessThan(240);
+    const warmPreparationMs = median(preparation);
+    // Shared runners are normally around 100–250 ms and can drift above that.
+    // Leave scheduling headroom while catching the historical 10–19 s stalls.
+    const launchBudgetMs = 1_000;
+    console.info(`Safe Mode warm preparation median: ${warmPreparationMs.toFixed(1)} ms`);
+    expect(warmPreparationMs, `warm preparation in ms: ${format(preparation)}`).toBeLessThan(launchBudgetMs);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
