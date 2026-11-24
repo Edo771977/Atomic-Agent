@@ -183,7 +183,7 @@ export function lexShellLine(
       continue;
     }
     if (escape !== null && c === escape) {
-      const next = line[i + 1];
+      const next = line[i + 1] ?? (dialect === "posix" ? c : undefined);
       if (next === undefined) return incomplete();
       // A line continuation joins the two lines.
       if (next !== "\n") {
