@@ -1,4 +1,5 @@
 import {
+  canGrantCategory,
   canGrantShape,
   type ApprovalGate,
   type ApprovalRequest,
@@ -43,6 +44,11 @@ type ParsedDecision = {
   grant?: "shape" | "always";
 };
 
+function canGrantUrlInChat(request: ApprovalRequest): boolean {
+  return request.category === "http_write" && canGrantCategory(request) &&
+    /^url-(?:visit|data):https?:\/\/.+/.test(request.grantKey ?? "");
+}
+
 /**
  * What `GET /api/events` sends for a request: the request itself plus
  * whether "Allow always" may be offered for it (`canAlways`) and the text
@@ -52,7 +58,7 @@ type ParsedDecision = {
 export function approvalEventPayload(
   request: ApprovalRequest,
   gate: Pick<ApprovalGate, "canGrantAlways">,
-): ApprovalRequest & { canAlways: boolean; alwaysLabel?: string } {
+): ApprovalRequest & { canAlways: boolean; alwaysLabel?: string; canGrantUrlInChat?: true } {
   const canAlways = gate.canGrantAlways(request);
   return {
     ...request,
@@ -62,6 +68,7 @@ export function approvalEventPayload(
       ...((request.steeredByTokens ?? []).map(name => `steer dal token ${name}`)),
     ].join(" · "),
     canAlways,
+    ...(canGrantUrlInChat(request) ? { canGrantUrlInChat: true } : {}),
     ...(canAlways ? { alwaysLabel: describeAlwaysRule(request) } : {}),
   };
 }
@@ -70,14 +77,10 @@ export function approvalEventPayload(
  * `POST /api/approval/resolve` — resolve a pending approval emitted
  * by a dangerous tool. Accepts the hermes-style `allow-once` / `deny`
  * vocabulary plus the shorter `approve` / `reject` aliases, and
- * `allow-in-chat`: approve, and stop asking about this command for the
- * rest of the chat. That is the gate's shape grant (the TUI's `[a]`),
- * scoped to the request's own session and its `commandShape` (the
- * binary, `git`), never to the whole category. A request without a
- * shape (not a shell call, or an opaque `bash -c …` the shell tool
- * withholds it for) cannot take it: the route answers 400 and the
- * request stays pending, so a click never turns into a wider or a
- * narrower yes than the one the person chose.
+ * `allow-in-chat` grants a named shell command shape or the pending
+ * URL guard request's own key, scoped to its session. A first visit
+ * and a data-bearing URL use separate keys even on the same origin.
+ * For other requests the route returns 400 and leaves them pending.
  *
  * `allow-always` approves and saves an allow rule in the approval rules
  * file (ATO-1142), built by the gate from its own pending request and
@@ -151,14 +154,16 @@ export function createResolveApprovalHandler(): HttpHandler {
         return;
       }
     }
+    let urlGrant = false;
     if (inChat) {
       const request = ctx.runtime.approvals.pendingRequest(approvalId);
-      if (request !== null && !canGrantShape(request)) {
+      urlGrant = request !== null && canGrantUrlInChat(request);
+      if (request !== null && !urlGrant && !canGrantShape(request)) {
         sendError(
           res,
           400,
           openaiError(
-            "allow-in-chat needs a shell command the agent can name; answer allow-once or deny",
+            "allow-in-chat needs a named shell command or a scoped URL request; answer allow-once or deny",
           ),
         );
         return;
@@ -167,7 +172,7 @@ export function createResolveApprovalHandler(): HttpHandler {
     const resolved = ctx.runtime.approvals.resolve({
       approvalId,
       approved,
-      ...(grant !== undefined ? { grant } : {}),
+      ...(grant !== undefined ? { grant: urlGrant ? "category" : grant } : {}),
       ...(body.reason ? { reason: body.reason } : {}),
     });
     if (!resolved) {

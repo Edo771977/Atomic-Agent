@@ -35,7 +35,7 @@ function context() {
   const c = vm.createContext({});
   vm.runInContext(constLine("esc").replace(/^const /, "var "), c);
   vm.runInContext(constBlock("APPR_FALLBACK").replace(/^const /, "var "), c);
-  for (const name of ["plural", "clipWords", "moreLines", "moreLinesNote", "apprCode", "apprAsk"]) {
+  for (const name of ["plural", "clipWords", "moreLines", "moreLinesNote", "apprCode", "apprUrlScope", "apprAsk"]) {
     vm.runInContext(fn(name), c);
   }
   return c;

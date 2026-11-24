@@ -148,6 +148,41 @@ describe("POST /api/approval/resolve", () => {
     await Promise.all([otherBinary, otherChat]);
   });
 
+  it.each(["visit", "data"])("grants URL %s only for that kind, origin and chat", async (kind) => {
+    const gate = harness.runtime.approvals;
+    const origin = "https://docs.example";
+    const ask = {
+      sessionId: "url-chat",
+      tool: "os.http.request",
+      category: "http_write" as const,
+      reason: "URL guard",
+      grantKey: `url-${kind}:${origin}`,
+    };
+    const pending = gate.request({ ...ask, approvalId: "url" });
+    expect(approvalEventPayload(gate.pendingRequest("url")!, gate)).toMatchObject({
+      grantKey: ask.grantKey,
+      canGrantUrlInChat: true,
+    });
+    const response = await resolveVia(harness, "url", "allow-in-chat");
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ resolved: true, grant: "chat" });
+    expect(await pending).toMatchObject({ approved: true });
+    expect(await gate.request(ask)).toMatchObject({ approved: true });
+
+    for (const [id, override] of Object.entries({
+      otherKind: { grantKey: `url-${kind === "visit" ? "data" : "visit"}:${origin}` },
+      otherOrigin: { grantKey: `url-${kind}:https://other.example` },
+      otherChat: { sessionId: "another-chat" },
+      ordinaryWrite: { grantKey: origin },
+    })) {
+      const stillPending = gate.request({ ...ask, ...override, approvalId: id });
+      expect(gate.pendingRequest(id)).not.toBeNull();
+      if (id === "ordinaryWrite") expect((await resolveVia(harness, id, "allow-in-chat")).status).toBe(400);
+      gate.reject(id, "test");
+      expect(await stillPending).toMatchObject({ approved: false });
+    }
+  });
+
   it("refuses allow-in-chat for a request without a command shape and keeps it pending", async () => {
     // A file write, or an opaque `bash -c` the shell tool names no shape
     // for: no narrower grant exists, and the whole category is not what

@@ -34,6 +34,7 @@ function context({ decisions, replies = [] } = {}) {
   const sent = [];
   const notes = [];
   const c = vm.createContext({
+    apprCode: (value) => '<code>' + value + '</code>',
     LIVE_CAPS: decisions === undefined ? null : { agent: { approvalDecisions: decisions } },
     BR: {
       approve: (id, decision) => {
@@ -45,7 +46,8 @@ function context({ decisions, replies = [] } = {}) {
     placeAfterRow: (req, row) => notes.push(row.text),
   });
   vm.runInContext(constLine("esc").replace(/^const /, "var "), c);
-  for (const name of ["apprChatOk", "approvalNotWaiting", "apprChatFallback", "apprChatGrantedNote"]) vm.runInContext(fn(name), c);
+  for (const name of ["apprChatOk", "apprUrlScope", "apprChatTitle", "apprAsk", "apprWhy", "sameApprovalCall",
+    "approvalNotWaiting", "apprChatFallback", "apprChatGrantedNote"]) vm.runInContext(fn(name), c);
   return { c, sent, notes };
 }
 
@@ -109,3 +111,27 @@ test("main forwards allow-in-chat, and analytics counts it as its own choice", (
   assert.match(mainTs, /APPROVAL_DECISIONS\.find\(\(d\) => d === decision\)/);
   assert.match(catalog, /choice: en\(\["allow_once", "allow_in_chat",/);
 });
+
+const scope = 'https://docs.example';
+const visitReason = 'open ' + scope + '/guide: first request to docs.example in this chat (http.urlDataGuard is "strict")';
+const dataReason = 'open ' + scope + '/?d=<redacted>: one value in the address is 250 characters long, which may send data from this chat to docs.example';
+
+for (const [name, kind, reason] of [
+  ['first visit in strict mode', 'visit', visitReason],
+  ['data-bearing URL', 'data', dataReason],
+  ['data-bearing redirect', 'data', dataReason.replace(/^open /, 'follow a redirect to ')],
+]) {
+  test(name + ' shows the full reason and names the chat grant’s scope', () => {
+    const { c } = context({ decisions: ['allow-in-chat'] });
+    const card = { cat: 'http_write', grantKey: 'url-' + kind + ':' + scope, reason, canGrantUrlInChat: true };
+    const action = kind === 'visit' ? 'visit' : 'open a URL that may send chat data to';
+    const label = (kind === 'visit' ? 'site visits' : 'URLs that may send chat data') + ' at ' + scope;
+    assert.equal(c.apprAsk(card), 'Allow Atomic Agent to ' + action + ' <code>' + scope + '</code>?');
+    assert.equal(c.apprWhy(card), c.esc(reason));
+    assert.equal(c.apprChatOk(card), true);
+    assert.equal(c.apprChatOk({ ...card, canGrantUrlInChat: undefined }), false);
+    assert.equal(c.apprChatTitle(card), 'Allow ' + label + ' for the rest of this chat');
+    assert.equal(c.apprChatGrantedNote(card).text, 'Allowed ' + label + ' for the rest of this chat.');
+    assert.equal(c.sameApprovalCall(card, { ...card, grantKey: 'url-other:' + scope }), false);
+  });
+}

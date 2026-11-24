@@ -29,7 +29,7 @@ function constLine(name) {
 function context() {
   const c = vm.createContext({});
   vm.runInContext(constLine("esc").replace(/^const /, "var "), c);
-  for (const name of ["plural", "clipWords", "moreLines", "moreLinesNote", "apprCode", "apprAsk", "apprMultiline", "toolArgsObj", "toolLine"]) {
+  for (const name of ["plural", "clipWords", "moreLines", "moreLinesNote", "apprCode", "apprUrlScope", "apprAsk", "apprMultiline", "toolArgsObj", "toolLine"]) {
     vm.runInContext(fn(name), c);
   }
   return c;
