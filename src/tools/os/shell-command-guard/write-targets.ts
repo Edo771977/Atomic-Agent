@@ -245,7 +245,7 @@ function lineTargets(
     if (words.length === 0) return true;
     const input = hasInputRedirect ? stdin : piped;
     const found = commandTargets(words, cwd, windows, scope, input, hasInputRedirect ? [] : pipeOrigins);
-    piped = scope && toPipe ? literalShellInput(words) : undefined;
+    piped = scope && toPipe ? literalShellInput(words, true) : undefined;
     pipeOrigins = scope && toPipe ? pathProducer(words, cwd, scope) : [];
     stdin = undefined;
     hasInputRedirect = false;
@@ -287,17 +287,22 @@ function lineTargets(
   return targets;
 }
 
-function literalShellInput(words: readonly ShellWord[]): ShellWord | undefined {
-  if (words.some(({ dynamic }) => dynamic)) return undefined;
+function literalShellInput(words: readonly ShellWord[], allowDynamic = false): ShellWord | undefined {
+  const dynamic = words.some((item) => item.dynamic);
+  if (words[0]?.dynamic || words[1]?.dynamic || (dynamic && !allowDynamic)) return undefined;
   const [name, format, ...args] = words.map(({ text }) => text);
-  if (name === "echo" && format && !format.startsWith("-")) return word([format, ...args].join(" "));
-  if (name === "printf" && (format === "%s" || format === "%s\\n")) {
-    return word(args.join(format === "%s" ? "" : "\n"));
-  }
-  if (name === "printf" && format && !format.startsWith("-") && args.length === 0 && !/[%\\]/.test(format)) {
-    return word(format);
-  }
-  return undefined;
+  if (name === "echo" && format && !format.startsWith("-")) return { text: [format, ...args].join(" "), dynamic };
+  if (name !== "printf" || !format || format.startsWith("-")) return undefined;
+  const placeholders = format.match(/%s/g)?.length ?? 0;
+  if (!placeholders) return args.length === 0 && !/[%\\]/.test(format) ? word(format) : undefined;
+  if (!/^(?:%s|\\[nt]|[ \t])+$/.test(format)) return undefined;
+  const decoded = format.replaceAll("\\n", "\n").replaceAll("\\t", "\t");
+  let index = 0;
+  let text = "";
+  do {
+    text += decoded.replace(/%s/g, () => args[index++] ?? "");
+  } while (index < args.length);
+  return { text, dynamic };
 }
 
 function launcherCommand(
@@ -486,7 +491,7 @@ function commandTargets(
   const nested = nestedLine(name, args);
   if (nested !== undefined) {
     if (nested === null) {
-      if (!scope || !stdin || stdin.dynamic || !NESTED_SHELLS.has(name) || !usesShellStdin(args)) return none;
+      if (!scope || !stdin || !NESTED_SHELLS.has(name) || !usesShellStdin(args)) return none;
       return { targets: lineTargets(stdin.text, cwd, "posix", windows, scope) ?? [], dir };
     }
     // Its own `cd` stays inside it; a cmd.exe or PowerShell line speaks
