@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { expandHome, resolveUserPath } from "../expand-home.js";
-import { liftSubstitutions } from "./command-substitution.js";
+import { liftSubstitutions, PRINTED_PLACEHOLDER } from "./command-substitution.js";
 import { basenameCommand } from "./normalise.js";
 import {
   lexShellLine,
@@ -85,7 +85,26 @@ const PREFIX_COMMANDS: ReadonlySet<string> = new Set([
   "nohup",
   "nice",
   "time",
+  "timeout",
+  "stdbuf",
+  "xargs",
+  "busybox",
+  "setsid",
 ]);
+
+/** Short options with operands and their long spellings for command launchers. */
+const LAUNCHER_VALUES: Readonly<Record<string, { short: string; long: readonly string[] }>> = {
+  env: { short: "uCSa", long: ["--unset", "--chdir", "--split-string", "--argv0"] },
+  sudo: { short: "ugprhCDRT", long: ["--user", "--group", "--prompt", "--role", "--host", "--chdir", "--chroot", "--command-timeout", "--close-from", "--type"] },
+  doas: { short: "uC", long: [] },
+  nice: { short: "n", long: ["--adjustment"] },
+  timeout: { short: "ks", long: ["--kill-after", "--signal"] },
+  stdbuf: { short: "ioe", long: ["--input", "--output", "--error"] },
+  xargs: {
+    short: "adEILnPs",
+    long: ["--arg-file", "--delimiter", "--eof", "--replace", "--max-lines", "--max-args", "--max-procs", "--max-chars"],
+  },
+};
 
 /** Reserved words that open a command rather than name one (`then rm f`). */
 const KEYWORDS: ReadonlySet<string> = new Set([
@@ -124,13 +143,15 @@ const CHANGES_LAST_OPERAND: ReadonlySet<string> = new Set([
 ]);
 
 /** Copy and move commands where `-t dir` names the destination up front. */
-const TARGET_DIRECTORY_FLAG: ReadonlySet<string> = new Set(["cp", "mv", "ln"]);
+const TARGET_DIRECTORY_FLAG: ReadonlySet<string> = new Set(["cp", "mv", "ln", "install"]);
+const PLACE_UNDER_DESTINATION: ReadonlySet<string> = new Set([...TARGET_DIRECTORY_FLAG, "rsync", "ditto"]);
 
 /**
  * Flags whose value is the next word, per command, so the value is not
  * read as a file (`touch -r ref f` changes `f`, not `ref`).
  */
 const VALUE_FLAGS: Readonly<Record<string, (flag: string) => boolean>> = {
+  install: (f) => ["-m", "-o", "-g", "-S", "--mode", "--owner", "--group", "--suffix", "--strip-program"].includes(f),
   touch: (f) => ["-t", "-d", "-r", "--date", "--reference"].includes(f),
   truncate: (f) => ["-s", "-r", "--size", "--reference"].includes(f),
   shred: (f) => ["-n", "-s", "--iterations", "--size"].includes(f),
@@ -187,18 +208,36 @@ function lineTargets(
   windows: boolean,
   scope?: WriteTargetScope,
 ): string[] | null {
-  let tokens = lexShellLine(line, dialect, scope?.home);
+  let tokens = lexShellLine(line, dialect, scope?.home, scope !== undefined);
   const substitutions = scope && dialect === "posix" && tokens === null ? liftSubstitutions(line) : null;
-  if (substitutions?.inner.length) tokens = lexShellLine(substitutions.outer, dialect, scope?.home);
+  if (substitutions?.inner.length) tokens = lexShellLine(substitutions.outer, dialect, scope?.home, true);
   if (tokens === null) return null;
+  if (substitutions?.inner.length === 1) {
+    const body = lexShellLine(substitutions.inner[0]!, dialect, scope?.home);
+    const literal = body?.every((token) => token.kind === "word") ? literalShellInput(body) : undefined;
+    if (literal) {
+      for (const token of tokens) {
+        if (token.kind !== "word" || !token.dynamic || !token.text.includes(PRINTED_PLACEHOLDER)) continue;
+        token.text = token.text.replace(PRINTED_PLACEHOLDER, () => literal.text.replace(/\n+$/, ""));
+        token.dynamic = /[$*?\[{}]/.test(token.text);
+      }
+    }
+  }
   const targets: string[] = [];
   // A `( … )` subshell's `cd` ends at its `)`.
   const outer: (string | undefined)[] = [];
   let cwd = dir;
   let words: ShellWord[] = [];
-  const flush = (): boolean => {
+  let stdin: ShellWord | undefined;
+  let piped: ShellWord | undefined;
+  let hasInputRedirect = false;
+  const flush = (toPipe = false): boolean => {
     if (words.length === 0) return true;
-    const found = commandTargets(words, cwd, windows, scope);
+    const input = hasInputRedirect ? stdin : piped;
+    const found = commandTargets(words, cwd, windows, scope, input);
+    piped = scope && toPipe ? literalShellInput(words) : undefined;
+    stdin = undefined;
+    hasInputRedirect = false;
     words = [];
     if (found === null) return false;
     targets.push(...found.targets);
@@ -215,6 +254,10 @@ function lineTargets(
       const next = tokens[k + 1];
       if (next?.kind !== "word") return null;
       k += 1;
+      if (token.writes === "none" || token.writes === "here-string") {
+        hasInputRedirect = true;
+        stdin = token.writes === "here-string" ? next : undefined;
+      }
       const isFile =
         token.writes === "file" ||
         (token.writes === "dup" && !/^(?:\d+|-)$/.test(next.text));
@@ -222,7 +265,7 @@ function lineTargets(
       if (target !== undefined) targets.push(target);
       continue;
     }
-    if (!flush()) return null;
+    if (!flush(token.kind === "separator" && token.pipe)) return null;
     if (token.kind === "open") outer.push(cwd);
     else if (token.kind === "close" && outer.length > 0) cwd = outer.pop();
   }
@@ -233,6 +276,98 @@ function lineTargets(
   return targets;
 }
 
+function literalShellInput(words: readonly ShellWord[]): ShellWord | undefined {
+  if (words.some(({ dynamic }) => dynamic)) return undefined;
+  const [name, format, ...args] = words.map(({ text }) => text);
+  if (name === "echo" && format && !format.startsWith("-")) return word([format, ...args].join(" "));
+  if (name === "printf" && (format === "%s" || format === "%s\\n")) {
+    return word(args.join(format === "%s" ? "" : "\n"));
+  }
+  if (name === "printf" && format && !format.startsWith("-") && args.length === 0 && !/[%\\]/.test(format)) {
+    return word(format);
+  }
+  return undefined;
+}
+
+function launcherCommand(
+  launcher: string,
+  input: readonly ShellWord[],
+  dir: string | undefined,
+  home?: string,
+  scope?: WriteTargetScope,
+): { words: readonly ShellWord[]; cwd: string | undefined } {
+  let args = input;
+  let cwd = dir;
+  let index = 0;
+  let splits = 0;
+  const flags = LAUNCHER_VALUES[launcher];
+  while (index < args.length) {
+    const arg = args[index]!;
+    if (arg.text === "--") { index += 1; break; }
+    if (launcher === "env" && arg.text === "-") { index += 1; continue; }
+    if (!arg.text.startsWith("-") || arg.text === "-") break;
+    const shortIndex = arg.text.startsWith("--") || !flags ? -1 :
+      [...arg.text].findIndex((letter, offset) => offset > 0 && flags.short.includes(letter));
+    const short = shortIndex === -1 ? "" : arg.text[shortIndex]!;
+    const adjusted = short ? { ...arg, text: "-" + arg.text.slice(shortIndex) } : arg;
+    const option = flags && valueOption(adjusted, args[index + 1], short ? ["-" + short] : [], flags.long);
+    index += option?.consumesNext ? 2 : 1;
+    if (!option) continue;
+    const long = arg.text.split("=", 1)[0];
+    if (launcher === "env" && (short === "C" || long === "--chdir")) {
+      cwd = resolveDirectoryWord(option.value, cwd, scope);
+    }
+    if (launcher === "env" && (short === "S" || long === "--split-string")) {
+      if (option.value.dynamic || splits++ >= 8) return { words: [], cwd };
+      const split = lexShellLine(option.value.text, "posix", home);
+      if (!split?.every((token) => token.kind === "word")) return { words: [], cwd };
+      args = [...split, ...args.slice(index)];
+      index = 0;
+    }
+  }
+  if (launcher === "timeout") index += 1;
+  return { words: args.slice(index), cwd };
+}
+
+function xargsCommand(command: readonly ShellWord[], options: readonly ShellWord[], input: string): readonly ShellWord[] {
+  const replace = directoryOptions(options.slice(0, options.length - command.length), ["-I"], ["--replace"]).at(-1);
+  if (replace?.text && !replace.dynamic) {
+    const line = input.split("\n", 1)[0];
+    return line ? command.map((arg) => ({ ...arg, text: arg.text.replaceAll(replace.text, line) })) : command;
+  }
+  const words = lexShellLine(input.replaceAll("\n", " "), "posix");
+  return words?.every((token) => token.kind === "word") ? [...command, ...words] : command;
+}
+
+function findExecTargets(
+  args: readonly ShellWord[], dir: string | undefined, windows: boolean, scope: WriteTargetScope,
+): string[] {
+  const firstExpression = args.findIndex(({ text }) => /^[-!(]/.test(text));
+  const roots = args.slice(0, firstExpression === -1 ? args.length : firstExpression);
+  if (!roots.length) roots.push(word("."));
+  const result: string[] = [];
+  for (let i = Math.max(0, firstExpression); i < args.length; i += 1) {
+    const flag = args[i]!.text;
+    if (flag === "-delete") {
+      for (const root of roots) {
+        const path = resolveWriteWord(root, dir, scope);
+        if (path) scope.recursive.push(path);
+      }
+    }
+    if (flag !== "-exec" && flag !== "-execdir") continue;
+    const command: ShellWord[] = [];
+    while (++i < args.length && args[i]!.text !== ";" && args[i]!.text !== "+") command.push(args[i]!);
+    for (const root of roots) {
+      const path = resolveWord(root, dir, scope.home);
+      const invocation = command.map((arg) => arg.text === "{}" && path ? word(path) : arg);
+      const found = commandTargets(invocation, flag === "-execdir" ? path : dir, windows, scope);
+      if (found) result.push(...found.targets);
+      if (path && found?.targets.includes(path)) scope.recursive.push(path);
+    }
+  }
+  return result;
+}
+
 /**
  * What one simple command changes, past assignments, prefix commands
  * and reserved words, and the directory the line goes on in: a `cd`
@@ -240,22 +375,30 @@ function lineTargets(
  * its own (its `cd` stays inside it); `null` when that line cannot be.
  */
 function commandTargets(
-  words: readonly ShellWord[],
+  inputWords: readonly ShellWord[],
   dir: string | undefined,
   windows: boolean,
   scope?: WriteTargetScope,
+  stdin?: ShellWord,
 ): { targets: string[]; dir: string | undefined } | null {
+  let words = inputWords;
+  let cwd = dir;
   let i = 0;
   while (i < words.length) {
     const word = words[i]!.text;
     if (KEYWORDS.has(word) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
-      if (scope) rememberAssignment(words[i]!, dir, scope);
+      if (scope) rememberAssignment(words[i]!, cwd, scope);
       i += 1;
       continue;
     }
-    if (!PREFIX_COMMANDS.has(commandName(word))) break;
-    i += 1;
-    while (i < words.length && words[i]!.text.startsWith("-")) i += 1;
+    const launcher = commandName(word);
+    if (!PREFIX_COMMANDS.has(launcher)) break;
+    const inner = launcherCommand(launcher, words.slice(i + 1), cwd, scope?.home, scope);
+    words = launcher === "xargs" && scope && stdin && !stdin.dynamic
+      ? xargsCommand(inner.words, words.slice(i + 1), stdin.text)
+      : inner.words;
+    cwd = inner.cwd;
+    i = 0;
   }
   const head = words[i];
   const none = { targets: [], dir };
@@ -263,23 +406,31 @@ function commandTargets(
   if (head.dynamic) return none;
   const name = commandName(head.text);
   const args = words.slice(i + 1);
+  if (name === "export" && scope) {
+    for (const assignment of args) rememberAssignment(assignment, cwd, scope);
+    return none;
+  }
 
   if (name === "cd" || name === "pushd") {
     const operands = windows ? cmdOperands(args) : plainOperands(args);
     const to = operands[0];
     if (to === undefined) return { targets: [], dir: scope?.home ?? homedir() };
-    return { targets: [], dir: to.text === "-" ? undefined : resolveWord(to, dir, scope?.home) };
+    return { targets: [], dir: to.text === "-" ? undefined : resolveDirectoryWord(to, cwd, scope) };
   }
   if (name === "popd") return { targets: [], dir: undefined };
 
+  if (name === "find" && scope) return { targets: findExecTargets(args, cwd, windows, scope), dir };
   const nested = nestedLine(name, args);
   if (nested !== undefined) {
-    if (nested === null) return none;
+    if (nested === null) {
+      if (!scope || !stdin || stdin.dynamic || !NESTED_SHELLS.has(name) || !usesShellStdin(args)) return none;
+      return { targets: lineTargets(stdin.text, cwd, "posix", windows, scope) ?? [], dir };
+    }
     // Its own `cd` stays inside it; a cmd.exe or PowerShell line speaks
     // Windows verbs wherever it runs.
     const targets = lineTargets(
       nested.line,
-      dir,
+      cwd,
       nested.dialect,
       windows || nested.dialect !== "posix",
       scope,
@@ -287,30 +438,46 @@ function commandTargets(
     return targets === null ? null : { targets, dir };
   }
 
-  const structured = structuredWrites(name, args, dir, scope?.home);
-  const targetDir = structured?.cwd ?? dir;
+  if (name === "install" && !scope) return none;
+  const structured = structuredWrites(name, args, cwd, scope);
+  const targetDir = structured && "cwd" in structured ? structured.cwd : cwd;
   const targets = (structured?.words ?? changedWords(name, args, windows)).flatMap((word) =>
     resolveWriteWord(word, targetDir, scope) ?? [],
   );
   if (scope && structured?.recursive) scope.recursive.push(...targets);
-  if (scope && TARGET_DIRECTORY_FLAG.has(name)) {
+  if (scope && PLACE_UNDER_DESTINATION.has(name) &&
+      !(name === "rsync" && args.some(({ text }) => text === "--dry-run" || /^-[^-]*n/.test(text)))) {
     const copy = copyOperands(name, args);
-    const dest = copy.destination && resolveWriteWord(copy.destination, dir, scope);
+    const dest = copy.destination && resolveWriteWord(copy.destination, cwd, scope);
     if (dest && !args.some(({ text }) => text === "-T" || text === "--no-target-directory")) {
       for (const source of copy.sources) {
-        if (!source.dynamic) scope.placed.push(resolve(dest, basename(source.text)));
+        const contentsOnly = name === "rsync" && source.text.endsWith("/");
+        const input = resolveDirectoryWord(source, cwd, scope);
+        if (input && !contentsOnly) scope.placed.push(resolve(dest, basename(input)));
       }
     }
   }
   const removed = scope?.removals ? removalWords(name, args) : [];
   if (scope?.removals && removed.length > 0 &&
-    !scope.skipRemovals?.(name, args.map(({ text }) => text), dir ?? scope.home ?? homedir())) {
+    !scope.skipRemovals?.(name, args.map(({ text }) => text), cwd ?? scope.home ?? homedir())) {
     for (const operand of removed) {
-      const target = resolveWord(operand, dir, scope.home);
+      const target = resolveWord(operand, cwd, scope.home);
       if (target !== undefined) scope.removals.push(target);
     }
   }
   return { targets, dir };
+}
+
+function usesShellStdin(args: readonly ShellWord[]): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const { text, dynamic } = args[index]!;
+    if (dynamic || text === "-") return false;
+    if (/^-[a-zA-Z]*s[a-zA-Z]*$/.test(text)) return true;
+    if (text === "--") return index + 1 === args.length;
+    if (!text.startsWith("-") || /^-[a-zA-Z]*c[a-zA-Z]*$/.test(text)) return false;
+    if (text === "-o" || text === "-O") index += 1;
+  }
+  return true;
 }
 
 /**
@@ -360,6 +527,10 @@ function changedWords(
   windows: boolean,
 ): ShellWord[] {
   const takesValue = VALUE_FLAGS[name];
+  if (name === "rsync" && args.some(({ text }) => text === "--dry-run" || /^-[^-]*n/.test(text))) return [];
+  if (name === "install" && args.some(({ text }) => text === "--directory" || /^-[dDv]*d[dDv]*$/.test(text))) {
+    return plainOperands(args, takesValue);
+  }
   if (TARGET_DIRECTORY_FLAG.has(name)) {
     const { sources, destination } = copyOperands(name, args);
     return [...(name === "mv" ? sources : []), ...(destination ? [destination] : [])];
@@ -431,9 +602,11 @@ function copyOperands(name: string, args: readonly ShellWord[]) {
   for (let i = 0; i < args.length; i += 1) {
     const arg = args[i]!;
     if (arg.text === "--") { rest.push(...args.slice(i)); break; }
-    const bundle = /^-[aAbdfHilnPpRrsuvx]+t(.*)$/.exec(arg.text);
+    const bundle = /^-[aAbdDfHilnPpRrsuvx]+t(.*)$/.exec(arg.text);
     const targetArg = bundle ? { ...arg, text: "-t" + bundle[1] } : arg;
-    const option = valueOption(targetArg, args[i + 1], ["-t"], ["--target-directory"]);
+    const option = TARGET_DIRECTORY_FLAG.has(name)
+      ? valueOption(targetArg, args[i + 1], ["-t"], ["--target-directory"])
+      : undefined;
     if (!option) { rest.push(arg); continue; }
     destination = option.value;
     if (option.consumesNext) i += 1;
@@ -451,27 +624,67 @@ function remoteLeaf(input: ShellWord, suffix = ""): ShellWord {
     dynamic: input.dynamic || name.length === 0 || name === "." || name === ".." };
 }
 
-function structuredWrites(name: string, args: readonly ShellWord[], dir: string | undefined, home?: string):
+function directoryOptions(
+  args: readonly ShellWord[], short: readonly string[], long: readonly string[],
+  normalise: (arg: ShellWord) => ShellWord = (arg) => arg,
+): ShellWord[] {
+  const result: ShellWord[] = [];
+  for (let i = 0; i < args.length; i += 1) {
+    if (args[i]!.text === "--") break;
+    const option = valueOption(normalise(args[i]!), args[i + 1], short, long);
+    if (!option) continue;
+    result.push(option.value);
+    if (option.consumesNext) i += 1;
+  }
+  return result;
+}
+
+const GIT_WORKTREE_MUTATORS = new Set(["pull", "checkout", "apply", "reset", "merge", "am"]);
+
+function structuredWrites(name: string, args: readonly ShellWord[], dir: string | undefined, scope?: WriteTargetScope):
   { words: ShellWord[]; cwd?: string; recursive?: boolean } | undefined {
-  if (name === "tar" || name === "unzip") {
-    if (name === "tar" && !args.some(({ text }, index) =>
+  if (name === "7z" || name === "7za" || name === "7zz") {
+    if (!["x", "e"].includes(args[0]?.text ?? "")) return { words: [] };
+    const destinations = directoryOptions(args.slice(1), ["-o"], []);
+    return { words: destinations.length ? destinations : [word(".")], recursive: true };
+  }
+  if (name === "cpio") {
+    const flags = args.map(({ text }) => text);
+    const pass = flags.some((flag) => flag === "--pass-through" || /^-[^-]*p/.test(flag));
+    const extract = flags.some((flag) => flag === "--extract" || /^-[^-]*i/.test(flag));
+    if ((!pass && !extract) || flags.some((flag) => flag === "--list" || /^-[^-]*t/.test(flag))) return { words: [] };
+    const destinations = pass ? args.slice(-1) : directoryOptions(args, ["-D"], ["--directory"]);
+    return { words: destinations.length ? destinations : [word(".")], recursive: true };
+  }
+  if (name === "patch") {
+    if (args.some(({ text }) => text === "--dry-run")) return { words: [] };
+    const root = directoryOptions(args, ["-d"], ["--directory"]).at(-1) ?? word(".");
+    const outputs = directoryOptions(args, ["-o"], ["--output"]);
+    const rejects = directoryOptions(args, ["-r"], ["--reject-file"]);
+    const base = resolveDirectoryWord(root, dir, scope);
+    return outputs.length
+      ? { words: [...outputs, ...rejects], cwd: base }
+      : { words: [word("."), ...rejects], cwd: base, recursive: true };
+  }
+  if (name === "npm") {
+    const prefixes = directoryOptions(args, [], ["--prefix"]);
+    const command = plainOperands(args, (flag) => flag === "--prefix")[0]?.text;
+    if (command !== "install" && command !== "i" && command !== "ci") return { words: [] };
+    return { words: [prefixes.at(-1) ?? word(".")], recursive: true };
+  }
+  const tar = name === "tar" || name === "bsdtar";
+  if (tar || name === "unzip") {
+    if (tar && !args.some(({ text }, index) =>
       text === "--extract" || text === "--get" ||
       (/^-[A-Za-z]*x/.test(text) || (index === 0 && /^[A-Za-z]*x[A-Za-z]*$/.test(text)))
     )) return { words: [] };
     if (name === "unzip" && args.some(({ text }) => /^-[lpqtovZ]+$/.test(text) && /[lptZ]/.test(text))) {
       return { words: [] };
     }
-    const destinations: ShellWord[] = [];
-    for (let i = 0; i < args.length; i += 1) {
-      const arg = args[i]!;
-      if (arg.text === "--") break;
-      const bundle = name === "tar" ? /^-[xvzkjJpmw]+C(.*)$/.exec(arg.text) : null;
-      const flag = bundle ? { ...arg, text: "-C" + bundle[1] } : arg;
-      const option = valueOption(flag, args[i + 1], name === "tar" ? ["-C"] : ["-d"], name === "tar" ? ["--directory"] : []);
-      if (!option) continue;
-      destinations.push(option.value);
-      if (option.consumesNext) i += 1;
-    }
+    const destinations = directoryOptions(args, tar ? ["-C"] : ["-d"], tar ? ["--directory"] : [], (arg) => {
+      const bundle = tar ? /^-[xvzkjJpmw]+C(.*)$/.exec(arg.text) : null;
+      return bundle ? { ...arg, text: "-C" + bundle[1] } : arg;
+    });
     return { words: destinations.length ? destinations : [word(".")], recursive: true };
   }
   if (name === "git") {
@@ -481,11 +694,15 @@ function structuredWrites(name: string, args: readonly ShellWord[], dir: string 
       const arg = args[i]!;
       const option = valueOption(arg, args[i + 1], ["-C"], []);
       if (option) {
-        cwd = resolveWord(option.value, cwd, home);
+        cwd = resolveDirectoryWord(option.value, cwd, scope);
         if (option.consumesNext) i += 1;
       } else if (["-c", "--git-dir", "--work-tree", "--namespace", "--config-env"].includes(arg.text)) i += 1;
     }
-    if (args[i]?.text !== "clone") return undefined;
+    const subcommand = args[i]?.text ?? "";
+    if (subcommand === "apply" && args.slice(i + 1).some(({ text }) => text === "--check") &&
+      !args.slice(i + 1).some(({ text }) => text === "--apply")) return { words: [] };
+    if (GIT_WORKTREE_MUTATORS.has(subcommand)) return { words: [word(".")], cwd, recursive: true };
+    if (subcommand !== "clone") return undefined;
     const positionals = plainOperands(args.slice(i + 1), (flag) =>
       ["-b", "--branch", "-o", "--origin", "-c", "--config", "--depth", "--filter",
         "--reference", "--reference-if-able", "--separate-git-dir", "--shallow-since",
@@ -499,9 +716,7 @@ function structuredWrites(name: string, args: readonly ShellWord[], dir: string 
       const separate = valueOption(args[k]!, args[k + 1], [], ["--separate-git-dir"]);
       if (separate) destinations.push(separate.value);
     }
-    return cwd === undefined
-      ? { words: destinations.map((dest) => ({ ...dest, dynamic: dest.dynamic || !isAbsolute(dest.text) })) }
-      : { words: destinations, cwd };
+    return { words: destinations, cwd };
   }
   if (name !== "curl" && name !== "wget") return undefined;
   const curl = name === "curl";
@@ -654,7 +869,7 @@ function rememberAssignment(word: ShellWord, dir: string | undefined, scope: Wri
   const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/s.exec(word.text);
   if (!assignment) return;
   const [, name, value] = assignment;
-  const target = resolveWord({ text: value!.replace(/^\$(?:HOME\b|\{HOME\})/, () => scope.home ?? homedir()), dynamic: word.dynamic && !/^\$(?:HOME\b|\{HOME\})[^$*?\[]*$/.test(value!) }, dir, scope.home);
+  const target = resolveDirectoryWord({ text: value!, dynamic: word.dynamic }, dir, scope);
   if (target === undefined) return;
   const assignments = scope.assignments ??= new Map();
   const candidates = assignments.get(name!) ?? new Set<string>();
@@ -662,8 +877,19 @@ function rememberAssignment(word: ShellWord, dir: string | undefined, scope: Wri
   assignments.set(name!, candidates);
 }
 
+function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
+  if (!word.dynamic || !scope) return resolveWord(word, dir, scope?.home);
+  const variable = /^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))([^$*?\[{}]*)$/.exec(word.text);
+  if (!variable) return undefined;
+  const name = (variable[1] ?? variable[2])!;
+  const bases = scope.assignments?.get(name);
+  const base = bases?.size === 1 ? bases.values().next().value : name === "HOME" ? scope.home : undefined;
+  if (base === undefined) return undefined;
+  return resolveWord({ text: base + variable[3], dynamic: false }, dir, scope.home);
+}
+
 function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
-  const target = resolveWord(word, dir, scope?.home);
+  const target = resolveDirectoryWord(word, dir, scope);
   if (target !== undefined || !scope || !word.dynamic) return target;
   const variable = /^\$(?:\{([A-Za-z_]\w*)[^}]*\}|([A-Za-z_]\w*))(.*)$/s.exec(word.text);
   if (variable) {

@@ -22,15 +22,15 @@ export interface ShellWord {
  * What the lexer hands on. A `redirect` is followed by the word it
  * applies to: `file` writes that file (`>`, `>>`, `&>`, `<>`); `dup`
  * names a descriptor when that word is digits or `-` (`2>&1`) and a
- * file otherwise (`>&out.log`); `none` reads it (`<`, `<<<`). A heredoc
- * (`<<EOF … EOF`) is consumed whole and leaves no token.
+ * file otherwise (`>&out.log`); `none` reads it (`<`). Literal script
+ * input may also be retained by callers that need to inspect it.
  */
 export type ShellToken =
   | ({ kind: "word" } & ShellWord)
-  | { kind: "separator" }
+  | { kind: "separator"; pipe?: true }
   | { kind: "open" }
   | { kind: "close" }
-  | { kind: "redirect"; writes: "file" | "dup" | "none" };
+  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string" };
 
 type Operator =
   | Exclude<ShellToken, { kind: "word" }>
@@ -47,10 +47,10 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
     ["&&", SEPARATOR],
     ["||", SEPARATOR],
     [";;", SEPARATOR],
-    ["|&", SEPARATOR],
+    ["|&", { kind: "separator", pipe: true }],
     ["&>>", WRITE],
     ["&>", WRITE],
-    ["<<<", READ],
+    ["<<<", { kind: "redirect", writes: "here-string" }],
     ["<<-", { kind: "heredoc", stripTabs: true }],
     ["<<", { kind: "heredoc", stripTabs: false }],
     ["<>", WRITE],
@@ -61,7 +61,7 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
     [">", WRITE],
     ["<", READ],
     [";", SEPARATOR],
-    ["|", SEPARATOR],
+    ["|", { kind: "separator", pipe: true }],
     ["&", SEPARATOR],
     ["(", { kind: "open" }],
     [")", { kind: "close" }],
@@ -110,9 +110,10 @@ export function lexShellLine(
   line: string,
   dialect: ShellDialect,
   home = homedir(),
+  keepHeredocs = false,
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
-  const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
+  const heredocs: { delimiter: string; stripTabs: boolean; body?: ShellWord }[] = [];
   const operators = OPERATORS[dialect];
   const escape = dialect === "posix" ? "\\" : dialect === "cmd" ? "^" : null;
   const singleQuotes = dialect !== "cmd";
@@ -127,7 +128,9 @@ export function lexShellLine(
   const endWord = (): void => {
     if (!inWord) return;
     if (pendingHeredoc !== null) {
-      heredocs.push({ delimiter: word, ...pendingHeredoc });
+      const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false } : undefined;
+      if (body) tokens.push({ kind: "redirect", writes: "here-string" }, body);
+      heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
       tokens.push({ kind: "word", text: word, dynamic });
@@ -306,7 +309,7 @@ function readDollar(
 function skipHeredocBodies(
   line: string,
   from: number,
-  heredocs: readonly { delimiter: string; stripTabs: boolean }[],
+  heredocs: readonly { delimiter: string; stripTabs: boolean; body?: ShellWord }[],
 ): number {
   let i = from;
   for (const heredoc of heredocs) {
@@ -317,6 +320,7 @@ function skipHeredocBodies(
       if (heredoc.stripTabs) text = text.replace(/^\t+/, "");
       i = newline === -1 ? line.length : newline + 1;
       if (text === heredoc.delimiter) break;
+      if (heredoc.body) heredoc.body.text += text + "\n";
     }
   }
   return i;
