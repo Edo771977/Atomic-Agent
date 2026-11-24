@@ -217,24 +217,25 @@ static int tcpConnect(const wchar_t* host, unsigned short port) {
     return result;
 }
 
-static bool startWinsock() {
+static int startWinsock() {
     WSADATA information{};
-    return WSAStartup(MAKEWORD(2, 2), &information) == 0;
+    return WSAStartup(MAKEWORD(2, 2), &information);
 }
 
 static int probeChild(wchar_t** argv) {
     const DWORD readProject = fileProbe(argv[2], GENERIC_READ);
     const DWORD readKey = fileProbe(argv[3], GENERIC_READ);
     const DWORD writeOutside = fileProbe(argv[4], GENERIC_WRITE);
-    int network = -1;
-    if (startWinsock()) {
+    const int winsock = startWinsock();
+    int network = winsock;
+    if (winsock == 0) {
         network = tcpConnect(L"127.0.0.1", static_cast<unsigned short>(std::wcstoul(argv[5], nullptr, 10)));
         WSACleanup();
     }
     if (readProject == ERROR_SUCCESS && readKey == ERROR_ACCESS_DENIED &&
         writeOutside == ERROR_ACCESS_DENIED && network == WSAEACCES) return 0;
-    std::fprintf(stderr, "Windows sandbox probe failed (project=%lu, state=%lu, outside=%lu, loopback=%d)\n",
-        readProject, readKey, writeOutside, network);
+    std::fprintf(stderr, "Windows sandbox probe failed (project=%lu, state=%lu, outside=%lu, WSAStartup=%d, loopback=%d)\n",
+        readProject, readKey, writeOutside, winsock, network);
     return 5;
 }
 
@@ -286,7 +287,7 @@ static int run(const wchar_t* file) {
     }
     wchar_t executable[32768]{};
     DWORD pathLength = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
-    if (!pathLength || pathLength >= ARRAYSIZE(executable) || !startWinsock()) {
+    if (!pathLength || pathLength >= ARRAYSIZE(executable) || startWinsock() != 0) {
         return static_cast<int>(lpacError("initialize sandbox probe", ERROR_INVALID_DATA));
     }
     unsigned short port = 0;
@@ -319,7 +320,11 @@ int wmain(int argc, wchar_t** argv) {
     const std::wstring action = argc > 1 ? argv[1] : L"";
     if (action == L"--probe-child" && argc == 6) return probeChild(argv);
     if ((action == L"--socket-allow" || action == L"--socket-deny") && argc == 4) {
-        if (!startWinsock()) return 5;
+        const int startup = startWinsock();
+        if (startup != 0) {
+            std::fprintf(stderr, "WSAStartup result: %d\n", startup);
+            return 5;
+        }
         int status = tcpConnect(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10)));
         WSACleanup();
         std::printf("TCP result: %d\n", status);

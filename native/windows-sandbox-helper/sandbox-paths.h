@@ -56,6 +56,13 @@ inline std::wstring getSandboxProfileDir() {
     return GetUserProfileDirectoryW(token.get(), profile, &length) ? std::wstring(profile) : L"";
 }
 
+inline bool isSandboxExecutable(const std::wstring& path) {
+    wchar_t executable[32768]{};
+    DWORD length = GetModuleFileNameW(nullptr, executable, ARRAYSIZE(executable));
+    return length > 0 && length < ARRAYSIZE(executable) &&
+        windowsPathEqual(path, std::wstring(executable, length));
+}
+
 inline bool sandboxGrantRoot(const std::wstring& root, const std::wstring& state,
     bool writable, bool isPrivateTemp = false) {
     if (!dosPath(state) || !localAclTree(root, writable)) return false;
@@ -65,7 +72,7 @@ inline bool sandboxGrantRoot(const std::wstring& root, const std::wstring& state
     if (windowsContains(root, home) || windowsContains(root, windows) || windowsContains(windows, root) ||
         windowsContains(root, state)) return false;
     if (isPrivateTemp) return windowsContains(state, root);
-    if (windowsContains(state, root) || (!writable && windowsContains(home, root))) return false;
+    if (windowsContains(state, root) || (!writable && windowsContains(home, root) && !isSandboxExecutable(root))) return false;
 
     // Reject broad shared-system roots. Read-only grants may target a
     // specific runtime installation there if the operator owns its ACLs.
