@@ -1,3 +1,5 @@
+import { OpenAiProvider } from "../../llm/provider/openai/openai-provider.js";
+import { isPrivacyShieldEnabled, setPrivacyShieldEnabled } from "../../privacy/index.js";
 import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -91,6 +93,40 @@ describe("createExperienceReviewer", () => {
     expect(await listPendingDrafts(scope().stateDir)).toHaveLength(1);
     expect(existsSync(join(scope().skillsDir, "sync-with-delete"))).toBe(false);
     expect(await journal()).toEqual([]);
+  });
+
+  it("masks private transcript data in the cloud skill review request", async () => {
+    const email = "operator@example.test";
+    const state = session(10);
+    state.turns[0] = { kind: "user", text: `Send the findings to ${email}`, at: 1 };
+    const bodies: string[] = [];
+    const provider = new OpenAiProvider({
+      id: "review-cloud",
+      baseUrl: "https://review.example.invalid",
+      apiKey: "",
+      defaultChatModel: "review-model",
+      fetchImpl: async (_url, init) => {
+        bodies.push(String(init?.body));
+        return Response.json({
+          choices: [{ message: { content: '{"action":"none","reason":"routine"}' }, finish_reason: "stop" }],
+        });
+      },
+    });
+    const { reviewer } = rig(undefined, {
+      llmComplete: (request) => provider.complete(request),
+      resolveTransport: () => "native_tools",
+    });
+    const saved = isPrivacyShieldEnabled();
+    setPrivacyShieldEnabled(true);
+    try {
+      expect(reviewer.maybeReview(state, { result: reply(10), origin: "tui" })).toBe(true);
+      await reviewer.whenIdle();
+      expect(bodies).toHaveLength(1);
+      expect(bodies[0]).not.toContain(email);
+      expect(bodies[0]).toContain("[EMAIL_1]");
+    } finally {
+      setPrivacyShieldEnabled(saved);
+    }
   });
 
   it("keeps names from the runtime's boot project out of a review in another folder", async () => {
