@@ -219,7 +219,7 @@ export class FileCheckpointStore {
     await rm(marker, { force: true });
   }
 
-  async retryIncognitoRemovals(onError: (error: unknown) => void, complete?: (id: string) => void): Promise<void> {
+  async retryIncognitoRemovals(onError: (error: unknown) => void, complete?: (id: string) => void, shouldRemove?: (id: string) => boolean): Promise<void> {
     const pending = join(this.root, ".pending-incognito-removals");
     const entries = await readdir(pending).catch(error => {
       if (error.code !== "ENOENT") onError(error);
@@ -231,8 +231,10 @@ export class FileCheckpointStore {
         const marker = join(pending, name);
         const id: unknown = JSON.parse(await readFile(marker, "utf8"));
         if (typeof id !== "string" || name !== sha256Of(Buffer.from(id)) + ".json") continue;
-        await this.removeSession(id);
-        complete?.(id);
+        if (shouldRemove?.(id) !== false) {
+          await this.removeSession(id);
+          complete?.(id);
+        }
         await rm(marker, { force: true });
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") onError(error);

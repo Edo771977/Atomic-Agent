@@ -77,7 +77,7 @@ export async function prepareRuntimeSessionStore(
     if (config.paths.tracesDir && !removeIncognitoTrace(config.paths.tracesDir, id)) {
       throw new Error("incognito trace removal failed");
     }
-  });
+  }, id => !sessionStore.hasSession(id));
   const { retained } = await sweepOrphanIncognitoSessions(
     sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
     { staleAfterMs: config.tasks.staleAfterMs },

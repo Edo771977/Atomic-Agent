@@ -167,6 +167,37 @@ describe("runtime session phases", () => {
     expect(existsSync(trace)).toBe(false);
   });
 
+  it("keeps the new ordinary chat's artifacts when an ID with a pending marker is reused", async () => {
+    const id = "s-reused";
+    const checkpoints = new FileCheckpointStore(join(dir, "checkpoints"));
+    const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    seeded.save(recordTurn(sessions.createEmptySessionState({
+      id, workingDir: dir, incognito: seeded.newIncognitoMark(),
+    }), userTurn("private")));
+    seeded.close();
+    const trace = traceFilePath(config.paths.tracesDir, id);
+    await mkdir(trace, { recursive: true });
+    const first = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(first);
+    expect(first.load(id)).toBeNull();
+    await rm(trace, { recursive: true });
+
+    first.save(recordTurn(sessions.createEmptySessionState({ id, workingDir: dir }), userTurn("ordinary")));
+    await writeFile(trace, "ordinary trace");
+    const file = join(dir, "ordinary.txt");
+    await writeFile(file, "ordinary content");
+    await checkpoints.capture(id, file, "os.fs.write");
+    const second = await prepareRuntimeSessionStore(config, logger, checkpoints);
+    stores.push(second);
+    expect(second.load(id)).not.toBeNull();
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+    second.delete(id);
+    stores.push(await prepareRuntimeSessionStore(config, logger, checkpoints));
+    expect(existsSync(trace)).toBe(true);
+    expect(existsSync(checkpoints.sessionDir(id))).toBe(true);
+  });
+
   it("keeps a task out of the due queue and refuses its claim when orphan task cleanup fails", async () => {
     const seeded = new SessionStore({ dbFile: config.paths.sessionsDbFile });
     seeded.save(sessions.createEmptySessionState({

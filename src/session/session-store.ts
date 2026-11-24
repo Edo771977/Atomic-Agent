@@ -1249,6 +1249,10 @@ export class SessionStore {
     return newIncognitoMark(this.turnOwnerProbe, now, this.dbIdentity);
   }
 
+  hasSession(id: string): boolean {
+    return this.storedRow(id) !== undefined;
+  }
+
   /** Whether the stored row `id` is an incognito chat. */
   isIncognito(id: string): boolean {
     return storedSessionIsIncognito(this.db, id);
