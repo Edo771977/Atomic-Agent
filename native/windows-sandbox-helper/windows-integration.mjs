@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
+const matrix = process.argv.includes("--matrix");
 const helper = realpathSync.native(resolve(process.argv[2]));
 const base = realpathSync.native(mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "atomic-lpac-")));
 const profile = `AtomicAgent.Workspace.${randomBytes(16).toString("hex")}`;
@@ -21,7 +22,13 @@ const tools = join(base, "runtime");
 const gitTools = join(tools, "git");
 const node = join(tools, "node.exe");
 const git = join(gitTools, "git.exe");
-const readOnlyRoots = [helper, node, gitTools];
+const npmRoot = join(tools, "npm");
+const npm = join(npmRoot, "bin", "npm-cli.js");
+const readOnlyRoots = matrix ? [helper, node, gitTools, npmRoot] : [helper, node, gitTools];
+const protectedFiles = [];
+const capabilityOrder = ["registryRead", "lpacCom", "lpacAppExperience", "lpacInstrumentation",
+  "lpacCryptoServices", "lpacIdentityServices", "lpacPnPNotifications", "lpacServicesManagement",
+  "lpacSessionManagement"];
 const operator = [profile, state, root, ...readOnlyRoots];
 
 function call(executable, args, options = {}) {
@@ -54,6 +61,15 @@ try {
   call("git", ["add", "existing.txt"], { cwd: root });
 
   copyFileSync(process.execPath, node);
+  if (matrix) {
+    cpSync(join(dirname(process.execPath), "node_modules", "npm"), npmRoot, { recursive: true });
+    for (const name of ["USERPROFILE", "APPDATA", "LOCALAPPDATA"]) {
+      const file = join(process.env[name], `atomic-fixture-${randomBytes(8).toString("hex")}.txt`);
+      writeFileSync(file, "synthetic fixture\n", { flag: "wx" });
+      protectedFiles.push([name, file]);
+    }
+    assert.match(call(node, [npm, "--version"], { cwd: root }), /^\d+\./);
+  }
   const gitSource = resolve(call("git", ["--exec-path"]).trim(), "..", "..", "bin");
   for (const name of readdirSync(gitSource).filter(name => name === "git.exe" || name.endsWith(".dll"))) {
     copyFileSync(join(gitSource, name), join(gitTools, name));
@@ -65,22 +81,65 @@ try {
   assert.equal(call(node, ["-p", "process.env.ATOMIC_TEST_PARENT_SECRET"]).trim(), "synthetic");
   granted = true;
   console.log(call(helper, ["grant", ...operator]));
-  assert.match(run([git, "status", "--short"]), /existing\.txt/);
-  assert.equal(run([node, "-e", "console.log(1)"]).trim(), "1");
-  assert.equal(run([node, "-p", "process.env.ATOMIC_TEST_PARENT_SECRET"]).trim(), "undefined");
-
   const lan = Object.values(networkInterfaces()).flat().find(item => item?.family === "IPv4" && !item.internal);
   assert.ok(lan, "the runner needs a reachable LAN address");
   server = createServer(socket => socket.destroy());
   server.listen(0, "0.0.0.0");
   await once(server, "listening");
   const port = String(server.address().port);
-  for (const [host, target] of [["127.0.0.1", port], [lan.address, port], ["1.1.1.1", "443"]]) {
-    assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
-    call(helper, ["--socket-winrt-allow", host, target]);
-    assert.match(run([helper, "--socket-deny", host, target]), /TCP result: 10013/);
+  const endpoints = [["127.0.0.1", port], [lan.address, port], ["1.1.1.1", "443"]];
+  if (matrix) {
+    for (const [host, target] of endpoints) {
+      assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
+    }
+    const candidates = [["lpac"], ["lpac", capabilityOrder[0]], ["lpac", capabilityOrder[1]],
+      ...capabilityOrder.slice(1).map((_, i) => ["lpac", ...capabilityOrder.slice(0, i + 2)]),
+      ["appcontainer"]];
+    let selected;
+    const verdicts = [];
+    for (const candidate of candidates) {
+      const launch = argv => call(helper, ["diagnose", stageRequest(argv), ...candidate]);
+      const results = {};
+      const record = (name, check) => {
+        try { check(); results[name] = "pass"; }
+        catch (error) {
+          const diagnostic = String(error.stderr ?? error.message).trim().split(/\r?\n/).slice(0, 4).join(" | ");
+          results[name] = `fail: ${diagnostic}`;
+        }
+      };
+      record("node", () => assert.equal(launch([node, "-e", "console.log(1)"]).trim(), "1"));
+      record("git", () => assert.match(launch([git, "status", "--short"]), /existing\.txt/));
+      record("npm", () => assert.match(launch([node, npm, "--version"]), /^\d+\./));
+      for (const [name, path] of [["serve-api.key", join(state, "serve-api.key")], ...protectedFiles]) {
+        assert.match(call(helper, ["--file-check", "read-allow", path]), /FILE result: 0/);
+        record(name, () => assert.match(launch([helper, "--file-check", "read-deny", path]), /FILE result: 5/));
+      }
+      record("outside-write", () => assert.match(launch([helper, "--file-check", "write-deny", outside]), /FILE result: 5/));
+      for (const [[host, target], label] of endpoints.map((endpoint, i) => [endpoint, ["loopback", "lan", "external"][i]])) {
+        record(label, () => assert.match(launch([helper, "--socket-deny", host, target]), /TCP result: 10013/));
+      }
+      const passed = Object.values(results).every(value => value === "pass");
+      const verdict = { candidate, passed, results };
+      verdicts.push(verdict);
+      console.log("LPAC_MATRIX " + JSON.stringify(verdict));
+      if (passed) { selected = candidate; break; }
+    }
+    console.log("LPAC_SELECTED " + JSON.stringify(selected ?? null));
+    assert.ok(selected, "no candidate passed all compatibility and containment checks");
+  } else {
+    assert.match(run([git, "status", "--short"]), /existing\.txt/);
+    assert.equal(run([node, "-e", "console.log(1)"]).trim(), "1");
+    assert.equal(run([node, "-p", "process.env.ATOMIC_TEST_PARENT_SECRET"]).trim(), "undefined");
+  
+    for (const [host, target] of endpoints) {
+      assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
+      call(helper, ["--socket-winrt-allow", host, target]);
+      assert.match(run([helper, "--socket-deny", host, target]), /TCP result: 10013/);
+    }
+  
   }
 
+  if (!matrix) {
   const family = [
     node, "-e",
     "const cp = require('node:child_process'); const child = cp.spawn(process.execPath, " +
@@ -121,8 +180,10 @@ try {
       }
     }
   }
+  }
 } finally {
   server?.close();
   if (granted) console.log(call(helper, ["revoke", ...operator]));
+  for (const [, path] of protectedFiles) rmSync(path, { force: true });
   rmSync(base, { recursive: true, force: true });
 }

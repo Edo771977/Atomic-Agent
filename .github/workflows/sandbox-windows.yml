@@ -1,5 +1,6 @@
 name: Windows sandbox
 on:
+  workflow_dispatch:
   pull_request:
     paths:
       - native/windows-sandbox-helper/**
@@ -61,19 +62,18 @@ jobs:
         run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-lpac-helper/atomic-sandbox-helper.exe"
   lpac-node-compatibility:
     runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '25'
-      - name: Compare offline Node startup with and without zero-capability LPAC
+      - name: Build the isolated diagnostic launcher
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd /d "%RUNNER_TEMP%"
-          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
-          node -e "console.log(1)" || exit /b 1
-          for /f "usebackq delims=" %%i in (`where node.exe`) do if not defined NODE_BINARY set "NODE_BINARY=%%i"
-          acl-preflight.exe --node "%NODE_BINARY%"
+          cl /nologo /std:c++20 /W4 /O2 /MT /DATOMIC_SANDBOX_DIAGNOSTICS /Fe:atomic-sandbox-diagnostic.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\atomic-sandbox-helper.cpp" || exit /b 1
+      - name: Compare compatibility and containment on identical fixtures
+        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --matrix

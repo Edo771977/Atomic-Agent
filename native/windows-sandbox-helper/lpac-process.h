@@ -53,7 +53,8 @@ inline DWORD lpacError(const char* step, DWORD error) {
 }
 
 inline DWORD runLpac(PSID sid, const wchar_t* executable, std::wstring command,
-    const wchar_t* cwd, wchar_t* environment, DWORD timeout, bool inheritStdio) {
+    const wchar_t* cwd, wchar_t* environment, DWORD timeout, bool inheritStdio,
+    bool lpac = true, std::vector<SID_AND_ATTRIBUTES> allowed = {}) {
     LpacHandle job(CreateJobObjectW(nullptr, nullptr));
     if (!job) return lpacError("create job", GetLastError());
 
@@ -64,15 +65,16 @@ inline DWORD runLpac(PSID sid, const wchar_t* executable, std::wstring command,
     }
 
     LpacAttributes attributes;
-    if (!attributes.create(inheritStdio ? 4 : 3)) return lpacError("initialize attributes", GetLastError());
+    if (!attributes.create(2 + (inheritStdio ? 1 : 0) + (lpac ? 1 : 0))) return lpacError("initialize attributes", GetLastError());
 
-    SECURITY_CAPABILITIES capabilities{sid, nullptr, 0, 0};
+    SECURITY_CAPABILITIES capabilities{sid, allowed.empty() ? nullptr : allowed.data(),
+        static_cast<DWORD>(allowed.size()), 0};
     DWORD packages = PROCESS_CREATION_ALL_APPLICATION_PACKAGES_OPT_OUT;
     HANDLE jobList[] = {job.get()};
     if (!UpdateProcThreadAttribute(attributes.value, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
         &capabilities, sizeof(capabilities), nullptr, nullptr) ||
-        !UpdateProcThreadAttribute(attributes.value, 0, PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
-        &packages, sizeof(packages), nullptr, nullptr) ||
+        (lpac && !UpdateProcThreadAttribute(attributes.value, 0, PROC_THREAD_ATTRIBUTE_ALL_APPLICATION_PACKAGES_POLICY,
+        &packages, sizeof(packages), nullptr, nullptr)) ||
         !UpdateProcThreadAttribute(attributes.value, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST,
         jobList, sizeof(jobList), nullptr, nullptr)) {
         return lpacError("install security and job attributes", GetLastError());
@@ -125,7 +127,7 @@ inline DWORD runLpac(PSID sid, const wchar_t* executable, std::wstring command,
         TerminateProcess(process.get(), lpacSetupFailed);
         return lpacError("verify job membership", ERROR_ACCESS_DENIED);
     }
-    if (!verifyLpacToken(process.get(), sid)) return lpacError("verify LPAC token", ERROR_ACCESS_DENIED);
+    if (!verifyLpacToken(process.get(), sid, lpac, allowed)) return lpacError("verify LPAC token", ERROR_ACCESS_DENIED);
     if (ResumeThread(thread.get()) != 1) return lpacError("resume verified process", GetLastError());
 
     const DWORD waited = WaitForSingleObject(process.get(), timeout);

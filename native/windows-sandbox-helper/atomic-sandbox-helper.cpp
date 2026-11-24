@@ -256,6 +256,74 @@ static bool grantTemp(const SandboxRequest& request, PSID sid) {
     return directory && acl_tree::update(directory.get(), sid, acl_tree::modify, true) == ERROR_SUCCESS;
 }
 
+#ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+static constexpr const wchar_t* diagnosticNames[] = {
+    L"registryRead", L"lpacCom", L"lpacAppExperience", L"lpacInstrumentation",
+    L"lpacCryptoServices", L"lpacIdentityServices", L"lpacPnPNotifications",
+    L"lpacServicesManagement", L"lpacSessionManagement",
+};
+
+class DiagnosticCapabilities {
+public:
+    ~DiagnosticCapabilities() { for (auto sid : owned) LocalFree(sid); }
+    bool add(const std::wstring& name) {
+        bool known = false;
+        for (const auto* candidate : diagnosticNames) if (name == candidate) known = true;
+        if (!known) return false;
+        using Derive = BOOL (WINAPI*)(LPCWSTR, PSID**, DWORD*, PSID**, DWORD*);
+        const auto derive = reinterpret_cast<Derive>(
+            GetProcAddress(GetModuleHandleW(L"kernelbase.dll"), "DeriveCapabilitySidsFromName"));
+        PSID* groups = nullptr;
+        PSID* sids = nullptr;
+        DWORD groupCount = 0, count = 0;
+        if (!derive || !derive(name.c_str(), &groups, &groupCount, &sids, &count)) return false;
+        for (DWORD i = 0; i < groupCount; ++i) LocalFree(groups[i]);
+        LocalFree(groups);
+        bool valid = count == 1 && IsValidSid(sids[0]);
+        for (DWORD i = 0; i < count; ++i) {
+            owned.push_back(sids[i]);
+            for (const auto& previous : values) if (EqualSid(previous.Sid, sids[i])) valid = false;
+        }
+        if (valid) values.push_back({sids[0], SE_GROUP_ENABLED});
+        LocalFree(sids);
+        return valid;
+    }
+
+    std::vector<SID_AND_ATTRIBUTES> values;
+private:
+    std::vector<PSID> owned;
+};
+
+static int diagnose(int argc, wchar_t** argv) {
+    SandboxRequest request;
+    SandboxSid sid;
+    if (argc < 4 || !loadRequest(argv[2], request) || !openProfile(request.profile, sid, false) ||
+        !sandboxGrantRoot(request.privateTemp, request.state, true, true) || !grantTemp(request, sid.value)) return 4;
+    const std::wstring mode = argv[3];
+    const bool lpac = mode == L"lpac";
+    if (!lpac && (mode != L"appcontainer" || argc != 4)) return 4;
+    DiagnosticCapabilities caps;
+    for (int i = 4; i < argc; ++i) {
+        if (!caps.add(argv[i])) return static_cast<int>(lpacError("derive allowlisted diagnostic SID", GetLastError()));
+    }
+    const auto& application = request.argv.front();
+    if (!dosPath(application)) return 4;
+    std::wstring command = quoteArgument(application);
+    for (size_t i = 1; i < request.argv.size(); ++i) command += L" " + quoteArgument(request.argv[i]);
+    auto environment = childEnvironment(request);
+    return static_cast<int>(runLpac(sid.value, application.c_str(), command, request.cwd.c_str(),
+        environment.data(), request.timeoutMs, true, lpac, caps.values));
+}
+
+static int diagnosticFile(wchar_t** argv) {
+    const std::wstring kind = argv[2];
+    const DWORD access = kind == L"write-deny" ? GENERIC_WRITE : GENERIC_READ;
+    const DWORD result = fileProbe(argv[3], access);
+    std::printf("FILE result: %lu\n", result);
+    return result == (kind == L"read-allow" ? ERROR_SUCCESS : ERROR_ACCESS_DENIED) ? 0 : 5;
+}
+#endif
+
 static int run(const wchar_t* file) {
     SandboxRequest request;
     SandboxSid sid;
@@ -337,6 +405,10 @@ int wmain(int argc, wchar_t** argv) {
     if (action == L"--socket-winrt-allow" && argc == 4) {
         return connectWinRt(argv[2], static_cast<unsigned short>(std::wcstoul(argv[3], nullptr, 10))) == S_OK ? 0 : 5;
     }
+#ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+    if (action == L"diagnose") return diagnose(argc, argv);
+    if (action == L"--file-check" && argc == 4) return diagnosticFile(argv);
+#endif
     if (action == L"init-state" && argc == 4) return initState(argv[2], argv[3]);
     if (action == L"run" && argc == 3) return run(argv[2]);
     if (action == L"grant" || action == L"revoke") return changeGrants(argc, argv, action == L"revoke");
