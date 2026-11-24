@@ -104,15 +104,16 @@ describe("a snapshot-priced escalation target (models.dev estimate only)", () =>
 it.each([
   { withTeam: false, unknownJudge: false },
   { withTeam: true, unknownJudge: false },
+  { withTeam: true, unknownJudge: false, retry: true },
   { withTeam: false, unknownJudge: true },
-])("keeps the replacement independent from its reviewer (team=$withTeam, unknownJudge=$unknownJudge)", async ({ withTeam, unknownJudge }) => {
+])("keeps the replacement independent from its reviewer (team=$withTeam, unknownJudge=$unknownJudge, retry=$retry)", async ({ withTeam, unknownJudge, retry }) => {
   const reviews: string[] = [];
   const turns: Array<string | undefined> = [];
   const completionModel = "strong";
   const d: FusionDelegateDeps = {
     runTurn: async (_session, _message, options) => {
       turns.push(options.model);
-      if (options.model !== completionModel) {
+      if (turns.length === 1) {
         for (let i = 0; i < 6; i += 1) {
           options.eventHook?.({
             type: "llm_event",
@@ -153,6 +154,9 @@ it.each([
     escalationComplete: async ({ providerId, model, prompt }) => {
       if (prompt.startsWith("You are advising")) return { content: "Try a different approach" };
       reviews.push(`${providerId}:${model}`);
+      if (retry && reviews.length === 1) {
+        return { content: '{"decision":"needs-changes","issues":[{"item":"a1","file":"report.md","severity":"major","why":"Report is incomplete"}]}' };
+      }
       return { content: '{"decision":"accept","issues":[]}', ...(model === undefined ? {} : { model }) };
     },
     steerWorker: () => true,
@@ -161,8 +165,8 @@ it.each([
     { tasks: [{ id: "w", instructions: "Review the report" }] },
     { workingDir: "/repo", sessionId: "s-parent", stepIndex: 0, signal: new AbortController().signal },
   );
-  expect(turns).toEqual(["small", "strong"]);
-  expect(reviews).toEqual(withTeam ? ["other:reviewer"] : []);
+  expect(turns).toEqual(retry ? ["small", "strong", "small"] : ["small", "strong"]);
+  expect(reviews).toEqual(retry ? ["other:reviewer", "other:reviewer"] : withTeam ? ["other:reviewer"] : []);
   if (!withTeam) expect(result.details.tasks).toMatchObject([
     { judge: { unverified: expect.stringContaining("independent") } },
   ]);
