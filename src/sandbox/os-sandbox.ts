@@ -519,6 +519,15 @@ function linuxSystemMounts(out: string[]): string[] {
   return trees;
 }
 
+/** An ignore source imported by Safe Mode must stay outside writable mounts. */
+export function resolveSandboxGitExcludePath(path: string, policy: OsSandboxPolicy): string | undefined {
+  const candidate = path.replace(/^~(?=\/|$)/, homedir());
+  if (!isAbsolute(candidate)) return undefined;
+  const source = canonicalFuturePath(candidate);
+  if (policy.writableRoots.some(root => contains(root, candidate) || contains(root, source))) return undefined;
+  return source;
+}
+
 /** Read only the operator's global ignore setting, using the system Git binary. */
 export function resolveSandboxGitExcludes(cwd: string, policy: OsSandboxPolicy): { source: string; destination: string } | undefined {
   const home = homedir();
@@ -531,8 +540,8 @@ export function resolveSandboxGitExcludes(cwd: string, policy: OsSandboxPolicy):
   });
   const configured = result.status === 0 ? (result.stdout ?? "").replace(/\0$/, "") : destination;
   if (configured === "") return undefined;
-  const source = real(resolve(cwd, configured));
-  if (/[\u0000-\u001f]/.test(source) || basename(source) === ".gitconfig" || source === real(join(dirname(destination), "config")) ||
+  const source = resolveSandboxGitExcludePath(configured, policy);
+  if (source === undefined || /[\u0000-\u001f]/.test(source) || basename(source) === ".gitconfig" || source === real(join(dirname(destination), "config")) ||
     (globalConfig !== undefined && source === real(resolve(cwd, globalConfig))) ||
     policy.denyRead.some(path => path !== policy.home && contains(path, source)) ||
     ["/etc", "/proc", "/dev", "/sys", "/run"].some(path => contains(path, source)) ||

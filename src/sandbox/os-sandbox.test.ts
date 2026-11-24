@@ -21,6 +21,7 @@ import {
   buildSeatbeltProfile,
   formatSandboxUnavailable,
   readOsSandboxSettings,
+  resolveSandboxGitExcludes,
   SANDBOX_EXEC,
   wrapWithOsSandbox,
 } from "./os-sandbox.js";
@@ -498,5 +499,26 @@ it.skipIf(process.platform !== "linux")("round 5 point 1: opts in to UID zero an
   } finally {
     uid.mockRestore();
     vi.unstubAllEnvs();
+  }
+});
+
+it.skipIf(process.platform !== "linux")("round 5 point 8: global ignores reject relative and workspace-resolved paths", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-ignores-"));
+  try {
+    const workspace = join(root, "project");
+    mkdirSync(workspace);
+    writeFileSync(join(workspace, "rules"), "fixture\n");
+    const link = join(root, "rules");
+    symlinkSync(join(workspace, "rules"), link);
+    const config = join(root, "config");
+    vi.stubEnv("GIT_CONFIG_GLOBAL", config);
+    const p = buildOsSandboxPolicy({ workspaceRoots: [workspace], network: false });
+    for (const value of ["rules", link]) {
+      writeFileSync(config, `[core]\nexcludesFile = ${value}\n`);
+      expect(resolveSandboxGitExcludes(workspace, p)).toBeUndefined();
+    }
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
   }
 });

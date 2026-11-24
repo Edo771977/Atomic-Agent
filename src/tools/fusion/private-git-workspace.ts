@@ -4,14 +4,14 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants, createWriteStream, type Stats } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { homedir } from "node:os";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createDeflate } from "node:zlib";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
-import { buildOsSandboxPolicy, readOsSandboxSettings, resolveSandboxGitExcludes } from "../../sandbox/os-sandbox.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings, resolveSandboxGitExcludePath, resolveSandboxGitExcludes } from "../../sandbox/os-sandbox.js";
 import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES } from "../../config/tool-config.js";
 
@@ -216,21 +216,13 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
       protectedPaths: getStateSecretPaths(getConfig().paths), network: false, gitMetadataWritable: true,
     });
     const ignore = resolveSandboxGitExcludes(input.source, policy);
-    const rulePath = global.exitCode === 0 ? resolve(input.source, configured) : ignore?.source;
-    if (rulePath !== undefined) {
-      let selected: string | undefined;
-      try { selected = await realpath(rulePath); } catch (reason) {
-        if ((reason as NodeJS.ErrnoException).code !== "ENOENT") throw reason;
-      }
-      if (selected !== undefined) {
-        const offset = relative(await realpath(input.source), selected);
-        const inWorkspace = offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
-        if (!inWorkspace && selected !== ignore?.source) {
-          throw new Error("Safe Mode: source Git exclusion file is outside the workspace and is not the operator's global ignore file");
-        }
-        snapshot.globalExclude = await freezeRule(selected, snapshot);
+    if (global.exitCode === 0) {
+      const selected = resolveSandboxGitExcludePath(configured, policy);
+      if (selected === undefined || selected !== ignore?.source) {
+        throw new Error("Safe Mode: Git exclusions must name the operator's absolute, read-only ignore file");
       }
     }
+    if (ignore !== undefined) snapshot.globalExclude = await freezeRule(ignore.source, snapshot);
   }
   const shallowPath = (await git(["rev-parse", "--git-path", "shallow"], input.source, snapshot)).trim();
   try {
