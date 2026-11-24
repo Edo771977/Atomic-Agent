@@ -142,7 +142,7 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
     const runsDir = join(state, "fusion-runs");
     const { dir, run } = setup({
       runCheckpoints: new FusionRunStore({ dir: runsDir }),
-      runChecks: async () => ({ ok: true, results: [{ ok: true, stdoutTail: "detector evidence", impeccableVersion: "4.10.0" }] }),
+      runChecks: async () => ({ ok: true, results: [{ ok: true, stdoutTail: "detector evidence contact@example.test", impeccableVersion: "4.10.0" }] }),
     });
     try {
       const bin = join(dir, "node_modules", ".bin");
@@ -153,7 +153,7 @@ describe("fusion.delegate rules a project's visual criteria (issue #40)", () => 
       const { runId } = result.details.projectUpdate as { runId: string };
       const { facts } = readMilestoneEvidence({ runsDir, stateDir: state, runIds: [runId], criteriaOrder: [id] });
       const basis = facts[0]?.basis;
-      const hash = receiptHash("detector evidence");
+      const hash = receiptHash("[redacted]");
       expect(basis).toMatchObject({ kind: "check", checks: [{ kind: "ui", runId, outputHash: hash }] });
       expect(receiptHash(readFileSync(join(runsDir, runId, `ui-${hash}.txt`), "utf8"))).toBe(hash);
     } finally {

@@ -1378,18 +1378,20 @@ export function buildFusionDelegateTool(
         ? undefined
         : (check, record, ok) => {
           const kind = check.kind ?? check.type ?? "command";
+          const output = kind === "ui" ? redactPrivacyEvidence(ctx.sessionId, record.output, { always: true }) : record.output;
           if (kind === "ui" && evidenceRunsDir !== undefined && checkRun !== undefined) {
-            writeRunUiOutput(evidenceRunsDir, checkRun, record.output);
+            writeRunUiOutput(evidenceRunsDir, checkRun, output);
           }
           writeReceipt("check-run-record", () => ({
             kind,
             ...(check.task === undefined ? {} : { task: check.task }),
             definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
-            recordHash: receiptHash(record),
-            outputHash: receiptHash(record.output),
+            recordHash: receiptHash({ ...record, output }),
+            outputHash: receiptHash(output),
             exitCode: record.exitCode,
             ok,
           }));
+          return output;
         };
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();

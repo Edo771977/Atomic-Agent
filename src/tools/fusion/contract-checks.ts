@@ -194,7 +194,7 @@ export interface CheckRunRecord {
   files?: Array<{ path: string; sha256?: string }>;
 }
 
-export type CheckRunRecorder = (check: ContractCheck, record: CheckRunRecord, ok: boolean) => void;
+export type CheckRunRecorder = (check: ContractCheck, record: CheckRunRecord, ok: boolean) => string | void;
 
 const MAX_HASHED_BYTES = 8 * 1024 * 1024;
 
@@ -696,7 +696,7 @@ export async function runContractChecks(
     const output = result.ok ? undefined : checkOutput(result, headText);
     const criteria = check.criteria === undefined || check.criteria.length === 0 ? {} : { criteria: [...check.criteria] };
     const run = checkRunOf(check, result, check.task === undefined ? undefined : runFiles.get(check.task));
-    if (run !== undefined) ctx.recordCheckRun?.(check, run, result.ok);
+    const storedOutput = run === undefined ? undefined : ctx.recordCheckRun?.(check, run, result.ok);
     const ui = (check.kind ?? check.type) === "ui";
     const control = negativeVerdict(check, negativeResults.has(i), negativeResults.get(i), known);
     const evidenceCount = [result.impeccableFindings, result.impeccableSuppressions, result.impeccableExceptions].filter(lines => lines?.length).length;
@@ -708,7 +708,7 @@ export async function runContractChecks(
       ...(result.warningCount === undefined ? {} : { warningCount: result.warningCount }),
       ...(raw.consoleWarnings?.length ? { consoleWarningCount: raw.consoleWarnings.length } : {}),
       ...(raw.cleanupWarning === undefined ? {} : { cleanupWarning: true }),
-      ...(ui && run !== undefined ? { outputHash: receiptHash(run.output) } : {}),
+      ...(ui && run !== undefined ? { outputHash: receiptHash(storedOutput ?? run.output) } : {}),
       ...(result.artifactStatus === undefined ? {} : { artifactStatus: result.artifactStatus }),
       ...(result.impeccableVersion === undefined ? {} : { impeccableVersion: head(result.impeccableVersion, CHECK_DETAIL_CHARS) }),
       ...(result.impeccableFindings === undefined ? {} : { impeccableFindings: boundedImpeccableLines(result.impeccableFindings, evidenceBudget) }),
