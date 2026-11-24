@@ -41,3 +41,9 @@ The active Node installation is available read-only even under the private tempo
 Safe Mode does not import identity from the host Git configuration file. Git commits use the explicit GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL environment values or identity set in the repository. Configure those values explicitly for a commit that needs them.
 
 Safe Mode routes host Git tools and Fusion Git subprocesses through the same OS wrapper and refuses launch if the backend cannot apply it. Git metadata writes by these tools stay within authorized roots. Shell commands protect existing scoped Git metadata, including nested repositories and in-scope separate gitdirs, rediscovered before each launch. Existing node_modules and unreadable subtrees stay read-only during shell jobs. If the scan crosses its directory or mount budget, that workspace stays available read-only to the command. External gitdirs receive no writable mount and can be unavailable under a masked tree. Remote Git tool commands use the offline sandbox policy.
+
+### Linux pathname sockets
+
+Linux Safe Mode inventories and masks existing pathname sockets before launch. An offline command has its own network namespace, which hides host abstract Unix sockets. A host process can still create a pathname socket in an exposed workspace or toolchain directory after launch. Keep host pathname services outside sandbox-visible trees.
+
+The Bubblewrap 0.9 backend has no runtime pathname rule. A classic seccomp filter cannot inspect the address buffer passed to `connect`. Denying the calls needed for all pathname connections would also remove Verify's Unix relay. Landlock's abstract Unix-socket scope does not apply to filesystem socket paths. A future runtime policy needs a kernel and launcher that can mediate filesystem socket destinations and a narrow relay exception, verified independently from `socketpair`.
