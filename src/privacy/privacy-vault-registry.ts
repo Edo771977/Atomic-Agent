@@ -10,9 +10,19 @@ import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret
 import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
 
 const MAX_SESSION_VAULTS = 128;
+const MAX_CLOSED_SESSIONS = 1024;
 const vaults = new Map<string, PrivacyVault>();
 const closedSessions = new Set<string>();
 const activeTurns = new Map<string, number>();
+
+function markClosed(id: string): void {
+  closedSessions.delete(id);
+  closedSessions.add(id);
+  if (closedSessions.size > MAX_CLOSED_SESSIONS) {
+    const oldest = closedSessions.values().next().value;
+    if (oldest !== undefined) closedSessions.delete(oldest);
+  }
+}
 
 function trimVaults(): void {
   for (const id of vaults.keys()) {
@@ -128,7 +138,10 @@ export function rebuildPrivacyVault(
 export function linkPrivacyVault(sessionId: string, parentSessionId: string): void {
   if (sessionId === parentSessionId) return;
   const parent = vaultKey(parentSessionId);
-  if (closedSessions.has(parent)) closedSessions.add(sessionId);
+  if (closedSessions.has(parent)) {
+    forgetPrivacyVault(sessionId);
+    return;
+  }
   if (closedSessions.has(sessionId)) return;
   aliases.set(sessionId, parent);
   const turn = turnShield.getStore();
@@ -147,12 +160,12 @@ export function releasePrivacyVault(sessionId: string): void {
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
 export function forgetPrivacyVault(sessionId: string): void {
-  closedSessions.add(sessionId);
+  markClosed(sessionId);
   vaults.delete(sessionId);
   aliases.delete(sessionId);
   for (const [worker, parent] of aliases) {
     if (parent === sessionId) {
-      closedSessions.add(worker);
+      markClosed(worker);
       aliases.delete(worker);
     }
   }
