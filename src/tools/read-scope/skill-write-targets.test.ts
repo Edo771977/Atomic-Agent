@@ -92,4 +92,15 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
   });
+
+  it.each([
+    ["cd /scratch/shared; touch \"$NAME\"", true],
+    ["cd /scratch/shared; touch *.md", true],
+    ["for target in /scratch/shared/file /tmp/file; do touch \"$target\"; done", true],
+    ["for target in /tmp/file /var/tmp/file; do touch \"$target\"; done", false],
+  ] as const)("round five point 2 classifies %s", (cmd, blocked) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
+  });
 });

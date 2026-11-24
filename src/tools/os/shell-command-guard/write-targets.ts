@@ -405,6 +405,12 @@ function commandTargets(
   if (head.dynamic) return none;
   const name = commandName(head.text);
   const args = words.slice(i + 1);
+  if (name === "for" && scope && args[1]?.text === "in" && /^[A-Za-z_]\w*$/.test(args[0]?.text ?? "")) {
+    for (const item of args.slice(2)) {
+      rememberAssignment({ ...item, text: args[0]!.text + "=" + item.text }, cwd, scope);
+    }
+    return none;
+  }
   if (name === "export" && scope) {
     for (const assignment of args) rememberAssignment(assignment, cwd, scope);
     return none;
@@ -900,6 +906,7 @@ function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: Writ
     const [, braced, bare, suffix] = variable;
     const name = (braced ?? bare)!;
     const bases = name === "HOME" && scope.home ? [scope.home] : scope.assignments?.get(name) ?? [];
+    if (dir !== undefined && [...bases].length === 0) scope.placed.push(dir);
     for (const base of bases) {
       scope.placed.push(...plausibleWritePaths({ text: base + suffix, dynamic: true }, dir, scope.home));
     }
@@ -911,7 +918,7 @@ function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: Writ
 
 function plausibleWritePaths(word: ShellWord, dir: string | undefined, home?: string): string[] {
   const prefix = /^[^$*?\[]+/.exec(word.text)?.[0] ?? "";
-  if (!prefix || (prefix !== word.text && !prefix.includes("/"))) return [];
+  if (!prefix || (prefix !== word.text && !prefix.includes("/"))) return dir === undefined ? [] : [dir];
   const slash = prefix.lastIndexOf("/");
   const text = prefix === word.text ? prefix : prefix.slice(0, slash + 1);
   const path = resolveWord({ text, dynamic: false }, dir, home);
