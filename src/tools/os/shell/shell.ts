@@ -455,8 +455,12 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let spawnCommand = spawnSpec.command;
     let spawnArgs = spawnSpec.args;
     let sandboxNotice: string | null = null;
+    let windowsVerbatimArguments = spawnSpec.windowsVerbatimArguments;
     if (sandbox.mode === "workspace") {
       const network = rawArgs.network === true;
+      if (network && process.platform === "win32") {
+        throw new Error("Safe Mode on Windows denies networking, including one-time requests.");
+      }
       if (network && (!sandbox.network || isOfflineNetwork())) {
         throw new Error("Safe Mode networking is disabled by the operator or offline mode.");
       }
@@ -482,7 +486,12 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           protectedPaths: options.protectedPaths,
           network,
         }),
-        { cwd: pinned?.cwd ?? cwd },
+        {
+          cwd: pinned?.cwd ?? cwd,
+          windowsVerbatimArguments,
+          // Background jobs retain the existing wait and cancellation policy.
+          ...(rawArgs.timeoutMs !== undefined && rawArgs.timeoutMs > 0 ? { timeoutMs: rawArgs.timeoutMs } : {}),
+        },
       );
       if (!wrapped.ok) {
         return compressToolResult({
@@ -493,6 +502,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       }
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;
+      windowsVerbatimArguments = wrapped.windowsVerbatimArguments ?? windowsVerbatimArguments;
       sandboxNotice = network
         ? "Safe Mode sandbox requested with network access approved for this command."
         : "Safe Mode sandbox requested with external IP access blocked.";
@@ -513,7 +523,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       // A pinned run gets only the pin's filtered PATH (issue #95).
       env: markAgentToolChild(sandbox.mode === "workspace" ? buildOsSandboxEnv(commandEnv) : commandEnv),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
-      ...(spawnSpec.windowsVerbatimArguments
+      ...(windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
         : {}),
     });

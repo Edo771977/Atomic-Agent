@@ -28,7 +28,7 @@ export function prepareSandboxGit(
   const wrapped = wrapWithOsSandbox("git", args, buildOsSandboxPolicy({
     workspaceRoots, readOnlyWorkspaceRoots, gitMetadataWritable: true,
     stateDir: resolveStateDir(), protectedPaths: getStateSecretPaths(getConfig().paths), network: false,
-  }), { cwd });
+  }), { cwd, env });
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
   return { ...wrapped, env: buildOsSandboxEnv(sandboxGitEnv(env)) };
 }

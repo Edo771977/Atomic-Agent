@@ -10,6 +10,8 @@ import { accessSync, constants, existsSync, lstatSync, readdirSync, readFileSync
 import { homedir, tmpdir } from "node:os";
 import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
+import { wrapWindowsSandbox } from "./windows-sandbox.js";
+
 export type OsSandboxMode = "off" | "workspace";
 
 export interface OsSandboxSettings {
@@ -271,7 +273,7 @@ export function buildOsSandboxPolicy(
   const work = unique(input.workspaceRoots.map((p) => real(resolve(p))));
   const writableRoots = unique([
     ...work,
-    ...(process.platform === "linux" ? [] : [real(tmp)]),
+    ...(process.platform === "darwin" ? [real(tmp)] : []),
     // `/tmp` is a link to `/private/tmp` on macOS; both spellings.
     ...(process.platform === "darwin" ? ["/tmp", real("/tmp")] : []),
   ]);
@@ -336,7 +338,7 @@ export function buildOsSandboxPolicy(
 }
 
 export type OsSandboxWrap =
-  | { ok: true; command: string; args: string[] }
+  | { ok: true; command: string; args: string[]; windowsVerbatimArguments?: boolean }
   | { ok: false; reason: string };
 
 /** Where `sandbox-exec` lives; a test can point elsewhere. */
@@ -821,6 +823,9 @@ export interface WrapOptions {
   /** Whether `sandbox-exec` exists; checked when omitted. */
   seatbeltAvailable?: boolean;
   cwd?: string;
+  env?: NodeJS.ProcessEnv;
+  timeoutMs?: number;
+  windowsVerbatimArguments?: boolean;
   disableUsernsAvailable?: boolean;
   /** Optional callback for timing the live Linux inventory phases. */
   onInventoryTiming?: InventoryTiming;
@@ -877,6 +882,14 @@ export function wrapWithOsSandbox(
     [...LINUX_SYSTEM_TREES, ...LINUX_SYSTEM_ALIASES, ...LINUX_ETC_ENTRIES]
       .some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a writable workspace root overlaps a system filesystem mount" };
+  }
+  if (platform === "win32" && process.platform === "win32") {
+    return wrapWindowsSandbox(command, args, policy, {
+      cwd: cwd ?? policy.workspaceRoots[0] ?? process.cwd(),
+      env: options.env,
+      timeoutMs: options.timeoutMs,
+      verbatim: options.windowsVerbatimArguments,
+    });
   }
   const applyGitProtection = (hostMounts = new Set<string>(), deadline = Infinity): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
     ...policy,

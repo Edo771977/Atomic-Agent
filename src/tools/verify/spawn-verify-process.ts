@@ -159,7 +159,7 @@ export function spawnVerifyProcess(
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,
-    }), { cwd })
+    }), { cwd, env: options.env, timeoutMs: options.timeoutMs, windowsVerbatimArguments: invocation.windowsVerbatimArguments })
     : { ok: true as const, command: invocation.command, args: invocation.args };
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
   const env = withEnvOverrides({
@@ -172,7 +172,7 @@ export function spawnVerifyProcess(
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,
-    ...(invocation.windowsVerbatimArguments
+    ...(("windowsVerbatimArguments" in wrapped ? wrapped.windowsVerbatimArguments : undefined) ?? invocation.windowsVerbatimArguments
       ? { windowsVerbatimArguments: true }
       : {}),
   });
