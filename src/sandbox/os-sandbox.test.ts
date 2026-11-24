@@ -1,15 +1,17 @@
 import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
   buildOsSandboxPolicy,
@@ -362,5 +364,45 @@ it.skipIf(process.platform !== "linux")("round 4 point 2: hides backup and priva
     expect(child.error).toBeUndefined();
     expect(child.stderr).not.toContain("bwrap:");
     expect(child.stdout, path).toBe("");
+  }
+});
+
+it("round 4 point 5: a large dependency tree stays read-only without blocking shell launch", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-large-workspace-"));
+  try {
+    const deps = join(root, "node_modules");
+    mkdirSync(deps);
+    for (let i = 0; i < 50_001; i++) mkdirSync(join(deps, String(i)));
+    const wrapped = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({
+      workspaceRoots: [root], network: false,
+    }), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+    if (!wrapped.ok) throw new Error(wrapped.reason);
+    expect(wrapped.args.join(" ")).toContain(`--ro-bind ${deps} ${deps}`);
+
+    renameSync(deps, join(root, "large-tree"));
+    const large = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({
+      workspaceRoots: [root], network: false,
+    }), { platform: "linux", bwrap: "/usr/bin/bwrap" });
+    if (!large.ok) throw new Error(large.reason);
+    expect(large.args.join(" ")).toContain(`--ro-bind ${root} ${root}`);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}, 60_000);
+
+it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("round 4 point 5: inaccessible directories do not abort policy preparation", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-inaccessible-"));
+  const unreadable = join(root, "unreadable");
+  mkdirSync(unreadable);
+  chmodSync(unreadable, 0);
+  try {
+    const p = buildOsSandboxPolicy({ workspaceRoots: [root], network: false });
+    expect(wrapWithOsSandbox("true", [], p, { cwd: dirname(root) })).toMatchObject({ ok: false });
+    const wrapped = wrapWithOsSandbox("true", [], p, { platform: "linux", bwrap: "/usr/bin/bwrap" });
+    if (!wrapped.ok) throw new Error(wrapped.reason);
+    expect(wrapped.args.join(" ")).toContain(`--ro-bind ${unreadable} ${unreadable}`);
+  } finally {
+    chmodSync(unreadable, 0o700);
+    rmSync(root, { recursive: true, force: true });
   }
 });

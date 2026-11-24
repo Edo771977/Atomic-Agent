@@ -29,12 +29,12 @@ it.skipIf(!realBubblewrap)("Git and Fusion keep working inside Bubblewrap with l
     expect((await git(["commit", "-m", "synthetic fixture"])).exitCode).toBe(0);
 
     const policy = buildOsSandboxPolicy({ workspaceRoots: [root], network: false });
-    expect(policy.readOnlyGitRoots).toEqual(expect.arrayContaining([join(repo, ".git"), metadata]));
     const launch = wrapWithOsSandbox(process.execPath, ["-e",
       "try{require('node:fs').appendFileSync(process.argv[1],'fixture');process.exit(2)}catch(e){process.exit(e.code==='EROFS'?0:3)}",
       join(metadata, "config"),
     ], policy, { cwd: root });
     if (!launch.ok) throw new Error(launch.reason);
+    expect(launch.args).toEqual(expect.arrayContaining([join(repo, ".git"), metadata]));
     const child = spawnSync(launch.command, launch.args, { cwd: root, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
     expect(child.status, child.stderr).toBe(0);
 

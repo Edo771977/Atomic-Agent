@@ -51,6 +51,7 @@ export interface OsSandboxPolicy {
   writableRoots: readonly string[];
   workspaceRoots: readonly string[];
   readOnlyGitRoots: readonly string[];
+  gitMetadataWritable: boolean;
   readOnlyWorkspaceRoots: readonly string[];
   /**
    * Folders and files the command may not read (credential stores,
@@ -145,25 +146,42 @@ function unique(paths: readonly string[]): string[] {
 /** Recompute metadata on every shell launch, including repositories created since startup. */
 function gitMetadata(roots: readonly string[]): string[] {
   const readonly = new Set<string>();
-  const pending = roots.filter(isDirectory);
-  let visited = 0;
-  while (pending.length > 0) {
-    if (++visited > 50_000) throw new Error("Safe Mode: workspace Git metadata scan exceeded its directory limit");
-    const dir = pending.pop()!;
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const path = join(dir, entry.name);
-      if (entry.name !== ".git") {
-        if (entry.isDirectory()) pending.push(path);
-        continue;
+  for (const root of roots.filter(isDirectory)) {
+    const pending = [root];
+    let visited = 0;
+    while (pending.length > 0) {
+      if (++visited > 50_000 || readonly.size > 512) {
+        // Keep commands usable with a conservative read-only workspace instead
+        // of passing an unbounded number of mounts or leaving Git data writable.
+        for (const path of readonly) if (contains(root, path)) readonly.delete(path);
+        readonly.add(root);
+        break;
       }
-      const location = real(path);
-      if (roots.some(root => contains(root, location))) readonly.add(location);
-      if (entry.isFile() && lstatSync(path).size <= 4096) {
-        const pointer = /^gitdir: (.+)/m.exec(readFileSync(path, "utf8"))?.[1]?.trim();
-        if (pointer !== undefined) {
-          const gitdir = canonicalFuturePath(resolve(dir, pointer));
-          if (roots.some(root => contains(root, gitdir)) && isDirectory(gitdir)) readonly.add(gitdir);
+      const dir = pending.pop()!;
+      try {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const path = join(dir, entry.name);
+          if (entry.name !== ".git") {
+            if (entry.isDirectory()) {
+              if (entry.name === "node_modules") readonly.add(path);
+              else pending.push(path);
+            }
+            continue;
+          }
+          const location = real(path);
+          if (roots.some(candidate => contains(candidate, location))) readonly.add(location);
+          if (entry.isFile() && lstatSync(path).size <= 4096) {
+            const pointer = /^gitdir: (.+)/m.exec(readFileSync(path, "utf8"))?.[1]?.trim();
+            if (pointer !== undefined) {
+              const gitdir = canonicalFuturePath(resolve(dir, pointer));
+              if (roots.some(candidate => contains(candidate, gitdir)) && isDirectory(gitdir)) readonly.add(gitdir);
+            }
+          }
         }
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EACCES" || code === "EPERM") readonly.add(dir);
+        else if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
       }
     }
   }
@@ -238,8 +256,7 @@ export function buildOsSandboxPolicy(
     ...declared.filter(isAbsolute).map(real).filter(path => !privateRoots.some(root => contains(path, root))),
   ]);
   const readOnlyWorkspaceRoots = unique((input.readOnlyWorkspaceRoots ?? []).map(path => real(resolve(path))));
-  const readOnlyGitRoots = input.gitMetadataWritable ? [] : gitMetadata(work);
-  return { writableRoots, workspaceRoots: work, readOnlyGitRoots, readOnlyWorkspaceRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
+  return { writableRoots, workspaceRoots: work, readOnlyGitRoots: [], gitMetadataWritable: input.gitMetadataWritable === true, readOnlyWorkspaceRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -458,12 +475,16 @@ export function wrapWithOsSandbox(
     contains(policy.stateDir, root) || policy.protectedParents.some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a read-only input root overlaps protected host data" };
   }
+  const applyGitProtection = (): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
+    ...policy,
+    readOnlyGitRoots: gitMetadata(policy.workspaceRoots),
+  };
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);
     if (!available) {
       return { ok: false, reason: `${SANDBOX_EXEC} is missing on this Mac` };
     }
-    return { ok: true, command: SANDBOX_EXEC, args: seatbeltArgs(policy, command, args) };
+    return { ok: true, command: SANDBOX_EXEC, args: seatbeltArgs(applyGitProtection(), command, args) };
   }
   if (platform === "linux") {
     const bwrap = options.bwrap === undefined ? findBwrap() : options.bwrap;
@@ -477,7 +498,7 @@ export function wrapWithOsSandbox(
       warnedAboutRoot = true;
       process.emitWarning("Safe Mode is running with host UID 0. Run the agent as an ordinary user where possible.", { code: "ATOMIC_AGENT_SANDBOX_ROOT" });
     }
-    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
+    return { ok: true, command: bwrap, args: bwrapArgs(applyGitProtection(), command, args, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
   }
   return {
     ok: false,
