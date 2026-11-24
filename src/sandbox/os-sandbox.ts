@@ -143,10 +143,47 @@ function unique(paths: readonly string[]): string[] {
   return [...new Set(paths)];
 }
 
+function gitMounts(path: string, roots: readonly string[], output: Set<string>): void {
+  const location = real(path);
+  if (roots.some(root => contains(root, location))) output.add(location);
+  if (basename(path) !== ".git") return;
+  const info = lstatSync(path);
+  if (!info.isFile() || info.size > 4096) return;
+  const pointer = /^gitdir: (.+)/m.exec(readFileSync(path, "utf8"))?.[1]?.trim();
+  if (pointer === undefined) return;
+  const gitdir = canonicalFuturePath(resolve(dirname(path), pointer));
+  if (roots.some(root => contains(root, gitdir)) && isDirectory(gitdir)) output.add(gitdir);
+}
+
+function nativeGitMetadata(root: string, roots: readonly string[], hostMounts: ReadonlySet<string>): Set<string> | undefined {
+  const prune = [...hostMounts].filter(path => path !== root && contains(root, path));
+  const result = spawnSync("/usr/bin/find", [
+    "-P", root, ...prune.flatMap(path => ["-path", findPathPattern(path), "-prune", "-o"]),
+    "(", "-name", ".git", "-o", "-type", "d", "(", "-name", "node_modules", "-o", "!", "-readable", "-o", "!", "-executable", ")", ")",
+    "-print0", "-prune",
+  ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
+  if (result.status !== 0 || result.error !== undefined) return undefined;
+  const protectedPaths = new Set<string>();
+  try {
+    for (const path of result.stdout.split("\0").filter(Boolean)) {
+      if (!contains(root, path) || protectedPaths.size > 512) return undefined;
+      gitMounts(path, roots, protectedPaths);
+    }
+  } catch {
+    return undefined;
+  }
+  return protectedPaths;
+}
+
 /** Recompute metadata on every shell launch, including repositories created since startup. */
 function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>): string[] {
   const readonly = new Set<string>();
   for (const root of roots.filter(isDirectory)) {
+    const native = process.platform === "linux" ? nativeGitMetadata(root, roots, hostMounts) : undefined;
+    if (native !== undefined && native.size + readonly.size <= 512) {
+      for (const path of native) readonly.add(path);
+      continue;
+    }
     const pending = [root];
     let visited = 0;
     while (pending.length > 0) {
@@ -155,6 +192,7 @@ function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>):
         // of passing an unbounded number of mounts or leaving Git data writable.
         for (const path of readonly) if (contains(root, path)) readonly.delete(path);
         readonly.add(root);
+        process.emitWarning("Safe Mode Git inventory exceeded its safe scan or mount budget. This workspace is mounted read-only.", { code: "ATOMIC_AGENT_SANDBOX_GIT_BUDGET" });
         break;
       }
       const dir = pending.pop()!;
@@ -169,15 +207,7 @@ function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>):
             }
             continue;
           }
-          const location = real(path);
-          if (roots.some(candidate => contains(candidate, location))) readonly.add(location);
-          if (entry.isFile() && lstatSync(path).size <= 4096) {
-            const pointer = /^gitdir: (.+)/m.exec(readFileSync(path, "utf8"))?.[1]?.trim();
-            if (pointer !== undefined) {
-              const gitdir = canonicalFuturePath(resolve(dir, pointer));
-              if (roots.some(candidate => contains(candidate, gitdir)) && isDirectory(gitdir)) readonly.add(gitdir);
-            }
-          }
+          gitMounts(path, roots, readonly);
         }
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
@@ -458,6 +488,10 @@ function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<str
   return masks;
 }
 
+function findPathPattern(path: string): string {
+  return path.replace(/[\\*?\[\]]/g, "\\$&");
+}
+
 /**
  * GNU find can walk the live system trees without materializing every Dirent in
  * JavaScript. A failed or unsupported invocation falls back to the complete
@@ -466,7 +500,7 @@ function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<str
 function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system: boolean): string[][] | undefined {
   if (roots.length === 0) return [];
   const prune = [...inherited].filter(path => roots.some(root => contains(root, path)));
-  const inheritedArgs = prune.flatMap(path => ["-path", path.replace(/[\\*?\[\]]/g, "\\$&"), "-prune", "-o"]);
+  const inheritedArgs = prune.flatMap(path => ["-path", findPathPattern(path), "-prune", "-o"]);
   const result = spawnSync("/usr/bin/find", [
     "-P", ...roots, ...inheritedArgs,
     ...(system ? ["-type", "d", "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),

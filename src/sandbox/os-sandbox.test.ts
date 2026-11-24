@@ -418,7 +418,7 @@ it("round 4 point 5: a large dependency tree stays read-only without blocking sh
   try {
     const deps = join(root, "node_modules");
     mkdirSync(deps);
-    for (let i = 0; i < 50_001; i++) mkdirSync(join(deps, String(i)));
+    for (let i = 0; i < 60_001; i++) mkdirSync(join(deps, String(i)));
     const wrapped = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({
       workspaceRoots: [root], network: false,
     }), { platform: "linux", bwrap: "/usr/bin/bwrap" });
@@ -426,11 +426,22 @@ it("round 4 point 5: a large dependency tree stays read-only without blocking sh
     expect(wrapped.args.join(" ")).toContain(`--ro-bind ${deps} ${deps}`);
 
     renameSync(deps, join(root, "large-tree"));
+    const started = performance.now();
     const large = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({
       workspaceRoots: [root], network: false,
     }), { platform: "linux", bwrap: "/usr/bin/bwrap" });
     if (!large.ok) throw new Error(large.reason);
-    expect(large.args.join(" ")).toContain(`--ro-bind ${root} ${root}`);
+    expect(large.args.join(" ")).not.toContain(`--ro-bind ${root} ${root}`);
+    expect(performance.now() - started).toBeLessThan(5000);
+    if (process.env.ATOMIC_AGENT_REQUIRE_BWRAP === "1") {
+      const writable = wrapWithOsSandbox("/usr/bin/touch", [join(root, "ordinary")], buildOsSandboxPolicy({
+        workspaceRoots: [root], network: false,
+      }), { cwd: root });
+      if (!writable.ok) throw new Error(writable.reason);
+      const child = spawnSync(writable.command, writable.args, { cwd: root, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0);
+      expect(existsSync(join(root, "ordinary"))).toBe(true);
+    }
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
