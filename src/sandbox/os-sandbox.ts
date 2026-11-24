@@ -195,7 +195,7 @@ export function buildOsSandboxPolicy(
         ? [accountHome] : [];
     });
     maskedHomes = unique(["/root", ...otherHomes, ...accountHomes].map(real)).filter(path => path !== home && path !== "/");
-    secret.push(...["/etc/shadow", "/etc/gshadow", "/etc/sudoers", "/etc/sudoers.d", ...maskedHomes].flatMap(bothSpellings));
+    secret.push(...["/etc/shadow", "/etc/gshadow", "/etc/shadow-", "/etc/gshadow-", "/etc/shadow.bak", "/etc/gshadow.bak", "/etc/ssh", "/etc/ssl/private", "/var/backups", "/etc/sudoers", "/etc/sudoers.d", ...maskedHomes].flatMap(bothSpellings));
     if (home === "/root") secret.push("/root");
     const runtime = process.env.XDG_RUNTIME_DIR;
     const sockets = [
@@ -419,6 +419,7 @@ export interface WrapOptions {
  * The spawn for `command args` inside the sandbox, or why there is none
  * on this machine. The caller decides what to do without one.
  */
+let warnedAboutRoot = false;
 const usernsSupport = new Map<string, boolean>();
 function supportsDisableUserns(backend: string): boolean {
   const cached = usernsSupport.get(backend);
@@ -471,6 +472,10 @@ export function wrapWithOsSandbox(
         ok: false,
         reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
+    }
+    if (process.getuid?.() === 0 && !warnedAboutRoot) {
+      warnedAboutRoot = true;
+      process.emitWarning("Safe Mode is running with host UID 0. Run the agent as an ordinary user where possible.", { code: "ATOMIC_AGENT_SANDBOX_ROOT" });
     }
     return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
   }

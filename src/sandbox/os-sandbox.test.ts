@@ -350,3 +350,17 @@ it("round 4 point 4: mounts a workspace toolchain read-only after the writable w
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it.skipIf(process.platform !== "linux")("round 4 point 2: hides backup and private host credential paths", () => {
+  expect(policy().denyRead).toEqual(expect.arrayContaining([
+    "/etc/shadow-", "/etc/gshadow-", "/etc/ssh", "/etc/ssl/private", "/var/backups",
+  ]));
+  for (const path of (process.env.ATOMIC_AGENT_TEST_PRIVATE_FILES ?? "").split(":").filter(Boolean)) {
+    const launch = wrapWithOsSandbox("/bin/cat", [path], policy(), { bwrap: "/usr/bin/bwrap" });
+    if (!launch.ok) throw new Error(launch.reason);
+    const child = spawnSync(launch.command, launch.args, { cwd: "/", env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+    expect(child.error).toBeUndefined();
+    expect(child.stderr).not.toContain("bwrap:");
+    expect(child.stdout, path).toBe("");
+  }
+});
