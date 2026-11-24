@@ -1,9 +1,9 @@
 import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 
 import { buildOsSandboxEnv, buildOsSandboxPolicy, findBwrap, wrapWithOsSandbox } from "./os-sandbox.js";
 
@@ -155,4 +155,25 @@ it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("rou
     }
   `, [], false);
   expect(probe).toMatchObject({ code: 0 });
+});
+
+it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("round 5 point 2: pins protected ancestors without freezing ordinary writes", async () => {
+  const root = mkdtempSync("/tmp/atomic-pinned-");
+  try {
+    for (const path of ["tools/bin", "nested/project/.git"]) mkdirSync(join(root, path), { recursive: true });
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX_TOOLCHAINS", join(root, "tools/bin"));
+    const probe = await fixtureCommand(`
+      const fs = require("node:fs"), path = require("node:path");
+      const root = process.argv[1];
+      for (const name of ["tools", "nested", "nested/project"]) {
+        try { fs.renameSync(path.join(root, name), path.join(root, name + "-renamed")); process.exit(7); }
+        catch (error) { if (error.code !== "EBUSY") throw error; }
+      }
+      fs.writeFileSync(path.join(root, "nested/project/ordinary"), "fixture");
+    `, [root], false, [root]);
+    expect(probe, probe.output).toMatchObject({ code: 0 });
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

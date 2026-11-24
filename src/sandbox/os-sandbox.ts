@@ -576,6 +576,15 @@ function bwrapArgs(
     // An absent directory cannot be bound.
     if (existsSync(dir)) out.push("--bind", dir, dir);
   }
+  const pinned = new Set<string>();
+  for (const path of [...policy.toolchainRoots, ...policy.readOnlyWorkspaceRoots, ...policy.readOnlyGitRoots, ...policy.denyRead]) {
+    if (!existsSync(path)) continue;
+    for (let parent = dirname(path); policy.writableRoots.some(root => root !== parent && contains(root, parent)); parent = dirname(parent)) {
+      pinned.add(parent);
+    }
+  }
+  // Mountpoints cannot be renamed, while the self-bind leaves ordinary files writable.
+  for (const path of [...pinned].sort((a, b) => a.length - b.length)) out.push("--bind", path, path);
   for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const path of policy.readOnlyWorkspaceRoots) out.push("--ro-bind", path, path);
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
