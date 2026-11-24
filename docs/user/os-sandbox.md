@@ -47,3 +47,7 @@ Safe Mode routes host Git tools and Fusion Git subprocesses through the same OS 
 Linux Safe Mode inventories and masks existing pathname sockets before launch. An offline command has its own network namespace, which hides host abstract Unix sockets. A host process can still create a pathname socket in an exposed workspace or toolchain directory after launch. Keep host pathname services outside sandbox-visible trees.
 
 The Bubblewrap 0.9 backend has no runtime pathname rule. A classic seccomp filter cannot inspect the address buffer passed to `connect`. Denying the calls needed for all pathname connections would also remove Verify's Unix relay. Landlock's abstract Unix-socket scope does not apply to filesystem socket paths. A future runtime policy needs a kernel and launcher that can mediate filesystem socket destinations and a narrow relay exception, verified independently from `socketpair`.
+
+### Linux session keyring
+
+This backend does not currently isolate the inherited kernel session keyring or independently deny `add_key`, `keyctl` and `request_key`. Host kernel and container policy may already deny them. Safe Mode alone does not make host session keyrings suitable for storing credentials that sandboxed commands must never access. Enforcing this needs a trusted launcher with a verified syscall filter or a verified new session keyring, with coverage for supported Linux architectures.
