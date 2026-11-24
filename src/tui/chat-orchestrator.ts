@@ -456,7 +456,7 @@ export class ChatOrchestrator {
       localModels: this.localModels,
     });
     this.telegram = new TuiTelegramOrchestrator(runtime, bus);
-    this.privacy = new PrivacyOrchestrator(runtime, bus);
+    this.privacy = new PrivacyOrchestrator(runtime, bus, () => this.session?.id);
     // The hub drives Telegram through its existing orchestrator rather
     // than reimplementing pairing / restart / enable.
     this.integrations = new IntegrationsOrchestrator(

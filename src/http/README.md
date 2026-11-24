@@ -12,6 +12,7 @@ This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) b
 - [route-mcp.ts](route-mcp.ts)
 - [route-offline-mode.ts](route-offline-mode.ts): `GET`/`POST /api/offline-mode`, the network kill switch and its egress counter ([offline mode](../llm/docs/offline-network.md))
 - [route-sessions.ts](route-sessions.ts) also answers `GET /api/sessions/{id}/provider-restriction`: `{ restriction, channelsAllowed }`, the chat's per-folder provider restriction (`label`, `allowedProviders`, `folder`, `readFrom`, `movedFrom`) or `null` and whether its content may go to a chat channel or phone push (`allowedEgress` lists `channels`) ([provider policy](../llm/docs/provider-policy.md#status))
+- [route-privacy-shield.ts](route-privacy-shield.ts): `GET`/`POST`/`PATCH /api/privacy-shield`, the Privacy Shield switch and its "masked N" counter, `?sessionId=` for one chat ([privacy shield](../privacy/README.md))
 - [request-context.ts](request-context.ts)
 - [openai-completions-cancel.ts](openai-completions-cancel.ts)
 
@@ -271,6 +272,9 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/coding-mode` | Administration (admin) |
 | `GET /api/offline-mode` | Read (read) |
 | `POST /api/offline-mode` | Administration (admin) |
+| `GET /api/privacy-shield` | Read (read) |
+| `POST /api/privacy-shield` | Administration (admin) |
+| `PATCH /api/privacy-shield` | Administration (admin) |
 | `POST /api/context-preview` | Ordinary action (chat) |
 | `POST /api/complete` | Ordinary action (chat) |
 | `POST /api/local-model/recheck` | Administration (admin) |

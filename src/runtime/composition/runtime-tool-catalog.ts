@@ -980,6 +980,7 @@ export function registerRuntimeFusionAndReadScope(input: {
       prompt,
       maxOutputTokens,
       signal,
+      ...(sessionId === undefined ? {} : { sessionId }),
     };
     // The daily ceiling refuses a paid link before anything is sent,
     // as the fallback seam does for every other call (ATO-649).
