@@ -7,5 +7,5 @@ export function projectDecisionOriginRefusal(): string | undefined {
 
 
 export const GLOBAL_SKILL_MUTATIONS: ReadonlySet<string> = new Set([
-  "install", "update", "restore", "uninstall", "enable", "disable", "tap", "curate",
+  "install", "update", "restore", "uninstall", "enable", "disable", "tap", "curate", "project",
 ]);

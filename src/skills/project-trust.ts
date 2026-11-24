@@ -13,6 +13,8 @@ export const UNTRUSTED_SKILL_REASON = "not trusted in this folder yet";
 export const DECLINED_SKILL_REASON = "declined in this folder";
 
 /** Command an operator runs to trust a folder from a terminal. */
+export const PROJECT_TRUST_OPERATOR_HINT = "Ask the operator to review the project in their own interface.";
+
 export function projectTrustHint(workingDir: string): string {
   const arg = /^[\w@%+=:,./\\-]+$/.test(workingDir) ? workingDir : `"${workingDir}"`;
   return `atomic-agent skill project on --workspace ${arg}`;

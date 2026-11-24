@@ -115,6 +115,36 @@ describe("skillCommand", () => {
     },
   );
 
+  it.each([["enable", "demo"], ["disable", "demo"], ["project", "on"]])(
+    "refuses workspace %s in a tool process",
+    async (verb, value) => {
+      vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+      try {
+        expect(await skillCommand([verb, value, "--workspace", stateDir])).toBe(1);
+        expect(stderr).toContain("outside an agent tool process");
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
+
+  it("real CLI rejects trust changes from a tool process and points untrusted listings to the operator", () => {
+    const project = join(stateDir, "project");
+    writeSkill(join(project, ".atomic-agent", "skills"), "untrusted-demo");
+    const env = { ...process.env, HOME: stateDir, ATOMIC_AGENT_TOOL_CHILD: "1" };
+    const run = (...args: string[]) => spawnSync(process.execPath,
+      ["--import", "tsx", "src/cli/index.ts", "skill", ...args, "--workspace", project],
+      { env, encoding: "utf8", timeout: 15_000 },
+    );
+    const mutation = run("project", "on");
+    expect(mutation.status, mutation.stderr).toBe(1);
+    expect(mutation.stderr).toContain("outside an agent tool process");
+    const listing = run("list");
+    expect(listing.status, listing.stderr).toBe(0);
+    expect(listing.stdout).toContain("Ask the operator");
+    expect(listing.stdout).not.toContain("skill project on");
+  }, 30_000);
+
   it("update skips skills that were not installed from a hub", async () => {
     writeSkill(globalSkillsDir, "alpha");
     expect(await skillCommand(["update", "--check"])).toBe(0);
@@ -155,7 +185,7 @@ describe("skillCommand", () => {
     expect(await skillCommand(["project", "on", "--workspace", workspace])).toBe(0);
   });
 
-  it("lists project skills of an untrusted folder as untrusted with the command that trusts them", async () => {
+  it("lists untrusted project skills and asks the operator to review them", async () => {
     const workspace = join(stateDir, "repo");
     writeSkill(join(workspace, ".atomic-agent/skills"), "local-one");
     writeSkill(join(workspace, ".agents/skills"), "cloud-one");
@@ -163,10 +193,11 @@ describe("skillCommand", () => {
     vi.spyOn(process, "cwd").mockReturnValue(workspace);
     expect(await skillCommand(["list"])).toBe(0);
     expect(stdout).toMatch(/local-one\t.*\[project\]\tuntrusted/);
-    expect(stdout).toContain("untrusted: 1 project skill in this folder is not loaded until the folder is trusted: run atomic-agent skill project on --workspace ");
+    expect(stdout).toContain("untrusted: 1 project skill in this folder is not loaded until the folder is trusted. Ask the operator");
     stdout = ""; expect(await skillCommand(["list", "--workspace", workspace])).toBe(0);
     expect(stdout).toMatch(/cloud-one\t\[project\]\tnot trusted in this folder yet/);
-    expect(stdout).toContain("untrusted: This folder has 2 project skills and AGENTS.md. Run atomic-agent skill project on --workspace ");
+    expect(stdout).not.toContain("skill project on");
+    expect(stdout).toContain("untrusted: This folder has 2 project skills and AGENTS.md. Ask the operator");
 
     stdout = ""; expect(await skillCommand(["project", "on", "--workspace", workspace])).toBe(0);
     expect(stdout).toContain("(trusted: 2 skills, 1 instruction files)");

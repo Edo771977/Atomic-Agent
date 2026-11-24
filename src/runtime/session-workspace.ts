@@ -3,7 +3,7 @@ import { isIncognitoSession } from "../session/incognito.js";
 import type { AtomicAgentConfig } from "../config/index.js";
 import type { SessionState } from "../session/session-state.js";
 import type { SessionWorkspace, WorkspacePrepareOptions } from "../session/workspace-context.js";
-import { instructionTrust, projectTrustHint, skillTrust } from "../skills/project-trust.js";
+import { instructionTrust, PROJECT_TRUST_OPERATOR_HINT, skillTrust } from "../skills/project-trust.js";
 import { loadWorkspaceSkills } from "../skills/workspace-skills.js";
 import { listEnabledPluginSkills } from "../plugins/plugin-runtime.js";
 import type { StructuredLogger } from "../tracing/structured-logger.js";
@@ -38,7 +38,7 @@ export function createWorkspaceLoader(config: AtomicAgentConfig, logger?: Pick<S
         hinted.set(skills.workingDir, signature);
         // Operator log only: a hint in the model's context would invite it to trust the folder itself.
         logger.warn("project skills and instructions in this folder are not trusted yet and were not loaded", {
-          workingDir: skills.workingDir, skills: withheldSkills.length, instructionFiles: withheldFiles.length, hint: projectTrustHint(skills.workingDir) });
+          workingDir: skills.workingDir, skills: withheldSkills.length, instructionFiles: withheldFiles.length, hint: PROJECT_TRUST_OPERATOR_HINT });
       }
     }
     return { workingDir: skills.workingDir, cloud, skills, instructions: instructions.instructions,

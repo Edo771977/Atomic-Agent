@@ -1,3 +1,4 @@
+import { PROJECT_TRUST_OPERATOR_HINT } from "../skills/project-trust.js";
 import { GLOBAL_SKILL_MUTATIONS, projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { learnedSkillScope } from "../skills/learning/learn-scope.js";
 import { readFile } from "node:fs/promises";
@@ -5,7 +6,7 @@ import { resolve } from "node:path";
 import { setSkillDisabled, setProjectSkillsEnabled } from "../config/skill-policy-commands.js";
 import { pluginSkillPart } from "../plugins/plugin-install.js";
 import { loadWorkspaceSkills } from "../skills/workspace-skills.js";
-import { projectTrustHint, readProjectTrust, skillTrust } from "../skills/project-trust.js";
+import { readProjectTrust, skillTrust } from "../skills/project-trust.js";
 import { inspectProjectTrust, setProjectTrust, type ProjectTrustStatus } from "../runtime/project-trust.js";
 import {
   ensureUserConfigFileSync,
@@ -163,6 +164,10 @@ export async function skillCommand(args: string[]): Promise<number> {
 
 function handleWorkspaceSkill(args: string[], workspace: string): number {
   const [command, value] = args;
+  if (command === "enable" || command === "disable" || command === "project") {
+    const refusal = projectDecisionOriginRefusal();
+    if (refusal) throw new Error(refusal);
+  }
   if (command === "enable" || command === "disable") {
     if (!value || args.length !== 2) throw new Error("Expected skill enable|disable <name> --workspace <dir>");
     setSkillDisabled(value, command === "disable", workspace);
@@ -199,7 +204,7 @@ function handleWorkspaceSkill(args: string[], workspace: string): number {
     const trust = inspectProjectTrust(config, workspace);
     if (trust.trusted.instructions.length + trust.pending.instructions.length + trust.declined.instructions.length)
       process.stdout.write(`instructions: ${trust.trusted.instructions.length} trusted, ${trust.pending.instructions.length} not trusted yet, ${trust.declined.instructions.length} declined\n`);
-    if (trust.question) process.stdout.write(`untrusted: ${trust.question.replace(/ Trust (it|them)\?$/, "")} Run ${trust.hint} to trust.\n`);
+    if (trust.question) process.stdout.write(`untrusted: ${trust.question.replace(/ Trust (it|them)\?$/, "")} ${PROJECT_TRUST_OPERATOR_HINT}\n`);
     for (const message of view.diagnostics) process.stderr.write(`WARN: ${message}\n`);
   }
   return 0;
@@ -457,7 +462,7 @@ async function handleList(args: string[] = []): Promise<number> {
     process.stdout.write(`${name}\t-\t[missing]\tdisabled\t(not installed)\n`);
   }
   if (untrusted > 0) {
-    process.stdout.write(`untrusted: ${untrusted} project skill${untrusted === 1 ? "" : "s"} in this folder ${untrusted === 1 ? "is" : "are"} not loaded until the folder is trusted: run ${projectTrustHint(process.cwd())}\n`);
+    process.stdout.write(`untrusted: ${untrusted} project skill${untrusted === 1 ? "" : "s"} in this folder ${untrusted === 1 ? "is" : "are"} not loaded until the folder is trusted. ${PROJECT_TRUST_OPERATOR_HINT}\n`);
   }
   for (const e of errors) {
     process.stderr.write(`WARN: ${e.path}: ${e.error}\n`);
