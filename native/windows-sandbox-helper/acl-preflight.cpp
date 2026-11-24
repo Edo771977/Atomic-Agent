@@ -1,6 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <aclapi.h>
+#include <sddl.h>
 #include <userenv.h>
 #include <cstdio>
 #include <string>
@@ -42,18 +43,36 @@ static void grant(const wchar_t* path, PSID sid, DWORD mask, DWORD inheritance) 
     PACL updated = nullptr;
     error = SetEntriesInAclW(1, &entry, original, &updated);
     require(error == ERROR_SUCCESS, "construct ACL", error);
-    // SetKernelObjectSecurity updates the DACL of the handle's object only.
-    require(SetKernelObjectSecurity(object, DACL_SECURITY_INFORMATION,
-        [&]() -> PSECURITY_DESCRIPTOR {
-            static SECURITY_DESCRIPTOR replacement;
-            require(InitializeSecurityDescriptor(&replacement, SECURITY_DESCRIPTOR_REVISION) != FALSE,
-                "initialize security descriptor");
-            require(SetSecurityDescriptorDacl(&replacement, TRUE, updated, FALSE) != FALSE, "set DACL");
-            return &replacement;
-        }()) != FALSE, "apply ACL");
+    SECURITY_DESCRIPTOR replacement{};
+    require(InitializeSecurityDescriptor(&replacement, SECURITY_DESCRIPTOR_REVISION) != FALSE,
+        "initialize security descriptor");
+    require(SetSecurityDescriptorDacl(&replacement, TRUE, updated, FALSE) != FALSE, "set DACL");
+    require(SetKernelObjectSecurity(object, DACL_SECURITY_INFORMATION, &replacement) != FALSE, "apply ACL");
     LocalFree(updated);
     LocalFree(descriptor);
     CloseHandle(object);
+}
+
+// Independent diagnostic: bit 1 is available to ordinary packages, bit 2
+// to restricted packages. Resume only if exactly the LPAC bit is granted.
+static bool hasLpacAccess(HANDLE token) {
+    HANDLE impersonation = nullptr;
+    require(DuplicateToken(token, SecurityImpersonation, &impersonation) != FALSE,
+        "duplicate token for access check");
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
+        L"O:SYG:SYD:(A;;0x3;;;WD)(A;;0x1;;;S-1-15-2-1)(A;;0x2;;;S-1-15-2-2)",
+        SDDL_REVISION_1, &descriptor, nullptr) != FALSE, "create diagnostic security descriptor");
+    GENERIC_MAPPING mapping{};
+    PRIVILEGE_SET privileges{};
+    DWORD bytes = sizeof(privileges), granted = 0;
+    BOOL allowed = FALSE;
+    require(AccessCheck(descriptor, impersonation, MAXIMUM_ALLOWED, &mapping,
+        &privileges, &bytes, &granted, &allowed) != FALSE, "evaluate diagnostic ACL");
+    LocalFree(descriptor);
+    CloseHandle(impersonation);
+    std::printf("Diagnostic DACL granted mask=%lu\n", granted);
+    return allowed && granted == 2;
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -103,7 +122,7 @@ int wmain(int argc, wchar_t** argv) {
         EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
         "launch LPAC probe");
     HANDLE token = nullptr;
-    require(OpenProcessToken(process.hProcess, TOKEN_QUERY, &token) != FALSE, "open child token");
+    require(OpenProcessToken(process.hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &token) != FALSE, "open child token");
     DWORD appContainer = 0, lpac = 0, bytes = 0;
     BOOL queriedAppContainer = GetTokenInformation(token, TokenIsAppContainer, &appContainer,
         sizeof(appContainer), &bytes);
@@ -113,8 +132,15 @@ int wmain(int argc, wchar_t** argv) {
     DWORD lpacError = queriedLpac ? ERROR_SUCCESS : GetLastError();
     std::printf("AppContainer=%lu (query error=%lu), LPAC=%lu (query error=%lu)\n",
         appContainer, appContainerError, lpac, lpacError);
+    alignas(TOKEN_GROUPS) BYTE capabilityBuffer[sizeof(TOKEN_GROUPS)]{};
+    BOOL queriedCapabilities = GetTokenInformation(token, TokenCapabilities, capabilityBuffer,
+        sizeof(capabilityBuffer), &bytes);
+    const bool noCapabilities = queriedCapabilities &&
+        reinterpret_cast<const TOKEN_GROUPS*>(capabilityBuffer)->GroupCount == 0;
+    const bool accessCheckVerified = hasLpacAccess(token);
     CloseHandle(token);
-    if (!queriedAppContainer || appContainer != 1 || !queriedLpac || lpac != 1) {
+    if (!queriedAppContainer || appContainer != 1 || !noCapabilities || !accessCheckVerified ||
+        (queriedLpac && lpac != 1)) {
         TerminateProcess(process.hProcess, 2);
         return 2;
     }
