@@ -241,7 +241,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     },
   });
 
-  function install(level: ApprovalLevel, useRealShell = false): void {
+  function install(level: ApprovalLevel, useRealShell = false, protectDeletes = false): void {
     gate = new ApprovalGate({
       level,
       emit: (request) => {
@@ -261,7 +261,11 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
       readScope: () => readScope,
       approvals: { approvals: gate, approvalRequired: true },
       shellEnv: { home: s.home, platform: "linux" },
-      stateSecrets: { stateDir: s.stateDir, skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
+      stateSecrets: { stateDir: s.stateDir,
+        ...(protectDeletes ? { trustDeletePaths: getTrustConfigPaths({
+          stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
+        }) } : {}),
+        skillWritePaths: getSkillWriteProtectionPaths({ stateDir: s.stateDir }), files: [
         ...s.secrets.files,
         ...getStateSecretPaths({
           stateDir: s.stateDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models"),
@@ -510,6 +514,17 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     await shell({ cmd: "sed -i s/4/5/ ~/.atomic-agent/config.json" });
     expect(prompts.map((p) => p.category)).toEqual(["state_secret"]);
     expect(prompts[0]!.affectedResources).toEqual([s.config]);
+    expect(innerShells).toBe(1);
+  });
+
+  it("asks both approvals for an explicit hooks deletion in nested subshells", async () => {
+    install(4, false, true);
+    const hooks = join(s.stateDir, "hooks.json");
+    writeFileSync(hooks, "{}");
+    await shell({ cmd: '(( rm "$HOME/.atomic-agent/hooks.json" ))' });
+    expect(prompts.map((prompt) => [prompt.category, prompt.affectedResources])).toEqual([
+      ["state_secret", [hooks]], ["trust_config", [hooks]],
+    ]);
     expect(innerShells).toBe(1);
   });
 
