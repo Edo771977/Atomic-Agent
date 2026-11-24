@@ -289,7 +289,7 @@ const NETWORK_MACH_SERVICES = [
  * loopback IP kept. Paths arrive as `(param "...")` values from `-D`,
  * never as text here.
  */
-export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
+export function buildSeatbeltProfile(policy: OsSandboxPolicy, haveGitExcludes = false): string {
   const lines = ["(version 1)", "(allow default)", "(deny file-write*)"];
   const writable = policy.writableRoots.map(
     (_, i) => `(subpath (param "W${i}"))`,
@@ -309,6 +309,10 @@ export function buildSeatbeltProfile(policy: OsSandboxPolicy): string {
   }
   if (policy.readOnlyGitRoots.length > 0) {
     lines.push(`(deny file-write* ${policy.readOnlyGitRoots.map((_, i) => `(subpath (param "G${i}"))`).join(" ")})`);
+  }
+  if (haveGitExcludes) {
+    lines.push('(allow file-read* (literal (param "GIT_EXCLUDES")))',
+      '(deny file-write* (literal (param "GIT_EXCLUDES")))');
   }
   if (policy.denyRead.length > 0) {
     const denied = policy.denyRead.map((_, i) => `(subpath (param "R${i}"))`);
@@ -330,14 +334,29 @@ function seatbeltArgs(
   policy: OsSandboxPolicy,
   command: string,
   args: readonly string[],
+  cwd?: string,
 ): string[] {
+  const excludes = cwd === undefined ? undefined : resolveSandboxGitExcludes(cwd, policy);
   const params: string[] = ["-D", `HOME_ROOT=${policy.home}`];
   policy.readOnlyWorkspaceRoots.forEach((dir, i) => params.push("-D", `I${i}=${dir}`));
   policy.toolchainRoots.forEach((dir, i) => params.push("-D", `T${i}=${dir}`));
   policy.writableRoots.forEach((dir, i) => params.push("-D", `W${i}=${dir}`));
   policy.readOnlyGitRoots.forEach((dir, i) => params.push("-D", `G${i}=${dir}`));
   policy.denyRead.forEach((dir, i) => params.push("-D", `R${i}=${dir}`));
-  return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
+  if (excludes === undefined) return [...params, "-p", buildSeatbeltProfile(policy), command, ...args];
+  params.push("-D", `GIT_EXCLUDES=${excludes.source}`);
+  const profile = [...params, "-p", buildSeatbeltProfile(policy, true)];
+  if (excludes.source === excludes.destination) return [...profile, command, ...args];
+  // Seatbelt cannot alias a file. Write a minimal Git config in the per-command
+  // cache, then exec to preserve the original child's signal and I/O behavior.
+  const bootstrap = [
+    'set -eu', 'umask 077', '/bin/mkdir -p "$XDG_CACHE_HOME"',
+    'config=$(/usr/bin/mktemp "$XDG_CACHE_HOME/git-config.XXXXXX")',
+    'printf "%s\n" "$1" > "$config"', '/bin/chmod 400 "$config"',
+    'export GIT_CONFIG_GLOBAL="$config"', 'shift', 'exec "$@"',
+  ].join("\n");
+  return [...profile, "/bin/sh", "-c", bootstrap, "atomic-git-excludes",
+    `[core]\nexcludesFile = ${JSON.stringify(excludes.source)}`, command, ...args];
 }
 
 const SYSTEM_BWRAP_PATHS = [
@@ -451,6 +470,35 @@ function linuxSystemMounts(out: string[]): string[] {
   return trees;
 }
 
+/** Read only the operator's global ignore setting, using the system Git binary. */
+export function resolveSandboxGitExcludes(cwd: string, policy: OsSandboxPolicy): { source: string; destination: string } | undefined {
+  const home = homedir();
+  const xdg = process.env.XDG_CONFIG_HOME;
+  const destination = join(xdg && isAbsolute(xdg) ? xdg : join(home, ".config"), "git", "ignore");
+  const globalConfig = process.env.GIT_CONFIG_GLOBAL;
+  const result = spawnSync("/usr/bin/git", ["config", "--global", "--includes", "--path", "--null", "--get", "core.excludesFile"], {
+    cwd, encoding: "utf8", timeout: 500, maxBuffer: 64 * 1024,
+    env: { PATH: "/usr/bin:/bin", HOME: home, XDG_CONFIG_HOME: xdg, GIT_CONFIG_GLOBAL: globalConfig },
+  });
+  const configured = result.status === 0 ? (result.stdout ?? "").replace(/\0$/, "") : destination;
+  if (configured === "") return undefined;
+  const source = real(resolve(cwd, configured));
+  if (/[\u0000-\u001f]/.test(source) || basename(source) === ".gitconfig" || source === real(join(dirname(destination), "config")) ||
+    (globalConfig !== undefined && source === real(resolve(cwd, globalConfig))) ||
+    policy.denyRead.some(path => path !== policy.home && contains(path, source)) ||
+    ["/etc", "/proc", "/dev", "/sys", "/run"].some(path => contains(path, source)) ||
+    ["/proc", "/dev", "/sys", "/run", "/etc", "/usr", "/bin", "/lib", "/var"].some(path => contains(path, destination))) {
+    return undefined;
+  }
+  try {
+    const info = lstatSync(source);
+    if (info.isFile() && info.size <= 8 * 1024 * 1024) return { source, destination };
+  } catch {
+    // Git treats a missing or unreadable ignore file as empty.
+  }
+  return undefined;
+}
+
 /** Mount the workspace before read-only overlays, then mask host endpoints. */
 function bwrapArgs(
   policy: OsSandboxPolicy,
@@ -497,6 +545,10 @@ function bwrapArgs(
     if (homeMasks.includes(path) || !existsSync(path)) continue;
     if (isDirectory(path)) out.push("--tmpfs", path, "--remount-ro", path);
     else out.push("--ro-bind", "/dev/null", path);
+  }
+  const excludes = cwd === undefined ? undefined : resolveSandboxGitExcludes(cwd, policy);
+  if (excludes !== undefined && !policy.denyRead.some(path => path !== policy.home && contains(path, excludes.destination))) {
+    out.push("--ro-bind", excludes.source, excludes.destination);
   }
   if (!policy.network) out.push("--unshare-net");
   if (cwd !== undefined) out.push("--chdir", cwd);
@@ -575,7 +627,7 @@ export function wrapWithOsSandbox(
     if (!available) {
       return { ok: false, reason: `${SANDBOX_EXEC} is missing on this Mac` };
     }
-    return { ok: true, command: SANDBOX_EXEC, args: seatbeltArgs(applyGitProtection(), command, args) };
+    return { ok: true, command: SANDBOX_EXEC, args: seatbeltArgs(applyGitProtection(), command, args, cwd) };
   }
   if (platform === "linux") {
     const bwrap = options.bwrap === undefined ? findBwrap() : options.bwrap;

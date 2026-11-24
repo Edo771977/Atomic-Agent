@@ -25,7 +25,7 @@ With Safe Mode active, linked node_modules and .git from a verification copy rem
 
 A one-time shell network grant exposes host loopback services as well as external networks. On Linux sharing the network namespace also exposes abstract Unix sockets. An attached browser Chromium DevTools Protocol (CDP) listener on loopback is reachable with this grant. Isolating CDP separately would require a filtered network namespace or a trusted proxy that excludes the endpoint. Keep the grant off for a session that depends on CDP remaining private to the host.
 
-The host home directory is hidden. The trusted project and the running Node executable directory are exceptions. Node's directory is read-only. Git uses the remaining system and repository configuration subject to the Git execution safeguards. Host user Git configuration and credential files stay hidden. Linux temporary storage is private to the command.
+The host home directory is hidden. The trusted project and the running Node executable directory are exceptions. Node's directory is read-only. Git uses repository configuration subject to the Git execution safeguards. Safe Mode imports only the operator’s global Git ignore file, from core.excludesFile or the default XDG location, in read-only form. Fusion freezes those rule bytes in its snapshot. Host user Git configuration and credential files stay hidden. Linux temporary storage is private to the command.
 
 Each sandboxed command gets a distinct tool cache location. Linux removes its contents when the command’s private temporary filesystem is destroyed.
 

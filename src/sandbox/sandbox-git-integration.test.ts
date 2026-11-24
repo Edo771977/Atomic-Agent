@@ -56,3 +56,44 @@ it.skipIf(!realBubblewrap)("Git and Fusion keep working inside Bubblewrap with l
     await rm(root, { recursive: true, force: true });
   }
 });
+
+it.skipIf(!realBubblewrap).each(["configured", "xdg"])("round 4 point 3: Git status and Fusion use the same %s global exclusions in Safe Mode", async (kind) => {
+  const root = await mkdtemp(join(tmpdir(), "atomic-git-global-"));
+  try {
+    const home = join(root, "home");
+    const repo = join(root, "repo");
+    const xdg = join(home, "xdg");
+    await mkdir(join(xdg, "git"), { recursive: true });
+    await mkdir(repo);
+    const config = join(home, ".gitconfig");
+    const rules = kind === "configured" ? join(home, "custom-ignore") : join(xdg, "git", "ignore");
+    await writeFile(config, kind === "configured" ? `[core]\n\texcludesFile = "${rules}"\n` : "");
+    await writeFile(rules, "global-fixture.log\n");
+    vi.stubEnv("HOME", home);
+    vi.stubEnv("XDG_CONFIG_HOME", xdg);
+    vi.stubEnv("GIT_CONFIG_GLOBAL", config);
+    const git = (args: string[]) => runGit({
+      workingDir: repo, args, signal: new AbortController().signal,
+      env: { GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" },
+    });
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX", "off");
+    expect((await git(["init", "-q"])).exitCode).toBe(0);
+    expect((await git(["commit", "--allow-empty", "-m", "fixture"])).exitCode).toBe(0);
+    await writeFile(join(repo, "global-fixture.log"), "ignored fixture");
+    await writeFile(join(repo, "visible.txt"), "visible fixture");
+    const off = await git(["status", "--short"]);
+    expect(off.stdout).toBe("?? visible.txt\n");
+    const head = (await git(["rev-parse", "HEAD"])).stdout.trim();
+    const before = await preparePrivateGitSnapshot({ source: repo, head, seed: join(root, "off.git") });
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+    const on = await git(["status", "--short"]);
+    const after = await preparePrivateGitSnapshot({ source: repo, head, seed: join(root, "on.git") });
+    expect(on.stdout, on.stderr).toBe(off.stdout);
+    expect(after.globalExclude).toEqual(before.globalExclude);
+    expect(after.ignored).toEqual(before.ignored);
+    expect(after.untracked).toEqual(before.untracked);
+  } finally {
+    vi.unstubAllEnvs();
+    await rm(root, { recursive: true, force: true });
+  }
+}, 45_000);

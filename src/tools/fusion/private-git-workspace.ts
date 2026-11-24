@@ -4,13 +4,15 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { constants, createWriteStream, type Stats } from "node:fs";
 import { lstat, mkdir, open, readFile, readdir, readlink, realpath, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { homedir } from "node:os";
 import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createDeflate } from "node:zlib";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings, resolveSandboxGitExcludes } from "../../sandbox/os-sandbox.js";
+import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES } from "../../config/tool-config.js";
 
 const MAX_OBJECTS = 100_000, MAX_OUTPUT = 32 * 1024 * 1024;
@@ -200,12 +202,36 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
   const sourceEnv = env(emptyConfig); delete sourceEnv.GIT_CONFIG_GLOBAL; delete sourceEnv.GIT_CONFIG_NOSYSTEM;
   if (process.env.GIT_CONFIG_GLOBAL !== undefined) sourceEnv.GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL;
   if (process.env.GIT_CONFIG_NOSYSTEM !== undefined) sourceEnv.GIT_CONFIG_NOSYSTEM = process.env.GIT_CONFIG_NOSYSTEM;
+  const safeMode = readOsSandboxSettings().mode === "workspace";
   const global = await runSandboxGit([...prefix, ...sandboxGitArgs(), "config", "--path", "--null", "--get", "core.excludesFile"], { cwd: input.source, env: sandboxGitEnv(sourceEnv), timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, signal });
   signal.throwIfAborted();
   if ((global.exitCode !== 0 && global.exitCode !== 1) || global.truncated || global.timedOut) throw new Error("cannot freeze source Git global exclusions");
   const configured = global.stdout.replace(/\0$/, "");
-  const globalPath = global.exitCode === 0 ? configured === "" ? null : resolve(input.source, configured) : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
-  if (globalPath !== null) snapshot.globalExclude = await freezeRule(globalPath, snapshot);
+  if (!safeMode) {
+    const globalPath = global.exitCode === 0 ? configured === "" ? null : resolve(input.source, configured) : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
+    if (globalPath !== null) snapshot.globalExclude = await freezeRule(globalPath, snapshot);
+  } else if (global.exitCode !== 0 || configured !== "") {
+    const policy = buildOsSandboxPolicy({
+      workspaceRoots: [input.source], stateDir: resolveStateDir(),
+      protectedPaths: getStateSecretPaths(getConfig().paths), network: false, gitMetadataWritable: true,
+    });
+    const ignore = resolveSandboxGitExcludes(input.source, policy);
+    const rulePath = global.exitCode === 0 ? resolve(input.source, configured) : ignore?.source;
+    if (rulePath !== undefined) {
+      let selected: string | undefined;
+      try { selected = await realpath(rulePath); } catch (reason) {
+        if ((reason as NodeJS.ErrnoException).code !== "ENOENT") throw reason;
+      }
+      if (selected !== undefined) {
+        const offset = relative(await realpath(input.source), selected);
+        const inWorkspace = offset !== ".." && !offset.startsWith(`..${sep}`) && !isAbsolute(offset);
+        if (!inWorkspace && selected !== ignore?.source) {
+          throw new Error("Safe Mode: source Git exclusion file is outside the workspace and is not the operator's global ignore file");
+        }
+        snapshot.globalExclude = await freezeRule(selected, snapshot);
+      }
+    }
+  }
   const shallowPath = (await git(["rev-parse", "--git-path", "shallow"], input.source, snapshot)).trim();
   try {
     const file = resolve(input.source, shallowPath), info = await lstat(file);
