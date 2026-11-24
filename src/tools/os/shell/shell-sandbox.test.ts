@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { createServer } from "node:net";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
@@ -183,19 +183,36 @@ describe.skipIf(unavailable !== undefined)(
       expect(result.summary).toContain("end");
     });
 
-    it("protects both state keys and keeps npm test and git status usable", async () => {
+    it("protects both state keys and keeps git status and Python usable", async () => {
       const runner = tool(on);
       const keys = await runner.run({ cmd: 'cat "$ATO469_STATE/serve-api.key" "$ATO469_STATE/llama-server.key"; echo end' }, ctx());
       expect(keys.summary).toContain("end");
       expect(keys.summary).not.toMatch(/synthetic-(serve|llama)-marker/);
-      const npm = await runner.run({ cmd: "npm", args: ["test"] }, ctx());
-      expect(npm.summary).toContain("fixture-test-ok");
       if (process.platform === "linux") {
         const python = await runner.run({ cmd: "/usr/bin/python3", args: ["-c", "print('fixture-python-ok')"] }, ctx());
         expect(python.summary).toContain("fixture-python-ok");
       }
       const git = await runner.run({ cmd: "git init -q && git status --short" }, ctx());
       expect(git.summary).toContain("?? package.json");
+    });
+
+    it("keeps npm test usable in Safe Mode", async (test) => {
+      const nodeBin = dirname(realpathSync(process.execPath));
+      const hasLinuxNpm = [join(nodeBin, "npm"), "/usr/bin/npm"].some(existsSync);
+      // Codex can have npm on PATH in a separate installation from Node.
+      // Linux exposes the Node toolchain and explicitly configured roots.
+      if (
+        process.platform === "linux" &&
+        !hasLinuxNpm &&
+        !process.env.ATOMIC_AGENT_SANDBOX_TOOLCHAINS &&
+        process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1"
+      ) {
+        return test.skip("Safe Mode needs npm alongside Node, a system npm, or configured toolchain roots");
+      }
+
+      const npm = await tool(on).run({ cmd: "npm", args: ["test"] }, ctx());
+      expect(npm.status, npm.summary).toBe("ok");
+      expect(npm.summary).toContain("fixture-test-ok");
     });
 
     it("refuses a writable project containing state", async () => {

@@ -307,7 +307,11 @@ describe("rail session list — manual order", () => {
   });
 
   it("writes nothing for a move that changes nothing or names no row", () => {
-    const stored = [spokenTo("s-2", "second"), spokenTo("s-1", "first")];
+    // Make s-2 the first row regardless of the clock or id tiebreak.
+    const stored = [
+      { ...spokenTo("s-2", "second"), updatedAt: 2 },
+      { ...spokenTo("s-1", "first"), updatedAt: 1 },
+    ];
     const { orchestrator, written, actions } = harness(stored);
     orchestrator.refreshRecentSessions();
     const emitted = actions.length;
