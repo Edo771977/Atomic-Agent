@@ -1,8 +1,15 @@
+import * as backupService from "../memory/memory-backup.js";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((done) => { resolve = done; });
+  return { promise, resolve };
+}
 
 describe("operator memory routes", () => {
   let harness: Harness;
@@ -123,13 +130,56 @@ describe("operator memory routes", () => {
     expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
   });
 
+  it.each([
+    ["backup-exists", 409], ["contains-credential", 422], ["no-database", 422],
+  ] as const)("maps backup refusals to stable codes: %s", async (code, status) => {
+    vi.spyOn(backupService, "createMemoryBackup")
+      .mockRejectedValueOnce(new backupService.MemoryBackupError("private detail for test", code));
+    const response = await send("/api/memory/backup", {});
+    expect(response.status).toBe(status);
+    const body = await response.text();
+    expect(JSON.parse(body)).toMatchObject({ error: { code } });
+    expect(body).not.toContain("private detail");
+  });
+
+  it("allows only one HTTP backup in flight", async () => {
+    const actual = backupService.createMemoryBackup;
+    const started = deferred();
+    const resume = deferred();
+    vi.spyOn(backupService, "createMemoryBackup").mockImplementationOnce(async (...args) => {
+      started.resolve();
+      await resume.promise;
+      return actual(...args);
+    });
+    const first = send("/api/memory/backup", {});
+    await started.promise;
+    try {
+      const second = await send("/api/memory/backup", {});
+      expect(second.status).toBe(409);
+      expect(await second.json()).toMatchObject({ error: { code: "backup-running" } });
+    } finally {
+      resume.resolve();
+      expect((await first).status).toBe(200);
+    }
+  });
+
+  it("logs unexpected backup errors without sensitive details", async () => {
+    const logger = vi.spyOn(harness.runtime.logger, "error");
+    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("private detail for test"));
+    const response = await send("/api/memory/backup", {});
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("private detail");
+    expect(logger).toHaveBeenCalledWith("Memory operator request failed");
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
+  });
+
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
     const response = await send("/api/memory/backup", {});
     expect(response.status).toBe(200);
     const backup = await response.json() as { name: string };
     expect(backup).toEqual({
-      name: expect.stringMatching(/^memory-\d{8}-\d{6}$/),
+      name: expect.stringMatching(/^memory-\d{8}-\d{6}-[a-f0-9-]{36}$/),
       size: expect.any(Number), date: expect.any(String),
     });
     expect(await readdir(join(harness.stateDir, "backups", backup.name))).toContain("memory.sqlite");

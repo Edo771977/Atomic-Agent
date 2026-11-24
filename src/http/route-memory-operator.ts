@@ -1,6 +1,7 @@
+import { randomUUID } from "node:crypto";
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
-import { createMemoryBackup, defaultBackupDir } from "../memory/memory-backup.js";
+import { createMemoryBackup, defaultBackupDir, MemoryBackupError } from "../memory/memory-backup.js";
 import { MemoryValidationError } from "../memory/memory-store.js";
 import { ProfileValidationError } from "../memory/profile-store.js";
 import { checkOperatorJsonRequest } from "./loopback-guard.js";
@@ -9,7 +10,7 @@ import { openaiError } from "./openai-errors.js";
 import { BodyParseError, readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
 
 class MemoryChoiceConflict extends Error {
-  constructor(readonly code: "turn-running" | "incognito" | "stale-view") {
+  constructor(readonly code: "turn-running" | "incognito" | "stale-view" | "backup-running") {
     super(code);
   }
 }
@@ -52,6 +53,7 @@ function operatorPost(
       if (error instanceof MemoryChoiceConflict) {
         const message = error.code === "stale-view" ? "Refresh the memory list and try again."
           : error.code === "incognito" ? "Unavailable while an incognito chat is open."
+          : error.code === "backup-running" ? "A memory backup is already running."
           : "Wait for the turn to finish.";
         return sendError(res, 409, openaiError(message, "invalid_request_error", null, error.code));
       }
@@ -61,6 +63,16 @@ function operatorPost(
       if (error instanceof RequestError) {
         return sendError(res, error.status, openaiError(error.message));
       }
+      if (error instanceof MemoryBackupError && error.code) {
+        const message = {
+          "backup-exists": "The backup destination is already in use.",
+          "contains-credential": "Memory contains a credential. Remove it before backing up.",
+          "no-database": "There is no memory database to back up.",
+        }[error.code];
+        return sendError(res, error.code === "backup-exists" ? 409 : 422,
+          openaiError(message, "invalid_request_error", null, error.code));
+      }
+      ctx.runtime.logger.error("Memory operator request failed");
       sendError(res, 500, openaiError("Memory operation failed", "server_error"));
     }
   };
@@ -102,12 +114,19 @@ export function createMemoryStateHandler(kind: "note" | "profile"): HttpHandler 
 }
 
 export function createMemoryBackupHandler(): HttpHandler {
+  let running = false;
   return operatorPost(async (body, ctx) => {
     if (Object.keys(body).length !== 0) throw new RequestError(400, "Backup accepts an empty JSON object");
-    const paths = ctx.runtime.config.paths;
-    const directory = defaultBackupDir(paths.stateDir);
-    const file = await createMemoryBackup(paths, directory, () => assertIdle(ctx));
-    const metadata = await stat(file);
-    return { name: basename(directory), size: metadata.size, date: metadata.mtime.toISOString() };
+    if (running) throw new MemoryChoiceConflict("backup-running");
+    running = true;
+    try {
+      const paths = ctx.runtime.config.paths;
+      const directory = `${defaultBackupDir(paths.stateDir)}-${randomUUID()}`;
+      const file = await createMemoryBackup(paths, directory, () => assertIdle(ctx));
+      const metadata = await stat(file);
+      return { name: basename(directory), size: metadata.size, date: metadata.mtime.toISOString() };
+    } finally {
+      running = false;
+    }
   });
 }
