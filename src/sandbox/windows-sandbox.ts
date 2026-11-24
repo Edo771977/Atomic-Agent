@@ -171,7 +171,7 @@ function scanProject(root: string, countLimit: number): { count: number; probe?:
 }
 
 /** Gather details for the operator prompt. This step only reads the workspace. */
-export function planWindowsSandbox(statePath: string, rootPath: string): WindowsSandboxPlan | undefined {
+export function planWindowsSandbox(statePath: string, rootPath: string, protectedPaths: readonly string[]): WindowsSandboxPlan | undefined {
   requireOperator();
   mkdirSync(statePath, { recursive: true });
   const state = canonical(statePath);
@@ -181,6 +181,9 @@ export function planWindowsSandbox(statePath: string, rootPath: string): Windows
 
   const profile = getProfile(root);
   const readOnlyRoots = runtimeRoots(helper);
+  if ([root, ...readOnlyRoots].some(path => protectedPaths.some(secret => overlaps(path, secret)))) {
+    throw new Error("Windows sandbox project or runtime overlaps a protected file");
+  }
   const recorded = readGrants(state).find(grant => grant.profile === profile);
   if (recorded?.status === "granted" && JSON.stringify(recorded.readOnlyRoots) === JSON.stringify(readOnlyRoots) &&
     probeWindowsSandbox(root, state)) return undefined;
@@ -309,7 +312,11 @@ export function wrapWindowsSandbox(command: string, args: readonly string[], pol
   if (policy.workspaceRoots.length !== 1 || policy.readOnlyWorkspaceRoots.length > 0) {
     return { ok: false, reason: "Windows sandbox requires a single approved project root" };
   }
-  return createWindowsLaunch(command, args, policy.workspaceRoots[0], policy.stateDir, options);
+  const root = policy.workspaceRoots[0];
+  if (policy.denyRead.some(path => overlaps(root, path))) {
+    return { ok: false, reason: "Windows sandbox project overlaps a protected credential path" };
+  }
+  return createWindowsLaunch(command, args, root, policy.stateDir, options);
 }
 
 function probeWindowsSandbox(root: string, state: string): boolean {
