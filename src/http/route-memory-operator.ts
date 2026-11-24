@@ -1,6 +1,8 @@
+import { withFileLock } from "../session/project-lock.js";
 import { randomUUID } from "node:crypto";
+import { readdirSync } from "node:fs";
 import { stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { createMemoryBackup, defaultBackupDir, MemoryBackupError } from "../memory/memory-backup.js";
 import { MemoryValidationError } from "../memory/memory-store.js";
 import { ProfileValidationError } from "../memory/profile-store.js";
@@ -9,8 +11,11 @@ import { memoryFingerprint, safeOperatorFact } from "./memory-operator-view.js";
 import { openaiError } from "./openai-errors.js";
 import { BodyParseError, readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
 
+const HTTP_BACKUP_LIMIT = 20;
+const HTTP_BACKUP_NAME = /^memory-\d{8}-\d{6}-[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/i;
+
 class MemoryChoiceConflict extends Error {
-  constructor(readonly code: "turn-running" | "incognito" | "stale-view" | "backup-running") {
+  constructor(readonly code: "turn-running" | "incognito" | "stale-view" | "backup-running" | "backup-limit") {
     super(code);
   }
 }
@@ -31,6 +36,7 @@ function sendConflict(res: Parameters<HttpHandler>[1], error: MemoryChoiceConfli
     "stale-view": "Refresh the memory list and try again.",
     incognito: "Unavailable while an incognito chat is open.",
     "backup-running": "A memory backup is already running.",
+    "backup-limit": "The 20 HTTP backups are full. Remove an old HTTP backup before creating another.",
     "turn-running": "Wait for the turn to finish.",
   }[error.code];
   sendError(res, 409, openaiError(message, "invalid_request_error", null, error.code));
@@ -129,20 +135,40 @@ export function createMemoryStateHandler(kind: "note" | "profile"): HttpHandler 
   });
 }
 
+function assertBackupCapacity(root: string): void {
+  try {
+    const entries = readdirSync(root, { withFileTypes: true });
+    if (entries.filter((entry) => entry.isDirectory() && HTTP_BACKUP_NAME.test(entry.name)).length >= HTTP_BACKUP_LIMIT) {
+      throw new MemoryChoiceConflict("backup-limit");
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
+}
+
 export function createMemoryBackupHandler(): HttpHandler {
   let running = false;
-  let lastAttempt = -Infinity;
+  let lastBackup = -Infinity;
   return operatorPost(async (body, ctx) => {
     if (Object.keys(body).length !== 0) throw new RequestError(400, "Backup accepts an empty JSON object");
     if (running) throw new MemoryChoiceConflict("backup-running");
     const now = performance.now();
-    if (now - lastAttempt < 60_000) throw new RequestError(429, "Wait one minute between HTTP backup attempts.", "backup-cooldown");
-    lastAttempt = now;
+    if (now - lastBackup < 60_000) throw new RequestError(429, "Wait one minute between HTTP backups.", "backup-cooldown");
     running = true;
     try {
       const paths = ctx.runtime.config.paths;
       const directory = `${defaultBackupDir(paths.stateDir)}-${randomUUID()}`;
-      const file = await createMemoryBackup(paths, directory, () => assertIdle(ctx));
+      const root = dirname(directory);
+      assertBackupCapacity(root);
+      const file = await createMemoryBackup(paths, directory, (publish) => {
+        const locked = withFileLock(join(root, ".http-memory-backup.lock"), () => {
+          assertIdle(ctx);
+          assertBackupCapacity(root);
+          publish();
+          lastBackup = performance.now();
+        }, { waitMs: 0 });
+        if (!locked.ok) throw new MemoryChoiceConflict("backup-running");
+      });
       const metadata = await stat(file);
       return { name: basename(directory), size: metadata.size, date: metadata.mtime.toISOString() };
     } finally {

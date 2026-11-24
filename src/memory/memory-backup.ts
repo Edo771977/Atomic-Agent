@@ -124,7 +124,11 @@ function assertNoSecrets(db: Database.Database): void {
 }
 
 /** Publish the complete database into an exclusively claimed directory. */
-export async function createMemoryBackup(context: MemoryBackupContext, directory: string, beforePublish?: () => void): Promise<string> {
+export async function createMemoryBackup(
+  context: MemoryBackupContext,
+  directory: string,
+  publishWith?: (publish: () => void) => void,
+): Promise<string> {
   assertMemoryBackupAllowed(context.incognito);
   const dest = resolve(directory);
   if (!existsSync(context.memoryDbFile)) throw new MemoryBackupError("no memory database to back up", "no-database");
@@ -171,25 +175,28 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     writeFileSync(instructions, MEMORY_RESTORE_INSTRUCTIONS, { mode: 0o600, flush: true });
     restrictBackupPath(instructions, false);
     syncDirectoryBestEffort(staging);
-    try {
-      beforePublish?.();
-      mkdirSync(dest, { mode: 0o700 });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new MemoryBackupError("backup directory already exists", "backup-exists");
+    const publish = (): void => {
+      try {
+        mkdirSync(dest, { mode: 0o700 });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "EEXIST") {
+          throw new MemoryBackupError("backup directory already exists", "backup-exists");
+        }
+        throw error;
       }
-      throw error;
-    }
-    try {
-      restrictBackupPath(dest, true);
-      linkSync(instructions, join(dest, "RESTORE.txt"));
-      // The complete database becomes available in a single filesystem operation.
-      linkSync(output, join(dest, MEMORY_BACKUP_FILE));
-      syncDirectoryBestEffort(dest);
-    } catch (error) {
-      rmSync(dest, { recursive: true, force: true });
-      throw error;
-    }
+      try {
+        restrictBackupPath(dest, true);
+        linkSync(instructions, join(dest, "RESTORE.txt"));
+        // The complete database becomes available in a single filesystem operation.
+        linkSync(output, join(dest, MEMORY_BACKUP_FILE));
+        syncDirectoryBestEffort(dest);
+      } catch (error) {
+        rmSync(dest, { recursive: true, force: true });
+        throw error;
+      }
+    };
+    if (publishWith) publishWith(publish);
+    else publish();
     syncDirectoryBestEffort(dirname(dest));
     return join(dest, MEMORY_BACKUP_FILE);
   } finally {

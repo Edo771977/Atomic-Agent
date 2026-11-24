@@ -1,7 +1,9 @@
 import * as backupService from "../memory/memory-backup.js";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHttpServer } from "./http-server.js";
+import { createMemoryBackupHandler } from "./route-memory-operator.js";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -171,6 +173,60 @@ describe("operator memory routes", () => {
     expect(await response.text()).not.toContain("private detail");
     expect(logger).toHaveBeenCalledWith("Memory operator request failed");
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
+  });
+
+  it("allows an immediate retry after an HTTP backup fails before publishing", async () => {
+    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("disk failure"));
+    expect((await send("/api/memory/backup", {})).status).toBe(500);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+  });
+
+  async function seedHttpBackups(count: number): Promise<string> {
+    const root = join(harness.runtime.config.paths.stateDir, "backups");
+    for (let index = 0; index < count; index += 1) {
+      const dir = join(root, "memory-20261124-120000-00000000-0000-4000-8000-" + String(index).padStart(12, "0"));
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, backupService.MEMORY_BACKUP_FILE), "");
+    }
+    return root;
+  }
+
+  it("refuses to retain more than twenty HTTP backups", async () => {
+    const root = await seedHttpBackups(20);
+    const response = await send("/api/memory/backup", {});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "backup-limit" } });
+    expect(await readdir(root)).toHaveLength(20);
+  });
+
+  it("enforces the retained backup cap at publication across listeners", async () => {
+    const root = await seedHttpBackups(19);
+    const second = await createHttpServer({
+      runtime: harness.runtime, apiKey: "owner-test-token", host: "127.0.0.1", port: 0,
+      routes: [{ method: "POST", path: "/api/memory/backup", handler: createMemoryBackupHandler() }],
+    });
+    const rendezvous = deferred();
+    const create = backupService.createMemoryBackup;
+    let started = 0;
+    vi.spyOn(backupService, "createMemoryBackup").mockImplementation(async (...args) => {
+      if (++started === 2) rendezvous.resolve();
+      await rendezvous.promise;
+      return create(...args);
+    });
+    try {
+      const [first, other] = await Promise.all([
+        send("/api/memory/backup", {}),
+        fetch("http://127.0.0.1:" + second.port + "/api/memory/backup", {
+          method: "POST", headers: { authorization: "Bearer owner-test-token", "content-type": "application/json" }, body: "{}",
+        }),
+      ]);
+      expect([first.status, other.status].sort()).toEqual([200, 409]);
+      expect(await (first.status === 409 ? first : other).json()).toMatchObject({ error: { code: "backup-limit" } });
+      expect(await readdir(root)).toHaveLength(20);
+    } finally {
+      rendezvous.resolve();
+      await second.close();
+    }
   });
 
   it("limits the frequency of HTTP backup attempts", async () => {
