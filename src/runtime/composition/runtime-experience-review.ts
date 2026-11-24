@@ -1,5 +1,5 @@
 import { sameSideCallProvider, type SideCallProvider } from "./turn-sidecall-provider.js";
-import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
+import { releasePrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
 import { join } from "node:path";
 import { learnedSkillScope, withLearnedTurn } from "../../skills/learning/learn-scope.js";
 import { currentProviderPolicy } from "../../llm/provider-policy.js";
@@ -209,7 +209,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     } finally {
       clearTimeout(timer);
       deps.pending.delete(abort);
-      forgetPrivacyVault(sessionId);
+      releasePrivacyVault(sessionId);
       release();
     }
   };

@@ -10,18 +10,33 @@ import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret
 import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
 
 const MAX_SESSION_VAULTS = 128;
-const MAX_CLOSED_SESSIONS = 1024;
+const CLOSED_SESSION_TTL_MS = 30 * 60_000;
+const CLOSED_WORKER_TTL_MS = 5 * 60_000;
 const vaults = new Map<string, PrivacyVault>();
-const closedSessions = new Set<string>();
+const closedSessions = new Map<string, number>();
+const closedWorkers = new Map<string, number>();
 const activeTurns = new Map<string, number>();
 
-function markClosed(id: string): void {
-  closedSessions.delete(id);
-  closedSessions.add(id);
-  if (closedSessions.size > MAX_CLOSED_SESSIONS) {
-    const oldest = closedSessions.values().next().value;
-    if (oldest !== undefined) closedSessions.delete(oldest);
+function pruneClosed(ids: Map<string, number>, now: number): void {
+  for (const [id, expires] of ids) {
+    if (expires > now) break;
+    ids.delete(id);
   }
+}
+
+function isClosed(id: string): boolean {
+  const now = performance.now();
+  pruneClosed(closedSessions, now);
+  pruneClosed(closedWorkers, now);
+  return closedSessions.has(id) || closedWorkers.has(id);
+}
+
+function markClosed(id: string, worker = id.startsWith("s-w-")): void {
+  const ids = worker ? closedWorkers : closedSessions;
+  const now = performance.now();
+  pruneClosed(ids, now);
+  ids.delete(id);
+  ids.set(id, now + (worker ? CLOSED_WORKER_TTL_MS : CLOSED_SESSION_TTL_MS));
 }
 
 function trimVaults(): void {
@@ -105,7 +120,7 @@ export function setPrivacyKnownSecrets(source: () => readonly KnownSecret[]): vo
 
 export function privacyVaultFor(sessionId: string | null | undefined): PrivacyVault {
   // Auxiliary calls have no session lifetime and must not share substitutions.
-  if (!sessionId || closedSessions.has(sessionId)) return newVault();
+  if (!sessionId || isClosed(sessionId)) return newVault();
   const key = vaultKey(sessionId);
   const vault = vaults.get(key) ?? newVault();
   vaults.delete(key);
@@ -138,11 +153,11 @@ export function rebuildPrivacyVault(
 export function linkPrivacyVault(sessionId: string, parentSessionId: string): void {
   if (sessionId === parentSessionId) return;
   const parent = vaultKey(parentSessionId);
-  if (closedSessions.has(parent)) {
-    forgetPrivacyVault(sessionId);
+  if (isClosed(parent)) {
+    closePrivacyVault(sessionId, true);
     return;
   }
-  if (closedSessions.has(sessionId)) return;
+  if (isClosed(sessionId)) return;
   aliases.set(sessionId, parent);
   const turn = turnShield.getStore();
   if (turn?.id === parent) turn.shared = true;
@@ -160,12 +175,16 @@ export function releasePrivacyVault(sessionId: string): void {
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
 export function forgetPrivacyVault(sessionId: string): void {
-  markClosed(sessionId);
+  closePrivacyVault(sessionId);
+}
+
+function closePrivacyVault(sessionId: string, worker?: boolean): void {
+  markClosed(sessionId, worker);
   vaults.delete(sessionId);
   aliases.delete(sessionId);
   for (const [worker, parent] of aliases) {
     if (parent === sessionId) {
-      markClosed(worker);
+      markClosed(worker, true);
       aliases.delete(worker);
     }
   }
@@ -208,6 +227,7 @@ export function privacyShieldTotals(): PrivacyShieldTotals {
 export function resetPrivacyVaults(): void {
   vaults.clear();
   closedSessions.clear();
+  closedWorkers.clear();
   activeTurns.clear();
   aliases.clear();
   knownSecrets = () => knownSecretsFromEnv();

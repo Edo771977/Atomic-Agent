@@ -159,9 +159,12 @@ it("restores only references delivered to the current worker", async () => {
   });
 });
 
-it("bounds closed session IDs and retains the most recent closure", () => {
+it("keeps recent deletion markers through bursts of transient worker closures", () => {
   forgetPrivacyVault("old-closed-id");
-  for (let i = 0; i < 1024; i += 1) forgetPrivacyVault("closed-" + i);
-  expect(privacyVaultFor("old-closed-id")).toBe(privacyVaultFor("old-closed-id"));
+  for (let i = 0; i < 1024; i += 1) {
+    forgetPrivacyVault("closed-" + i);
+    forgetPrivacyVault("s-w-closed-" + i);
+  }
+  expect(privacyVaultFor("old-closed-id")).not.toBe(privacyVaultFor("old-closed-id"));
   expect(privacyVaultFor("closed-1023")).not.toBe(privacyVaultFor("closed-1023"));
 });
