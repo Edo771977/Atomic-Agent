@@ -326,6 +326,19 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     })).toContain("/scratch/shared/");
   });
 
+  it.each([
+    "bash /scratch/shared/script.sh 2>/dev/null",
+    'cat "${SKILL_FILE}" 2>&1',
+    "cat /scratch/shared/SKILL.md 2>&1",
+    "grep marker /scratch/shared/SKILL.md > /tmp/result",
+    "diff /scratch/shared/SKILL.md /tmp/reference > /tmp/result",
+    "cp /scratch/shared/SKILL.md /tmp/copy",
+  ])("does not classify a read or script input as a write: %s", (cmd) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    })).toEqual([]);
+  });
+
   it("allows installed skill reads and script execution but gates mutations as trust config", async () => {
     const script = join(s.stateDir, "skills", "demo", "check.sh");
     await read(script);
@@ -378,7 +391,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
 
   it.each(["rm", "mv", "touch", "sed -i"])("requires trust approval for shell %s on a server key", async (cmd) => {
     answer = { approved: false };
-    await expect(shell({ cmd, args: [...(cmd === "sed -i" ? ["s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
+    await expect(shell({ cmd: cmd === "sed -i" ? "sed" : cmd, args: [...(cmd === "sed -i" ? ["-i", "s/a/b/"] : []), s.serverKey, ...(cmd === "mv" ? [join(s.work, "moved")] : [])] }))
       .rejects.toThrow(ApprovalDeniedError);
     expect(prompts.map(prompt => prompt.category)).toEqual(["trust_config"]);
   });

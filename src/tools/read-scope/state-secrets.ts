@@ -404,16 +404,7 @@ export function shellServerKeyMutation(
   const line = shellCommandLine(args);
   if (files.some(path => /(?:^|[\\/])http-tokens\.json$/i.test(path)) &&
       managesHttpTokens(line)) return true;
-  return line.split(/[;|&\n]+/).some(cmd => {
-    return isShellWrite(cmd) &&
-      findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { ...secrets, files }, env).length > 0;
-  });
-}
-
-function isShellWrite(command: string): boolean {
-  const writes = /(^|[\s\\/"'])(?:rm|rmdir|mkdir|mv|cp|rsync|patch|touch|truncate|tee|chmod|chown|ln|install|unlink|del|erase|move|ren|copy|set-content|add-content|clear-content|remove-item|move-item|copy-item|rename-item|out-file|new-item)(?=\s|["'])/i;
-  return writes.test(command) || /(?:^|[\s/])sed(?=\s)[^\n]*\s-i\S*(?=\s|$)/.test(command) ||
-    /(^|[^<])>/.test(command);
+  return protectedWritePaths(args, ctx, files, env).length > 0;
 }
 
 function protectedWritePaths(
@@ -449,13 +440,7 @@ export function findShellSkillWrites(
   secrets: StateSecrets,
   env?: ShellScopeEnv,
 ): string[] {
-  const files = secrets.skillWritePaths;
-  if (!files?.length) return [];
-  const precise = protectedWritePaths(args, ctx, files, env, true);
-  if (precise.length > 0) return precise;
-  return [...new Set(shellCommandLine(args).split(/[;|&\n]+/).flatMap((cmd) =>
-    isShellWrite(cmd) ? findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { stateDir: secrets.stateDir, files }, env) : [],
-  ))];
+  return protectedWritePaths(args, ctx, secrets.skillWritePaths ?? [], env, true);
 }
 
 const DELETE_PROGRAMS = ["rm", "rmdir", "unlink", "del", "erase", "rd", "remove-item"];

@@ -99,8 +99,7 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
 /**
  * Split a command line into words and operators the way its shell
  * would, or `null` for a line this does not read: an unbalanced quote,
- * command substitution (`$(…)`, backticks), `${…}` other than
- * `${HOME}`, a redirect or heredoc with nothing after it. Operators,
+ * command substitution (`$(…)`, backticks), complex `${…}` expansion, a redirect or heredoc with nothing after it. Operators,
  * newlines and `#` comments count only outside quotes; a quoted string
  * is part of one word; heredoc bodies are skipped.
  *
@@ -280,10 +279,11 @@ function readDollar(
   const next = line[at + 1];
   if (next === "(") return null;
   if (next === "{") {
-    if (wordStart && line.startsWith("${HOME}", at)) {
-      return { text: home, dynamic: false, next: at + "${HOME}".length };
-    }
-    return null;
+    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)\}/.exec(line.slice(at + 1));
+    if (!match) return null;
+    const homeReference = wordStart && match[1] === "HOME";
+    return { text: homeReference ? home : "$" + match[0], dynamic: !homeReference,
+      next: at + 1 + match[0].length };
   }
   const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(at + 1))?.[0];
   if (name !== undefined) {
