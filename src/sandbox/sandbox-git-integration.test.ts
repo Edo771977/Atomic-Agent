@@ -22,7 +22,8 @@ it.skipIf(!realBubblewrap)("Git and Fusion keep working inside Bubblewrap with l
       workingDir: repo, args, signal: new AbortController().signal,
       env: { GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "fixture@example.invalid" },
     });
-    expect((await git(["init", "--separate-git-dir", metadata])).exitCode).toBe(0);
+    const initialized = await git(["init", "--separate-git-dir", metadata]);
+    expect(initialized.exitCode, initialized.stderr).toBe(0);
     await writeFile(join(repo, "track.txt"), "old fixture\n");
     await writeFile(join(repo, ".gitignore"), "ignored/\n");
     expect((await git(["add", "track.txt", ".gitignore"])).exitCode).toBe(0);

@@ -79,7 +79,7 @@ jobs:
             printf 'synthetic store marker\n' | sudo tee "$nix_fixture/marker" >/dev/null
           fi
           export ATOMIC_AGENT_TEST_NIX_STORE="$nix_fixture"
-          args=(run --maxWorkers=2 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
+          args=(run --maxWorkers=1 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
           runner=("$fixtures/bin/node")
           if [[ "$TEST_MODE" == root ]]; then
             runner=(sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1 "ATOMIC_AGENT_TEST_NIX_STORE=$ATOMIC_AGENT_TEST_NIX_STORE" "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node")
