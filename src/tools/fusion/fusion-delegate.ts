@@ -1,4 +1,4 @@
-import { redactPrivacyEvidence } from "../../privacy/index.js";
+import { isPrivacyShieldEnabledForRequest, redactPrivacyEvidence } from "../../privacy/index.js";
 import { checkDidNotRun } from "./check-ran.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import {
@@ -1372,7 +1372,8 @@ export function buildFusionDelegateTool(
       };
       const checkpointStore = ctx.incognito ? undefined : deps.runCheckpoints;
       const evidenceRunsDir = checkpointStore?.runsDir;
-      const protectEvidence = <T>(value: T): T => redactPrivacyEvidence(ctx.sessionId, value, { always: true });
+      const shieldEnabled = isPrivacyShieldEnabledForRequest(ctx.sessionId);
+      const protectEvidence = <T>(value: T): T => shieldEnabled ? redactPrivacyEvidence(ctx.sessionId, value) : value;
       const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined && evidenceRunsDir === undefined
         ? undefined
         : (check, record, ok) => {
