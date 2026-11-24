@@ -11,6 +11,7 @@ import {
   writeUserConfigFileSync,
 } from "../config/index.js";
 import { reportAnalyticsOptOut, resolveSurface } from "../analytics/index.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { getAppVersion } from "../version.js";
 import { HELP } from "./config-help.js";
 import { handleSecrets } from "./config-secrets-command.js";
@@ -124,6 +125,13 @@ function handleGet(args: string[]): number {
   return 0;
 }
 
+function refuseOperatorSetting(key?: string): boolean {
+  if (process.env[AGENT_TOOL_CHILD_ENV] === undefined) return false;
+  if (key !== undefined && !key.startsWith("privacy.") && !key.startsWith("analytics.") && key !== "network.offline") return false;
+  process.stderr.write("Only the operator can change this setting.\n");
+  return true;
+}
+
 async function handleSet(
   rawArgs: string[],
   stdin: NodeJS.ReadableStream,
@@ -148,6 +156,7 @@ async function handleSet(
   // as long as the write runs. The desktop app writes every config
   // change this way.
   if (args.length === 1 && args[0] === "-") {
+    if (refuseOperatorSetting()) return 1;
     return setWholeFile(await readAllText(stdin), cas.expected);
   }
   // Form discrimination. A leading `{` means the whole-file JSON payload,
@@ -167,6 +176,7 @@ async function handleSet(
     );
     return 1;
   }
+  if (refuseOperatorSetting()) return 1;
   return setWholeFile(args.join(" "));
 }
 
@@ -244,6 +254,7 @@ function refuseChangedConfig(): number {
 }
 
 async function setOneKey(key: string, value: string): Promise<number> {
+  if (refuseOperatorSetting(key)) return 1;
   const leaf = findConfigLeaf(key);
   if (!leaf) return rejectUnknownKey("set", key);
   if (isReadOnlyConfigKey(key)) {
@@ -303,6 +314,7 @@ function handleUnset(args: string[]): number {
     return 1;
   }
   const key = args[0]!;
+  if (refuseOperatorSetting(key)) return 1;
   const leaf = findConfigLeaf(key);
   if (!leaf) return rejectUnknownKey("unset", key);
   if (isReadOnlyConfigKey(key)) {

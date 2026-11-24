@@ -1330,8 +1330,13 @@ export function registerRuntimeFusionAndReadScope(input: {
       complete: escalationComplete,
       pricing: (member) => resolveModelPricingFor(resolveLlmConfig(getConfig()), member.model, member.providerId)?.pricing,
       isLocal: (member) => {
-        const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === member.providerId);
-        return entry !== undefined && (entry.kind === "llama-server" || isLocalServerUrl(entry.baseUrl ?? entry.url));
+        const config = getConfig();
+        const entry = resolveLlmConfig(config).providers.find((p) => p.id === member.providerId);
+        if (!entry) return false;
+        const url = entry.kind === "llama-server"
+          ? providerRegistry.getProvider(entry.id)?.textRequestBaseUrl ?? entry.url ?? config.localModels.url
+          : entry.baseUrl ?? entry.url;
+        return isLocalServerUrl(url);
       },
       onSpend: (sessionId, spend) => {
         if (spend.costUsd !== null) turnBudget?.addWorkerSpend(sessionId, spend.costUsd, true);

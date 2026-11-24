@@ -189,6 +189,7 @@ function runChangedFiles(runsDir: string, runId: string): { files: string[]; inc
 /** Best-effort delivery evidence; it is stored apart from the evidence used to gate done reports. */
 export function writeRunChangedFiles(
   runsDir: string, run: { runId: string; sessionId: string }, files: readonly string[], sharedWorkspace = false,
+  includePath: (file: string) => boolean = () => true,
 ): void {
   if (files.length === 0 && !sharedWorkspace) return;
   const target = fusionRunShotTarget(runsDir, run, undefined);
@@ -203,6 +204,10 @@ export function writeRunChangedFiles(
     let remaining = MAX_CHANGED_FILES_BYTES - 64;
     let incomplete = sharedWorkspace || previous.incomplete === true;
     for (const file of changed) {
+      if (!includePath(file)) {
+        incomplete = true;
+        continue;
+      }
       remaining -= Buffer.byteLength(JSON.stringify(file)) + 1;
       if (remaining < 0) {
         incomplete = true;

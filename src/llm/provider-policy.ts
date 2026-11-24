@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { defaultProviderModelMode } from "../config/model-mode.js";
 import { makeProviderPolicy, restrictionOrigin, type ProviderPolicy } from "../config/project-constraint-match.js";
 import type { LlmProvider } from "./provider/llm-provider.js";
-import { isLocalServerUrl } from "./provider/openai/local-server-url.js";
+import { hasUnresolvedWildcardDnsAddress, isLocalServerUrl } from "./provider/openai/local-server-url.js";
 import { isLoopbackHost } from "./offline-network.js";
 import { constraintHostOf } from "./provider/url-host.js";
 
@@ -380,7 +380,8 @@ export function providerEndpointOf(
  * folder does not list in `allowedProviderHosts`. A public host keeps the
  * id-only match: it is a service the operator named, not a computer the
  * URL was quietly repointed to on the network. `{ host: null }` when the
- * URL cannot be read (fail closed). The same test `atomic-agent doctor`
+ * URL cannot be read (fail closed). A wildcard DNS name with no readable
+ * address still needs a folder opt-in. The same test `atomic-agent doctor`
  * runs.
  */
 export function providerEndpointRefusal(
@@ -395,7 +396,7 @@ export function providerEndpointRefusal(
   // which name nothing a lookup cannot repoint, nor 6to4 / NAT64 /
   // IPv4-compatible spellings of 127.0.0.1, which reach other machines.
   if (isLoopbackHost(host)) return undefined;
-  if (!isLocalServerUrl(endpoint.url)) return undefined;
+  if (!isLocalServerUrl(endpoint.url) && !hasUnresolvedWildcardDnsAddress(endpoint.url)) return undefined;
   return policy.allowedProviderHosts.includes(host) ? undefined : { host };
 }
 

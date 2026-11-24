@@ -1,5 +1,5 @@
 import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
-import { forgetPrivacyVault, linkPrivacyVault, pinPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
+import { forgetPrivacyVault, linkPrivacyVault, pinPrivacyVault, unlinkPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -1183,7 +1183,7 @@ export function createRuntimeTurnService(
       return await withPrivacyShieldTurn(session.id, () =>
         inSessionPolicy(session, () => executeTurnInPolicy(session, userMessage, runOptions)));
     } finally {
-      if (worker) forgetPrivacyVault(session.id);
+      if (worker) unlinkPrivacyVault(session.id);
       release();
     }
   };

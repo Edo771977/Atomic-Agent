@@ -187,6 +187,8 @@ export interface FusionRunCheckpoint {
    * run, not a re-plan.
    */
   args: Record<string, unknown>;
+  /** A redacted argument cannot be replayed safely. */
+  redactedArgs?: true;
   /** `running` while a process works on it; `interrupted` once its turn was stopped. */
   state: FusionRunState;
   /** The process working on it (`serializeTurnOwner`), to tell live from dead. */
@@ -225,6 +227,7 @@ export interface FusionRunStartInput {
   workingDir: string;
   originalRequest?: string;
   args: Record<string, unknown>;
+  protect?: (checkpoint: FusionRunCheckpoint) => FusionRunCheckpoint;
   tasks: readonly Pick<DelegateTask, "id" | "title">[];
   waveCount: number;
   /** The checkpoint a resume continues: its finished tasks and spend stand. */
@@ -358,7 +361,7 @@ export class FusionRunStore {
       resumes: (input.resumedFrom?.resumes ?? -1) + 1,
     };
     this.active.add(runId);
-    const recorder = new FusionRunRecorder(this, checkpoint);
+    const recorder = new FusionRunRecorder(this, checkpoint, input.protect);
     recorder.flush();
     return recorder;
   }
@@ -562,6 +565,7 @@ export class FusionRunRecorder {
   constructor(
     private readonly store: FusionRunStore,
     private readonly checkpoint: FusionRunCheckpoint,
+    private readonly protect?: FusionRunStartInput["protect"],
   ) {}
 
   get runId(): string {
@@ -713,7 +717,7 @@ export class FusionRunRecorder {
   /** @internal */
   flush(): void {
     this.checkpoint.updatedAt = this.store.stamp();
-    this.warning = this.store.write(this.checkpoint);
+    this.warning = this.store.write(this.protect?.(this.checkpoint) ?? this.checkpoint);
   }
 }
 
@@ -734,7 +738,7 @@ function readCheckpoint(file: string): FusionRunCheckpoint | null {
     !boundedString(c.runId, 64) || !RUN_ID_PATTERN.test(c.runId) ||
     !boundedString(c.sessionId, CHECKPOINT_MAX_BYTES) ||
     !boundedString(c.workingDir, CHECKPOINT_MAX_BYTES) ||
-    !record(c.args) ||
+    !record(c.args) || (c.redactedArgs !== undefined && c.redactedArgs !== true) ||
     !Array.isArray(c.tasks) ||
     c.tasks.length > 16 || !c.tasks.every(validTask) ||
     new Set(c.tasks.map((t) => t.id)).size !== c.tasks.length ||

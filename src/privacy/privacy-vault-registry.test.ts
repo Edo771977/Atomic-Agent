@@ -128,3 +128,33 @@ it("redacts evidence independently of provider counters and placeholder numberin
   expect(vault.stats().distinct).toBe(1);
   expect(vault.mask("owner@example.test")).toBe("[EMAIL_1]");
 });
+
+it("uses disposable archives for a closed chat and its former workers", () => {
+  linkPrivacyVault("late-worker", "closed-chat");
+  forgetPrivacyVault("closed-chat");
+  for (const id of ["closed-chat", "late-worker"]) {
+    privacyVaultFor(id).mask("late@example.test");
+    expect(privacyVaultFor(id).isEmpty).toBe(true);
+  }
+  expect(privacyShieldTotals()).toEqual({ masked: 0, sessions: 0 });
+});
+
+it("restores only references delivered to the current worker", async () => {
+  await withPrivacyShieldTurn("brief-owner", async () => {
+    const vault = privacyVaultFor("brief-owner");
+    const ownerReference = vault.mask("owner@example.test");
+    linkPrivacyVault("brief-worker", "brief-owner");
+    await withPrivacyShieldTurn("brief-worker", async () => {
+      const worker = privacyVaultFor("brief-worker");
+      const request = worker.beginRequest();
+      const workerReference = worker.mask("worker@example.test", undefined, request);
+      worker.endRequest(request);
+      await Promise.resolve();
+      expect(worker.unmaskDeep({ email: workerReference, other: ownerReference })).toEqual({
+        email: "worker@example.test",
+        other: ownerReference,
+      });
+    });
+    expect(vault.unmask(ownerReference)).toBe("owner@example.test");
+  });
+});
