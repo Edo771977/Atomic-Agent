@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { findShellSkillWrites } from "./state-secrets.js";
+import { findShellSkillWrites, findShellTrustDeletes } from "./state-secrets.js";
 
 function checkRoundSeven(cmd: string): string[] {
   const home = "/scratch";
@@ -474,5 +474,27 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     "[[ a || touch /scratch/.agents/skills/demo || ]]",
   ])("keeps POSIX shell write targets in parentheses and brackets: %s", (cmd) => {
     expect(checkRoundSeven(cmd)).toEqual(["/scratch/.agents/skills/"]);
+  });
+
+  it.each([
+    ['cp input /scratch/.agents/"$NAME"/', ".agents/skills", false],
+    ['mkdir -p /scratch/.atomic-agent/"$NAME"', ".atomic-agent/skills", false],
+    ['git clone example.invalid/repo /scratch/.agents/"$NAME"', ".agents/skills", false],
+    ['rm -r /scratch/.agents/"$NAME"', ".agents/skills", true],
+    ['rm -r /scratch/.atomic-agent/"$NAME"', ".atomic-agent/skills", true],
+    ['cp -r input /scratch/.agents/skills/sub/"$NAME"', ".agents/skills", false],
+    ['ln -s input /scratch/.agents/"$NAME"', ".agents/skills", false],
+    ['cp input "$HOME/.atomic-agent/$NAME/"', ".atomic-agent/skills", false],
+  ] as const)("classifies unresolved final names beside protected state: %s", (cmd, root, destructive) => {
+    const home = "/scratch";
+    const path = home + "/" + root + "/";
+    const protectedState = { stateDir: home + "/.atomic-agent", files: [],
+      skillWritePaths: [path], trustDeletePaths: [path] };
+    for (const workingDir of [home, home + "/project"]) {
+      const context = { workingDir };
+      const env = { home, platform: "linux" } as const;
+      expect(findShellSkillWrites({ cmd }, context, protectedState, env)).toEqual([path]);
+      expect(findShellTrustDeletes({ cmd }, context, protectedState, env)).toEqual(destructive ? [path] : []);
+    }
   });
 });

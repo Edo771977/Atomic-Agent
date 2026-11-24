@@ -615,6 +615,16 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     },
   );
 
+  it("refuses a Fusion worker's unresolved destination under protected state", async () => {
+    const worker = "s-w-variable-skill";
+    gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED, reasonFor: workerRefusalFor });
+    await expect(registry.invoke("os.shell.run", {
+      cmd: 'mkdir -p "$HOME/.atomic-agent/$NAME"',
+    }, ctx(worker))).rejects.toThrow(FUSION_WORKER_OPERATOR_ONLY_MARKER);
+    expect(prompts).toEqual([]);
+    expect(innerShells).toBe(0);
+  });
+
   it("a fusion worker is refused at once, with a reason that says not to re-send it", async () => {
     install(1);
     const worker = "s-w-secret-1";

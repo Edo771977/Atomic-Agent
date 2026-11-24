@@ -493,6 +493,18 @@ function findTouchesPath(selection: FindSelection, protectedPath: string, platfo
   return false;
 }
 
+function protectedVariableParent(entries: readonly string[], home: string): NonNullable<WriteTargetScope["protectedVariableParent"]> {
+  const roots = entries.flatMap((entry) => [resolve(entry), canonical(entry)]);
+  const homePath = canonical(home);
+  return (path, cwd) => {
+    const candidate = canonical(path);
+    const cwdPath = cwd === undefined ? undefined : canonical(cwd);
+    return roots.some((root) => isInside(root, candidate) ||
+      (!samePath(candidate, homePath) && (cwdPath === undefined || !samePath(candidate, cwdPath)) &&
+        isInside(candidate, root)));
+  };
+}
+
 function protectedWritePaths(
   args: Record<string, unknown>,
   ctx: Pick<ToolContext, "workingDir">,
@@ -500,7 +512,8 @@ function protectedWritePaths(
   env = { home: homedir(), platform: process.platform },
 ): string[] {
   if (entries.length === 0) return [];
-  const scope: WriteTargetScope = { recursive: [], placed: [], home: env.home };
+  const scope: WriteTargetScope = { recursive: [], placed: [], home: env.home,
+    protectedVariableParent: protectedVariableParent(entries, env.home) };
   const targets = scanWritePaths(args, ctx, scope);
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
@@ -554,15 +567,19 @@ export function findShellTrustDeletes(
 ): string[] {
   if (!secrets.trustDeletePaths?.length) return [];
   const removals: string[] = [];
-  scanWritePaths(args, ctx, {
+  const scope: WriteTargetScope = {
     recursive: [], placed: [], home: env.home, removals,
+    protectedVariableParent: protectedVariableParent(secrets.trustDeletePaths, env.home),
     skipRemovals: (cmd, rawArgs, cwd) => checkShellCommandGuard({ cmd, rawArgs, cwd }).action === "block",
-  });
+  };
+  scanWritePaths(args, ctx, scope);
+  const patterns = scope.removalPatterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
   const targets = removals.flatMap((path) => [resolve(path), canonical(path)]);
   return secrets.trustDeletePaths.filter((trusted) => {
     const path = resolve(trusted);
     return [path, canonical(path)].some((root) => targets.some((target) =>
-      isInside(target, root) || (isTrustDirectoryEntry(trusted) && isInside(root, target))));
+      isInside(target, root) || (isTrustDirectoryEntry(trusted) && isInside(root, target))) ||
+      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform, true)));
 
   });
 }

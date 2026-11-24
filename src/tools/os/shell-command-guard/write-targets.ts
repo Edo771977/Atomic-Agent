@@ -48,6 +48,7 @@ export interface WriteTargetScope {
   recursive: string[];
   placed: string[];
   patterns?: string[];
+  protectedVariableParent?: (path: string, cwd: string | undefined) => boolean;
   removalPatterns?: string[];
   recursiveCopies?: { source: string; destination: string }[];
   findSelections?: FindSelection[];
@@ -522,8 +523,9 @@ function commandTargets(
   const structured = structuredWrites(name, args, cwd, scope);
   const targetDir = structured && "cwd" in structured ? structured.cwd : cwd;
   const removed = scope ? removalWords(name, args) : [];
+  const classifyRemoval = !scope?.skipRemovals?.(name, args.map(({ text }) => text), cwd ?? scope.home ?? homedir());
   const targets = (structured?.words ?? changedWords(name, args, windows)).flatMap((word) =>
-    resolveWriteWord(word, targetDir, scope, removed.includes(word)) ?? [],
+    resolveWriteWord(word, targetDir, scope, classifyRemoval && removed.includes(word)) ?? [],
   );
   if (scope && structured?.recursive) scope.recursive.push(...targets);
   if (scope && PLACE_UNDER_DESTINATION.has(name) &&
@@ -557,8 +559,7 @@ function commandTargets(
       }
     }
   }
-  if (scope?.removals && removed.length > 0 &&
-    !scope.skipRemovals?.(name, args.map(({ text }) => text), cwd ?? scope.home ?? homedir())) {
+  if (scope?.removals && removed.length > 0 && classifyRemoval) {
     for (const operand of removed) {
       const target = resolveWord(operand, cwd, scope.home);
       if (target !== undefined) scope.removals.push(target);
@@ -1050,7 +1051,7 @@ function rememberAssignment(word: ShellWord, scope: WriteTargetScope): void {
   assignments.set(name!, candidates);
 }
 
-function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = false): string[] {
+function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = false, dir?: string): string[] {
   const references = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
   let paths = [""];
   let cursor = 0;
@@ -1060,11 +1061,16 @@ function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = 
     const prefix = text.slice(cursor, match.index);
     const candidates = [...values];
     const suffix = text.slice(match.index + match[0].length);
-    // A single computed component is useful only between known path text.
-    if (candidates.length === 0 && unresolved && text.includes("/") && !match[0].startsWith(SUBSTITUTION_PLACEHOLDER) &&
-        paths.every((path) => /[^/\\]/.test(path + prefix)) &&
-        /[^/\\]/.test(suffix.replace(references, ""))) {
-      candidates.push("{.,}*");
+    if (candidates.length === 0 && unresolved && text.includes("/") && !match[0].startsWith(SUBSTITUTION_PLACEHOLDER)) {
+      const anchored = paths.every((path) => /[^/\\]/.test(path + prefix));
+      const middle = /[^/\\]/.test(suffix.replace(references, ""));
+      const protectedParent = !middle && !/[^/\\]/.test(suffix) &&
+        paths.every((path) => {
+          if (!/[/\\]$/.test(path + prefix) || /[*?\[{]/.test(path + prefix)) return false;
+          const parent = resolveWord({ text: path + prefix, dynamic: false }, dir, scope.home);
+          return parent !== undefined && scope.protectedVariableParent?.(parent, dir);
+        });
+      if (anchored && (middle || protectedParent)) candidates.push("{.,}*");
     }
     if (candidates.length === 0) return [];
     paths = paths.flatMap((path) => candidates.map((value) => path + prefix + value)).slice(0, 32);
@@ -1100,7 +1106,7 @@ function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: Writ
     return target;
   }
   if (!word.dynamic) return undefined;
-  const variants = pathVariableValues(word.text, scope, true);
+  const variants = pathVariableValues(word.text, scope, true, dir);
   if (word.text.includes("$") && variants.length && variants.every((value) => !value.includes("$"))) {
     for (const value of variants) {
       const path = resolveWord({ text: value, dynamic: false }, dir, scope.home);
