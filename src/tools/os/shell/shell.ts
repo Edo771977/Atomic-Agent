@@ -475,8 +475,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
         spawnSpec.command,
         spawnSpec.args,
         // Roots from the session's working directory only: `cwd` is a
-        // model-supplied argument, so it may start the command anywhere
-        // but never widens what the sandbox allows.
+        // model-supplied argument and must stay inside the workspace.
         buildOsSandboxPolicy({
           workspaceRoots: [ctx.workingDir],
           ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),

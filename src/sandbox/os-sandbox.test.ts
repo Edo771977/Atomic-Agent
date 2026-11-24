@@ -319,3 +319,9 @@ it("round 3 point 8: drops the host Git config override while preserving explici
     GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "fixture@example.invalid",
   });
 });
+
+it("round 4 point 7: refuses a cwd outside the workspace", () => {
+  expect(wrapWithOsSandbox("true", [], policy(), {
+    platform: "linux", bwrap: "/usr/bin/bwrap", cwd: "/home/op/other",
+  })).toEqual({ ok: false, reason: expect.stringContaining("outside the authorized workspace") });
+});

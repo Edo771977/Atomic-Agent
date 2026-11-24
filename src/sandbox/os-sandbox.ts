@@ -49,6 +49,7 @@ export function buildOsSandboxEnv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
 export interface OsSandboxPolicy {
   /** Folders the command may write under (working folders first). */
   writableRoots: readonly string[];
+  workspaceRoots: readonly string[];
   readOnlyGitRoots: readonly string[];
   readOnlyWorkspaceRoots: readonly string[];
   /**
@@ -238,7 +239,7 @@ export function buildOsSandboxPolicy(
   ]);
   const readOnlyWorkspaceRoots = unique((input.readOnlyWorkspaceRoots ?? []).map(path => real(resolve(path))));
   const readOnlyGitRoots = input.gitMetadataWritable ? [] : gitMetadata(work);
-  return { writableRoots, readOnlyGitRoots, readOnlyWorkspaceRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
+  return { writableRoots, workspaceRoots: work, readOnlyGitRoots, readOnlyWorkspaceRoots, denyRead, network: input.network, stateDir: canonicalState, protectedParents, home, maskedHomes, toolchainRoots };
 }
 
 export type OsSandboxWrap =
@@ -435,6 +436,10 @@ export function wrapWithOsSandbox(
   options: WrapOptions = {},
 ): OsSandboxWrap {
   const platform = options.platform ?? process.platform;
+  const cwd = options.cwd === undefined ? undefined : canonicalFuturePath(resolve(options.cwd));
+  if (cwd !== undefined && !policy.workspaceRoots.some(root => contains(root, cwd))) {
+    return { ok: false, reason: "the working directory is outside the authorized workspace" };
+  }
   if (policy.writableRoots.some(root => {
     return [policy.home, ...policy.maskedHomes].some(home => contains(root, home));
   })) {
@@ -467,7 +472,7 @@ export function wrapWithOsSandbox(
         reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
     }
-    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, options.cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
+    return { ok: true, command: bwrap, args: bwrapArgs(policy, command, args, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
   }
   return {
     ok: false,
