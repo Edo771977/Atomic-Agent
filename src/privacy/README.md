@@ -35,3 +35,5 @@ The vault registry deliberately has process scope. Bootstrap sets the default sw
 ## Trust model
 
 References are predictable within an archive. If a model writes a known reference such as `[EMAIL_1]`, including by decoding percent-encoded text or HTML entities read from a file, the agent resolves it to the original value. This is intentional. Privacy Shield replaces detectable values on the protected provider's request, while the model can still refer to the same values the tools would receive without the shield. Existing approval, read-scope and output policies continue to apply after resolution.
+
+On an unauthenticated loopback HTTP listener, serve cannot distinguish requests from the operator and agent child processes. Use authenticated serve for operator controls.
