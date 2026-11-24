@@ -112,7 +112,24 @@ int wmain(int argc, wchar_t** argv) {
             require(acl_tree::containsSid(path, sid, present) && !present, "verify SID removed from DACL");
         }
     }
-    if (status == 0 && argc == 2 && std::wstring(argv[1]) == L"--benchmark") {
+    DWORD nodeStatus = 0;
+    if (status == 0 && argc >= 3) {
+        wchar_t path[MAX_PATH]{};
+        const DWORD pathLength = GetFullPathNameW(L"node-fixture.exe", ARRAYSIZE(path), path, nullptr);
+        require(pathLength > 0 && pathLength < ARRAYSIZE(path), "resolve staged Node");
+        require(CopyFileW(argv[2], path, TRUE) != FALSE, "stage ordinary Node runtime");
+        acl_tree::Result nodeGrant;
+        acl_tree::walk(path, sid, acl_tree::readExecute, nodeGrant);
+        require(nodeGrant.errors == 0, "allow only read-execute on Node runtime");
+        const std::wstring nodeCommand = L"\"" + std::wstring(path) + L"\" -e \"console.log(1)\"";
+        nodeStatus = runLpac(sid, path, nodeCommand, L"fixture", environment.data(), 10000, true);
+        std::printf("ordinary Node -e in zero-capability LPAC: exit=%lu\n", nodeStatus);
+        acl_tree::Result nodeRevoke;
+        acl_tree::walk(path, sid, 0, nodeRevoke);
+        require(nodeRevoke.errors == 0, "remove standalone Node ACL");
+        require(DeleteFileW(path) != FALSE, "remove staged Node runtime");
+    }
+    if (status == 0 && argc >= 2 && std::wstring(argv[1]) == L"--benchmark") {
         require(CreateDirectoryW(L"fixture\\node_modules", nullptr) != FALSE, "create benchmark root");
         for (unsigned directory = 0; directory < 100; ++directory) {
             const std::wstring folder = L"fixture\\node_modules\\package-" + std::to_wstring(directory);
@@ -136,5 +153,5 @@ int wmain(int argc, wchar_t** argv) {
     DeleteAppContainerProfile(profile.c_str());
     require(DeleteFileW(profileFile.c_str()) != FALSE, "remove synthetic profile file");
     std::printf("probe status=%lu\n", status);
-    return static_cast<int>(status);
+    return static_cast<int>(status ? status : nodeStatus);
 }
