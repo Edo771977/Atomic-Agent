@@ -1,3 +1,4 @@
+import { hashHttpToken } from "./http-token-store.js";
 import { EventEmitter } from "node:events";
 import type { ServerResponse } from "node:http";
 
@@ -378,6 +379,26 @@ describe("approval_request payload (ATO-1142)", () => {
   });
 });
 
+it("closes GET /api/events when a revoked subscriber would receive another event", async () => {
+  const key = "owner-credential-for-tests";
+  const token = "synthetic-viewer-credential";
+  const entry = { name: "viewer-test", role: "viewer" as const, sha256: hashHttpToken(token), createdAt: "" };
+  let named = [entry];
+  const h = await startTestHarness({ apiKey: key, namedTokens: () => named });
+  try {
+    const res = await fetch(h.baseUrl + "/api/events", {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(4000),
+    });
+    expect(res.status).toBe(200);
+    named = [];
+    h.approvalBus.publish({ approvalId: "private", sessionId: "test", tool: "shell", category: "shell", reason: "private" });
+    expect(await res.text()).toBe("");
+  } finally {
+    await h.cleanup();
+  }
+});
+
 describe("beginSse heartbeat", () => {
   afterEach(() => {
     vi.useRealTimers();
@@ -419,6 +440,20 @@ describe("beginSse heartbeat", () => {
     sse.close();
     vi.advanceTimersByTime(5000);
     expect(res.chunks).toHaveLength(3);
+  });
+
+  it("closes a stream on the first heartbeat after permission is revoked", () => {
+    vi.useFakeTimers();
+    const res = fakeResponse();
+    let allowed = true;
+    const options = { heartbeatMs: 1000, stillAuthorized: () => allowed };
+    const stream = beginSse(res, {}, options);
+    vi.advanceTimersByTime(1000);
+    allowed = false;
+    vi.advanceTimersByTime(1000);
+    expect(res.writableEnded).toBe(true);
+    expect(stream.writeEvent("private", {})).toBe(false);
+    expect(res.chunks).toHaveLength(1);
   });
 
   it("writes nothing of its own without a heartbeat", () => {

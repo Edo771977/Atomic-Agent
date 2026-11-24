@@ -52,6 +52,7 @@ describe("generated settings reference", () => {
   // Builds a TypeScript program over src/config, so it is slower than a unit test.
   it("is up to date with the schema's JSDoc, and every key has some", () => {
     const { module, markdown, undocumented } = renderAll();
+    expect(markdown).toContain("`llm.providers[].privacy.shield`");
     expect(undocumented, "add a JSDoc comment on each key in its config type").toEqual([]);
     const hint = "run `npx tsx scripts/gen-settings-reference.ts`";
     expect(readFileSync(GENERATED_MODULE, "utf8"), hint).toBe(module);

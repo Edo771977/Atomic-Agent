@@ -17,4 +17,6 @@ At the plan gate, use `/lesson_defer <id>` to set a binding lesson aside for the
 
 The milestone notice and `/plan` show the director report, any unsupported-claim warnings, and criterion facts with their basis and counts. Previously saved facts without a basis display “basis not recorded”.
 
+A tool approval button from before a restart expires without resolving an approval. Telegram removes the old buttons and asks you to send a fresh request if needed. Project lesson decisions still use the preview and confirmation commands above.
+
 For setup and routing, see the [adapter guide](../docs/adapters.md). For the project workflow, see [Fusion projects](../../../docs/user/fusion-projects.md).

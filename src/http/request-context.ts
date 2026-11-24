@@ -1,3 +1,4 @@
+import type { HttpCaller } from "./scoped-auth.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { openaiError, type OpenAiErrorPayload } from "./openai-errors.js";
 import type { AgentRuntime } from "../runtime/bootstrap.js";
@@ -24,6 +25,8 @@ export interface HandlerContext {
   runtime: AgentRuntime;
   apiKey: string | null;
   params: Record<string, string>;
+  caller?: HttpCaller;
+  stillAuthorized?: () => boolean;
   approvalBus: ApprovalBus;
   /**
    * Fusion project gates (issue #39) for `GET /api/events`. Absent in
@@ -94,21 +97,32 @@ export function enforceAuth(
      constant-time, so the token cannot be read back from response timing. */
   const wait = throttle ? throttle.retryAfter(address) : 0;
   if (wait > 0) {
-    sendJson(
-      res,
-      429,
-      openaiError("Too many wrong API keys from this address; try again later", "invalid_request_error", null, "auth_throttled"),
-      { "retry-after": String(wait) },
-    );
+    sendAuthThrottled(res, wait);
     return false;
   }
   /* ATO-1080: Anthropic clients (Claude Code with ANTHROPIC_API_KEY) send
      the key as `x-api-key` instead of a bearer token. Same key, same check. */
   if (secretEquals(getBearerToken(req) ?? getHeader(req, "x-api-key"), apiKey)) {
-    throttle?.succeeded(address);
+    throttle?.ownerSucceeded(address);
     return true;
   }
   throttle?.failed(address);
+  sendInvalidApiKey(res);
+  return false;
+}
+
+/** The 429 of an address that kept sending wrong keys (ATO-1126). */
+export function sendAuthThrottled(res: ServerResponse, waitSeconds: number): void {
+  sendJson(
+    res,
+    429,
+    openaiError("Too many wrong API keys from this address; try again later", "invalid_request_error", null, "auth_throttled"),
+    { "retry-after": String(waitSeconds) },
+  );
+}
+
+/** The 401 of a missing or unknown key. */
+export function sendInvalidApiKey(res: ServerResponse): void {
   sendJson(
     res,
     401,
@@ -119,7 +133,6 @@ export function enforceAuth(
       "invalid_api_key",
     ),
   );
-  return false;
 }
 
 export function sendJson(
@@ -253,7 +266,7 @@ export const SSE_HEARTBEAT_MS = 15_000;
 export function beginSse(
   res: ServerResponse,
   extraHeaders: Record<string, string> = {},
-  options: { heartbeatMs?: number } = {},
+  options: { heartbeatMs?: number; stillAuthorized?: () => boolean; onUnauthorized?: () => void } = {},
 ): SseWriter {
   res.writeHead(200, {
     "content-type": "text/event-stream; charset=utf-8",
@@ -264,9 +277,16 @@ export function beginSse(
   });
   let closed = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
+  const mayWrite = (): boolean => {
+    if (closed || res.writableEnded) return false;
+    if (options.stillAuthorized?.() !== false) return true;
+    close();
+    options.onUnauthorized?.();
+    return false;
+  };
   if (options.heartbeatMs && options.heartbeatMs > 0) {
     heartbeat = setInterval(() => {
-      if (!closed && !res.writableEnded) res.write(": keepalive\n\n");
+      if (mayWrite()) res.write(": keepalive\n\n");
     }, options.heartbeatMs);
     heartbeat.unref?.();
   }
@@ -278,22 +298,23 @@ export function beginSse(
     closed = true;
     stopHeartbeat();
   });
+  const close = (): void => {
+    if (closed) return;
+    closed = true;
+    stopHeartbeat();
+    res.end();
+  };
   return {
     writeEvent(event, payload) {
-      if (closed) return false;
+      if (!mayWrite()) return false;
       const prefix = event ? `event: ${event}\n` : "";
       return res.write(`${prefix}data: ${JSON.stringify(payload)}\n\n`);
     },
     writeRaw(chunk) {
-      if (closed) return false;
+      if (!mayWrite()) return false;
       return res.write(chunk);
     },
-    close() {
-      if (closed) return;
-      closed = true;
-      stopHeartbeat();
-      res.end();
-    },
+    close,
     get closed() {
       return closed;
     },

@@ -14,6 +14,7 @@ import { getApprovalRulesPath } from "../approval/approval-rules-store.js";
 import { resolveSessionPath } from "../atomic-mail/atomic-mail-store.js";
 import { resolveApiKeyFilePath, resolvePromptCacheDir } from "../local-llm/backend-paths.js";
 import { serveApiKeyPath } from "../cli/serve-api-key.js";
+import { httpTokensPath } from "../http/http-token-store.js";
 import { coreSessionPath } from "../local-llm/core/core-state.js";
 import { userHooksPath } from "../hooks/hook-config.js";
 import { secretsStorePath } from "./secret-store.js";
@@ -983,7 +984,7 @@ describe("the state's secret files (ATO-877)", () => {
     // Spelled out in config (it sits below local-llm/ and atomic-mail/),
     // so pin each name against the helper the owning module really uses.
     expect(getTrustConfigPaths(paths)).toEqual(expect.arrayContaining([
-      resolveApiKeyFilePath(paths.localModelsDataDir), serveApiKeyPath(stateDir),
+      resolveApiKeyFilePath(paths.localModelsDataDir), serveApiKeyPath(stateDir), httpTokensPath(stateDir),
     ]));
     expect(getStateSecretPaths(paths)).toEqual([
       ...getTrustConfigPaths(paths),

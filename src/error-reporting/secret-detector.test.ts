@@ -29,6 +29,11 @@ const JWT =
   "eyJ" + "hbGciOiJIUzI1NiJ9" + ".eyJ" + "zdWIiOiIxMjM0NTY3ODkwIn0" + ".dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U";
 const PEM_BODY = "MIIEpAIBAAKCAQEA1234567890abcdefABCDEF+/xyz\nQWERTYuiop0987654321asdfghjklZXCVBNM==";
 
+it("redacts a named HTTP token without needing its plaintext in the registry", () => {
+  const token = "atag_" + "Aa0_-".repeat(8) + "Bcd";
+  expect(maskSecrets(`the server returned x${token}`)).toBe("the server returned x[redacted:http-token]");
+});
+
 describe("maskSecrets: vendor key shapes", () => {
   it.each([
     ["OpenAI project key", OPENAI, "openai-key"],
@@ -342,4 +347,10 @@ describe("maskSecretsDeep (ATO-1176)", () => {
 it("round2-2 masks exact credentials at word boundaries only", () => {
   expect(maskSecrets("a cat, scatter and catapult", [{label: "serve-api-key", value: "cat", exact: true}]))
     .toBe("a [redacted:serve-api-key], scatter and catapult");
+});
+
+it("redacts long exact credentials even inside text and identifiers", () => {
+  const token = "0123456789abcdef";
+  expect(maskSecrets("prefix" + token + "_9", [{ label: "serve-api-key", value: token, exact: true }]))
+    .toBe("prefix[redacted:serve-api-key]_9");
 });

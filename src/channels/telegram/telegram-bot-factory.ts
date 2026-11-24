@@ -319,6 +319,7 @@ export const defaultGrammyBotFactory: BotFactory = async (token, hooks) => {
             message: {
               chat: { id: cb.message.chat.id },
               message_id: cb.message.message_id,
+              ...("text" in cb.message && typeof cb.message.text === "string" ? { text: cb.message.text } : {}),
             },
           }
         : {}),

@@ -1,4 +1,5 @@
-import { closeSync, fstatSync, type Stats } from "node:fs";
+import { closeSync, fstatSync, openSync, type Stats } from "node:fs";
+import { devNull } from "node:os";
 import type { Readable } from "node:stream";
 
 /** ATO-1126: the shortest explicit API key serve takes. */
@@ -8,13 +9,18 @@ const STDIN_TIMEOUT_MS = 10_000;
 
 type KeyInput = { key: string } | { error: string };
 
+export function explicitKeyLengthError(): string {
+  return "Explicit API keys must have at least " + MIN_EXPLICIT_KEY_LENGTH +
+    " characters. Pass the key with --api-key-stdin or --api-key-file.";
+}
+
 export function validateExplicitKey(raw: string, source: "--api-key-file" | "--api-key-stdin"): KeyInput {
   const key = raw.trim();
   if (!/^[!-~]+$/.test(key)) {
     return { error: source + " expects one key with printable ASCII characters and no spaces" };
   }
   if (key.length < MIN_EXPLICIT_KEY_LENGTH) {
-    return { error: source + " requires a key with at least " + MIN_EXPLICIT_KEY_LENGTH + " characters" };
+    return { error: explicitKeyLengthError() };
   }
   return { key };
 }
@@ -27,18 +33,24 @@ function stdinIdentity(): Stats | undefined {
   }
 }
 
-/** Node's stdio stream can close without releasing descriptor 0. */
+/** Release the credential stream and reserve fd 0 so sockets cannot reuse it. */
 function releaseStdinDescriptor(original: Stats | undefined): string | undefined {
   try {
-    if (original !== undefined) {
-      const current = fstatSync(0);
-      if (current.dev !== original.dev || current.ino !== original.ino || current.mode !== original.mode) {
-        return undefined; // The original descriptor was closed and reused.
+    const current = stdinIdentity();
+    if (current !== undefined) {
+      if (original === undefined || current.dev !== original.dev ||
+        current.ino !== original.ino || current.mode !== original.mode) {
+        return "--api-key-stdin descriptor 0 changed while reading the key";
       }
+      closeSync(0);
     }
-    closeSync(0);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "EBADF") return "--api-key-stdin could not close stdin";
+    const fd = openSync(devNull, "r");
+    if (fd !== 0) {
+      closeSync(fd);
+      return "--api-key-stdin could not reserve descriptor 0";
+    }
+  } catch {
+    return "--api-key-stdin could not replace stdin with the null device";
   }
   return undefined;
 }
@@ -49,6 +61,9 @@ export function readServeKeyFromStdin(
   timeoutMs = STDIN_TIMEOUT_MS,
 ): Promise<KeyInput> {
   const input = stream ?? process.stdin;
+  if ("isTTY" in input && input.isTTY === true) {
+    return Promise.resolve({ error: "--api-key-stdin requires a pipe, not a terminal" });
+  }
   const original = stream === undefined ? stdinIdentity() : undefined;
   return new Promise(resolve => {
     const parts: Buffer[] = [];

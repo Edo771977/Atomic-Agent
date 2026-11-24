@@ -67,7 +67,7 @@ Searching past chats (ATO-1149, [session-search.ts](../session/session-search.ts
 
 [Project lessons](route-project-lessons.ts) (issue #125)
 
-- `GET /api/project/lessons?session=<id>` returns `{ session_id, panel }` for a chat bound to a saved project. GET also works on a loopback server without an API key. During a turn, the panel remains readable and `panel.blocked` explains why choices must wait.
+- `GET /api/project/lessons?session=<id>` returns `{ session_id, panel }` for a chat bound to a saved project. During a turn, the panel remains readable and `panel.blocked` explains why choices must wait.
 - `POST /api/project/lessons` requires `atag serve` with an API key and the usual bearer authentication. Send `{ session, lesson, action, fingerprint }` with `approve`, `retire`, or `reopen` and the displayed full SHA-256 fingerprint (`hash` in the row). Include `orphaned: true` to reopen the recorded choice for a missing or invalid file. Approval requires `status: active`. Success returns `{ session_id, panel, notice, view? }`, where `notice` confirms the choice and `view`, when available, is the updated project gate view including any `lessonCoverage`. The HTTP event stream also publishes that view as `project_gate` for the selected session. Clients outside that stream, including a separate TUI process, can refresh their project and lesson views after an external choice. A choice starts no turn.
 - `panel` includes `rows`, `problems`, `sectionLimit`, and optional `blocked` text. Each file row includes `promptEnds` per section, with `{ standard, planning }` offsets in UTF-16 code units into the full section for the standard and shared planning prompt cuts. Orphaned rows have no prompt cuts. Skipped file names and reasons show invisible characters as printable Unicode escapes.
 - Errors use `{ error, panel? }` without `session_id`. The route can return `400` for malformed inputs or an `invalid` choice, `404 no-project` for an unavailable project (unknown sessions also return `404`), `409 stale-view` with a refreshed panel for a changed fingerprint or record sequence, `409 turn-running`, `409 incognito`, `503 busy` for a locked record, and `500 io` for a write failure. The server applies the shared bearer check before the handler. Network calls follow the project egress policy and can return `403 folder_restricted`.
@@ -117,11 +117,11 @@ For Desktop and other launchers, prefer `--api-key-stdin`. Send one newline-term
 
 An owner-only file supplied with `--api-key-file <path>` remains on disk by default, including throughout runtime bootstrap. With `--api-key-file-delete`, serve unlinks the file after successful validation and before starting the runtime. The file is still present from its creation until it is read and removed, and remains if the launcher or serve exits before removal. Use a file you intend to discard and directories you control. The final component must be a regular, single-link file. Ancestor directories may be symlinks. On Windows the ACL check uses the path while the key is read from an open handle, so path replacement during the check can race it.
 
-The legacy environment entry still works, and Linux retains it in the process's original environment visible through `/proc/<pid>/environ` to permitted readers. This is a local defense against accidental exposure and ordinary agent tool calls. A process running as the same OS user outside those controls can read files and process information available to that user. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent. The shell classifier detects the literal file name even in relative paths and search arguments. Shell recognition is best-effort. It recognizes basename glob and brace selectors, procfs environment globs and simple relative reads after a literal cd. It does not evaluate concatenated variables, ANSI-C quoting or scripts.
+The legacy environment entry still works, and Linux retains it in the process's original environment visible through `/proc/<pid>/environ` to permitted readers. This is a local defense against accidental exposure and ordinary agent tool calls. A process running as the same OS user outside those controls can read files and process information available to that user. Approval level 5 is full trust and automatically approves state-secret reads. At level 5 the serve key does not protect against actions of the agent. The shell classifier detects the literal file name even in relative paths and search arguments. Shell recognition is best-effort. It recognizes basename glob and brace selectors, procfs process-data paths (including recursive process-directory reads with grep or find), and simple relative reads after literal cd or pushd. Recognizable process argument and environment displays require state-secret approval regardless of how serve received its key. It does not evaluate concatenated variables, ANSI-C quoting or scripts.
 
 [Idea routes](route-ideas.ts) (ATO-458): `GET /api/ideas?status=&limit=`, `POST /api/ideas/refresh` (`{ ideas, added, retired }`, `ideas` being the new ones), `POST /api/ideas/{id}/accept` with optional `{ prompt }` (files the task like `POST /api/tasks`; a Retry keeps the original task's limits, notify and folder, and the original chat's provider restriction, `400` param `sessionId`, card retired, when that chat is gone with no policy recorded on the card while constraints exist ([provider policy](../llm/docs/provider-policy.md#read-taint)); answers `{ idea, task }`, `409 idea_decided` when already decided) and `POST /api/ideas/{id}/dismiss`. 404 when `tasks.enabled` is false. Contract: [tasks README](../tasks/README.md#suggestions-ideas).
 
-If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward the serve credential in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include the serve key, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds the serve key must limit this to the exact configured webhook path and method and preserve signed request bodies.
+If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward a named credential with the chat scope or the owner key in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include an API credential, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds an API credential must limit this to the exact configured webhook path and method and preserve signed request bodies.
 
 [Phone panel](route-panel.ts) (ATO-1128): `GET /panel` (and `/panel/app.js`) serves a small page for a phone or another computer: the chats, a chat's turns as they land, a message box, and approval requests with Allow once / Deny. The page holds no data and is served without auth; it asks for the API key, keeps it in the browser, and calls the authenticated routes (`/api/sessions`, `/v1/chat/completions`, `/api/events`, `/api/approval/resolve`). Reach it with `atag serve --host 0.0.0.0 --api-key-file <path>` (ATO-1126). It also takes the key from a `#key=…` fragment, provided by a client. The fragment never reaches the server and the page drops it from the address bar. Over plain `http://` the key crosses the network in clear: use it on a network you trust, or behind TLS (a reverse proxy, Tailscale).
 
@@ -169,3 +169,146 @@ Goal mode (ATO-1040, [route-session-goal.ts](route-session-goal.ts), [chat-goal.
 [Metrics route](route-metrics.ts) (ATO-646): `GET /metrics` answers the Prometheus text format for a Prometheus or Grafana scrape of `atag serve`: turns (count and duration by origin and outcome), steps, provider failures by category and provider link, tool calls by tool, task and scheduler counters, plus turns running and durable tasks per status read at scrape time. Serve folds the runtime's metric samples in a [PrometheusRegistry](../tracing/prometheus-registry.ts); no label carries a session id. The route is never open without a key: the scrape config sends serve's key (`--api-key`, or the contents of the generated key file) as a bearer token, and a server built with no key at all (`unauthenticated: true`, never `serve`) answers 401 (`metrics_need_api_key`).
 
 Managing bindings (ATO-445): each `GET /api/webhooks` item also carries `verify` (`secret` when unset), `events` (when set), `userMessageTemplate` and `live` (false for a binding saved in `config.json` by hand since start, listed from the file), and the reply adds `presets` (the `verify` values). `POST /api/webhooks` `{ name, verify?, userMessageTemplate, secret?, events?, sessionMode? }` adds a binding ([admin routes](route-webhooks-admin.ts)): the secret is generated unless given (`whsec_<base64>` for `standard-webhooks`, hex otherwise; `stripe` needs the pasted `whsec_` value), the whole file is revalidated and written atomically, the running agent picks it up without a restart, and the reply `201 { webhook, secret }` is the only time the secret is returned. `DELETE /api/webhooks/{name}` removes a binding and its persistent session mapping. Both sit on the main API behind its bearer key; the tunnel listener never serves them.
+
+## Named HTTP tokens
+
+The serve key is the owner credential. It works on every authenticated route, including any route awaiting classification. Desktop launchers can continue passing it through `--api-key-stdin`.
+
+| Role | Scopes | Intended use |
+| --- | --- | --- |
+| `viewer` | `read` | Read API data. Every POST, PUT, PATCH and DELETE requires another scope. |
+| `member` | `read`, `chat` | Run and steer ordinary agent work. |
+| `operator` | `read`, `chat`, `decide` | Resolve approvals and questions, make project decisions, change the backlog or lessons, and set project trust. |
+| `admin` | `read`, `chat`, `decide`, `admin` | Manage settings, integrations, scheduled tasks and other administrative resources. |
+
+An operator can deny requests, approve ordinary tools once, and grant a supported action for the current chat. Approving `trust_config` or saving a permanent `allow-always` rule requires admin or the owner. The protected token registry is among the targets classified as `trust_config`. An operator can still approve ordinary shell commands. Those commands run as the server user and can affect its files, including the registry, if the best-effort shell classifier does not recognize the access or the runtime auto-approves it. The admin role is therefore an HTTP authorization distinction, not an OS isolation boundary. Grant operator only to callers you trust to authorize code execution. Roles apply across the whole server. A viewer can read and export all chats exposed by the listener, subject to incognito and folder egress restrictions. A member can write to existing chats, including chats opened by the owner. The server uses shared sessions and does not assign them to token identities. A member can also name file paths in prompts and ask the agent to read them. The runtime applies the same file scope, tool approvals, and project policy as it does for other turns. Content read by the agent can appear in replies. Issue a member token only to clients you trust with that access.
+
+Named turn and steer requests carry their token name in runtime attribution and traces. Approval cards show the turn requester and name the tokens that have steered the running turn so far. This does not imply that a particular steer caused an approval.
+
+Use `atag http tokens add <name> --role <role>` from the local CLI. Copy the token from stdout when it is issued and send it as `Authorization: Bearer <token>` or `x-api-key`. Use `atag http tokens list` for names, roles and creation dates, and `atag http tokens remove <name>` to revoke it on the next request without restarting. The approval events, chat completions and AG-UI streams close on their next event or heartbeat after access is revoked. Buffered data already sent cannot be recalled. These management commands refuse agent tool children.
+
+The registry at `<stateDir>/http-tokens.json` stores names, roles, creation times and SHA-256 digests. It is private to the owner (0600 on POSIX, current-user ACL on Windows). OS and shell approval rules protect the file like the serve key. The shell guard also asks for trust approval on recognized token-management commands. These local checks are best-effort and do not isolate processes running as the same user. If an interrupted edit leaves a `http-tokens.json.lock` directory, remove that empty directory after confirming that no token-management command is still running.
+
+A missing, invalid or revoked credential returns HTTP 401 with `invalid_api_key`. The existing failed-attempt rate limit applies to network addresses. A valid credential missing a required scope returns HTTP 403 with `insufficient_scope`. The signed webhook listener uses its binding credentials.
+
+### Route matrix
+
+The table records the per-route authorization policy. The owner key retains full access on the main listener. The dedicated tunnel uses webhook binding authentication.
+
+| Method and path | Authorization class |
+| --- | --- |
+| `GET /health` | Public read |
+| `GET /v1/models` | Read (read) |
+| `GET /panel` | Public read |
+| `GET /panel/app.js` | Public read |
+| `GET /metrics` | Administration (admin) |
+| `POST /v1/chat/completions` | Ordinary action (chat) |
+| `POST /v1/chat/completions/{completion_id}/cancel` | Ordinary action (chat) |
+| `POST /v1/messages` | Ordinary action (chat) |
+| `POST /v1/messages/count_tokens` | Ordinary action (chat) |
+| `POST /v1/responses` | Ordinary action (chat) |
+| `POST /api/ag-ui` | Ordinary action (chat) |
+| `GET /api/capabilities` | Read (read) |
+| `GET /api/model-tiers` | Read (read) |
+| `POST /api/sessions/{id}/compact` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/compaction` | Read (read) |
+| `GET /api/config` | Administration (admin) |
+| `PATCH /api/config` | Administration (admin) |
+| `PUT /api/config` | Administration (admin) |
+| `GET /api/skills` | Read (read) |
+| `GET /api/skills/{name}` | Read (read) |
+| `POST /api/skills/install` | Administration (admin) |
+| `POST /api/skills/uninstall` | Administration (admin) |
+| `GET /api/project-trust` | Read (read) |
+| `POST /api/project-trust` | Human decision (decide) |
+| `POST /api/mcp/servers/{name}/restart` | Administration (admin) |
+| `POST /api/mcp/servers/{name}/enable` | Administration (admin) |
+| `POST /api/mcp/servers/{name}/disable` | Administration (admin) |
+| `POST /api/mcp/servers/{name}/auth/start` | Administration (admin) |
+| `GET /api/mcp/servers/{name}/auth` | Read (read) |
+| `POST /api/mcp/servers/{name}/auth/signout` | Administration (admin) |
+| `GET /api/sessions` | Read (read) |
+| `GET /api/sessions/search` | Read (read) |
+| `GET /api/sessions/{id}` | Read (read) |
+| `DELETE /api/sessions/{id}` | Administration (admin) |
+| `PATCH /api/sessions/{id}` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/provider-restriction` | Read (read) |
+| `GET /api/sessions/{id}/export` | Read (read) |
+| `POST /api/sessions/{id}/working-dir` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/goal` | Read (read) |
+| `POST /api/sessions/{id}/goal` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/next-step` | Read (read) |
+| `POST /api/sessions/{id}/archived` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/rollback-last-turn` | Administration (admin) |
+| `GET /api/sessions/{id}/rewind-points` | Read (read) |
+| `POST /api/sessions/{id}/rewind/preview` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/rewind` | Administration (admin) |
+| `POST /api/sessions/{id}/fork` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/fs/restore` | Administration (admin) |
+| `POST /api/sessions/{id}/resume` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/steer` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/steer` | Read (read) |
+| `DELETE /api/sessions/{id}/steer` | Ordinary action (chat) |
+| `GET /api/sessions/{id}/fusion/workers` | Read (read) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/stop` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/steer` | Ordinary action (chat) |
+| `POST /api/sessions/{id}/fusion/workers/{taskId}/escalate` | Ordinary action (chat) |
+| `POST /api/approval/resolve` | Human decision (decide) |
+| `GET /api/events` | Read (read) |
+| `POST /api/question/answer` | Human decision (decide) |
+| `GET /api/project` | Read (read) |
+| `POST /api/project/decision` | Human decision (decide) |
+| `GET /api/project/lessons` | Read (read) |
+| `POST /api/project/lessons` | Human decision (decide) |
+| `POST /api/project/backlog` | Human decision (decide) |
+| `GET /api/projects` | Read (read) |
+| `POST /api/projects/forget` | Administration (admin) |
+| `POST /api/projects/resume` | Ordinary action (chat) |
+| `GET /api/fusion/team` | Read (read) |
+| `GET /api/approval-rules` | Administration (admin) |
+| `DELETE /api/approval-rules/{id}` | Administration (admin) |
+| `GET /api/coding-mode` | Read (read) |
+| `POST /api/coding-mode` | Administration (admin) |
+| `GET /api/offline-mode` | Read (read) |
+| `POST /api/offline-mode` | Administration (admin) |
+| `POST /api/context-preview` | Ordinary action (chat) |
+| `POST /api/complete` | Ordinary action (chat) |
+| `POST /api/local-model/recheck` | Administration (admin) |
+| `POST /api/llm/active` | Administration (admin) |
+| `GET /api/local-models/list` | Read (read) |
+| `GET /api/local-models/status` | Read (read) |
+| `GET /api/local-models/list-embeddings` | Read (read) |
+| `POST /api/memory/embeddings/reconnect` | Administration (admin) |
+| `GET /api/memory/notes` | Read (read) |
+| `PATCH /api/memory/notes/{id}` | Administration (admin) |
+| `DELETE /api/memory/notes/{id}` | Administration (admin) |
+| `GET /api/memory/profile` | Read (read) |
+| `GET /api/memory/profile/{key}/history` | Read (read) |
+| `PATCH /api/memory/profile/{key}` | Administration (admin) |
+| `DELETE /api/memory/profile/{key}` | Administration (admin) |
+| `GET /api/memory/changes` | Read (read) |
+| `POST /api/memory/changes/{id}/restore` | Administration (admin) |
+| `POST /api/memory/profile/{key}/restore` | Administration (admin) |
+| `POST /api/telegram/pairing` | Administration (admin) |
+| `GET /api/telegram/pairing` | Administration (admin) |
+| `DELETE /api/telegram/pairing` | Administration (admin) |
+| `GET /api/telegram/channel` | Read (read) |
+| `POST /api/tasks` | Administration (admin) |
+| `GET /api/tasks` | Read (read) |
+| `GET /api/tasks/{id}` | Read (read) |
+| `DELETE /api/tasks/{id}` | Administration (admin) |
+| `POST /api/tasks/{id}/run` | Administration (admin) |
+| `POST /api/tasks/{id}/pause` | Administration (admin) |
+| `POST /api/tasks/{id}/resume` | Administration (admin) |
+| `GET /api/tasks/{id}/runs` | Read (read) |
+| `POST /api/tasks/drain` | Administration (admin) |
+| `GET /api/ideas` | Read (read) |
+| `POST /api/ideas/refresh` | Ordinary action (chat) |
+| `POST /api/ideas/{id}/accept` | Administration (admin) |
+| `POST /api/ideas/{id}/dismiss` | Ordinary action (chat) |
+| `GET /api/webhooks` | Administration (admin) |
+| `POST /api/tasks/wake` | Administration (admin) |
+| `POST /api/webhooks/{name}` | Ordinary action (chat) |
+| `POST /api/webhooks` | Administration (admin) |
+| `DELETE /api/webhooks/{name}` | Administration (admin) |
+| `POST /webhooks/{name}` (tunnel listener) | Ordinary action (binding signature or secret) |

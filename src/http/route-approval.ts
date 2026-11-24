@@ -56,6 +56,11 @@ export function approvalEventPayload(
   const canAlways = gate.canGrantAlways(request);
   return {
     ...request,
+    reason: [
+      request.reason,
+      ...(request.requestedByToken ? [`richiesto dal token ${request.requestedByToken}`] : []),
+      ...((request.steeredByTokens ?? []).map(name => `steer dal token ${name}`)),
+    ].join(" · "),
     canAlways,
     ...(canAlways ? { alwaysLabel: describeAlwaysRule(request) } : {}),
   };
@@ -109,10 +114,20 @@ export function createResolveApprovalHandler(): HttpHandler {
       return;
     }
     const { approved, grant } = parsed;
+    const pending = ctx.runtime.approvals.pendingRequest(approvalId);
+    const role = ctx.caller?.role;
+    if (approved && role === "operator" && (grant === "always" || pending?.category === "trust_config")) {
+      sendError(res, 403, openaiError(
+        "This approval requires the admin scope",
+        "permission_error",
+        null,
+        "insufficient_scope",
+      ));
+      return;
+    }
     if (approved) {
       // An `ask_user` question (ATO-489) is answered with a choice, not an
       // Allow: a bare approve would reach the model as no answer at all.
-      const pending = ctx.runtime.approvals.pendingRequest(approvalId);
       if (pending?.category === "user_question") {
         sendError(
           res,
@@ -197,8 +212,9 @@ function parseDecision(raw: unknown): ParsedDecision | null {
  * (undici: 300 s) does not drop it and replay on every reconnect.
  */
 export function createApprovalEventsHandler(): HttpHandler {
-  return async (req, res, ctx) => {
-    const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS });
+  return async (_req, res, ctx) => {
+    const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized } : {}) });
+    res.flushHeaders();
     ctx.approvalBus.prune((request) =>
       ctx.runtime.approvals.isPending(request.approvalId),
     );
@@ -224,7 +240,7 @@ export function createApprovalEventsHandler(): HttpHandler {
     for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);
     const unsubscribeGates = ctx.projectGateBus?.subscribe(writeGate);
     await new Promise<void>((resolvePromise) => {
-      req.on("close", () => {
+      res.once("close", () => {
         unsubscribe();
         unsubscribeGates?.();
         sse.close();

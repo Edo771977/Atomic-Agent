@@ -1,3 +1,4 @@
+import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -413,7 +414,12 @@ export function buildSkillEvalJudge(
   runtime: Pick<AgentRuntime, "providerRegistry">,
   config: AtomicAgentConfig,
 ): SkillEvalJudge | { error: string } {
-  if (judgeConfig.kind === "http") return createSkillEvalJudge(judgeConfig);
+  if (judgeConfig.kind === "http") {
+    return createSkillEvalJudge(judgeConfig, {
+      privacyShieldEnabled: config.privacy?.shield.enabled === true,
+      privacyKnownSecrets: () => runtimeKnownSecrets(config),
+    });
+  }
   const provider = runtime.providerRegistry.getProvider(judgeConfig.providerId);
   if (!provider) return { error: `the judge provider "${judgeConfig.providerId}" did not load` };
   const llm = resolveLlmConfig(config);

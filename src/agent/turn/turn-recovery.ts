@@ -1,3 +1,4 @@
+import { WorkerGrammarSkippedError } from "../step/step-errors.js";
 import { isSubscriptionCliSetupError } from "../../llm/provider/subscription-cli/subscription-cli-errors.js";
 import { isDailySpendLimitError } from "../../llm/reliability/spend-limit-error.js";
 import { findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
@@ -17,7 +18,7 @@ import { composeSizeRejectionNotice, planSizeRejectionRepack } from "./size-reje
 import { MID_REPLY_TIMEOUT_STEP_BUDGET, composeMidReplyTimeoutNotice, planMidReplyTimeoutRetry } from "./mid-reply-timeout-recovery.js";
 import { composeTruncationNotice, planTruncationRetry, truncationRetryMaxTokens, type TruncationRetry, type TruncationRetryPlan } from "./truncation-recovery.js";
 import { PARSE_RECOVERY_BUDGET, composeParseFailureNotice, isRecoverableParseFailure } from "./parse-failure-recovery.js";
-import { EMPTY_COMPLETION_RECOVERY_BUDGET, composeEmptyCompletionNotice, isRecoverableEmptyCompletion, repeatedEmptyCompletionError } from "./empty-completion-recovery.js";
+import { EMPTY_COMPLETION_RECOVERY_BUDGET, composeEmptyCompletionNotice, emptyCompletionRetryDelayMs, isRecoverableEmptyCompletion, repeatedEmptyCompletionError } from "./empty-completion-recovery.js";
 import { FINALIZATION_REQUEST_DEADLINE_MS, type RequestDeadline } from "../request-deadline.js";
 import { getConfig } from "../../config/index.js";
 import { isProviderNotAllowed } from "../../llm/provider-policy.js";
@@ -26,7 +27,7 @@ import type { TurnLoopState } from "./turn-state.js";
 export type TurnRecoveryDependencies = Pick<
   AgentLoopDependencies,
   "contextWindow" | "onContextWindowObserved" | "onEvent" | "logger" | "metrics" | "localEngineState"
-  | "explainLocalEngineState" | "localOutOfMemory"
+  | "explainLocalEngineState" | "localOutOfMemory" | "isCloudLink"
 >;
 
 export interface TurnRecoveryContext {
@@ -58,7 +59,11 @@ export interface TurnRecoveryContext {
 
 export type TurnRecoveryDecision =
   | { kind: "retry_same" }
-  | { kind: "retry_next" }
+  /**
+   * Run the next step. `delayMs`, when set, is how long the loop waits
+   * first (the empty-answer re-ask, ATO-1676); the wait is abortable.
+   */
+  | { kind: "retry_next"; delayMs?: number }
   | { kind: "stop" }
   | { kind: "wait"; nextRetryMs: number }
   /**
@@ -301,7 +306,8 @@ export function recoverTurnStep(
     finalizationStep &&
     !cancelled &&
     !repeatedEmptyAfterAnnouncedRetry &&
-    !dailyLimitRefusedReport
+    !dailyLimitRefusedReport &&
+    !(err instanceof WorkerGrammarSkippedError)
   ) {
     // A failed finalization must not execute more work or turn a
     // bounded run into an unbounded retry. Preserve the established
@@ -409,6 +415,7 @@ export function recoverTurnStep(
     turn.emptyRecoveries += 1;
     turn.stepsTaken += 1;
     turn.pendingNotice = composeEmptyCompletionNotice(noticeForThisStep);
+    const delayMs = emptyCompletionRetryDelayMs(turn.emptyRecoveries);
     deps.onEvent?.({
       type: "empty_completion_recovered",
       stepIndex: i,
@@ -420,10 +427,11 @@ export function recoverTurnStep(
       stepIndex: i,
       attempt: turn.emptyRecoveries,
       budget: EMPTY_COMPLETION_RECOVERY_BUDGET,
+      delayMs,
       category,
     });
     runError = null;
-    return { kind: "retry_next" };
+    return { kind: "retry_next", delayMs };
   }
   // The budget is spent and the model returned nothing again. The
   // turn is terminal now, but `detectModelFailure`'s message
@@ -435,7 +443,9 @@ export function recoverTurnStep(
   // to `model`, so reclassifying could only ever return what it
   // already holds.
   if (repeatedEmptyAfterAnnouncedRetry) {
-    runError = repeatedEmptyCompletionError(err);
+    runError = repeatedEmptyCompletionError(err, {
+      cloud: deps.isCloudLink?.(readFailingLink(err)) === true,
+    });
   }
   // The provider refused the request for its size. The window it
   // named (or, failing that, most of the prompt just estimated)

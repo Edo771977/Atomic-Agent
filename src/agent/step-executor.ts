@@ -15,7 +15,7 @@ export { formatFabricatedTranscriptNotice } from "./step/step-evidence.js";
 export { readReplyAttachments } from "./step/step-commit.js";
 import type { StepDependencies, StepContext, StepOutcome } from "./step/step-contract.js";
 export type { LlmStreamParams, LlmCompleteStream, StepDependencies, StepApprovalPostureSource, StepContext, StepTerminal, StepOutcome } from "./step/step-contract.js";
-import { toLlmFailure } from "./step/step-errors.js";
+import { requireWorkerGrammar, toLlmFailure } from "./step/step-errors.js";
 export { BatchValidationError } from "./step/step-errors.js";
 import { completionAssumesOpenReasoning, resolveReasoning } from "./step/step-reasoning.js";
 import { runInitialCompletion } from "./step/step-inference.js";
@@ -28,6 +28,7 @@ import { prepareStepInference } from "./step/step-inference.js";
 import { executeBatch, toBatchInputs } from "./dispatch/batch-scheduler.js";
 import { toolLogFields } from "./tool-log-fields.js";
 
+import { attachFailingLink } from "../llm/fallback/failed-attempts.js";
 import { ModelError, detectModelFailure } from "../llm/index.js";
 // The detector moved to the llm layer so the stream consumer can share its
 // rules; re-exported for existing importers.
@@ -87,6 +88,7 @@ async function executeStepInner(
     thinkingOff,
     reasoningBoundFor,
   });
+  requireWorkerGrammar(ctx, firstAttempt.completion);
   // The server named the slot it put a pending session's prompt in: pin
   // it so every later request of the session — the repair retry below
   // included — lands on the cache instead of asking again.
@@ -185,7 +187,7 @@ async function executeStepInner(
         stepIndex: ctx.stepIndex,
         reason: initialModelFailure.reason,
       });
-      throw new ModelError(
+      const error = new ModelError(
         initialModelFailure.reason,
         initialModelFailure.message,
         // Effective transport, not `deps.toolTransport`: on a
@@ -203,6 +205,9 @@ async function executeStepInner(
             : {}),
         },
       );
+      const providerId = completion.servedModelMode?.providerId ?? deps.providerId;
+      if (providerId) attachFailingLink(error, providerId);
+      throw error;
     }
     if (repairable) {
       // Fall through to the parser: an empty body fails to parse, which
@@ -222,9 +227,10 @@ async function executeStepInner(
       ? { ok: true, batch: continued.batch }
       : parseStepBatch(parsingArgs);
   if (!parsed.ok) {
-    const repairArgs = { ctx, deps, ...prepared, parsed, assumesOpenReasoning, onRetryReasoning: (retryReasoning: string) => { reasoning = retryReasoning; } };
+    const repairArgs = { ctx, deps, ...prepared, parsed, grammarSkipped: completion.grammarSkipped === true, assumesOpenReasoning, onRetryReasoning: (retryReasoning: string) => { reasoning = retryReasoning; } };
     const repair = prepareStepRepair(repairArgs);
     completion = await deps.llmComplete(repair.buildRequest());
+    requireWorkerGrammar(ctx, completion);
     const retryParseDeps = finishStepRepair(repairArgs, repair, completion);
     parsed = finishStepBatchRepair(parsingArgs, completion, retryParseDeps);
   }

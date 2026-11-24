@@ -634,15 +634,16 @@ export interface StepRepairArgs {
   replyCap: number;
   /** `localModels.reasoningBudgetTokens` for this step; `DEFAULT_REASONING_BUDGET_TOKENS` when absent. */
   reasoningBudgetTokens?: number;
+  grammarSkipped?: boolean;
   parsed: Extract<ToolCallBatchParseResult, { ok: false }>;
   assumesOpenReasoning: (completion: CompletionResult) => boolean;
   onRetryReasoning: (reasoning: string) => void;
 }
 /** {@link repairReplyCap} for a step's repair arguments. */
-function repairCapFor(args: Pick<StepRepairArgs, "deps" | "replyCap" | "thinkingOff" | "reasoningBudgetTokens">): number {
+function repairCapFor(args: Pick<StepRepairArgs, "deps" | "replyCap" | "thinkingOff" | "reasoningBudgetTokens" | "grammarSkipped">): number {
   return repairReplyCap(args.deps.toolTransport, args.replyCap, {
     profile: args.deps.profile,
-    thinkingOff: args.thinkingOff,
+    thinkingOff: args.thinkingOff || args.grammarSkipped === true,
     ...(args.reasoningBudgetTokens !== undefined ? { budgetTokens: args.reasoningBudgetTokens } : {}),
   });
 }

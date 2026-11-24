@@ -36,6 +36,7 @@ import {
   buildRouteTable,
   CompletionRegistry,
   createHttpServer,
+  createHttpTokenSource,
 } from "../http/index.js";
 import type { HttpServerHandle } from "../http/index.js";
 import { isNetworkListenHost } from "../http/serve-egress.js";
@@ -179,6 +180,7 @@ export async function serveCommand(args: string[]): Promise<number> {
         },
       },
     });
+    const namedTokens = createHttpTokenSource(stateDir);
     handle = await createHttpServer({
       runtime,
       host: parsed.host,
@@ -188,6 +190,8 @@ export async function serveCommand(args: string[]): Promise<number> {
       approvalBus,
       projectGateBus,
       completionRegistry,
+      // ATO-583: `atag http tokens add` names tokens with a role; the serve key stays owner.
+      namedTokens,
     });
     const baseUrl = `http://${handle.host}:${handle.port}`;
     process.stderr.write(

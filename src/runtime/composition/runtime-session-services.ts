@@ -1,3 +1,5 @@
+import { forgetPrivacyVault } from "../../privacy/index.js";
+import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -11,7 +13,6 @@ import { FileCheckpointStore, fileCheckpointsRoot } from "../../tools/os/fs/fs-c
 import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
-import { TaskStore } from "../../tasks/task-store.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
 
 /** The fusion project store every runtime surface shares (issue #109). */
@@ -19,11 +20,12 @@ export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectSt
   return projectStoreForStateDir(config.paths.stateDir);
 }
 
-export function prepareRuntimeSessionStore(
+export async function prepareRuntimeSessionStore(
   config: AtomicAgentConfig,
   logger: StructuredLogger,
   fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir)),
   outputSpill = new ToolOutputSpill(),
+  onRetainedIncognito?: (ids: readonly string[]) => void,
 ) {
   // Constructed before the tool registry: `os.fs.locate_project`
   // (issue #77) reads recent-session working dirs through the
@@ -65,23 +67,23 @@ export function prepareRuntimeSessionStore(
       error: err instanceof Error ? err.message : String(err),
     });
   }
-  // An incognito chat (ATO-586) whose process died before closing it is
-  // deleted now, trace and all. Ones a live window still holds stay.
-  // The task queue is built later; it is opened here only when there
-  // is an orphan's task to drop, and closed again.
-  let tasks: TaskStore | null = null;
-  try {
-    const orphans = sweepOrphanIncognitoSessions(sessionStore, config.paths.tracesDir, logger,
-      new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) }),
-      { removeForSession: (id) => (tasks ??= new TaskStore({ dbFile: config.paths.tasksDbFile })).removeForSession(id) });
-    // The runtime delete hook is installed after startup recovery.
-    for (const id of orphans) {
+  // At boot, remove abandoned incognito chats and the state they own.
+  const fusionRuns = new FusionRunStore({ dir: join(config.paths.stateDir, FUSION_RUNS_DIR_NAME) });
+  await fileCheckpoints.retryIncognitoRemovals(error => {
+    logger.warn("could not retry incognito file checkpoint removal", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  });
+  const { retained } = await sweepOrphanIncognitoSessions(
+    sessionStore, config.paths.tracesDir, logger, config.paths.tasksDbFile,
+    { staleAfterMs: config.tasks.staleAfterMs },
+    async (id) => {
+      fusionRuns.removeForSession(id);
       outputSpill.removeSession(id);
-      void fileCheckpoints.removeSession(id).catch(() => undefined);
-    }
-  } finally {
-    (tasks as TaskStore | null)?.close();
-  }
+      await fileCheckpoints.removeIncognitoSession(id);
+    },
+  );
+  onRetainedIncognito?.(retained);
   // `sessions.sqlite` and the traces beside it are the only state this
   // runtime never shrinks (§"Session retention"). One bounded pass here,
   // opt-in, and wrapped so that a prune can never be the reason a
@@ -158,6 +160,7 @@ export function installRuntimeSessionDelete(
   sessionStore.delete = (id: string): void => {
     dropRecorder(id);
     shellJobs.endSession(id);
+    SHARED_URL_SEND_SITES.clearSession(id);
     // The full outputs its clipped results were saved to (ATO-663).
     // Best effort and never throws.
     outputSpill?.removeSession(id);
@@ -169,6 +172,7 @@ export function installRuntimeSessionDelete(
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
+    forgetPrivacyVault(id);
   };
 }
 

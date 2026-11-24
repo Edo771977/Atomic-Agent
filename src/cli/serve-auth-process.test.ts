@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { expect, it } from "vitest";
 
+import { addHttpToken } from "../http/http-token-store.js";
+
 const key = "synthetic-serve-auth-process-key";
 
 it.skipIf(process.platform !== "linux").each(["environment", "file", "generated", "stdin", "file-delete"] as const)(
@@ -53,6 +55,18 @@ it.skipIf(process.platform !== "linux").each(["environment", "file", "generated"
       expect(launchEnv.includes("ATOMIC_AGENT_API_KEY=")).toBe(source === "environment");
       expect(launchEnv.includes(key)).toBe(source === "environment");
       if (source === "stdin") {
+        const viewer = addHttpToken(stateDir, "desktop-test-reader", "viewer");
+        if (!viewer.ok) throw new Error(viewer.error);
+        expect((await fetch(baseUrl + "/v1/models", {
+          headers: { Authorization: `Bearer ${viewer.token}` },
+        })).status).toBe(200);
+        const decision = await fetch(baseUrl + "/api/approval/resolve", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${viewer.token}`, "Content-Type": "application/json" },
+          body: "{}",
+        });
+        expect(decision.status).toBe(403);
+        expect(await decision.json()).toMatchObject({ error: { code: "insufficient_scope" } });
         const commandLine = await readFile("/proc/" + child.pid + "/cmdline", "utf8");
         expect(commandLine).not.toContain(key);
         const currentInput = await readlink(fdPath).catch((err: NodeJS.ErrnoException) => {
@@ -60,6 +74,7 @@ it.skipIf(process.platform !== "linux").each(["environment", "file", "generated"
           return undefined;
         });
         expect(currentInput).not.toBe(originalInput);
+        expect(currentInput).toBe("/dev/null");
       }
       if (source === "file-delete") await expect(stat(path)).rejects.toMatchObject({ code: "ENOENT" });
       if (source === "file") expect(await readFile(path, "utf8")).toBe(key + "\n");
@@ -103,3 +118,37 @@ it.each([
     await rm(dir, { recursive: true, force: true });
   }
 }, 30_000);
+
+it.skipIf(process.platform !== "linux")("reserves fd 0 across listen, close and listen on the same port", async () => {
+  const script = [
+    'import { readlinkSync } from "node:fs";',
+    'import { once } from "node:events";',
+    'import { createServer } from "node:net";',
+    'import { readServeKeyFromStdin } from "./src/cli/serve-api-key-input.ts";',
+    'const result = await readServeKeyFromStdin();',
+    'if ("error" in result) throw new Error(result.error);',
+    'if (readlinkSync("/proc/self/fd/0") !== "/dev/null") throw new Error("fd 0 was not reserved");',
+    'const server = createServer();',
+    'server.listen(0, "127.0.0.1");',
+    'await once(server, "listening");',
+    'const { port } = server.address();',
+    'server.close();',
+    'await once(server, "close");',
+    'server.listen(port, "127.0.0.1");',
+    'await once(server, "listening");',
+    'server.close();',
+    'await once(server, "close");',
+  ].join("\n");
+  const child = spawn(process.execPath, ["--import", "tsx", "--input-type=module", "-e", script], {
+    stdio: ["pipe", "ignore", "pipe"],
+  });
+  const closed = once(child, "close");
+  let stderr = "";
+  child.stderr.setEncoding("utf8").on("data", part => { stderr += part; });
+  try {
+    child.stdin.end(key + "\n");
+    expect((await closed)[0], stderr).toBe(0);
+  } finally {
+    child.kill();
+  }
+});

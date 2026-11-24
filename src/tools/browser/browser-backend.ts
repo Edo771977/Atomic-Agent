@@ -33,7 +33,13 @@ export interface TabInfo {
   active: boolean;
 }
 
+export interface BrowserRedirectGuard {
+  signal: AbortSignal;
+  authorize(url: string, signal: AbortSignal): Promise<void>;
+}
+
 export interface NavigateInput {
+  redirectGuard?: BrowserRedirectGuard;
   url: string;
   waitUntil?: "load" | "domcontentloaded" | "networkidle";
   timeoutMs?: number;
@@ -53,6 +59,7 @@ export interface TypeInput {
 }
 
 export interface TabsInput {
+  redirectGuard?: BrowserRedirectGuard;
   action: "list" | "switch" | "close" | "new";
   index?: number;
   url?: string;
@@ -64,6 +71,7 @@ export interface TabsInput {
 }
 
 export interface SearchInput {
+  redirectGuard?: BrowserRedirectGuard;
   query: string;
   engine?: "google" | "duckduckgo" | "bing";
 }

@@ -108,7 +108,8 @@ async function runAgUiTurn(
   session: SessionState,
   input: AgUiRunInput,
 ): Promise<void> {
-  const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS });
+  const controller = new AbortController();
+  const sse = beginSse(res, {}, { heartbeatMs: SSE_HEARTBEAT_MS, ...(ctx.stillAuthorized ? { stillAuthorized: ctx.stillAuthorized, onUnauthorized: () => controller.abort() } : {}) });
   const translator = createAgUiTranslator({
     threadId: input.threadId,
     runId: input.runId,
@@ -116,7 +117,6 @@ async function runAgUiTurn(
       if (!sse.closed) sse.writeEvent(null, event);
     },
   });
-  const controller = new AbortController();
   onClientGone(res, () => controller.abort());
   translator.runStarted();
 
@@ -130,6 +130,7 @@ async function runAgUiTurn(
     result = await ctx.runtime.runTurn(session, input.userMessage, {
       signal: controller.signal,
       origin: "http",
+      ...(ctx.caller && ctx.caller.role !== "owner" ? { requestedByToken: ctx.caller.name } : {}),
       eventHook: (event) => {
         if (cut) return;
         if (withheld()) {
