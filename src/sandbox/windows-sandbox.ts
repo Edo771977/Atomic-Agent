@@ -276,11 +276,12 @@ function createWindowsLaunch(command: string, args: readonly string[], root: str
     state = canonical(state);
     root = canonical(root);
     const helper = sandboxHelper();
-    const grant = readGrants(state).find(entry => entry.profile === getProfile(root));
+    const grant = readGrants(state).filter(entry => inside(entry.root, root))
+      .sort((left, right) => right.root.length - left.root.length)[0];
     if (grant?.status !== "granted" || !grant.readOnlyRoots.some(path => path.toLowerCase() === helper.toLowerCase())) {
       return { ok: false, reason: `Windows sandbox grant is missing or incomplete; ${REGRANT}` };
     }
-    if (rootProtected(root, state, helper)) return { ok: false, reason: "Windows sandbox project overlaps protected data or the agent installation" };
+    if (rootProtected(grant.root, state, helper)) return { ok: false, reason: "Windows sandbox project overlaps protected data or the agent installation" };
     const cwd = canonical(options.cwd);
     if (!inside(root, cwd)) return { ok: false, reason: "working directory is outside the approved Windows sandbox project" };
     const projectFile = scanProject(root, 1).probe;
@@ -297,11 +298,11 @@ function createWindowsLaunch(command: string, args: readonly string[], root: str
       /^(?:LANG|LC_ALL|NO_COLOR|TERM)$/.test(name) && value !== undefined));
     writeFileSync(file, JSON.stringify({
       profile: grant.profile, cwd, state, privateTemp, projectFile, outsideCanary,
-      argv: [executable, ...args], writableRoots: [root], readOnlyRoots: grant.readOnlyRoots,
+      argv: [executable, ...args], writableRoots: [grant.root], readOnlyRoots: grant.readOnlyRoots,
       env, timeoutMs: options.timeoutMs !== undefined && options.timeoutMs > 0 ? Math.min(Math.floor(options.timeoutMs), 0xfffffffe) : 0,
       verbatim: options.verbatim === true ? 1 : 0,
     }), { flag: "wx", encoding: "utf16le" });
-    return { ok: true, command: helper, args: ["run", file], windowsVerbatimArguments: false };
+    return { ok: true, command: helper, args: ["run", file], windowsVerbatimArguments: false, helperCwd: dirname(helper) };
   } catch (error) {
     return { ok: false, reason: `Windows sandbox is unavailable: ${error instanceof Error ? error.message : String(error)}` };
   }
@@ -325,7 +326,7 @@ function probeWindowsSandbox(root: string, state: string): boolean {
   const command = windowsSystemExecutable("cmd.exe");
   const wrapped = createWindowsLaunch(command, ["/d", "/c", "exit", "0"], root, state, { cwd: root, timeoutMs: 5000 });
   if (!wrapped.ok) return false;
-  const result = spawnSync(wrapped.command, wrapped.args, { cwd: root, windowsHide: true, timeout: 12_000 });
+  const result = spawnSync(wrapped.command, wrapped.args, { cwd: wrapped.helperCwd ?? root, env: {}, windowsHide: true, timeout: 12_000 });
   return result.status === 0;
 }
 

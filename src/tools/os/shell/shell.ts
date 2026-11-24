@@ -455,6 +455,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let spawnCommand = spawnSpec.command;
     let spawnArgs = spawnSpec.args;
     let sandboxNotice: string | null = null;
+    let helperCwd: string | undefined;
     let windowsVerbatimArguments = spawnSpec.windowsVerbatimArguments;
     if (sandbox.mode === "workspace") {
       const network = rawArgs.network === true;
@@ -502,6 +503,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       }
       spawnCommand = wrapped.command;
       spawnArgs = wrapped.args;
+      helperCwd = wrapped.helperCwd;
       windowsVerbatimArguments = wrapped.windowsVerbatimArguments ?? windowsVerbatimArguments;
       sandboxNotice = network
         ? "Safe Mode sandbox requested with network access approved for this command."
@@ -519,9 +521,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     );
     const commandEnv = pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path);
     const job = startCommandJob(spawnCommand, spawnArgs, {
-      cwd: pinned?.cwd ?? cwd,
+      cwd: helperCwd ?? pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: markAgentToolChild(sandbox.mode === "workspace" ? buildOsSandboxEnv(commandEnv) : commandEnv),
+      env: helperCwd === undefined ? markAgentToolChild(sandbox.mode === "workspace" ? buildOsSandboxEnv(commandEnv) : commandEnv) : {},
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }

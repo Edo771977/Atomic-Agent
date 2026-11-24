@@ -39,6 +39,7 @@ static bool openProfile(const std::wstring& profile, SandboxSid& sid, bool creat
 }
 
 static bool isOperator() {
+    SetLastError(ERROR_SUCCESS);
     if (GetEnvironmentVariableW(L"ATOMIC_AGENT_TOOL_CHILD", nullptr, 0) != 0 ||
         GetLastError() != ERROR_ENVVAR_NOT_FOUND) return false;
     LpacHandle token;
@@ -58,7 +59,7 @@ static int initState(const std::wstring& state, const std::wstring& folder) {
     PSID user = reinterpret_cast<const TOKEN_USER*>(info)->User.Sid;
     wchar_t* userSid = nullptr;
     if (!ConvertSidToStringSidW(user, &userSid)) return 4;
-    const std::wstring sddl = L"D:P(A;OICI;FA;;;" + std::wstring(userSid) + L")";
+    const std::wstring sddl = L"O:" + std::wstring(userSid) + L"D:P(A;OICI;FA;;;" + userSid + L")";
     LocalFree(userSid);
     PSECURITY_DESCRIPTOR privateDacl = nullptr;
     if (!ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.c_str(), SDDL_REVISION_1,

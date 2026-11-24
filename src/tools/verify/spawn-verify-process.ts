@@ -166,9 +166,10 @@ export function spawnVerifyProcess(
     ...buildCommandEnv(process.env),
     ...(options.network ? {} : networkBlockEnv()),
   }, options.env ?? {});
+  const helperCwd = "helperCwd" in wrapped ? wrapped.helperCwd : undefined;
   const child = spawn(wrapped.command, wrapped.args, {
-    cwd,
-    env: markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env),
+    cwd: helperCwd ?? cwd,
+    env: helperCwd === undefined ? markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env) : {},
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,

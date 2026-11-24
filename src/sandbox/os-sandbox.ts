@@ -338,7 +338,7 @@ export function buildOsSandboxPolicy(
 }
 
 export type OsSandboxWrap =
-  | { ok: true; command: string; args: string[]; windowsVerbatimArguments?: boolean }
+  | { ok: true; command: string; args: string[]; windowsVerbatimArguments?: boolean; helperCwd?: string }
   | { ok: false; reason: string };
 
 /** Where `sandbox-exec` lives; a test can point elsewhere. */

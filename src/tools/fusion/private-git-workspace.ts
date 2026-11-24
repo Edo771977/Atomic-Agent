@@ -58,8 +58,8 @@ async function importObjects(source: string, destination: string, tips: string[]
   const options = { env: env(snapshot.emptyConfig), windowsHide: true, stdio: "pipe" as const };
   const producerGit = prepareSandboxGit([...prefix, ...sandboxGitArgs(), "pack-objects", "--stdout", "--threads=1", "--window=0"], source, options.env);
   const consumerGit = prepareSandboxGit([...prefix, ...sandboxGitArgs(), "index-pack", "--stdin"], destination, options.env);
-  const producer = spawn(producerGit.command, producerGit.args, { ...options, env: producerGit.env, cwd: source });
-  const consumer = spawn(consumerGit.command, consumerGit.args, { ...options, env: consumerGit.env, cwd: destination });
+  const producer = spawn(producerGit.command, producerGit.args, { ...options, env: producerGit.env, cwd: producerGit.helperCwd ?? source });
+  const consumer = spawn(consumerGit.command, consumerGit.args, { ...options, env: consumerGit.env, cwd: consumerGit.helperCwd ?? destination });
   const children = [producer, consumer];
   let error: Error | undefined;
   const stop = (reason: unknown): void => {
