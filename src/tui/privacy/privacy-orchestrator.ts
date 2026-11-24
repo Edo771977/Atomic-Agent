@@ -1,5 +1,6 @@
 import type { AnalyticsDisabledVia } from "../../analytics/index.js";
 import { getConfig } from "../../config/index.js";
+import { parseTeamMember, teamMembers, type TeamRole } from "../../llm/run-mode/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import type { TuiEventBus } from "../tui-app.js";
 import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
@@ -30,12 +31,22 @@ export class PrivacyOrchestrator {
    * line stays truthful (e.g. after a `--no-approval` boot).
    */
   refresh(): void {
+    const config = getConfig();
+    const team = config.llm?.runMode?.fusion?.team;
+    const roles: readonly TeamRole[] = ["directors", "workers", "reviewers"];
+    const shield = snapshotPrivacyShield(readPrivacyShieldControl(this.runtime), this.currentSessionId());
+    const members = roles.flatMap((role) => teamMembers(team, role));
+    const planReviewer = team?.planReviewer === undefined ? null : parseTeamMember(team.planReviewer);
+    if (planReviewer) members.push(planReviewer);
+    if (members.some(({ providerId }) =>
+      config.llm?.providers.some((provider) => provider.id === providerId && provider.kind === "subscription-cli"),
+    )) shield.fusionUsesSubscriptionCli = true;
     this.bus.emit({
       type: "privacy_synced",
-      analyticsEnabled: getConfig().analytics.enabled,
+      analyticsEnabled: config.analytics.enabled,
       sessionGrants: this.runtime.approvals.sessionGrants(),
       offline: snapshotOfflineMode(readOfflineModeControl(this.runtime)),
-      shield: snapshotPrivacyShield(readPrivacyShieldControl(this.runtime), this.currentSessionId()),
+      shield,
     });
     this.bus.emit({
       type: "approval_level_changed",

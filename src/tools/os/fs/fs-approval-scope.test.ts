@@ -268,6 +268,10 @@ describe("fs approval scope", () => {
       ).toBe("fs_write_home");
     });
 
+    it("protects trash of the folder containing a trusted file", async () => {
+      expect(await categorizeFsMutation("trash", [stateDir], trustOpts())).toBe("trust_config");
+    });
+
     it("extraction into a directory that holds a trust file is trust_config", async () => {
       expect(
         await categorizeFsMutation("extract", [stateDir], trustOpts()),
@@ -356,6 +360,35 @@ describe("fs approval scope", () => {
 
 
 describe("the fusion projects' records in the state dir (issue #109 review)", () => {
+  it("protects mutations and shell path recognition for global and shared skill roots", async () => {
+    const { getSkillWriteProtectionPaths, getTrustConfigPaths, getStateSecretPaths } = await import("../../../config/config-file.js");
+    const home = await mkdtemp(join(tmpdir(), "fs-scope-skills-"));
+    const restore = process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR;
+    try {
+      const stateDir = join(home, "state");
+      const globalSkillsDir = join(home, "custom-skills");
+      const shared = join(home, "shared-skills");
+      process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR = shared;
+      const paths = { stateDir, globalSkillsDir, userConfigFile: join(stateDir, "config.json"), localModelsDataDir: join(stateDir, "models") };
+      const trustConfigPaths = getTrustConfigPaths(paths);
+      for (const root of [globalSkillsDir, shared]) {
+        const target = join(root, "demo", "SKILL.md");
+        const options = { workingDir: home, homeDir: home, trustConfigPaths };
+        expect(await categorizeFsMutation("write", [target], options)).toBe("trust_config");
+        expect(await categorizeFsMutation("write", [join(home, "source"), target], options)).toBe("trust_config");
+        expect(await categorizeFsMutation("trash", [target], options)).toBe("trust_config");
+      }
+      for (const root of getSkillWriteProtectionPaths(paths)) {
+        expect(trustConfigPaths).toContain(root);
+        expect(getStateSecretPaths(paths)).not.toContain(root);
+      }
+    } finally {
+      if (restore === undefined) delete process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR;
+      else process.env.ATOMIC_AGENT_SHARED_SKILLS_DIR = restore;
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("a write there is trust_config, like config.json (review a6)", async () => {
     const { getTrustConfigPaths } = await import("../../../config/config-file.js");
     const home = await mkdtemp(join(tmpdir(), "fs-scope-records-"));
@@ -369,6 +402,7 @@ describe("the fusion projects' records in the state dir (issue #109 review)", ()
         expect(await categorizeFsMutation("trash", [key], o)).toBe("trust_config");
       }
       expect(await categorizeFsMutation("write", [join(stateDir, "project-decisions", "abc.json")], o)).toBe("trust_config");
+      expect(await categorizeFsMutation("write", [join(stateDir, "learned-projects", "abc", "skills", "notes", "SKILL.md")], o)).toBe("trust_config");
       expect(await categorizeFsMutation("write", [join(stateDir, "projects", "registry.json")], o)).toBe("trust_config");
     } finally {
       await rm(home, { recursive: true, force: true });

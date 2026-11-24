@@ -9,6 +9,11 @@ describe("isLocalServerUrl", () => {
     }
   });
 
+  it.each(["nip.io", "sslip.io"])("requires a private address in a %s hostname", (suffix) => {
+    expect(isLocalServerUrl(`https://gpu.${suffix}`)).toBe(false);
+    expect(isLocalServerUrl(`https://gpu-192-168-1-5.${suffix}`)).toBe(true);
+  });
+
   it("rejects public endpoints and unparsable input", () => {
     for (const url of ["https://api.openai.com/v1", "https://openrouter.ai/api/v1", "http://172.32.0.1", "http://8.8.8.8", "not a url", "", undefined]) {
       expect(isLocalServerUrl(url)).toBe(false);

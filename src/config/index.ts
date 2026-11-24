@@ -52,6 +52,7 @@ export {
   getDotenvPath,
   getStateSecretPaths,
   getTrustConfigPaths,
+  getSkillWriteProtectionPaths,
   getUserConfigPath,
   readUserConfigFileSync,
   writeUserConfigFileSync,

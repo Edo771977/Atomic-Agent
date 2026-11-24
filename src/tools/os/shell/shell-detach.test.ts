@@ -3,6 +3,8 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { isProcessRunning } from "../../../../test/helpers/process-liveness.js";
+
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import type { ToolContext } from "../../tool-registry.js";
 import { ShellJobRegistry } from "./shell-jobs.js";
@@ -29,18 +31,9 @@ function shellTool(defaultTimeoutMs: number, jobs?: ShellJobRegistry) {
   });
 }
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 async function waitForExit(pid: number): Promise<void> {
   for (let i = 0; i < 120; i += 1) {
-    if (!isAlive(pid)) return;
+    if (!isProcessRunning(pid)) return;
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
   throw new Error(`process ${pid} is still alive`);
@@ -107,7 +100,7 @@ describe.skipIf(process.platform === "win32")(
       expect(result.summary).toContain("partial");
       const pid = await readPid(pidFile);
       expect(result.details.pid).toBe(pid);
-      expect(isAlive(pid)).toBe(true);
+      expect(isProcessRunning(pid)).toBe(true);
     });
 
     it("wait returns the still-running result again, then the exit with the full output", async () => {
@@ -148,7 +141,7 @@ describe.skipIf(process.platform === "win32")(
         ctx(),
       );
       const pid = await readPid(pidFile);
-      expect(isAlive(pid)).toBe(true);
+      expect(isProcessRunning(pid)).toBe(true);
       const killed = await tool.run({ kill: 1 }, ctx());
       expect(killed.status).toBe("ok");
       expect(killed.details).toMatchObject({
@@ -194,8 +187,8 @@ describe.skipIf(process.platform === "win32")(
       );
       jobs.endTurn(SESSION);
       await waitForExit(plain!);
-      expect(isAlive(kept!)).toBe(true);
-      expect(isAlive(later!)).toBe(true);
+      expect(isProcessRunning(kept!)).toBe(true);
+      expect(isProcessRunning(later!)).toBe(true);
       expect(jobs.list(SESSION).map((r) => r.id)).toEqual([2, 3]);
       jobs.endSession(SESSION);
       await waitForExit(kept!);
@@ -264,7 +257,7 @@ describe.skipIf(process.platform === "win32")(
       const result = await pending;
       expect(Date.now() - startedAt).toBeLessThan(2_000);
       expect(result.details).toMatchObject({ detached: true, jobId: 1 });
-      expect(isAlive(await readPid(pidFile))).toBe(true);
+      expect(isProcessRunning(await readPid(pidFile))).toBe(true);
     });
 
     it("refuses a call that mixes forms, a wait that is not a job id, and an unknown job", async () => {
@@ -318,7 +311,7 @@ describe.skipIf(process.platform === "win32")(
       );
       expect(result.status).toBe("ok");
       expect(result.details).toMatchObject({ detached: true, jobId: 1, timedOut: false });
-      expect(isAlive(await readPid(pidFile))).toBe(true);
+      expect(isProcessRunning(await readPid(pidFile))).toBe(true);
     });
 
     it("a wait with timeoutMs: 0 waits the default, not forever (ATO-1175)", async () => {

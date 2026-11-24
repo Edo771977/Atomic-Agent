@@ -117,7 +117,7 @@ describe("project folder trust (ATO-298 soft trust)", () => {
     expect(workspace.diagnostics.join("\n")).not.toContain("skill project on");
     const hints = logs.filter(r => r.message.includes("not trusted yet"));
     expect(hints.length).toBe(2);
-    expect(hints.every(r => String(r.context?.hint).startsWith("atomic-agent skill project on --workspace "))).toBe(true);
+    expect(hints.every(r => String(r.context?.hint) === "Ask the operator to review the project in their own interface.")).toBe(true);
     loader(createEmptySessionState({ id: "s", workingDir: repo }), true);
     expect(logs.filter(r => r.message.includes("not trusted yet")).length).toBe(2);
   });

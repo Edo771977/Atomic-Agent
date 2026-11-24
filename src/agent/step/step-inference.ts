@@ -38,7 +38,9 @@ import { reconcileCloudSkills } from "../../session/workspace-context.js";
 
 export function refreshStepWorkspace(ctx: StepContext, deps: StepDependencies): void {
   const cloud = deps.modelMode?.mode === "cloud";
-  ctx.workspace = (cloud || ctx.session.inheritedWorkspace) ? deps.prepareWorkspace?.(ctx.session, cloud, ctx.signal, { contextWindow: deps.contextWindow ?? null }) : undefined;
+  const scopedLearning = getConfig().skills.selfLearning?.enabled === true;
+  ctx.workspace = (cloud || ctx.session.inheritedWorkspace || scopedLearning) ? deps.prepareWorkspace?.(ctx.session, cloud, ctx.signal, { contextWindow: deps.contextWindow ?? null }) : undefined;
+  if (!cloud && !ctx.session.inheritedWorkspace && !ctx.workspace?.skills.entries.some(e => e.record.learned && !e.disabledReasons.length)) ctx.workspace = undefined;
   if (cloud && ctx.workspace) {
     const next = reconcileCloudSkills(ctx.session, ctx.workspace);
     if (next !== ctx.session) { ctx.session = next; deps.commitSession?.(next); }
@@ -98,7 +100,14 @@ export function prepareStepPrompt(ctx: StepContext, deps: StepDependencies) {
     : appliedReasoningBound(ctx, deps.grammar, thinkingOff);
   const basePromptInput: BuildPromptInput = {
     ...(ctx.workspace ? { workspace: ctx.workspace } : {}),
-    session: ctx.session,
+    session: !ctx.workspace || deps.modelMode?.mode === "cloud" ? ctx.session : {
+      ...ctx.session,
+      loadedSkills: [...ctx.session.loadedSkills, ...(ctx.session.cloudLoadedSkills ?? []).filter(loaded =>
+        ctx.workspace?.skills.entries.some(e => e.record.learned && !e.disabledReasons.length &&
+          e.record.manifestPath === loaded.sourcePath && e.fingerprint === loaded.fingerprint &&
+          ctx.workspace?.workingDir === loaded.workspace)
+      )],
+    },
     toolDescriptors: stepToolDescriptors,
     capabilities: ctx.capabilities,
     skillCatalog: ctx.skillCatalog,

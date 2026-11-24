@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  rmdirSync,
   rmSync,
   statSync,
   unlinkSync,
@@ -187,6 +188,8 @@ export interface FusionRunCheckpoint {
    * run, not a re-plan.
    */
   args: Record<string, unknown>;
+  /** A redacted argument cannot be replayed safely. */
+  redactedArgs?: true;
   /** `running` while a process works on it; `interrupted` once its turn was stopped. */
   state: FusionRunState;
   /** The process working on it (`serializeTurnOwner`), to tell live from dead. */
@@ -225,6 +228,7 @@ export interface FusionRunStartInput {
   workingDir: string;
   originalRequest?: string;
   args: Record<string, unknown>;
+  protect?: (checkpoint: FusionRunCheckpoint) => FusionRunCheckpoint;
   tasks: readonly Pick<DelegateTask, "id" | "title">[];
   waveCount: number;
   /** The checkpoint a resume continues: its finished tasks and spend stand. */
@@ -358,7 +362,7 @@ export class FusionRunStore {
       resumes: (input.resumedFrom?.resumes ?? -1) + 1,
     };
     this.active.add(runId);
-    const recorder = new FusionRunRecorder(this, checkpoint);
+    const recorder = new FusionRunRecorder(this, checkpoint, input.protect);
     recorder.flush();
     return recorder;
   }
@@ -440,30 +444,45 @@ export class FusionRunStore {
    * an incognito chat leaves none of its fan-outs behind). Returns how
    * many files went; a folder that cannot be read has none to delete.
    */
-  removeForSession(sessionId: string): number {
-    let names: string[];
+  removeForSession(sessionId: string, strict = false): number {
+    let entries: string[];
     try {
-      names = readdirSync(this.dir);
-    } catch {
+      entries = readdirSync(this.dir, { encoding: "utf8" });
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return 0;
     }
     let removed = 0;
-    for (const runId of this.runFolders()) {
+    for (const runId of this.runFolders(strict)) {
+      const folder = join(this.dir, runId);
       try {
-        const marker = JSON.parse(readFileSync(join(this.dir, runId, RUN_DIR_MARKER), "utf8")) as { sessionId?: unknown };
-        if (marker.sessionId === sessionId) this.removeRunFolder(runId);
-      } catch {
-        // No readable marker: not known to be this session's.
+        const marker = JSON.parse(readFileSync(join(folder, RUN_DIR_MARKER), "utf8")) as { sessionId?: unknown } | null;
+        if (marker?.sessionId !== sessionId) continue;
+        if (!strict) {
+          this.removeRunFolder(runId);
+          continue;
+        }
+        for (const name of readdirSync(folder)) {
+          if (name !== RUN_DIR_MARKER) rmSync(join(folder, name), { recursive: true, force: true, maxRetries: 3 });
+        }
+        rmSync(join(folder, RUN_DIR_MARKER), { force: true });
+        rmdirSync(folder);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (strict && code !== undefined && code !== "ENOENT") throw error;
       }
     }
-    for (const name of names) {
+    for (const name of entries) {
       if (!name.endsWith(".json")) continue;
       const runId = name.slice(0, -".json".length);
       if (!FusionRunStore.isValidRunId(runId)) continue;
-      const checkpoint = readCheckpoint(join(this.dir, name));
+      const checkpoint = readCheckpoint(join(this.dir, name), strict);
       if (checkpoint?.sessionId !== sessionId) continue;
       this.active.delete(runId);
-      if (this.remove(runId)) removed += 1;
+      if (strict) {
+        rmSync(this.path(runId), { force: true });
+        removed += 1;
+      } else if (this.remove(runId)) removed += 1;
     }
     return removed;
   }
@@ -520,12 +539,13 @@ export class FusionRunStore {
   }
 
   /** Run ids that have a folder of their own. */
-  private runFolders(): string[] {
+  private runFolders(strict = false): string[] {
     try {
       return readdirSync(this.dir, { withFileTypes: true })
         .filter((entry) => entry.isDirectory() && FusionRunStore.isValidRunId(entry.name))
         .map((entry) => entry.name);
-    } catch {
+    } catch (error) {
+      if (strict && (error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
       return [];
     }
   }
@@ -562,6 +582,7 @@ export class FusionRunRecorder {
   constructor(
     private readonly store: FusionRunStore,
     private readonly checkpoint: FusionRunCheckpoint,
+    private readonly protect?: FusionRunStartInput["protect"],
   ) {}
 
   get runId(): string {
@@ -713,18 +734,20 @@ export class FusionRunRecorder {
   /** @internal */
   flush(): void {
     this.checkpoint.updatedAt = this.store.stamp();
-    this.warning = this.store.write(this.checkpoint);
+    this.warning = this.store.write(this.protect?.(this.checkpoint) ?? this.checkpoint);
   }
 }
 
-function readCheckpoint(file: string): FusionRunCheckpoint | null {
+function readCheckpoint(file: string, strict = false): FusionRunCheckpoint | null {
   let parsed: unknown;
   try {
     if (statSync(file).size > CHECKPOINT_MAX_BYTES) return null;
     const bytes = readFileSync(file);
     if (bytes.length > CHECKPOINT_MAX_BYTES) return null;
     parsed = JSON.parse(bytes.toString("utf8"));
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (strict && code !== undefined && code !== "ENOENT") throw error;
     return null;
   }
   if (!record(parsed)) return null;
@@ -734,7 +757,7 @@ function readCheckpoint(file: string): FusionRunCheckpoint | null {
     !boundedString(c.runId, 64) || !RUN_ID_PATTERN.test(c.runId) ||
     !boundedString(c.sessionId, CHECKPOINT_MAX_BYTES) ||
     !boundedString(c.workingDir, CHECKPOINT_MAX_BYTES) ||
-    !record(c.args) ||
+    !record(c.args) || (c.redactedArgs !== undefined && c.redactedArgs !== true) ||
     !Array.isArray(c.tasks) ||
     c.tasks.length > 16 || !c.tasks.every(validTask) ||
     new Set(c.tasks.map((t) => t.id)).size !== c.tasks.length ||

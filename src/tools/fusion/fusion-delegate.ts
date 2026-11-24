@@ -201,7 +201,7 @@ import { resolveTeamRouting, teamContextFromConfig, type FusionTeamContext } fro
 import { judgeTaskVision, pickVisionJudge, VISION_MAX_OUTPUT_TOKENS, type VisionDescribe } from "./vision-judge.js";
 import { criteriaFactsFor, holdOnCriteria, taskCriteria, type VisionJudgements } from "./criteria-facts.js";
 import { CHECK_LINT_PREFIX, checksWithoutCriteriaHint, describeCheckLintForApproval } from "./contract-check-lint.js";
-import { readRunCriteria, writeRunChangedFiles, writeRunCriteriaFacts, writeRunUiOutput, type RunTaskReview } from "./run-criteria.js";
+import { readRunCriteria, writeRunChangedFiles, writeRunCriteriaFacts, writeRunUiOutput, type RunTaskCriteria, type RunTaskReview } from "./run-criteria.js";
 import { isPlaceholderReply, VERIFY_ONLY_UNCHANGED_NOTE } from "./declared-files.js";
 import { createTaskPermitPool, type TaskPermit } from "./task-permits.js";
 import { VERIFY_COPY_MAX_BYTES } from "../verify/verify-workspace-copy.js";
@@ -562,12 +562,17 @@ export function buildFusionDelegateTool(
       let resume: ResumePlan | undefined;
       let resumedFrom: ReturnType<FusionRunStore["load"]> = null;
       if (resumeRequest !== null) {
+        if (ctx.incognito) return error("Fusion checkpoints are unavailable in incognito.", { reason: "incognito" });
         resumedFrom = deps.runCheckpoints?.load(resumeRequest.runId) ?? null;
         if (resumedFrom === null || resumedFrom.sessionId !== ctx.sessionId) {
           return error(
             `fusion.delegate: there is no unfinished fusion run "${resumeRequest.runId}" in this session to resume. Plan the remaining work again instead.`,
             { reason: "resume-unknown", runId: resumeRequest.runId },
           );
+        }
+        if (resumedFrom.redactedArgs) {
+          return error("The checkpoint contains redacted arguments. Review the remaining work and start a fresh fan-out.",
+            { reason: "resume-redacted", runId: resumeRequest.runId });
         }
         if (deps.runCheckpoints!.isLive(resumedFrom)) {
           return error(
@@ -1365,7 +1370,9 @@ export function buildFusionDelegateTool(
           ...(admitted.runId === undefined ? {} : { runId: admitted.runId }),
         }));
       };
-      const evidenceRunsDir = ctx.incognito ? undefined : deps.runCheckpoints?.runsDir;
+      const checkpointStore = ctx.incognito ? undefined : deps.runCheckpoints;
+      const evidenceRunsDir = checkpointStore?.runsDir;
+      const protectEvidence = <T>(value: T): T => redactPrivacyEvidence(ctx.sessionId, value, { always: true });
       const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined && evidenceRunsDir === undefined
         ? undefined
         : (check, record, ok) => {
@@ -1580,13 +1587,20 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
-      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean =>
-        escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
-        (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
-          leg.pinModel === undefined && leg.model === leg.providerId ? leg.providerId : `${leg.providerId}:${leg.model}`,
-          `${escalationTarget.providerId}:${escalationTarget.pinModel ?? escalationTarget.model ?? "default"}`,
+      const isUnknownDefault = (model: string | null): boolean => model === null || model === "default";
+      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean => {
+        if (escalationTarget === null || escalationTarget.providerId !== leg.providerId) return false;
+        if (deps.workerSupportsSlotAffinity(leg.providerId)) return true;
+        const workerModel = leg.pinModel ?? (leg.model === leg.providerId ? null : leg.model);
+        const targetModel = escalationTarget.pinModel ?? escalationTarget.model;
+        if (deps.resolveDefaultModel?.(leg.providerId) === undefined &&
+            (isUnknownDefault(workerModel) || isUnknownDefault(targetModel))) return true;
+        return sameMember(
+          `${leg.providerId}:${workerModel ?? "default"}`,
+          `${leg.providerId}:${targetModel ?? "default"}`,
           deps.resolveDefaultModel,
-        ));
+        );
+      };
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;
       const escalationPricing =
         escalationTarget === null || escalationModel === undefined
@@ -1778,13 +1792,17 @@ export function buildFusionDelegateTool(
       // The checkpoint (ATO-617): written after every task and wave, so a
       // run cut off by a crash or a quit can be resumed from where it was.
       const runStartedAt = resumedFrom?.startedAt ?? Date.now();
-      const run: FusionRunRecorder | undefined = candidate === undefined ? deps.runCheckpoints?.start({
+      const run: FusionRunRecorder | undefined = candidate === undefined ? checkpointStore?.start({
         ...(resume === undefined ? {} : { runId: resume.runId }),
         ...(directorRef === null ? {} : { director: directorRef }),
         sessionId: ctx.sessionId,
         workingDir: ctx.workingDir,
         ...(originalRequest === undefined ? {} : { originalRequest }),
         args: checkpointArgs(delegateArgs),
+        protect: (checkpoint) => {
+          const visible = protectEvidence(checkpoint);
+          return visible.args === checkpoint.args ? visible : { ...visible, redactedArgs: true };
+        },
         tasks: parsed.tasks,
         waveCount: plan.waves.length,
         ...(resumedFrom === null ? {} : { resumedFrom }),
@@ -1798,10 +1816,23 @@ export function buildFusionDelegateTool(
       const evidenceRun: ContractCheckRun | undefined =
         run !== undefined
           ? { runId: run.runId, sessionId: ctx.sessionId }
-          : candidate !== undefined && deps.runCheckpoints !== undefined
+          : candidate !== undefined && checkpointStore !== undefined
             ? { runId: newFusionRunId(), sessionId: ctx.sessionId }
             : undefined;
       if (evidenceRun !== undefined) checkRun = evidenceRun;
+      const saveRunChanges = (paths: readonly string[], incomplete = false): void => {
+        if (evidenceRunsDir === undefined || evidenceRun === undefined) return;
+        writeRunChangedFiles(evidenceRunsDir, evidenceRun, paths, incomplete,
+          (path) => protectEvidence(path) === path);
+      };
+      const saveRunFacts = (facts: readonly RunTaskCriteria[], reviews: readonly RunTaskReview[]): void => {
+        if (evidenceRunsDir === undefined || evidenceRun === undefined) return;
+        const criteria = factCriteria && new Map([...factCriteria].map(([id, criterion]) => [id, protectEvidence(criterion)]));
+        const meta = runMeta();
+        const passedChecks = meta?.passedChecks?.filter((check) => protectEvidence(check) === check);
+        writeRunCriteriaFacts(evidenceRunsDir, evidenceRun, protectEvidence(facts), criteria, protectEvidence(reviews),
+          meta === undefined || passedChecks === undefined ? meta : { ...meta, passedChecks });
+      };
       const criterionRunId = evidenceRun?.runId ?? newFusionRunId();
       admitted.runId = criterionRunId;
       admitted.runStartedAt = runStartedAt;
@@ -2126,6 +2157,7 @@ export function buildFusionDelegateTool(
         run?.addSpend(usd);
         turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
       };
+      const replacementAuthors = new Map<string, NonNullable<WorkerTaskResult["escalationRerun"]>[]>();
       const isReplacementAuthor = (
         rerun: WorkerTaskResult["escalationRerun"],
         providerId: string,
@@ -2134,7 +2166,6 @@ export function buildFusionDelegateTool(
         if (rerun === undefined || providerId !== rerun.providerId) return false;
         if (deps.workerSupportsSlotAffinity(providerId)) return true;
         // A default we cannot identify on the same provider might be the author.
-        const isUnknownDefault = (value: string | null): boolean => value === null || value === "default";
         if (deps.resolveDefaultModel?.(providerId) === undefined &&
             (isUnknownDefault(model) || (isUnknownDefault(rerun.model) && isUnknownDefault(rerun.requestedModel)))) {
           return true;
@@ -2161,9 +2192,9 @@ export function buildFusionDelegateTool(
           : pickVisionJudge({
               taskReviewer: asMember(target),
               reviewers: team?.reviewers ?? [],
-              sees: (m) => !isReplacementAuthor(input.escalationRerun, m.providerId,
+              sees: (m) => !replacementAuthors.get(input.task.id)?.some(author => isReplacementAuthor(author, m.providerId,
                 (team?.pinsModel(m.providerId) ?? teamContext?.pinsModel(m.providerId) ?? true)
-                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null) &&
+                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null)) &&
                 currentPolicyAllows(m.providerId) && vj.sees(m),
               route: () => vj.route(),
             });
@@ -2205,14 +2236,25 @@ export function buildFusionDelegateTool(
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
         let target = judgeTargetFor(input.task.id);
-        const author = input.escalationRerun;
+        // A review retry can edit the same work without another escalation.
+        // Keep every replacement author for all subsequent reviews of this task.
+        const authors = replacementAuthors.get(input.task.id) ?? [];
+        const rerun = input.escalationRerun;
+        if (rerun !== undefined && !authors.some(author => author.providerId === rerun.providerId &&
+            author.model === rerun.model && author.requestedModel === rerun.requestedModel)) {
+          authors.push(rerun);
+          replacementAuthors.set(input.task.id, authors);
+        }
         const plannedReviewer = taskReviewerOf(input.task.id).member;
-        if (author !== undefined && target !== null && isReplacementAuthor(author, target.providerId,
-          plannedReviewer === null ? target.pinModel ?? target.model : teamReviewerModel(plannedReviewer))) {
+        const originalTarget = target;
+        const author = originalTarget === null ? undefined : authors.find(candidate =>
+          isReplacementAuthor(candidate, originalTarget.providerId,
+            plannedReviewer === null ? originalTarget.pinModel ?? originalTarget.model : teamReviewerModel(plannedReviewer)));
+        if (author !== undefined) {
           const model = author.model ?? "default";
           const reviewer = team?.reviewerFor(
             { providerId: author.providerId, model, ref: `${author.providerId}:${model}` },
-            member => !isReplacementAuthor(author, member.providerId, teamReviewerModel(member)),
+            member => !authors.some(candidate => isReplacementAuthor(candidate, member.providerId, teamReviewerModel(member))),
           ) ?? null;
           target = reviewer === null ? null : {
             providerId: reviewer.providerId,
@@ -3534,9 +3576,9 @@ export function buildFusionDelegateTool(
         ];
         runMeta = () => ({ ran: ranIds, judging, ...(passedChecks.length === 0 ? {} : { passedChecks }) });
         noReviewVerdict = runReviews.flatMap((r) => (r.verdict === "none" ? [{ taskId: r.taskId, reason: r.reason! }] : []));
-        if (candidate === undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
-          writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, [...deliveredPaths], mode.isolation !== "worktree");
-          writeRunCriteriaFacts(deps.runCheckpoints.runsDir, evidenceRun, runFacts, factCriteria, runReviews, runMeta());
+        if (candidate === undefined) {
+          saveRunChanges([...deliveredPaths], mode.isolation !== "worktree");
+          saveRunFacts(runFacts, runReviews);
         }
         // Workspaces kept for a retry are done with, retried or not.
         await releaseKept();
@@ -3770,23 +3812,19 @@ export function buildFusionDelegateTool(
         }
         // A candidate that was not promoted delivered nothing to the folder
         // (issue #74): none of its criteria stands as passed there.
-        if (candidateReport !== undefined && evidenceRun !== undefined && deps.runCheckpoints !== undefined) {
+        if (candidateReport !== undefined) {
           const why = `candidate not promoted${candidateReport.reason === undefined ? "" : `: ${candidateReport.reason}`}`;
           if (candidateReport.status === "promoted") {
-            writeRunChangedFiles(deps.runCheckpoints.runsDir, evidenceRun, candidateReport.changes);
+            saveRunChanges(candidateReport.changes);
           }
-          writeRunCriteriaFacts(
-            deps.runCheckpoints.runsDir,
-            evidenceRun,
+          saveRunFacts(
             candidateReport.status === "promoted"
               ? runFacts
               : runFacts.map((t) => ({
                   taskId: t.taskId,
                   facts: t.facts.map((f) => (f.state === "passed" ? { id: f.id, state: "unverified" as const, why } : f)),
                 })),
-            factCriteria,
             runReviews,
-            runMeta(),
           );
         }
         terminalTaskCount = results.length;

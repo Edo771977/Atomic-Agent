@@ -515,8 +515,8 @@ function parseCount(raw: string | null): number | undefined | null {
 
 /**
  * `DELETE /api/sessions/{id}` — purge the session row. Idempotent:
- * returns 200 whether or not the row existed so orchestrators can
- * blindly retry.
+ * returns 200 whether or not the row existed, or 503 if incognito
+ * cleanup needs to be retried.
  */
 export function createDeleteSessionHandler(): HttpHandler {
   return async (_req, res, ctx) => {
@@ -528,6 +528,11 @@ export function createDeleteSessionHandler(): HttpHandler {
     // An incognito chat (ATO-586) goes with its trace file, and not from
     // under a running turn — that turn's end would write the row back.
     const incognito = ctx.runtime.discardIncognitoSession?.(id);
+    if (incognito === "failed") {
+      sendError(res, 503, openaiError("Incognito cleanup failed. Retry deleting the session.",
+        "server_error", null, "incognito_cleanup_failed"));
+      return;
+    }
     if (incognito === undefined || incognito === "not_incognito") {
       ctx.runtime.sessionStore.delete(id);
     }
@@ -535,7 +540,7 @@ export function createDeleteSessionHandler(): HttpHandler {
     // messages for a conversation the caller just said it is done with,
     // and leaving them would strand rows nobody will ever ack.
     ctx.undeliveredSteers.clear(id);
-    ctx.incognitoChats?.delete(id);
+    if (incognito === "deleted" || incognito === "not_incognito") ctx.incognitoChats?.delete(id);
     sendJson(res, 200, { deleted: true, id });
   };
 }

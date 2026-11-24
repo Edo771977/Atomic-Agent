@@ -1,7 +1,9 @@
 import * as backupService from "../memory/memory-backup.js";
-import { readdir } from "node:fs/promises";
+import { mkdir, readdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createHttpServer } from "./http-server.js";
+import { createMemoryBackupHandler } from "./route-memory-operator.js";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -130,6 +132,33 @@ describe("operator memory routes", () => {
     expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
   });
 
+  it("keeps a deferred incognito deletion tracked until the row is gone", async () => {
+    const response = await send("/v1/chat/completions", {
+      model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
+    });
+    expect(response.status).toBe(200);
+    const { session_id: id } = await response.json() as { session_id: string };
+    // Exercise the HTTP tracking independently of the runtime's live-chat guard.
+    vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(false);
+    const discard = vi.spyOn(harness.runtime, "discardIncognitoSession").mockReturnValueOnce("deferred");
+    const deleted = await fetch(harness.baseUrl + "/api/sessions/" + id, {
+      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+    });
+    expect(deleted.status).toBe(200);
+    expect(discard).toHaveBeenCalledWith(id);
+    const blocked = await send("/api/memory/backup", {});
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
+
+    harness.runtime.sessionStore.delete(id);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+    // A second idle assertion must no longer consult that stale tracked ID.
+    const load = vi.spyOn(harness.runtime.sessionStore, "load");
+    const note = (await (await send("/api/memory/notes")).json() as { notes: { fingerprint: string }[] }).notes[0]!;
+    expect((await send("/api/memory/notes/" + noteId + "/state", { enabled: false, fingerprint: note.fingerprint })).status).toBe(200);
+    expect(load).not.toHaveBeenCalledWith(id);
+  });
+
   it.each([
     ["backup-exists", 409], ["contains-credential", 422], ["no-database", 422],
   ] as const)("maps backup refusals to stable codes: %s", async (code, status) => {
@@ -165,12 +194,69 @@ describe("operator memory routes", () => {
 
   it("logs unexpected backup errors without sensitive details", async () => {
     const logger = vi.spyOn(harness.runtime.logger, "error");
-    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("private detail for test"));
+    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(Object.assign(new Error("private detail for test"), { code: "EACCES", errno: -13, path: "/private/test-path" }));
     const response = await send("/api/memory/backup", {});
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("private detail");
-    expect(logger).toHaveBeenCalledWith("Memory operator request failed");
+    expect(logger).toHaveBeenCalledWith("Memory operator request failed", {
+      method: "POST", route: "/api/memory/backup", errorName: "Error", code: "EACCES", errno: -13,
+    });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("/private/test-path");
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
+  });
+
+  it("allows an immediate retry after an HTTP backup fails before publishing", async () => {
+    vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("disk failure"));
+    expect((await send("/api/memory/backup", {})).status).toBe(500);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+  });
+
+  async function seedHttpBackups(count: number): Promise<string> {
+    const root = join(harness.runtime.config.paths.stateDir, "backups");
+    for (let index = 0; index < count; index += 1) {
+      const dir = join(root, "memory-20261124-120000-00000000-0000-4000-8000-" + String(index).padStart(12, "0"));
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, backupService.MEMORY_BACKUP_FILE), "");
+    }
+    return root;
+  }
+
+  it("refuses to retain more than twenty HTTP backups", async () => {
+    const root = await seedHttpBackups(20);
+    const response = await send("/api/memory/backup", {});
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ error: { code: "backup-limit" } });
+    expect(await readdir(root)).toHaveLength(20);
+  });
+
+  it("enforces the retained backup cap at publication across listeners", async () => {
+    const root = await seedHttpBackups(19);
+    const second = await createHttpServer({
+      runtime: harness.runtime, apiKey: "owner-test-token", host: "127.0.0.1", port: 0,
+      routes: [{ method: "POST", path: "/api/memory/backup", handler: createMemoryBackupHandler() }],
+    });
+    const rendezvous = deferred();
+    const create = backupService.createMemoryBackup;
+    let started = 0;
+    vi.spyOn(backupService, "createMemoryBackup").mockImplementation(async (...args) => {
+      if (++started === 2) rendezvous.resolve();
+      await rendezvous.promise;
+      return create(...args);
+    });
+    try {
+      const [first, other] = await Promise.all([
+        send("/api/memory/backup", {}),
+        fetch("http://127.0.0.1:" + second.port + "/api/memory/backup", {
+          method: "POST", headers: { authorization: "Bearer owner-test-token", "content-type": "application/json" }, body: "{}",
+        }),
+      ]);
+      expect([first.status, other.status].sort()).toEqual([200, 409]);
+      expect(await (first.status === 409 ? first : other).json()).toMatchObject({ error: { code: "backup-limit" } });
+      expect(await readdir(root)).toHaveLength(20);
+    } finally {
+      rendezvous.resolve();
+      await second.close();
+    }
   });
 
   it("limits the frequency of HTTP backup attempts", async () => {
@@ -243,7 +329,7 @@ describe("operator memory routes", () => {
     expect(harness.runtime.profileStore.list()).toEqual([]);
   });
 
-  it.each(["[redacted]", "[redacted:embedding-key]", "left\\u{202E}right", "left\u202eright"])
+  it.each(["left\\u{202E}right", "left\u202eright", "\u200b", "\u{E0061}", "\uE000"])
     ("rejects display text copied into a memory PATCH: %s", async (text) => {
       for (const [path, body] of [
         [`/api/memory/notes/${noteId}`, { text }],
@@ -259,15 +345,34 @@ describe("operator memory routes", () => {
       expect(harness.runtime.profileStore.get("city")?.value).toBe("Rome");
     });
 
+  it.each(["family 👨‍👩‍👧", "می‌خواهم", "soft\u00adhyphen", "[redacted]", "regex \\u{1F600}"])
+    ("allows literal memory edits: %s", async (text) => {
+      for (const [path, body] of [
+        [`/api/memory/notes/${noteId}`, { text }],
+        ["/api/memory/profile/city", { value: text }],
+      ] as const) {
+        const response = await fetch(harness.baseUrl + path, {
+          method: "PATCH", headers: { authorization: "Bearer admin-test-token", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(200);
+      }
+      expect(harness.runtime.notesStore.get(noteId)?.content).toBe(text);
+      expect(harness.runtime.profileStore.get("city")?.value).toBe(text);
+    });
+
   it("logs dispatch failures without returning or logging exception text", async () => {
     const logger = vi.spyOn(harness.runtime.logger, "error");
     vi.spyOn(harness.runtime.notesStore, "list").mockImplementationOnce(() => {
-      throw new Error("private detail for test");
+      throw Object.assign(new TypeError("private detail for test"), { code: "SQLITE_BUSY", path: "/private/test-path" });
     });
     const response = await send("/api/memory/notes");
     expect(response.status).toBe(500);
     expect(await response.text()).not.toContain("private detail");
-    expect(logger).toHaveBeenCalledWith("HTTP route failed");
+    expect(logger).toHaveBeenCalledWith("HTTP route failed", {
+      method: "GET", route: "/api/memory/notes", errorName: "TypeError", code: "SQLITE_BUSY",
+    });
+    expect(JSON.stringify(logger.mock.calls)).not.toContain("/private/test-path");
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 

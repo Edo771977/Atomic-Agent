@@ -20,6 +20,7 @@ export {
   privacyShieldSessionStats,
   withPrivacyShieldTurn,
   linkPrivacyVault,
+  unlinkPrivacyVault,
   privacyShieldTotals,
   privacyVaultFor,
   pinPrivacyVault,

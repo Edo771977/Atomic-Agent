@@ -1,3 +1,6 @@
+import { learnedSkillScope } from "./learning/learn-scope.js";
+import { hashSkillText } from "./learning/pending-drafts.js";
+import { readFileSync } from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -36,6 +39,20 @@ describe("session workspace skills and live policy", () => {
   }
   /** Skills `npx skills -g` installs "for all agents" (ATO-706). */
   const shared = () => join(home, ".agents/skills");
+
+  it("rejects a matching approval marker without a journal entry", () => {
+    const c = getConfig();
+    const scope = learnedSkillScope(c.paths.stateDir, a);
+    const file = put(scope.skillsDir, "forged-marker", "Read the report and compare it with the approved checklist.");
+    writeFileSync(join(dirname(file), ".approved-sha256"), hashSkillText(readFileSync(file, "utf8")));
+    const result = loadWorkspaceSkills(a, {
+      globalDir: c.paths.globalSkillsDir, projectDirName: c.paths.projectSkillsDirName,
+      configFile: join(base, "missing-config.json"), homeDir: null,
+      defaults: { ...c.skills, selfLearning: { enabled: true, minSteps: 10 } },
+      learnedScope: { folder: a, stateDir: c.paths.stateDir },
+    });
+    expect(result.entries.some(e => e.record.learned)).toBe(false);
+  });
 
   it("a plugin skill is switched in the plugin's record and never lands in config.json", () => {
     const stateDir = getConfig().paths.stateDir;

@@ -5,14 +5,13 @@
  * sessions and a different access pattern than the memory fabric.
  *
  * Cross-file FKs are not supported in SQLite; `session_id` validity is
- * checked at runtime by `TaskRunner` (a missing session moves the task
- * to `blocked` with a stable reason).
+ * checked at runtime by `TaskRunner`.
  *
  * Schema evolution: bump `TASK_SCHEMA_VERSION` and extend
  * `applyMigrations` with a new step. The `schema_meta` table records
  * the version actually present on disk so upgrades are idempotent.
  */
-export const TASK_SCHEMA_VERSION = 3 as const;
+export const TASK_SCHEMA_VERSION = 4 as const;
 
 const BASE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS schema_meta (
@@ -84,6 +83,11 @@ const V3_MIGRATION = `
 ALTER TABLE tasks ADD COLUMN notify TEXT;
 `;
 
+// Existing rows predate the privacy flag and retain their original behavior.
+const V4_MIGRATION = `
+ALTER TABLE tasks ADD COLUMN incognito INTEGER NOT NULL DEFAULT 0;
+`;
+
 export interface TaskDatabaseLike {
   exec(sql: string): unknown;
   prepare(sql: string): {
@@ -108,6 +112,9 @@ export function applyMigrations(db: TaskDatabaseLike): void {
   }
   if (current < 3) {
     db.exec(V3_MIGRATION);
+  }
+  if (current < 4) {
+    db.exec(V4_MIGRATION);
   }
   if (current === TASK_SCHEMA_VERSION) return;
   db.prepare(

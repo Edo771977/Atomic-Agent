@@ -17,6 +17,8 @@ Windows internal executables use [windows-system-executable.ts](windows-system-e
 
 The working directory and temporary directories are writable. A command-supplied `cwd` adds no permissions. The state directory and known credential locations are hidden. On Linux, the available mounts also limit ordinary reads. OS permissions and the dispatch read scope still apply. See the user guide for the Linux mount list and coverage of local and directory-service homes. Linux blocks direct IP access to the host and the outside network when isolated. Pathname Unix sockets on Linux and process metadata on macOS have separate security boundaries.
 
+On Linux, Safe Mode starts an asynchronous read of the system trees during runtime startup to warm the kernel filesystem cache. Each launch still scans the current mounts, socket masks and workspace Git metadata. If inventory exhausts its 30-second budget, Safe Mode reports the slow phase and refuses the command. A single blocked filesystem call may run past that deadline.
+
 For activation, one-time network consent and service verification limits, see the [user guide](../../docs/user/os-sandbox.md).
 
 Checks: `npx vitest run src/sandbox` when tests are present; `npm run lint`; `npm run docs:check`.

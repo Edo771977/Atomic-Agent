@@ -123,6 +123,17 @@ describe("PrivacyPanel", () => {
     expect(on).toContain("m: shield off");
   });
 
+  it("names coverage exceptions and warns about subscription CLI seats while enabled", () => {
+    const shield = { supported: true, enabled: true, masked: 0, sessionMasked: null, fusionUsesSubscriptionCli: true };
+    const frame = renderFlat({ shield });
+    for (const exception of ["Claude and Codex CLI", "image and audio descriptions", "web search", "remote MCP"]) {
+      expect(frame).toContain(exception);
+    }
+    expect(frame).toContain("This Fusion team includes a subscription CLI member");
+    expect(renderFlat({ shield: { ...shield, enabled: false } })).not.toContain("This Fusion team includes");
+    expect(renderFlat({ shield: { ...shield, fusionUsesSubscriptionCli: false } })).not.toContain("This Fusion team includes");
+  });
+
   it("says Privacy Shield is not available without the agent's control", () => {
     const frame = renderFlat();
     expect(frame).toContain("Privacy Shield");

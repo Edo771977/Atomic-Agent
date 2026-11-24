@@ -242,6 +242,8 @@ export const SETTINGS_DOCS: Readonly<Record<string, SettingDoc>> = {
   "skills.clawhub.apiBase": { type: "string", description: "Base URL of the ClawHub registry." },
   "skills.clawhub.browseLimit": { type: "number", description: "Most skills one ClawHub listing fetches." },
   "skills.clawhub.nonSuspiciousOnly": { type: "boolean", description: "Hide ClawHub skills the registry flags as suspicious." },
+  "skills.selfLearning.enabled": { type: "boolean", description: "After a long turn, propose a project skill draft for explicit approval with `/learn`." },
+  "skills.selfLearning.minSteps": { type: "number", description: "Model steps a turn needs before it is reviewed for something to learn." },
   "skills.eval.judgeProvider": { type: "string", description: "Skill Lab settings; absent when config.json has no `skills.eval`.", optional: true },
   "tui.theme": { type: "string", description: "TUI color theme name, or `auto` to follow the terminal background." },
   "tui.whileBusySubmit": { type: "'steer' | 'queue'", description: "A message sent while the agent works: `steer` folds it into the running turn at the next step, `queue` runs it as its own turn afterwards." },

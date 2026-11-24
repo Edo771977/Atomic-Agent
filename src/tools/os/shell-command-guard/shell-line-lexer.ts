@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { matchingClose, shellExpressionEnd } from "./command-substitution.js";
 
 /**
  * Which shell a command line is written for. `posix` is `sh -c`'s line;
@@ -16,21 +17,22 @@ export type ShellDialect = "posix" | "cmd" | "powershell";
 export interface ShellWord {
   text: string;
   dynamic: boolean;
+  expandHeredoc?: boolean;
 }
 
 /**
  * What the lexer hands on. A `redirect` is followed by the word it
  * applies to: `file` writes that file (`>`, `>>`, `&>`, `<>`); `dup`
  * names a descriptor when that word is digits or `-` (`2>&1`) and a
- * file otherwise (`>&out.log`); `none` reads it (`<`, `<<<`). A heredoc
- * (`<<EOF … EOF`) is consumed whole and leaves no token.
+ * file otherwise (`>&out.log`); `none` reads it (`<`). Literal script
+ * input may also be retained by callers that need to inspect it.
  */
 export type ShellToken =
   | ({ kind: "word" } & ShellWord)
-  | { kind: "separator" }
+  | { kind: "separator"; pipe?: true }
   | { kind: "open" }
   | { kind: "close" }
-  | { kind: "redirect"; writes: "file" | "dup" | "none" };
+  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string" };
 
 type Operator =
   | Exclude<ShellToken, { kind: "word" }>
@@ -47,10 +49,10 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
     ["&&", SEPARATOR],
     ["||", SEPARATOR],
     [";;", SEPARATOR],
-    ["|&", SEPARATOR],
+    ["|&", { kind: "separator", pipe: true }],
     ["&>>", WRITE],
     ["&>", WRITE],
-    ["<<<", READ],
+    ["<<<", { kind: "redirect", writes: "here-string" }],
     ["<<-", { kind: "heredoc", stripTabs: true }],
     ["<<", { kind: "heredoc", stripTabs: false }],
     ["<>", WRITE],
@@ -61,7 +63,7 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
     [">", WRITE],
     ["<", READ],
     [";", SEPARATOR],
-    ["|", SEPARATOR],
+    ["|", { kind: "separator", pipe: true }],
     ["&", SEPARATOR],
     ["(", { kind: "open" }],
     [")", { kind: "close" }],
@@ -99,8 +101,7 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
 /**
  * Split a command line into words and operators the way its shell
  * would, or `null` for a line this does not read: an unbalanced quote,
- * command substitution (`$(…)`, backticks), `${…}` other than
- * `${HOME}`, a redirect or heredoc with nothing after it. Operators,
+ * command substitution (`$(…)`, backticks), complex `${…}` expansion, a redirect or heredoc with nothing after it. Operators,
  * newlines and `#` comments count only outside quotes; a quoted string
  * is part of one word; heredoc bodies are skipped.
  *
@@ -110,9 +111,20 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
 export function lexShellLine(
   line: string,
   dialect: ShellDialect,
+  home = homedir(),
+  keepHeredocs = false,
+  recoverPrefix = false,
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
-  const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
+  const incomplete = (): ShellToken[] | null => {
+    if (!recoverPrefix) return null;
+    for (let i = tokens.length - 1; i >= 0; i -= 1) {
+      const token = tokens[i]!;
+      if (token.kind === "separator" && !token.pipe) return tokens.slice(0, i);
+    }
+    return null;
+  };
+  const heredocs: { delimiter: string; stripTabs: boolean; body?: ShellWord }[] = [];
   const operators = OPERATORS[dialect];
   const escape = dialect === "posix" ? "\\" : dialect === "cmd" ? "^" : null;
   const singleQuotes = dialect !== "cmd";
@@ -127,7 +139,9 @@ export function lexShellLine(
   const endWord = (): void => {
     if (!inWord) return;
     if (pendingHeredoc !== null) {
-      heredocs.push({ delimiter: word, ...pendingHeredoc });
+      const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false, expandHeredoc: !quoted } : undefined;
+      if (body) tokens.push({ kind: "redirect", writes: "here-string" }, body);
+      heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
       tokens.push({ kind: "word", text: word, dynamic });
@@ -144,7 +158,7 @@ export function lexShellLine(
     inWord = true;
   };
   const appendDollar = (at: number): number | null => {
-    const read = readDollar(line, at, word.length === 0);
+    const read = readDollar(line, at, word.length === 0, home, recoverPrefix);
     if (read === null) return null;
     word += read.text;
     dynamic ||= read.dynamic;
@@ -152,12 +166,13 @@ export function lexShellLine(
     return read.next;
   };
 
+  let expressionEnd = -1;
   let i = 0;
   while (i < line.length) {
     const c = line[i]!;
     if (c === "\n") {
       endWord();
-      if (pendingHeredoc !== null) return null;
+      if (pendingHeredoc !== null) return incomplete();
       tokens.push(SEPARATOR);
       i = skipHeredocBodies(line, i + 1, heredocs);
       heredocs.length = 0;
@@ -169,21 +184,22 @@ export function lexShellLine(
       continue;
     }
     if (escape !== null && c === escape) {
-      const next = line[i + 1];
-      if (next === undefined) return null;
+      const next = line[i + 1] ?? (dialect === "posix" ? c : undefined);
+      if (next === undefined) return incomplete();
       // A line continuation joins the two lines.
       if (next !== "\n") {
         word += next;
         inWord = true;
+        if (pendingHeredoc) quoted = true;
       }
       i += 2;
       continue;
     }
     // POSIX command substitution; PowerShell's escape character.
-    if (c === "`") return null;
+    if (c === "`") return incomplete();
     if (singleQuotes && c === "'") {
       const end = line.indexOf("'", i + 1);
-      if (end === -1) return null;
+      if (end === -1) return incomplete();
       openQuote(line[i + 1]);
       word += line.slice(i + 1, end);
       i = end + 1;
@@ -194,9 +210,9 @@ export function lexShellLine(
       let j = i + 1;
       for (;;) {
         const d = line[j];
-        if (d === undefined) return null;
+        if (d === undefined) return incomplete();
         if (d === '"') break;
-        if (d === "`") return null;
+        if (d === "`") return incomplete();
         if (dialect === "posix" && d === "\\") {
           const next = line[j + 1];
           if (next !== undefined && '"\\$`\n'.includes(next)) {
@@ -207,7 +223,7 @@ export function lexShellLine(
         }
         if (variables && d === "$") {
           const next = appendDollar(j);
-          if (next === null) return null;
+          if (next === null) return incomplete();
           j = next;
           continue;
         }
@@ -220,7 +236,7 @@ export function lexShellLine(
     }
     if (variables && c === "$") {
       const next = appendDollar(i);
-      if (next === null) return null;
+      if (next === null) return incomplete();
       i = next;
       continue;
     }
@@ -229,9 +245,19 @@ export function lexShellLine(
       i = newline === -1 ? line.length : newline;
       continue;
     }
+    if (recoverPrefix && dialect === "posix" && !inWord && (c === "(" || c === "[")) {
+      expressionEnd = Math.max(expressionEnd, shellExpressionEnd(line, i));
+    }
     const match = operators.find(([text]) => line.startsWith(text, i));
     if (match !== undefined) {
       const [text, operator] = match;
+      if (operator.kind === "heredoc" && i < expressionEnd) {
+        // dash can run parentheses as subshells and brackets as ordinary
+        // commands. Keep scanning their words, separators and redirects.
+        endWord();
+        i += text.length;
+        continue;
+      }
       const redirect = operator.kind === "redirect" || operator.kind === "heredoc";
       // `2>err.txt`: a word of bare digits right before a redirect is
       // the descriptor it applies to, not a word of the command.
@@ -240,7 +266,7 @@ export function lexShellLine(
         inWord = false;
       }
       endWord();
-      if (pendingHeredoc !== null) return null;
+      if (pendingHeredoc !== null) return incomplete();
       if (operator.kind === "heredoc") {
         pendingHeredoc = { stripTabs: operator.stripTabs };
       } else {
@@ -260,7 +286,7 @@ export function lexShellLine(
     i += 1;
   }
   endWord();
-  if (pendingHeredoc !== null) return null;
+  if (pendingHeredoc !== null) return incomplete();
   return tokens;
 }
 
@@ -274,19 +300,23 @@ function readDollar(
   line: string,
   at: number,
   wordStart: boolean,
+  home: string,
+  allowComplexParameters: boolean,
 ): { text: string; dynamic: boolean; next: number } | null {
   const next = line[at + 1];
   if (next === "(") return null;
   if (next === "{") {
-    if (wordStart && line.startsWith("${HOME}", at)) {
-      return { text: homedir(), dynamic: false, next: at + "${HOME}".length };
-    }
-    return null;
+    const end = matchingClose(line, at + 2, "{", "}");
+    if (end === -1) return null;
+    const parameter = line.slice(at + 2, end);
+    if (!allowComplexParameters && !/^[A-Za-z_]\w*(?:[%#][^{}$]*)?$/.test(parameter)) return null;
+    const homeReference = wordStart && parameter === "HOME";
+    return { text: homeReference ? home : line.slice(at, end + 1), dynamic: !homeReference, next: end + 1 };
   }
   const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(at + 1))?.[0];
   if (name !== undefined) {
     if (wordStart && name === "HOME") {
-      return { text: homedir(), dynamic: false, next: at + 1 + name.length };
+      return { text: home, dynamic: false, next: at + 1 + name.length };
     }
     return { text: `$${name}`, dynamic: true, next: at + 1 + name.length };
   }
@@ -304,7 +334,7 @@ function readDollar(
 function skipHeredocBodies(
   line: string,
   from: number,
-  heredocs: readonly { delimiter: string; stripTabs: boolean }[],
+  heredocs: readonly { delimiter: string; stripTabs: boolean; body?: ShellWord }[],
 ): number {
   let i = from;
   for (const heredoc of heredocs) {
@@ -315,6 +345,7 @@ function skipHeredocBodies(
       if (heredoc.stripTabs) text = text.replace(/^\t+/, "");
       i = newline === -1 ? line.length : newline + 1;
       if (text === heredoc.delimiter) break;
+      if (heredoc.body) heredoc.body.text += text + "\n";
     }
   }
   return i;

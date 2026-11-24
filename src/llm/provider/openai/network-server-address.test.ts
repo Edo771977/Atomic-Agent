@@ -182,14 +182,12 @@ describe("address classification edge cases", () => {
       "https://192-168-1-5.nip.io",
       "https://app-10-0-0-7.sslip.io",
       "https://c0a80105.nip.io",
-      // Unreadable: the name resolves to whatever is inside, so conservatively ours.
-      "https://whatever.nip.io",
       // Loopback inside a public DNS name is not "this machine" lexically.
       "http://127.0.0.1.nip.io",
     ]) {
       expect(isOtherComputerOnNetworkUrl(url), url).toBe(true);
     }
-    for (const url of ["https://8.8.8.8.nip.io", "https://8-8-8-8.sslip.io", "https://08080808.nip.io"]) {
+    for (const url of ["https://8.8.8.8.nip.io", "https://8-8-8-8.sslip.io", "https://08080808.nip.io", "https://whatever.nip.io", "https://whatever.sslip.io"]) {
       expect(isOtherComputerOnNetworkUrl(url), url).toBe(false);
     }
   });

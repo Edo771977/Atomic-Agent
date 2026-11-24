@@ -169,7 +169,7 @@ const markerKey = (path: string): string => canonical(resolve(path));
  * verify marker with no `source`, or one this process wrote whose text
  * changed since.
  */
-export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): TempCopyMarker | null {
+export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind, strict = false): TempCopyMarker | null {
   try {
     const info = lstatSync(markerPath);
     if (!info.isFile()) return null;
@@ -200,7 +200,9 @@ export function readTempCopyMarkerAt(markerPath: string, kind: TempCopyKind): Te
       ...(parentSessionIds === undefined ? {} : { parentSessionIds: parentSessionIds as string[] }),
       ...(policy === undefined ? {} : { policy }),
     };
-  } catch {
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (strict && code !== undefined && code !== "ENOENT") throw error;
     return null;
   }
 }

@@ -90,6 +90,22 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     }
   });
 
+  it("gives viewers the same response for an unavailable chat and an unknown ID", async () => {
+    const token = "atag_viewer-token-000000000000000";
+    harness = await startTestHarness({
+      apiKey: "k".repeat(32),
+      namedTokens: () => [{ name: "reader", role: "viewer", sha256: hashHttpToken(token), createdAt: new Date().toISOString() }],
+    });
+    const chat = harness.runtime.createSession({ incognito: true });
+    privacyVaultFor(chat.id).mask("private@example.test");
+    const read = (id: string) => fetch(harness!.baseUrl + "/api/privacy-shield?sessionId=" + id, {
+      headers: { authorization: "Bearer " + token },
+    });
+    const [unavailable, absent] = await Promise.all([read(chat.id), read("unknown")]);
+    expect(unavailable.status).toBe(absent.status);
+    expect(await unavailable.json()).toEqual(await absent.json());
+  });
+
   it("refuses a body without a boolean", async () => {
     harness = await startTestHarness();
     const bad = await post(harness.baseUrl, { enabled: "yes" });

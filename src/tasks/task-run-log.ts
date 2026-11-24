@@ -87,7 +87,11 @@ export class TaskRunLog {
     if (this.unavailable !== null) return;
     this.openStmt = db.prepare(
       `INSERT INTO task_runs (task_id, attempt, session_id, started_at)
-       VALUES (@task_id, @attempt, @session_id, @now)`,
+       SELECT @task_id, @attempt, @session_id, @now
+        WHERE EXISTS (
+          SELECT 1 FROM tasks WHERE id = @task_id AND status = 'running'
+            AND attempts = @attempt AND started_at = @now
+        )`,
     );
     // Only an open run is closed, so a transition with no run behind it
     // (cancelling a pending row) writes nothing. The session is taken

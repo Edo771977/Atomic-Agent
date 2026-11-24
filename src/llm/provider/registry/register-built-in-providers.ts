@@ -184,6 +184,7 @@ export function registerBuiltInProviderKinds(): void {
       maxImageBytes: config.vision.maxImageBytes,
       maxImagesPerCall: config.vision.maxImagesPerCall,
       baseUrlOverride: ctx.entry.url,
+      privacyShield: ctx.entry.privacy?.shield,
       // The vision call's whole-request budget. Unforwarded it fell back
       // to the provider's own hardcoded 120 s, which no knob reached,
       // while text completions against the same server followed

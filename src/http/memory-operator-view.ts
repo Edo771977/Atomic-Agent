@@ -5,7 +5,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import { containsSecret, containsSecretPair, isSecretKey } from "../memory/memory-secret-guard.js";
 import type { MemoryEntry } from "../memory/memory-store.js";
 import type { ProfileFact } from "../memory/profile-store.js";
-import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../session/project-lesson-text.js";
+const MEMORY_DISPLAY_INVISIBLE = /[\u200B\u202A-\u202E\u2060\u2066-\u2069\uFEFF\u{E0000}-\u{E007F}\p{Co}]/gu;
 
 const signingKey = randomBytes(32);
 
@@ -18,7 +18,7 @@ export function memoryFingerprint(entry: MemoryEntry | ProfileFact): string {
 
 export function operatorMemoryText(value: string): string {
   if (containsSecret(value)) return "[redacted]";
-  return value.replace(PROJECT_LESSON_INVISIBLE_CHARACTERS, (character) =>
+  return value.replace(MEMORY_DISPLAY_INVISIBLE, (character) =>
     "\\u{" + character.codePointAt(0)!.toString(16).toUpperCase() + "}");
 }
 
@@ -45,8 +45,12 @@ function redact(value: unknown, known: readonly KnownSecret[]): unknown {
   ]));
 }
 
-/** Presentation markers are never valid replacements for an operator's memory text. */
-export function isEditableMemoryText(value: string): boolean {
-  return !/\[redacted(?::[^\]]*)?\]|\\u\{[\da-f]+\}/i.test(value)
-    && value.search(PROJECT_LESSON_INVISIBLE_CHARACTERS) === -1;
+/** Reject invisible characters and placeholders copied from this entry's display. */
+export function isEditableMemoryText(value: string, original?: string, displayed?: string): boolean {
+  if (value.search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
+  for (const [, hex] of value.matchAll(/\\u\{([\da-f]+)\}/gi)) {
+    const codePoint = Number.parseInt(hex!, 16);
+    if (codePoint <= 0x10ffff && String.fromCodePoint(codePoint).search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
+  }
+  return value !== displayed || value === original || !/\[redacted(?::[^\]]*)?\]/i.test(value);
 }
