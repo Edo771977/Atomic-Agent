@@ -5,6 +5,7 @@
 #include <userenv.h>
 #include <cstdio>
 #include <string>
+#include "acl-tree.h"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "userenv.lib")
@@ -22,35 +23,6 @@ static DWORD checkFile(const wchar_t* name, DWORD disposition, DWORD access = 0)
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     CloseHandle(file);
     return ERROR_SUCCESS;
-}
-
-// Open without sharing for a non-propagating SetSecurityInfo update.
-// This deliberately grants only the named object and inheritance for future children.
-static void grant(const wchar_t* path, PSID sid, DWORD mask, DWORD inheritance) {
-    HANDLE object = CreateFileW(path, READ_CONTROL | WRITE_DAC, 0, nullptr, OPEN_EXISTING,
-        FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT, nullptr);
-    require(object != INVALID_HANDLE_VALUE, "open ACL target");
-    PACL original = nullptr;
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    DWORD error = GetSecurityInfo(object, SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
-        nullptr, nullptr, &original, nullptr, &descriptor);
-    require(error == ERROR_SUCCESS, "read ACL", error);
-    EXPLICIT_ACCESSW entry{};
-    entry.grfAccessPermissions = mask;
-    entry.grfAccessMode = GRANT_ACCESS;
-    entry.grfInheritance = inheritance;
-    BuildTrusteeWithSidW(&entry.Trustee, sid);
-    PACL updated = nullptr;
-    error = SetEntriesInAclW(1, &entry, original, &updated);
-    require(error == ERROR_SUCCESS, "construct ACL", error);
-    SECURITY_DESCRIPTOR replacement{};
-    require(InitializeSecurityDescriptor(&replacement, SECURITY_DESCRIPTOR_REVISION) != FALSE,
-        "initialize security descriptor");
-    require(SetSecurityDescriptorDacl(&replacement, TRUE, updated, FALSE) != FALSE, "set DACL");
-    require(SetKernelObjectSecurity(object, DACL_SECURITY_INFORMATION, &replacement) != FALSE, "apply ACL");
-    LocalFree(updated);
-    LocalFree(descriptor);
-    CloseHandle(object);
 }
 
 // Independent diagnostic: bit 1 is available to ordinary packages, bit 2
@@ -119,9 +91,12 @@ int wmain(int argc, wchar_t** argv) {
     HRESULT result = CreateAppContainerProfile(profile.c_str(), profile.c_str(), L"ACL preflight",
         nullptr, 0, &sid);
     require(SUCCEEDED(result), "create AppContainer profile", static_cast<DWORD>(result));
-    grant(executable, sid, FILE_GENERIC_READ | FILE_GENERIC_EXECUTE, NO_INHERITANCE);
-    grant(L"fixture", sid, FILE_GENERIC_READ | FILE_GENERIC_WRITE | FILE_GENERIC_EXECUTE,
-        SUB_CONTAINERS_AND_OBJECTS_INHERIT);
+    acl_tree::Result executableGrant;
+    acl_tree::walk(executable, sid, acl_tree::readExecute, executableGrant);
+    require(executableGrant.errors == 0, "grant diagnostic executable");
+    acl_tree::Result projectGrant;
+    acl_tree::walk(L"fixture", sid, acl_tree::modify, projectGrant);
+    require(projectGrant.errors == 0 && projectGrant.objects == 4, "grant existing workspace tree");
     require(checkFile(L"fixture\\after", CREATE_NEW) == ERROR_SUCCESS, "create post-grant file");
 
     SIZE_T size = 0;
@@ -176,6 +151,10 @@ int wmain(int argc, wchar_t** argv) {
     CloseHandle(process.hProcess);
     DeleteProcThreadAttributeList(attributes);
     HeapFree(GetProcessHeap(), 0, attributes);
+    acl_tree::Result revoke;
+    acl_tree::walk(L"fixture", sid, 0, revoke);
+    acl_tree::walk(executable, sid, 0, revoke);
+    require(revoke.errors == 0, "revoke diagnostic grants");
     FreeSid(sid);
     DeleteAppContainerProfile(profile.c_str());
     require(DeleteFileW(profileFile.c_str()) != FALSE, "remove synthetic profile file");
