@@ -55,7 +55,7 @@ it.skipIf(!realBubblewrap)("Git and Fusion keep working inside Bubblewrap with l
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   }
-}, 60_000);
+});
 
 it.skipIf(!realBubblewrap).each(["configured", "xdg"])("round 4 point 3: Git status and Fusion use the same %s global exclusions in Safe Mode", async (kind) => {
   const root = await mkdtemp(join(tmpdir(), "atomic-git-global-"));
@@ -96,4 +96,4 @@ it.skipIf(!realBubblewrap).each(["configured", "xdg"])("round 4 point 3: Git sta
     vi.unstubAllEnvs();
     await rm(root, { recursive: true, force: true });
   }
-}, 60_000);
+}, 45_000);

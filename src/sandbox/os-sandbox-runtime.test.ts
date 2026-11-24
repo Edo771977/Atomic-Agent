@@ -118,3 +118,27 @@ it.skipIf(!nestedMount)("round 4 point 1: a workspace does not inherit an unlist
   );
   expect(probe).toMatchObject({ code: 17 });
 });
+
+
+it.skipIf(bwrap === null || !process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS)("masks a system socket created after a previous launch", async () => {
+  const root = process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS!.split(":").find(dir => dir.startsWith("/usr/lib/"))!;
+  const path = join(root, `late-${process.pid}.sock`);
+  // The previous launch sees a traversable directory with no socket to mask.
+  chmodSync(root, 0o755);
+  try {
+    expect(await fixtureCommand("", [], true)).toMatchObject({ code: 0 });
+    const socket = createServer(client => client.end("synthetic endpoint"));
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.listen(path, resolve);
+    });
+    try {
+      const probe = await fixtureCommand("const s=require('node:net').connect(process.argv[1]); s.on('error',()=>process.exit(17)); s.resume()", [path], true);
+      expect(probe, path).toMatchObject({ code: 17 });
+    } finally {
+      await new Promise<void>(resolve => socket.close(() => resolve()));
+    }
+  } finally {
+    chmodSync(root, 0o770);
+  }
+});

@@ -67,7 +67,7 @@ jobs:
             private_files+=("$root/$tag/marker")
           done
           export ATOMIC_AGENT_TEST_PRIVATE_FILES=$(IFS=:; echo "${private_files[*]}")
-          args=(run --maxWorkers=2 --testTimeout=60000 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
+          args=(run --maxWorkers=2 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
           if [[ "$TEST_MODE" == root ]]; then
             sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           else

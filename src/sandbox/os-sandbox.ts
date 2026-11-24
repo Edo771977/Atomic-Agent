@@ -456,6 +456,33 @@ function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<str
   return masks;
 }
 
+/**
+ * GNU find can walk the live system trees without materializing every Dirent in
+ * JavaScript. A failed or unsupported invocation falls back to the complete
+ * JavaScript scanner, including its masks for unreadable directories.
+ */
+function fastSystemMasks(roots: string[], inherited: ReadonlySet<string>): string[][] | undefined {
+  if (roots.length === 0) return [];
+  const prune = [...inherited].filter(path => roots.some(root => contains(root, path)));
+  const inheritedArgs = prune.flatMap(path => ["-path", path.replace(/[\\*?\[\]]/g, "\\$&"), "-prune", "-o"]);
+  const result = spawnSync("/usr/bin/find", [
+    "-P", ...roots, ...inheritedArgs,
+    "-type", "d", "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o",
+    "-type", "s", "-printf", String.raw`s%p\0`,
+  ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
+  if (result.status !== 0 || result.error !== undefined) return undefined;
+  const masks: string[][] = [];
+  for (const entry of result.stdout.split("\0")) {
+    if (entry === "") continue;
+    const path = entry.slice(1);
+    if (!roots.some(root => contains(root, path))) return undefined;
+    if (entry.startsWith("d")) masks.push(["--tmpfs", path], ["--remount-ro", path]);
+    else if (entry.startsWith("s")) masks.push(["--ro-bind", "/dev/null", path]);
+    else return undefined;
+  }
+  return masks;
+}
+
 /** Reconstruct only the system trees and public configuration used by tools. */
 function linuxSystemMounts(out: string[]): string[] {
   const trees: string[] = [];
@@ -550,8 +577,14 @@ function bwrapArgs(
   const exposed = unique([...systemMounts, ...policy.toolchainRoots, ...policy.writableRoots, ...policy.readOnlyWorkspaceRoots])
     .filter(path => path !== "/tmp" && path !== "/var/tmp" && path !== "/run");
   const inherited = inheritedMounts(exposed, hostMounts);
-  for (const path of exposed.filter(path => !exposed.some(other => other !== path && contains(other, path)))) {
-    for (const mount of maskingMounts(path, systemMounts.includes(path), inherited)) out.push(...mount);
+  const scanRoots = exposed.filter(path => !exposed.some(other => other !== path && contains(other, path)));
+  const systemScanRoots = scanRoots.filter(path => systemMounts.includes(path));
+  const fastMasks = fastSystemMasks(systemScanRoots, inherited);
+  if (fastMasks !== undefined) for (const mount of fastMasks) out.push(...mount);
+  for (const path of scanRoots) {
+    const system = systemMounts.includes(path);
+    if (system && fastMasks !== undefined) continue;
+    for (const mount of maskingMounts(path, system, inherited)) out.push(...mount);
   }
   for (const mount of inherited) {
     if (isDirectory(mount)) out.push("--tmpfs", mount, "--remount-ro", mount);

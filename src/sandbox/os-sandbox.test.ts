@@ -48,6 +48,39 @@ function policy(network = false, stateDir = "/home/op/.atomic-agent") {
   });
 }
 
+it.skipIf(process.platform !== "linux" || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("prepares a typical warmed Linux workspace within the launch budget", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-launch-budget-"));
+  try {
+    for (let i = 0; i < 80; i++) {
+      const dir = join(root, "src", String(i));
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, "fixture.txt"), "fixture");
+    }
+    mkdirSync(join(root, ".git"));
+    const timings = Array.from({ length: 6 }, () => {
+      const started = performance.now();
+      const p = buildOsSandboxPolicy({ workspaceRoots: [root], network: false });
+      const built = performance.now();
+      const wrapped = wrapWithOsSandbox("/bin/ls", [], p, { cwd: root });
+      const prepared = performance.now();
+      if (!wrapped.ok) throw new Error(wrapped.reason);
+      const child = spawnSync(wrapped.command, wrapped.args, { cwd: root, env: buildOsSandboxEnv(process.env), encoding: "utf8" });
+      expect(child.status, child.stderr).toBe(0);
+      return [built - started, prepared - built, performance.now() - prepared];
+    });
+    const warm = timings.slice(1);
+    const median = (values: number[]) => values.sort((a, b) => a - b)[2]!;
+    const format = (values: number[]) => values.map(value => value.toFixed(1)).join("/");
+    console.info(`Safe Mode phase ms (policy/wrap/spawn): first=${format(timings[0]!)} warm-median=${format(
+      [0, 1, 2].map(phase => median(warm.map(sample => sample[phase]!))),
+    )}`);
+    const preparation = warm.map(([policyMs, wrapMs]) => policyMs! + wrapMs!);
+    expect(median(preparation), `warm preparation in ms: ${format(preparation)}`).toBeLessThan(240);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 describe("readOsSandboxSettings (ATO-469)", () => {
   it("is off unless asked for, and a typo stays off", () => {
     expect(readOsSandboxSettings({})).toEqual({ mode: "off", network: false });
