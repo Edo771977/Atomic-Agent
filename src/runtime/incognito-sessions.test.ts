@@ -8,6 +8,7 @@ import { createEmptySessionState, recordTurn } from "../session/session-state.js
 import { userTurn } from "../session/conversation-turn.js";
 import type { TurnOwnerProbe } from "../session/turn-owner.js";
 import { StructuredLogger, type LogRecord } from "../tracing/structured-logger.js";
+import { TaskRunner } from "../tasks/task-runner.js";
 import { TaskStore } from "../tasks/task-store.js";
 import {
   createIncognitoSessions,
@@ -90,6 +91,42 @@ describe("incognito sessions in the runtime", () => {
     sessions.settle("s-secret");
     expect(store.load("s-secret")).toBeNull();
     expect(existsSync(trace("s-secret"))).toBe(false);
+  });
+
+  it("purges the prompt and run history when closing during a recurring task turn", async () => {
+    const store = open(1);
+    save(store, "s-secret", true);
+    const tasks = new TaskStore({ dbFile: join(dir, "tasks.sqlite") });
+    try {
+      const closed = tasks.create({ sessionId: "s-secret", userMessage: "private", origin: "cli", maxAttempts: 1 });
+      tasks.markRunning(closed.id);
+      tasks.markFailed(closed.id, { category: "tool", message: "private failure" });
+      const recurring = tasks.create({
+        sessionId: "s-secret", userMessage: "private recurring", origin: "cli", maxAttempts: 1,
+        schedule: { kind: "interval", everyMs: 60_000 },
+      });
+      let busy = false;
+      const sessions = createIncognitoSessions({ sessionStore: store, tracesDir, isBusy: () => busy, logger, taskStore: tasks });
+      const runner = new TaskRunner({
+        store: tasks, sessionLoader: store, defaultMaxSteps: 5,
+        backoff: { initialMs: 1, maxMs: 10 }, enabled: true, runOnCreate: false,
+        runtime: { runTurn: async session => {
+          busy = true;
+          expect(sessions.discard(session.id)).toBe("deferred");
+          busy = false;
+          sessions.settle(session.id);
+          return { session, reason: "reply", stepCount: 1 };
+        } },
+      });
+      await runner.runOne(recurring.id);
+      expect(store.load("s-secret")).toBeNull();
+      expect(tasks.get(closed.id)).toBeNull();
+      expect(tasks.get(recurring.id)).toBeNull();
+      expect(tasks.listRuns(closed.id)).toEqual([]);
+      expect(tasks.listRuns(recurring.id)).toEqual([]);
+    } finally {
+      tasks.close();
+    }
   });
 
   it("settle leaves sessions nobody discarded alone", () => {
