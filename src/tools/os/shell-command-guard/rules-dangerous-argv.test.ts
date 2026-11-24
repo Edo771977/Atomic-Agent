@@ -359,6 +359,14 @@ describe("dangerous.plugin_code_consent", () => {
   });
 });
 
+it.each([
+  ["script", ["--version"]],
+  ["python3", ["-c", "print('ATOMIC_AGENT_TOOL_CHILD')"]],
+  ["env", ["-u", "atomic_agent_tool_child", "true"]],
+])("classifies opaque approval origins through %s", (cmd, args) => {
+  expect(guardArgv(cmd as string, args as string[]).rule).toBe("dangerous.skill_approval_origin");
+});
+
 describe("dangerous.skill_draft_consent (ATO-67)", () => {
   it.each([
     `atomic-agent skill learned approve a1b2c3@${"a".repeat(64)}`,

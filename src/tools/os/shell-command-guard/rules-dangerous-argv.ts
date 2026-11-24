@@ -67,6 +67,7 @@ export function matchDangerousArgv(
     matchFind(segments) ??
     matchXargsRm(segments) ??
     matchRm(segments) ??
+    matchSkillApprovalOrigin(segments) ??
     matchNestedShell(segments) ??
     matchPluginConsent(segments) ??
     matchGlobalSkillMutation(segments) ??
@@ -767,7 +768,7 @@ function matchSkillDraftConsent(
 ): ArgvCheck | null {
   for (const words of segments) {
     for (let i = 0; i < words.length - 2; i += 1) {
-      if (words[i] !== "skill" || words[i + 1] !== "learned") continue;
+      if (words[i]?.toLowerCase() !== "skill" || words[i + 1]?.toLowerCase() !== "learned") continue;
       const verb = words[i + 2]?.toLowerCase();
       if (verb !== undefined && !["list", "show", "discard", "undo"].includes(verb)) {
         return {
@@ -790,5 +791,26 @@ function matchGlobalSkillMutation(segments: readonly (readonly string[])[]): Arg
   }));
   return changesSkills
     ? { id: "dangerous.skill_global_mutation", reason: "change globally installed skills" }
+    : null;
+}
+
+
+const PSEUDOTERMINAL_PROGRAMS = new Set(["script", "winpty", "unbuffer", "expect"]);
+const INLINE_INTERPRETERS = /^(?:node|nodejs|bun|deno|python(?:[0-9.]+)?|ruby|perl|php|pwsh|powershell)$/;
+const ORIGIN_MARKER = /\batomic_agent_tool_child\b/i;
+const LEARNED_CONSENT = /\bskill\s+learned\s+(?:approve|confirm)\b/i;
+
+function matchSkillApprovalOrigin(segments: readonly (readonly string[])[]): ArgvCheck | null {
+  const opaqueOrigin = segments.some((words) => words.some((word, index) => {
+    if (ORIGIN_MARKER.test(word)) return true;
+    const program = programName(word);
+    if (PSEUDOTERMINAL_PROGRAMS.has(program)) return true;
+    const args = words.slice(index + 1);
+    return INLINE_INTERPRETERS.test(program) &&
+      args.some((arg) => /^(?:-[ceEpr]|--(?:eval|print)|-command)(?:=|$)/i.test(arg)) &&
+      args.some((arg) => LEARNED_CONSENT.test(arg));
+  }));
+  return opaqueOrigin
+    ? { id: "dangerous.skill_approval_origin", reason: "an opaque terminal or a protected agent origin marker" }
     : null;
 }

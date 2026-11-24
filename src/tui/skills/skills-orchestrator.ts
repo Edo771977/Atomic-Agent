@@ -416,6 +416,7 @@ export class SkillsOrchestrator {
       }
       return;
     }
+    let confirmedDraft: Extract<LearnCommand, { kind: "approve" }> | undefined;
     if (command.kind === "confirm") {
       const pending = this.learnConfirmation;
       delete this.learnConfirmation;
@@ -424,11 +425,13 @@ export class SkillsOrchestrator {
         message("The confirmation expired or does not match. Review the draft again.");
         return;
       }
-      command = pending.command;
+      confirmedDraft = pending.command;
+      command = confirmedDraft;
     }
     const result = await runLearnCommand(command, {
       ...scope,
       activationRefusal,
+      ...(confirmedDraft ? { confirmedDraft } : {}),
       takenNames: async () => {
         const { skills } = await loadSkills({
           globalDir: paths.globalSkillsDir,

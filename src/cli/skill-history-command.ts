@@ -1,11 +1,7 @@
-import { formatDraftView, showPendingDraft } from "../skills/learning/learn-command.js";
-import { readLearnFingerprint } from "./learn-terminal.js";
+import { listStarterSkillNames } from "../skills/seed-starter-skills.js";
 import { learnedSkillScope, learnedTurnRunning, withLearnedDecision } from "../skills/learning/learn-scope.js";
 import { SessionStore } from "../session/session-store.js";
 import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
-import { listEnabledPluginSkills } from "../plugins/plugin-runtime.js";
-import { loadSkills } from "../skills/skill-loader.js";
-import { takenSkillNames } from "../skills/learning/learn-targets.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig } from "../config/index.js";
@@ -21,7 +17,6 @@ import {
   type CuratorVerdict,
   type SkillChangeEntry,
 } from "../skills/curator/index.js";
-import { listStarterSkillNames } from "../skills/seed-starter-skills.js";
 import { parseLearnCommand, runLearnCommand } from "../skills/learning/index.js";
 import { TaskStore } from "../tasks/task-store.js";
 
@@ -40,42 +35,27 @@ export const SKILL_HISTORY_HELP_LINES = [
   "                             archived, a patched one goes back to the version saved before the patch)",
   "  learned show <id> [--json] Print a draft pending review in full: path, where it came from, its SKILL.md,",
   "                             and for a patch a diff against the live skill",
-  "  learned approve <id> | discard <id>",
+  "  learned discard <id>       Discard a draft. To approve one, use /learn in the TUI.",
   "                             Approve the reviewed text or discard the draft.",
 ];
 
 /** `skill learned [show|undo|approve|discard <id>]` (ATO-67): the TUI's `/learn`. */
 export async function handleSkillLearned(args: string[]): Promise<number> {
-  const config = getConfig();
-  const scope = learnedSkillScope(config.paths.stateDir, process.cwd());
-  let command = parseLearnCommand(args.join(" "));
-  if (args[0]?.toLowerCase() === "approve") {
-    const id = args[1]?.toLowerCase();
-    if (args.length !== 2 || !id || !/^[0-9a-f]{4,16}$/.test(id)) {
-      process.stderr.write("usage: atomic-agent skill learned approve <id> (interactive terminal required)\n");
+  const command = parseLearnCommand(args.join(" "));
+  if (command.kind === "approve" || args[0]?.toLowerCase() === "approve") {
+    if (args.length !== 2) {
+      process.stderr.write("usage: atomic-agent skill learned approve <id>\n");
       return 2;
     }
-    const origin = projectDecisionOriginRefusal();
-    if (origin) { process.stderr.write(origin + "\n"); return 1; }
-    const view = await showPendingDraft(scope, id);
-    if (!view) { process.stderr.write(`No pending draft with id ${id}.\n`); return 1; }
-    const prefix = "atomic-agent skill learned";
-    const fingerprint = await readLearnFingerprint(formatDraftView(view, prefix));
-    if (!fingerprint || !/^[0-9a-f]{64}$/.test(fingerprint)) {
-      process.stderr.write("Approval requires an interactive terminal and the displayed fingerprint.\n");
-      return 1;
-    }
-    if (fingerprint !== view.fingerprint) {
-      const latest = await showPendingDraft(scope, id);
-      process.stderr.write("The fingerprint does not match the displayed draft. Review it again.\n");
-      if (latest) process.stderr.write(formatDraftView(latest, prefix) + "\n");
-      return 1;
-    }
-    command = { kind: "approve", id, fingerprint };
-  } else if (command.kind === "error") {
-    process.stderr.write("usage: atomic-agent skill learned [show <id> [--json] | undo <id> | approve <id> | discard <id>]\n");
+    process.stderr.write("Approve learned skills in the TUI. Use /learn show <id> and follow the /learn approval and confirmation steps.\n");
+    return 1;
+  }
+  if (command.kind === "error") {
+    process.stderr.write("usage: atomic-agent skill learned [show <id> [--json] | undo <id> | discard <id>]\n");
     return 2;
   }
+  const config = getConfig();
+  const scope = learnedSkillScope(config.paths.stateDir, process.cwd());
   const result = await runLearnCommand(
     command,
     { ...scope,
@@ -87,12 +67,6 @@ export async function handleSkillLearned(args: string[]): Promise<number> {
         try { return store.liveFolderTurn(scope.folder) ? "A turn is running in this folder. Wait for it to finish." : undefined; }
         finally { store.close(); }
       },
-      takenNames: async () => takenSkillNames({
-        records: (await loadSkills({ globalDir: config.paths.globalSkillsDir, projectDir: join(scope.folder, config.paths.projectSkillsDirName),
-          pluginSkills: () => listEnabledPluginSkills(config.paths.stateDir),
-        })).skills,
-        starterNames: await listStarterSkillNames(), globalSkillsDir: scope.skillsDir, archiveDir: skillCuratorPaths(scope.stateDir).archiveDir,
-      }),
     },
     "atomic-agent skill learned",
   );

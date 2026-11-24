@@ -143,7 +143,13 @@ describe("learned journal and undo", () => {
     expect(listed.text).toContain(`${keep.id}  2026-11-18 09:00  new skill fetch-release-notes (Pending review): changelog steps [read: telegram, os.web.fetch]`);
     expect(listed.text).toContain("/learn approve <id>");
 
-    const approved = await runLearnCommand({ kind: "approve", id: keep.id, fingerprint: draftFingerprint(keep, content) }, { stateDir: root, skillsDir, takenNames: async () => new Set() });
+    const fingerprintOnly = await runLearnCommand(
+      { kind: "approve", id: keep.id, fingerprint: draftFingerprint(keep, content) },
+      { stateDir: root, skillsDir, takenNames: async () => new Set() },
+    );
+    expect(fingerprintOnly).toMatchObject({ ok: false, text: expect.stringContaining("TUI") });
+    const confirmedDraft = { kind: "approve", id: keep.id, fingerprint: draftFingerprint(keep, content) } as const;
+    const approved = await runLearnCommand(confirmedDraft, { stateDir: root, skillsDir, confirmedDraft, takenNames: async () => new Set() });
     expect(approved).toMatchObject({ ok: true, skillsChanged: true });
     expect(read("fetch-release-notes")).toBe(content);
     expect((await readLearnedChanges(journal)).map((e) => e.id)).toEqual([keep.id]);

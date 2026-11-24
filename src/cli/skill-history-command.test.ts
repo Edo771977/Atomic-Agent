@@ -1,5 +1,6 @@
-import * as terminal from "./learn-terminal.js";
-import { learnedSkillScope, withLearnedTurn } from "../skills/learning/learn-scope.js";
+import { spawnSync } from "node:child_process";
+import { approvePendingDraft } from "../skills/learning/experience-review.js";
+import { learnedSkillScope } from "../skills/learning/learn-scope.js";
 import { draftFingerprint } from "../skills/learning/pending-drafts.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -168,21 +169,26 @@ describe("skill history / restore / curate", () => {
     const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "console-check", reason: "console", content, sources: [] });
     expect(await skillCommand(["learned", "approve", `${draft.id}@${draftFingerprint(draft, content)}`])).not.toBe(0);
     expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
-    expect(stderr).toContain("interactive terminal");
+    expect(stderr).toContain("/learn");
     expect(existsSync(join(scope().skillsDir, "console-check"))).toBe(false);
   });
 
-  it("refuses a fingerprint for bytes that changed while the terminal was open", async () => {
-    const content = "---\nname: changing-draft\ndescription: Check the review.\n---\nRead the report and compare it with the approved checklist.\n";
-    const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "changing-draft", reason: "review", content, sources: [] });
-    const changed = content.replace("approved checklist", "latest release checklist");
-    vi.spyOn(terminal, "readLearnFingerprint").mockImplementation(async () => {
-      writeFileSync(join(scope().stateDir, "skills-pending", draft.id, "SKILL.md"), changed);
-      return draftFingerprint(draft, changed);
-    });
-    expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
-    expect(existsSync(join(scope().skillsDir, "changing-draft"))).toBe(false);
-  });
+  it.skipIf(process.platform !== "linux" || !existsSync("/usr/bin/script"))(
+    "directs a pseudoterminal with a valid fingerprint to TUI confirmation",
+    async () => {
+      const content = "---\nname: isolated-preview\ndescription: Check the preview.\n---\nReview the approved checklist.\n";
+      const draft = await savePendingDraft(scope().stateDir, { kind: "create", name: "isolated-preview", reason: "review", content, sources: [] });
+      const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+      const command = [process.execPath, "--import", "tsx", "src/cli/index.ts", "skill", "learned", "approve", draft.id].map(quote).join(" ");
+      const child = spawnSync("/usr/bin/script", ["-q", "-e", "-c", command, "/dev/null"], {
+        input: draftFingerprint(draft, content) + "\n", encoding: "utf8", timeout: 15_000,
+        env: { ...process.env, HOME: stateDir, ATOMIC_AGENT_STATE_DIR: stateDir },
+      });
+      expect(child.status, child.stdout + child.stderr).toBe(1);
+      expect(child.stdout).toContain("/learn");
+      expect(existsSync(join(scope().skillsDir, "isolated-preview"))).toBe(false);
+    }, 20_000,
+  );
 
   it("skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)", async () => {
     const content = "---\nname: changelog-notes\ndescription: Collect release notes from the changelog.\nversion: 1.0.0\n---\n\n1. Open CHANGELOG.md.\n2. Copy the newest section.\n";
@@ -193,7 +199,7 @@ describe("skill history / restore / curate", () => {
     expect(await skillCommand(["learned"])).toBe(0);
     expect(stdout).toContain(`${draft.id}`);
     expect(stdout).toContain("(Pending review)");
-    expect(stdout).toContain("atomic-agent skill learned approve <id>");
+    expect(stdout).toContain("/learn");
 
     stdout = "";
     expect(await skillCommand(["list", "--json"])).toBe(0);
@@ -220,36 +226,17 @@ describe("skill history / restore / curate", () => {
     expect(stdout).toContain("2. Copy the newest section.");
     expect(await skillCommand(["learned", "show", "abcdef"])).toBe(1);
 
-    const read = vi.spyOn(terminal, "readLearnFingerprint");
-    const approve = (text: string) => {
-      read.mockResolvedValue(draftFingerprint(draft, text));
-      return skillCommand(["learned", "approve", draft.id]);
-    };
     expect(await skillCommand(["learned", "approve"])).toBe(2);
-    const file = join(scope().stateDir, "skills-pending", draft.id, "SKILL.md");
     expect(await skillCommand(["install", join(scope().stateDir, "skills-pending", draft.id), "--yes"])).toBe(1);
     expect(stderr).toContain("Review and approve this draft");
-    const edited = content.replace("newest section", "first three entries");
-    writeFileSync(file, edited);
-    stderr = "";
-    expect(await approve(content)).toBe(1);
-    expect(stderr).toContain(edited.trimEnd());
-    expect(stderr).toContain(draftFingerprint(draft, edited));
-    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
-    expect(await approve(edited)).toBe(1);
-    expect(stderr).toContain("outside an agent tool process");
-    vi.unstubAllEnvs();
-    await withLearnedTurn(stateDir, scope().folder, async () => {
-      expect(await approve(edited)).toBe(1);
-      expect(stderr).toContain("A turn is running");
-    });
-    expect(await approve(edited)).toBe(0);
+    expect(await skillCommand(["learned", "approve", draft.id])).toBe(1);
+    await approvePendingDraft({ ...scope(), takenNames: new Set(), expectedFingerprint: draftFingerprint(draft, content) }, draft.id);
     const installed = join(scope().skillsDir, "changelog-notes", "SKILL.md");
-    expect(readFileSync(installed, "utf8")).toBe(edited);
+    expect(readFileSync(installed, "utf8")).toBe(content);
     expect(await skillCommand(["learned", "undo", draft.id])).toBe(0);
     expect(existsSync(installed)).toBe(false);
     expect(await skillCommand(["restore", "changelog-notes", "--learned"])).toBe(0);
-    expect(readFileSync(installed, "utf8")).toBe(edited);
+    expect(readFileSync(installed, "utf8")).toBe(content);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(0);
     expect(existsSync(join(globalSkillsDir, "other-notes"))).toBe(false);
     expect(await skillCommand(["learned", "discard", other.id])).toBe(1);

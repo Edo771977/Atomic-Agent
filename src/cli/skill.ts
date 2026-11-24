@@ -491,7 +491,7 @@ export function formatPendingSection(pending: readonly PendingDraft[]): string {
       `          review: atomic-agent skill learned show ${d.id}`,
     );
   }
-  lines.push("Then: atomic-agent skill learned approve <id> | atomic-agent skill learned discard <id>");
+  lines.push("Then: Approve from the TUI with /learn, or discard with atomic-agent skill learned discard <id>");
   return `${lines.join("\n")}\n`;
 }
 

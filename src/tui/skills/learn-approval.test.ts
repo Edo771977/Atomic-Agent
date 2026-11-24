@@ -55,6 +55,8 @@ describe("/learn draft approval", () => {
       if (!confirmation) throw new Error("Missing confirmation");
       await orchestrator.runLearnCommand({ kind: "confirm", confirmation });
       expect(await listPendingDrafts(scope.stateDir)).toHaveLength(0);
+      await orchestrator.runLearnCommand({ kind: "confirm", confirmation });
+      expect(emit).toHaveBeenLastCalledWith({ type: "system_message", text: expect.stringContaining("expired") });
     } finally {
       await rm(stateDir, { recursive: true, force: true });
     }

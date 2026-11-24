@@ -155,6 +155,8 @@ export interface LearnCommandDirs {
   stateDir: string;
   skillsDir: string;
   activationRefusal?: () => string | undefined;
+  /** The command consumed by the in-process UI after its one-use confirmation. */
+  confirmedDraft?: Extract<LearnCommand, { kind: "approve" }>;
   /**
    * Every skill name in use, for an approved new skill to be checked
    * against. The TUI passes its registry's view; by default the global
@@ -215,6 +217,9 @@ export async function runLearnCommand(
         return { text, skillsChanged: result.outcome !== "already-gone", ok: true };
       }
       case "approve": {
+        if (dirs.confirmedDraft !== command) {
+          return { text: "Confirm learned skill approval from the TUI review.", skillsChanged: false, ok: false };
+        }
         const refusal = dirs.activationRefusal?.();
         if (refusal) return { text: refusal, skillsChanged: false, ok: false };
         const takenNames = await (dirs.takenNames ?? (() => defaultTakenNames(dirs)))();
