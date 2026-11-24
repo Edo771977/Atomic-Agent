@@ -22,7 +22,11 @@ export interface MemoryBackupContext {
   incognito?: boolean;
 }
 
-export class MemoryBackupError extends Error {}
+export class MemoryBackupError extends Error {
+  constructor(message: string, readonly code?: "backup-exists" | "contains-credential" | "no-database") {
+    super(message);
+  }
+}
 
 export function assertMemoryBackupAllowed(incognito?: boolean): void {
   if (incognito) throw new MemoryBackupError("memory backup and restore are unavailable in incognito");
@@ -113,18 +117,18 @@ function assertNoSecrets(db: Database.Database): void {
       const secretField = Object.values(row).some(includesSecret);
       if (secretPair || secretField) {
         const entry = typeof row.id === "number" ? row.id : position;
-        throw new MemoryBackupError(`Memory table ${name}, entry ${entry}, contains a credential; export refused`);
+        throw new MemoryBackupError(`Memory table ${name}, entry ${entry}, contains a credential; export refused`, "contains-credential");
       }
     }
   }
 }
 
 /** Publish the complete database into an exclusively claimed directory. */
-export async function createMemoryBackup(context: MemoryBackupContext, directory: string): Promise<string> {
+export async function createMemoryBackup(context: MemoryBackupContext, directory: string, beforePublish?: () => void): Promise<string> {
   assertMemoryBackupAllowed(context.incognito);
   const dest = resolve(directory);
-  if (!existsSync(context.memoryDbFile)) throw new MemoryBackupError("no memory database to back up");
-  if (existsSync(dest)) throw new MemoryBackupError("backup directory already exists");
+  if (!existsSync(context.memoryDbFile)) throw new MemoryBackupError("no memory database to back up", "no-database");
+  if (existsSync(dest)) throw new MemoryBackupError("backup directory already exists", "backup-exists");
   mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
   const staging = mkdtempSync(join(dirname(dest), ".memory-backup-"));
   try {
@@ -168,10 +172,11 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     restrictBackupPath(instructions, false);
     syncDirectoryBestEffort(staging);
     try {
+      beforePublish?.();
       mkdirSync(dest, { mode: 0o700 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
-        throw new MemoryBackupError("backup directory already exists");
+        throw new MemoryBackupError("backup directory already exists", "backup-exists");
       }
       throw error;
     }

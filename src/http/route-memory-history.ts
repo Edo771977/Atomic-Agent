@@ -1,3 +1,5 @@
+import { enforceMemoryChoiceIdle } from "./route-memory-operator.js";
+import { operatorMemoryPayload } from "./memory-operator-view.js";
 import {
   MEMORY_CHANGE_LOG_LIST_MAX,
   restoreMemoryChange,
@@ -56,7 +58,7 @@ export function createListMemoryChangesHandler(): HttpHandler {
     const changes = ctx.runtime.notesStore
       .getChangeLog()
       .list({ limit, ...(kind !== null ? { kind } : {}) });
-    sendJson(res, 200, { changes });
+    sendJson(res, 200, operatorMemoryPayload({ changes }, ctx));
   };
 }
 
@@ -67,6 +69,8 @@ export function createRestoreMemoryChangeHandler(): HttpHandler {
       sendError(res, 400, openaiError("change id must be a positive integer"));
       return;
     }
+    const isToggle = ctx.runtime.notesStore.getChangeLog().get(Number(raw))?.op === "set_disabled";
+    if (isToggle && !enforceMemoryChoiceIdle(res, ctx)) return;
     let outcome: RestoreOutcome;
     try {
       outcome = restoreMemoryChange(Number(raw), {
@@ -83,12 +87,13 @@ export function createRestoreMemoryChangeHandler(): HttpHandler {
       sendError(res, outcome.status, openaiError(outcome.message, "invalid_request_error", null, outcome.code));
       return;
     }
-    sendJson(res, 200, {
+    if (isToggle) ctx.memoryEvents?.emit("state");
+    sendJson(res, 200, operatorMemoryPayload({
       restored: true,
       change: outcome.change,
       ...(outcome.note ? { note: outcome.note } : {}),
       ...(outcome.fact ? { fact: factJson(outcome.fact) } : {}),
-    });
+    }, ctx));
   };
 }
 
@@ -120,7 +125,7 @@ export function createRestoreProfileVersionHandler(): HttpHandler {
         sendError(res, 404, openaiError(outcome.message, "invalid_request_error", null, outcome.code));
         return;
       }
-      sendJson(res, 200, { fact: factJson(outcome.fact) });
+      sendJson(res, 200, operatorMemoryPayload({ fact: factJson(outcome.fact) }, ctx));
     } catch (err) {
       const message = badRequest(err);
       if (message === null) throw err;

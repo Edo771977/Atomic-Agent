@@ -26,6 +26,7 @@ export interface HandlerContext {
   apiKey: string | null;
   params: Record<string, string>;
   caller?: HttpCaller;
+  memoryEvents?: import("node:events").EventEmitter;
   stillAuthorized?: () => boolean;
   approvalBus: ApprovalBus;
   /**

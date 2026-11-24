@@ -591,6 +591,8 @@ export interface AgentRuntime {
    * (`"not_incognito"`). Optional so test runtimes need not provide it.
    */
   discardIncognitoSession?(sessionId: string): IncognitoDiscardOutcome;
+  /** Whether this runtime is tracking an open incognito chat. */
+  anyIncognitoOpen?(): boolean;
   /**
    * Drive one chat turn: append the user message, run the agent loop
    * until the model emits `reply` (or `finish`), persist the resulting

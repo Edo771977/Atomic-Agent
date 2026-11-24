@@ -4,6 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
 
 import type { AgentRuntime } from "../runtime/bootstrap.js";
@@ -185,6 +186,7 @@ export function createHttpServer(
     options.undeliveredSteers ?? new UndeliveredSteerStore();
   const compiled = options.routes.map(compileRoute);
   const incognitoChats = new Set<string>();
+  const memoryEvents = new EventEmitter().setMaxListeners(0);
   // Issue #33: on a network address, sessions of constrained folders
   // without "serve" are refused (serve-egress.ts).
   const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
@@ -199,10 +201,11 @@ export function createHttpServer(
         completionRegistry,
         undeliveredSteers,
         incognitoChats,
+        memoryEvents,
         networkServe,
       }, options.namedTokens);
     } catch (err) {
-      handleRouteError(res, err);
+      handleRouteError(res, err, options.runtime.logger);
     }
   });
 
@@ -344,7 +347,7 @@ function parseRequestUrl(req: IncomingMessage): URL | null {
   }
 }
 
-function handleRouteError(res: ServerResponse, err: unknown): void {
+function handleRouteError(res: ServerResponse, err: unknown, logger: AgentRuntime["logger"]): void {
   if (res.headersSent) {
     try {
       res.end();
@@ -370,11 +373,11 @@ function handleRouteError(res: ServerResponse, err: unknown): void {
     sendError(res, 400, openaiError(err.message));
     return;
   }
-  const message = err instanceof Error ? err.message : String(err);
+  logger?.error("HTTP route failed");
   sendJson(
     res,
     500,
-    openaiError(`Internal server error: ${message}`, "server_error"),
+    openaiError("Internal server error", "server_error"),
   );
 }
 

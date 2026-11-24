@@ -108,6 +108,7 @@ import { createLocalModelsTextHandler } from "./route-local-models.js";
 import { createPanelPageHandler, createPanelScriptHandler } from "./route-panel.js";
 import { createSetSessionWorkingDirHandler } from "./session-working-dir.js";
 import { createRestoreFileHandler } from "./route-fs-restore.js";
+import { createMemoryBackupHandler, createMemoryStateHandler } from "./route-memory-operator.js";
 import { createReconnectMemoryEmbeddingsHandler } from "./route-memory-embeddings.js";
 import {
   createDeleteMemoryNoteHandler,
@@ -366,6 +367,9 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // ATO-1024: the desktop starts serve first and attaches the embedding server once it is up.
     { method: "POST", path: "/api/memory/embeddings/reconnect", handler: createReconnectMemoryEmbeddingsHandler() },
     // ATO-1124: the person's own list / edit / delete of notes and profile facts (route-memory.ts).
+    { method: "POST", path: "/api/memory/notes/{id}/state", handler: createMemoryStateHandler("note") },
+    { method: "POST", path: "/api/memory/profile/{key}/state", handler: createMemoryStateHandler("profile") },
+    { method: "POST", path: "/api/memory/backup", handler: createMemoryBackupHandler() },
     { method: "GET", path: "/api/memory/notes", handler: createListMemoryNotesHandler() },
     { method: "PATCH", path: "/api/memory/notes/{id}", handler: createEditMemoryNoteHandler() },
     { method: "DELETE", path: "/api/memory/notes/{id}", handler: createDeleteMemoryNoteHandler() },
