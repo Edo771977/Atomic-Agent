@@ -1,3 +1,4 @@
+import { runMemoryEntryCommand } from "./memory-entry-command.js";
 import { getConfig } from "../config/index.js";
 import {
   DEFAULT_EXPORT_FOLDER,
@@ -18,6 +19,7 @@ import {
   type MemoryEmbeddingConnection,
 } from "../memory/embeddings/memory-embedding-connection.js";
 import { forgetMemoryBefore, parseForgetDate } from "./memory-forget.js";
+import { handleBackup, handleRestore } from "./memory-backup.js";
 
 const HELP =
   [
@@ -40,6 +42,13 @@ const HELP =
     "                            record is gone are pruned; other files are",
     "                            never touched. The database is opened",
     "                            read-only — nothing syncs back.",
+    "  backup [--out <dir>]      One consistent copy of the memory file",
+    "                            as <dir>/memory.sqlite, safe while the agent runs.",
+    "                            Default <stateDir>/backups/memory-<time>. Restore",
+    "                            notes and profile facts (merged, no duplicates):",
+    "                            memory restore --from <dir>,",
+    "                            as RESTORE.txt says. Lessons, procedures and links",
+    "                            are not imported back.",
     "  reindex [--prune] [--json]",
     "                            Embed every note that has no vector for the",
     "                            current embedding model (after switching models,",
@@ -71,6 +80,11 @@ const HELP =
     "Examples:",
     "  atomic-agent memory export --vault ~/Documents/MyVault",
     "  OBSIDIAN_VAULT_PATH=~/Documents/MyVault atomic-agent memory export",
+    "  atomic-agent memory backup --out ~/Backups/agent-memory",
+    "  atomic-agent memory restore --from ~/Backups/agent-memory",
+    "  atomic-agent memory list note|profile",
+    "  atomic-agent memory disable|enable note|profile <id-or-key>",
+    "  atomic-agent memory history | undo <change-id>",
     "  atomic-agent memory reindex",
     "  atomic-agent memory reindex --prune",
     "  atomic-agent memory forget --before 2026-10-15",
@@ -86,6 +100,19 @@ export async function memoryCommand(args: string[]): Promise<number> {
   switch (sub) {
     case "export":
       return handleExport(args.slice(1));
+    case "backup":
+      return handleBackup(args.slice(1), readOption);
+    case "restore":
+      return handleRestore(readOption(args.slice(1), "--from"), args.includes("--yes"),
+        args.includes("--max-notes") ? readOption(args, "--max-notes") ?? "" : undefined,
+        args.includes("--max-facts") ? readOption(args, "--max-facts") ?? "" : undefined,
+        readOption(args, "--hash"));
+    case "list":
+    case "disable":
+    case "enable":
+    case "history":
+    case "undo":
+      return runMemoryEntryCommand(sub, args.slice(1));
     case "reindex":
       return handleReindex(args.slice(1));
     case "forget":

@@ -18,6 +18,7 @@ Selective imports for offline use and chat data cleanup:
 - `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
 
 - `fix/ato-1547-incognito-tasks-after-crash` ([#1595](https://github.com/AtomicBot-ai/atomic-agent/pull/1595)): the boot sweep removes the abandoned chat’s tasks before task recovery and keeps failed cleanups eligible for retry, including when file checkpoints cannot be removed. Fusion checkpoints and spilled outputs use the fork’s existing cleanup.
+- Fusion model routing ([#1560](https://github.com/AtomicBot-ai/atomic-agent/pull/1560) and [#1561](https://github.com/AtomicBot-ai/atomic-agent/pull/1561)): legacy legs now send their configured models, and workers can escalate to a different model on the same provider. The fork retains team member selection, reviewer independence and signed receipt attribution.
 
 Selective Privacy Shield imports:
 
@@ -56,6 +57,10 @@ The official installer (`curl … atomicagent.io/install`) and upstream's releas
 - For the desktop app, use the `desktop-<platform>` artifact of the fork's **Desktop packages** workflow on `desktop-main`.
 
 Everything below exists only in this fork. Links are to the fork's pull requests.
+
+## Memory backup and entry controls
+
+CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
 
 ## Fusion team
 

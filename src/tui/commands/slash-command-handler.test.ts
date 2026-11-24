@@ -232,6 +232,13 @@ describe("dispatchSlashCommand", () => {
     expect(result.clearBuffer).toBe(true);
   });
 
+  it("dispatches memory archive commands with a path containing spaces", () => {
+    expect(dispatchSlashCommand("/memory backup").memoryBackup).toMatchObject({ operation: "backup" });
+    expect(dispatchSlashCommand("/memory restore /backup folder").memoryBackup).toEqual({
+      operation: "restore", directory: "/backup folder",
+    });
+  });
+
   it("opens the Memory tab for bare /memory", () => {
     const result = dispatchSlashCommand("/memory");
     expect(result.triggerMemoryDump).toBe(false);

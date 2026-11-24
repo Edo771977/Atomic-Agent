@@ -89,7 +89,7 @@ function HintsRow({ channel }: { channel: string }): ReactElement {
   return (
     <Box marginTop={1}>
       <Text color={theme.colors.muted}>
-        j/k · Enter detail · r refresh · a auto · [/] channel · 1-6 jump{extra}
+        j/k · Enter detail · d enable/disable · r refresh · a auto · [/] channel · 1-6 jump{extra}
       </Text>
     </Box>
   );

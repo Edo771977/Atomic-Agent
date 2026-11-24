@@ -16,7 +16,8 @@ export interface ProfileHistoryToolOptions {
  * full bi-temporal chain for `key`. Returns rows in **temporal order**
  * (oldest first); the active row, when present, is the last entry.
  *
- * The full chain (active + every superseded version) is included.
+ * The chain is visible while the key is active and enabled. The
+ * operator can still inspect a disabled key through the memory panel.
  * Useful when the user asks "what did I prefer before?" — the
  * default `### profile` view shows only the active row, this tool
  * lifts the veil on the chain. The tool itself is read-only and the
@@ -34,9 +35,11 @@ export function buildProfileHistoryTool(
     async run(rawArgs) {
       const keyRaw = rawArgs.key;
       try {
-        const chain = options.store.history(
+        const rows = options.store.history(
           typeof keyRaw === "string" ? keyRaw : "",
         );
+        const active = rows.find((row) => row.supersededBy === null);
+        const chain = active?.disabledAt !== undefined ? [] : rows;
         if (chain.length === 0) {
           return compressToolResult({
             tool: "memory.profile.history",

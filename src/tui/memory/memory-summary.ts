@@ -2,7 +2,6 @@ import type { LinkRow } from "../../memory/links/link-store.js";
 import { renderNotePreview } from "../../memory/memory-store.js";
 import type {
   MemoryEntry,
-  MemoryIndexEntry,
 } from "../../memory/memory-store.js";
 import type { LessonIndexEntry } from "../../memory/lessons/lesson-store.js";
 import type { ProcedureIndexEntry } from "../../memory/procedures/procedure-store.js";
@@ -21,6 +20,7 @@ export function toProfileSummaryRows(
     secondary: truncate(f.value, 56),
     meta: [
       f.pinned ? "pinned" : "contextual",
+      f.disabledAt !== undefined ? "disabled" : null,
       // ATO-199: a name no user message vouches for is kept, not used.
       isProfileFactPromptVisible(f)
         ? null
@@ -43,20 +43,7 @@ export function toNoteSummaryRowsFromEntries(
     channel: "notes" as const,
     primary: `#${e.id}`,
     secondary: truncate(renderNotePreview(e.content, 80), 56),
-    meta: formatTagsMeta(e.tags),
-    numericId: e.id,
-  }));
-}
-
-export function toNoteSummaryRows(
-  entries: readonly MemoryIndexEntry[],
-): MemorySummaryRow[] {
-  return entries.map((e) => ({
-    rowKey: `note:${e.id}`,
-    channel: "notes" as const,
-    primary: `#${e.id}`,
-    secondary: truncate(e.preview, 56),
-    meta: formatTagsMeta(e.tags),
+    meta: [e.disabledAt !== undefined ? "disabled" : "", formatTagsMeta(e.tags)].filter(Boolean).join(" · "),
     numericId: e.id,
   }));
 }

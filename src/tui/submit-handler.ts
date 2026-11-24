@@ -479,6 +479,7 @@ export function runSlashCommand(
   }
   if (result.triggerRewindPicker) callbacks.onRewindPickerRequested?.();
   if (result.triggerIncognitoSession === true) callbacks.onIncognitoSessionRequested?.();
+  if (result.memoryBackup) callbacks.onMemoryBackupRequested?.(result.memoryBackup);
   if (result.triggerMemoryDump) callbacks.onMemoryDumpRequested?.();
   if (result.triggerSkillCatalogDump) callbacks.onSkillCatalogRequested?.();
   if (result.persistLlamaUrl) {
