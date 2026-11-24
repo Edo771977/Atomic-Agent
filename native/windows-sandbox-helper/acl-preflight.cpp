@@ -79,11 +79,16 @@ int wmain(int argc, wchar_t** argv) {
     require(checkFile(L"fixture\\after", CREATE_NEW) == ERROR_SUCCESS, "create post-grant file");
 
     std::wstring command = L"\"" + std::wstring(executable) + L"\" --child \"" + profileFile + L"\"";
-    wchar_t systemRoot[MAX_PATH]{};
-    UINT rootLength = GetWindowsDirectoryW(systemRoot, MAX_PATH);
-    require(rootLength > 0 && rootLength < MAX_PATH, "locate Windows directory");
-    std::wstring environment = L"SystemRoot=" + std::wstring(systemRoot);
-    environment.push_back(L'\0');
+    std::wstring environment;
+    for (const wchar_t* name : {L"APPDATA", L"LOCALAPPDATA", L"SystemDrive", L"SystemRoot", L"TEMP", L"TMP", L"USERPROFILE", L"windir"}) {
+        wchar_t value[32768]{};
+        DWORD length = GetEnvironmentVariableW(name, value, ARRAYSIZE(value));
+        require(length > 0 && length < ARRAYSIZE(value), "read Windows environment allowlist");
+        environment += name;
+        environment += L'=';
+        environment.append(value, length);
+        environment.push_back(L'\0');
+    }
     const DWORD status = runLpac(sid, executable, command, L"fixture", environment.data(), 10000, false);
     bool present = false;
     if (status == 0) {
