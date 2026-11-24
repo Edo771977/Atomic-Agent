@@ -278,4 +278,22 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
   });
+
+  it.each([
+    ["sudo -D /scratch/shared touch file", true],
+    ["find /scratch/shared -ok touch {} \\;", true],
+    ["find /scratch/shared -ok cat {} \\;", false],
+    ["setsid touch /scratch/shared/file", true],
+    ["gh repo clone example/repo /scratch/shared/new", true],
+    ["glab repo clone example/repo /scratch/shared/new", true],
+    ["gh repo view example/repo", false],
+    ["find /scratch/shared -okdir touch {} \\;", true],
+    ["find /tmp -exec sh -c 'touch /scratch/shared/file' \\;", true],
+    ["sudo --chdir=/tmp touch file", false],
+    ["nohup touch /scratch/shared/file", true],
+  ] as const)("round five point 10 classifies %s", (cmd, blocked) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
+  });
 });

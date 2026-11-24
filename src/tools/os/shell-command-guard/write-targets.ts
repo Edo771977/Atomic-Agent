@@ -330,7 +330,8 @@ function launcherCommand(
     index += option?.consumesNext ? 2 : 1;
     if (!option) continue;
     const long = arg.text.split("=", 1)[0];
-    if (launcher === "env" && (short === "C" || long === "--chdir")) {
+    if ((launcher === "env" && short === "C") || (launcher === "sudo" && short === "D") ||
+        ((launcher === "env" || launcher === "sudo") && long === "--chdir")) {
       cwd = resolveDirectoryWord(option.value, cwd, scope);
     }
     if (launcher === "env" && (short === "S" || long === "--split-string")) {
@@ -403,7 +404,7 @@ function findExecTargets(
   for (let i = 0; i < expression.length; i += 1) {
     const flag = expression[i]!.text;
     if (flag === "-delete") (scope.findSelections ??= []).push(...roots);
-    if (flag !== "-exec" && flag !== "-execdir") continue;
+    if (!["-exec", "-execdir", "-ok", "-okdir"].includes(flag)) continue;
     const command: ShellWord[] = [];
     while (++i < expression.length && expression[i]!.text !== ";" && expression[i]!.text !== "+") command.push(expression[i]!);
     for (const selection of roots) {
@@ -412,7 +413,7 @@ function findExecTargets(
       // fixed targets that are part of the delegated command.
       const marker = resolve(root, ".atomic-find-selected-path");
       const invocation = command.map((arg) => arg.text === "{}" ? word(marker) : arg);
-      const found = commandTargets(invocation, flag === "-execdir" ? root : dir, windows, scope);
+      const found = commandTargets(invocation, flag.endsWith("dir") ? root : dir, windows, scope);
       if (!found) continue;
       result.push(...found.targets.filter((target) => target !== marker));
       if (found.targets.includes(marker)) (scope.findSelections ??= []).push(selection);
@@ -756,6 +757,14 @@ function gitWorktreeWrites(subcommand: string, args: readonly ShellWord[], root:
 
 function structuredWrites(name: string, args: readonly ShellWord[], dir: string | undefined, scope?: WriteTargetScope):
   { words: ShellWord[]; cwd?: string; recursive?: boolean } | undefined {
+  if ((name === "gh" || name === "glab") && args[0]?.text === "repo" && args[1]?.text === "clone") {
+    const separator = args.findIndex(({ text }) => text === "--");
+    const operands = plainOperands(args.slice(2, separator === -1 ? undefined : separator),
+      (flag) => ["-b", "--branch", "-g", "--group"].includes(flag));
+    const remote = operands[0];
+    if (remote) return { words: [operands[1] ?? remoteLeaf(remote, ".git")], recursive: true };
+    return { words: [] };
+  }
   if (name === "7z" || name === "7za" || name === "7zz") {
     if (!["x", "e"].includes(args[0]?.text ?? "")) return { words: [] };
     const destinations = directoryOptions(args.slice(1), ["-o"], []);
