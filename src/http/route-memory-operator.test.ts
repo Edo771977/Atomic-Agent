@@ -132,6 +132,33 @@ describe("operator memory routes", () => {
     expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
   });
 
+  it("keeps a deferred incognito deletion tracked until the row is gone", async () => {
+    const response = await send("/v1/chat/completions", {
+      model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
+    });
+    expect(response.status).toBe(200);
+    const { session_id: id } = await response.json() as { session_id: string };
+    // Exercise the HTTP tracking independently of the runtime's live-chat guard.
+    vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(false);
+    const discard = vi.spyOn(harness.runtime, "discardIncognitoSession").mockReturnValueOnce("deferred");
+    const deleted = await fetch(harness.baseUrl + "/api/sessions/" + id, {
+      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+    });
+    expect(deleted.status).toBe(200);
+    expect(discard).toHaveBeenCalledWith(id);
+    const blocked = await send("/api/memory/backup", {});
+    expect(blocked.status).toBe(409);
+    expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
+
+    harness.runtime.sessionStore.delete(id);
+    expect((await send("/api/memory/backup", {})).status).toBe(200);
+    // A second idle assertion must no longer consult that stale tracked ID.
+    const load = vi.spyOn(harness.runtime.sessionStore, "load");
+    const note = (await (await send("/api/memory/notes")).json() as { notes: { fingerprint: string }[] }).notes[0]!;
+    expect((await send("/api/memory/notes/" + noteId + "/state", { enabled: false, fingerprint: note.fingerprint })).status).toBe(200);
+    expect(load).not.toHaveBeenCalledWith(id);
+  });
+
   it.each([
     ["backup-exists", 409], ["contains-credential", 422], ["no-database", 422],
   ] as const)("maps backup refusals to stable codes: %s", async (code, status) => {

@@ -1,4 +1,5 @@
 import { withFileLock } from "../session/project-lock.js";
+import { isIncognitoSession } from "../session/incognito.js";
 import { routeErrorDiagnostics } from "./route-error-diagnostics.js";
 import { randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
@@ -24,8 +25,14 @@ class MemoryChoiceConflict extends Error {
 function assertIdle(ctx: HandlerContext): void {
   if (ctx.stillAuthorized?.() === false) throw new RequestError(403, "Authorization expired");
   const busy = ctx.runtime.turnController.busySessionIds();
+  let trackedIncognito = false;
+  for (const id of ctx.incognitoChats ?? []) {
+    const session = ctx.runtime.sessionStore.load(id);
+    if (session === null) ctx.incognitoChats?.delete(id);
+    else if (isIncognitoSession(session)) trackedIncognito = true;
+  }
   if (ctx.runtime.anyIncognitoOpen?.()
-    || [...(ctx.incognitoChats ?? [])].some((id) => ctx.runtime.sessionStore.isIncognito(id))
+    || trackedIncognito
     || busy.some((id) => ctx.runtime.sessionStore.isIncognito(id))) {
     throw new MemoryChoiceConflict("incognito");
   }
