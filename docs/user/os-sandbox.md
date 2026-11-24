@@ -51,3 +51,13 @@ The Bubblewrap 0.9 backend has no runtime pathname rule. A classic seccomp filte
 ### Linux session keyring
 
 This backend does not currently isolate the inherited kernel session keyring or independently deny `add_key`, `keyctl` and `request_key`. Host kernel and container policy may already deny them. Safe Mode alone does not make host session keyrings suitable for storing credentials that sandboxed commands must never access. Enforcing this needs a trusted launcher with a verified syscall filter or a verified new session keyring, with coverage for supported Linux architectures.
+
+### Toolchains under /usr/local
+
+A bind of all of `/usr/local` imports unrelated software, configuration and data under that prefix. List only the directories a tool needs, using the separator for your platform. For example, on Linux:
+
+```sh
+export ATOMIC_AGENT_SANDBOX_TOOLCHAINS=/usr/local/bin:/usr/local/lib/python3.12
+```
+
+The directories must exist on the host. Add a separate library or package directory when the executable refers to it. Safe Mode mounts each approved directory read-only.
