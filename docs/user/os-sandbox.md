@@ -79,8 +79,10 @@ writable grant. FAT, exFAT and nonlocal paths are unsupported.
 In PowerShell, set your offline runtime directories before opening the TUI.
 Use paths where your Windows account can manage ACLs, for example a portable
 Git installation and a portable Node executable in a dedicated local folder.
-The normal CLI installation locates its helper alongside the single executable
-or under the installed package. Development builds can use the absolute
+Install the unsigned x64 helper from the Windows sandbox CI artifact or build
+it locally. Place it alongside `atomic-agent.exe` for a standalone installation,
+or at `native/windows-sandbox-helper/atomic-sandbox-helper.exe` under the
+installed Node package. Development builds can use the absolute
 `ATOMIC_AGENT_WINDOWS_SANDBOX_HELPER` override. Keep the helper and the
 agent installation outside approved writable projects.
 
@@ -96,7 +98,8 @@ Close active sandbox sessions before revoking their ACLs. Run
 `atomic-agent sandbox windows revoke "D:\Projects\example"` from your own
 terminal, or use `atomic-agent sandbox windows revoke --all`. Turning Safe
 Mode off stops sandboxing future commands. The grants remain on disk until the
-operator revokes them.
+operator revokes them. Revoke before uninstalling the CLI so the registry and
+helper remain available for the operation.
 
 The helper checks ACL coverage and uses a real LPAC process to test an existing
 project file, denied state access, denied out-of-project writes and a reachable

@@ -1,5 +1,6 @@
 import { createInterface } from "node:readline/promises";
 
+import { hasWindowsSandboxGrants } from "../sandbox/windows-sandbox.js";
 import { getConfig } from "../config/index.js";
 import {
   DESKTOP_DATA_QUESTION,
@@ -197,8 +198,17 @@ export async function uninstallCommand(
 
   let plan: ResolvedUninstallPlan;
   try {
+    const stateDir = getStateDir();
+    if (hasWindowsSandboxGrants(stateDir)) {
+      const revoke = "Run atomic-agent sandbox windows revoke --all before uninstalling to remove saved Windows sandbox ACLs.\n";
+      if (!flags.dryRun) {
+        writeErr(revoke);
+        return 1;
+      }
+      write(revoke);
+    }
     plan = await resolvePlan({
-      stateDir: getStateDir(),
+      stateDir,
       keepData: flags.keepData,
       keepBinary: flags.keepBinary,
     });

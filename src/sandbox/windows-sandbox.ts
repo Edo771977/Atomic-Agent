@@ -220,6 +220,10 @@ export function applyWindowsSandboxGrant(plan: WindowsSandboxPlan): void {
     writeGrants(plan.state, [...remaining, pending]);
     const sid = changeAcl({ ...plan, readOnlyRoots: roots }, "grant");
     writeGrants(plan.state, [...remaining, { ...pending, sid, status: "granted" }]);
+    if (!probeWindowsSandbox(plan.root, plan.state)) {
+      writeGrants(plan.state, [...remaining, { ...pending, sid }]);
+      throw new Error("the Windows launch probe failed after granting access; the CLI will refuse commands");
+    }
   });
 }
 
@@ -320,7 +324,7 @@ export function wrapWindowsSandbox(command: string, args: readonly string[], pol
   return createWindowsLaunch(command, args, root, policy.stateDir, options);
 }
 
-function probeWindowsSandbox(root: string, state: string): boolean {
+export function probeWindowsSandbox(root: string, state: string): boolean {
   // A native probe runs before this harmless command. Its exit status is also
   // checked before treating a stored ACL grant as current in the TUI.
   const command = windowsSystemExecutable("cmd.exe");
