@@ -3,6 +3,7 @@
 #include <windows.h>
 #include <aclapi.h>
 #include <cstdio>
+#include <cwchar>
 #include <string>
 
 namespace acl_tree {
@@ -87,6 +88,23 @@ inline DWORD update(HANDLE object, PSID sid, DWORD mask, bool directory) {
     LocalFree(after);
     LocalFree(descriptor);
     return error;
+}
+
+inline bool containsSid(const std::wstring& path, PSID sid, bool& present) {
+    PSECURITY_DESCRIPTOR descriptor = nullptr;
+    PACL dacl = nullptr;
+    if (GetNamedSecurityInfoW(path.c_str(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, &dacl, nullptr, &descriptor) != ERROR_SUCCESS) return false;
+    bool valid = dacl != nullptr;
+    present = false;
+    for (DWORD i = 0; valid && i < dacl->AceCount; ++i) {
+        void* raw = nullptr;
+        valid = GetAce(dacl, i, &raw) != FALSE;
+        if (valid && static_cast<ACE_HEADER*>(raw)->AceType == ACCESS_ALLOWED_ACE_TYPE &&
+            EqualSid(sid, &static_cast<ACCESS_ALLOWED_ACE*>(raw)->SidStart)) present = true;
+    }
+    LocalFree(descriptor);
+    return valid;
 }
 
 inline void report(Result& result, const std::wstring& path, DWORD error) {

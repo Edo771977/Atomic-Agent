@@ -151,10 +151,22 @@ int wmain(int argc, wchar_t** argv) {
     CloseHandle(process.hProcess);
     DeleteProcThreadAttributeList(attributes);
     HeapFree(GetProcessHeap(), 0, attributes);
+    bool present = false;
+    if (status == 0) {
+        require(acl_tree::containsSid(L"fixture\\deep\\nested\\before", sid, present) && present,
+            "find explicit SID before revocation");
+        require(acl_tree::containsSid(L"fixture\\after", sid, present) && present,
+            "find inherited SID before revocation");
+    }
     acl_tree::Result revoke;
     acl_tree::walk(L"fixture", sid, 0, revoke);
     acl_tree::walk(executable, sid, 0, revoke);
     require(revoke.errors == 0, "revoke diagnostic grants");
+    if (status == 0) {
+        for (const wchar_t* path : {L"fixture", L"fixture\\deep\\nested\\before", L"fixture\\after", L"fixture\\created-by-lpac"}) {
+            require(acl_tree::containsSid(path, sid, present) && !present, "verify SID removed from DACL");
+        }
+    }
     FreeSid(sid);
     DeleteAppContainerProfile(profile.c_str());
     require(DeleteFileW(profileFile.c_str()) != FALSE, "remove synthetic profile file");
