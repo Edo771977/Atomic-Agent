@@ -390,7 +390,10 @@ export async function createAgentRuntime(
   });
 
   const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
-  const sessionStore = prepareRuntimeSessionStore(config, logger, fileCheckpoints);
+  let retainedIncognitoIds: readonly string[] = [];
+  const sessionStore = await prepareRuntimeSessionStore(config, logger, fileCheckpoints, undefined, ids => {
+    retainedIncognitoIds = ids;
+  });
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -667,7 +670,7 @@ export async function createAgentRuntime(
     slotId: () => slotManager.sideCallSlotId(),
     serverTemplate: () => getConfig().localModels.useServerTemplate !== "off",
   };
-  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger });
+  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger, sessionStore, retainedIncognitoIds });
   const { reflectionRunner, memoryContextProvider } = createRuntimeMemoryServices({
     config, profileStore, notesStore, linkStore, lessonStore, procedureStore, voteStore, embeddingClient,
     slotManager, llmComplete, toolTransport: bootstrapLlmSlice.transport, logger, metrics, touchRecorder, memoryHealth,

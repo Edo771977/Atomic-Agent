@@ -89,7 +89,7 @@ function observePhases() {
   const createMemory = memoryStores.createRuntimeMemoryStores;
   vi.spyOn(memoryStores, "createRuntimeMemoryStores").mockImplementation(async (...args) => { events.push("memory-stores"); acquiredMemory = await createMemory(...args); return acquiredMemory; });
   const prepareSession = sessions.prepareRuntimeSessionStore;
-  vi.spyOn(sessions, "prepareRuntimeSessionStore").mockImplementation((...args) => { events.push("session-store"); acquiredSessions = prepareSession(...args); return acquiredSessions; });
+  vi.spyOn(sessions, "prepareRuntimeSessionStore").mockImplementation(async (...args) => { events.push("session-store"); acquiredSessions = await prepareSession(...args); return acquiredSessions; });
   const installDelete = sessions.installRuntimeSessionDelete;
   vi.spyOn(sessions, "installRuntimeSessionDelete").mockImplementation((...args) => { events.push("session-delete-hook"); return installDelete(...args); });
   const createTools = tools.createRuntimeToolRegistry;

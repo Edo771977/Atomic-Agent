@@ -209,10 +209,39 @@ export class FileCheckpointStore {
     });
   }
 
+  async removeIncognitoSession(sessionId: string): Promise<void> {
+    const pending = join(this.root, ".pending-incognito-removals");
+    await mkdir(pending, { recursive: true, mode: 0o700 });
+    const marker = join(pending, sha256Of(Buffer.from(sessionId)) + ".json");
+    await writeJsonAtomically(marker, sessionId);
+    await this.removeSession(sessionId);
+    await rm(marker, { force: true });
+  }
+
+  async retryIncognitoRemovals(onError: (error: unknown) => void): Promise<void> {
+    const pending = join(this.root, ".pending-incognito-removals");
+    const entries = await readdir(pending).catch(error => {
+      if (error.code !== "ENOENT") onError(error);
+      return [];
+    });
+    for (const name of entries) {
+      if (!/^[a-f0-9]{64}\.json$/.test(name)) continue;
+      try {
+        const marker = join(pending, name);
+        const id: unknown = JSON.parse(await readFile(marker, "utf8"));
+        if (typeof id !== "string" || name !== sha256Of(Buffer.from(id)) + ".json") continue;
+        await this.removeSession(id);
+        await rm(marker, { force: true });
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") onError(error);
+      }
+    }
+  }
+
   async removeSession(sessionId: string): Promise<void> {
     await this.serialised(sessionId, async () => {
-      if (await this.ownsDirectory(sessionId)) {
-        await rm(this.sessionDir(sessionId), { recursive: true, force: true });
+      if (await this.ownsDirectory(sessionId, true)) {
+        await rm(this.sessionDir(sessionId), { recursive: true, force: true, maxRetries: 3 });
       }
     });
   }
@@ -261,10 +290,11 @@ export class FileCheckpointStore {
     return { version: 1, next: 1, totalBytes: 0, droppedThrough: 0, entries: [] };
   }
 
-  private async ownsDirectory(sessionId: string): Promise<boolean> {
+  private async ownsDirectory(sessionId: string, strict = false): Promise<boolean> {
     try {
       return await readFile(join(this.sessionDir(sessionId), OWNER_FILE), "utf8") === JSON.stringify(sessionId);
     } catch (err) {
+      if (strict && (err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
       // Legacy directories without underscores have no lossy substitutions.
       // Legacy folders with ambiguous names are left to the age sweep.
       if ((err as NodeJS.ErrnoException).code !== "ENOENT" ||
