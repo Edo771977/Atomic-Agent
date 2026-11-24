@@ -24,6 +24,17 @@ import {
   wrapWithOsSandbox,
 } from "./os-sandbox.js";
 
+const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined }));
+vi.mock("node:fs", async importOriginal => {
+  const fs = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...fs,
+    readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && mountFixture.contents !== undefined
+      ? mountFixture.contents
+      : Reflect.apply(fs.readFileSync, fs, args),
+  };
+});
+
 const HOME = "/home/op";
 const TMP = "/var/tmp-op";
 
@@ -416,4 +427,22 @@ it("round 4 point 1: mounts selected system paths without binding the host root"
   expect(args).not.toContain("--ro-bind / / ");
   expect(args).not.toMatch(/--ro-bind \/(?:etc|usr|usr\/local|var|opt|srv|mnt|media) \//);
   expect(args).toContain("--ro-bind /usr/bin /usr/bin");
+});
+
+
+it.skipIf(process.platform !== "linux")("round 4 point 1: masks an inherited submount inside an authorized workspace", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-inherited-"));
+  const nested = join(root, "inherited");
+  mkdirSync(nested);
+  mountFixture.contents = `101 100 0:1 /source ${nested} rw - tmpfs fixture rw\n`;
+  try {
+    const wrapped = wrapWithOsSandbox("true", [], buildOsSandboxPolicy({ workspaceRoots: [root], network: false }), {
+      platform: "linux", bwrap: "/usr/bin/bwrap", cwd: root,
+    });
+    if (!wrapped.ok) throw new Error(wrapped.reason);
+    expect(wrapped.args.join(" ")).toContain(`--tmpfs ${nested} --remount-ro ${nested}`);
+  } finally {
+    mountFixture.contents = undefined;
+    rmSync(root, { recursive: true, force: true });
+  }
 });

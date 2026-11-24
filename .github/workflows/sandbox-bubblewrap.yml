@@ -36,11 +36,15 @@ jobs:
           system_roots=(/etc/ssl/certs /usr/lib /usr/local /srv /mnt /media /opt)
           private_roots=(/var/backups /etc/ssh /etc/ssl/private)
           cleanup() {
+            if mountpoint -q "$fixtures/workspace/inherited"; then sudo umount "$fixtures/workspace/inherited"; fi
             sudo rm -rf "$fixtures" "/run/$tag" "/run/lock/$tag"
             for root in "${system_roots[@]}" "${private_roots[@]}"; do sudo rm -rf "$root/$tag"; done
           }
           trap cleanup EXIT
-          mkdir "$fixtures/bin"
+          mkdir -p "$fixtures/bin" "$fixtures/workspace/inherited" "$fixtures/host-volume"
+          printf 'synthetic nested mount fixture\n' > "$fixtures/host-volume/marker"
+          sudo mount --bind "$fixtures/host-volume" "$fixtures/workspace/inherited"
+          export ATOMIC_AGENT_TEST_NESTED_MOUNT="$fixtures/workspace"
           node_bin=$(dirname "$(command -v node)")
           cp "$node_bin/node" "$fixtures/bin/node"
           export ATOMIC_AGENT_SANDBOX_TOOLCHAINS="$node_bin:$node_bin/../lib/node_modules/npm"
@@ -65,7 +69,7 @@ jobs:
           export ATOMIC_AGENT_TEST_PRIVATE_FILES=$(IFS=:; echo "${private_files[*]}")
           args=(run --maxWorkers=2 --testTimeout=60000 src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
           if [[ "$TEST_MODE" == root ]]; then
-            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
+            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_TEST_NESTED_MOUNT=$ATOMIC_AGENT_TEST_NESTED_MOUNT" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           else
             "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           fi

@@ -144,7 +144,7 @@ function unique(paths: readonly string[]): string[] {
 }
 
 /** Recompute metadata on every shell launch, including repositories created since startup. */
-function gitMetadata(roots: readonly string[]): string[] {
+function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>): string[] {
   const readonly = new Set<string>();
   for (const root of roots.filter(isDirectory)) {
     const pending = [root];
@@ -161,6 +161,7 @@ function gitMetadata(roots: readonly string[]): string[] {
       try {
         for (const entry of readdirSync(dir, { withFileTypes: true })) {
           const path = join(dir, entry.name);
+          if (hostMounts.has(path)) continue;
           if (entry.name !== ".git") {
             if (entry.isDirectory()) {
               if (entry.name === "node_modules") readonly.add(path);
@@ -403,7 +404,7 @@ const LINUX_SYSTEM_TREES = [
   "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib32", "/usr/lib64", "/usr/libx32", "/usr/libexec",
   "/usr/share", "/nix/store",
 ];
-const LINUX_BROAD_ROOTS = ["/usr", "/usr/local", "/etc", "/var", "/srv", "/mnt", "/media", "/opt", "/nix"];
+const LINUX_BROAD_ROOTS = ["/proc", "/sys", "/dev", "/usr", "/usr/local", "/etc", "/var", "/srv", "/mnt", "/media", "/opt", "/nix"];
 const LINUX_SYSTEM_ALIASES = ["/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const LINUX_ETC_ENTRIES = [
   "/etc/ld.so.cache", "/etc/passwd", "/etc/group", "/etc/nsswitch.conf",
@@ -411,12 +412,28 @@ const LINUX_ETC_ENTRIES = [
   "/etc/ssl/certs", "/etc/pki/ca-trust/extracted",
 ];
 
+function linuxHostMounts(): Set<string> {
+  const points = readFileSync("/proc/self/mountinfo", "utf8").split("\n").flatMap(line => {
+    const encoded = line.split(" ")[4];
+    return encoded === undefined ? [] :
+      [encoded.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)))];
+  });
+  return new Set(points);
+}
+
+/** Return only top-level inherited mounts, preserving explicitly bound roots. */
+function inheritedMounts(roots: readonly string[], hostMounts: ReadonlySet<string>): Set<string> {
+  const candidates = [...hostMounts].filter(mount => !roots.includes(mount) && roots.some(root => contains(root, mount)));
+  return new Set(candidates.filter(mount => !candidates.some(parent => parent !== mount && contains(parent, mount))));
+}
+
 /** Report host sockets and directories whose contents we cannot inventory. */
-function maskingMounts(root: string, system: boolean): string[][] {
+function maskingMounts(root: string, system: boolean, inherited: ReadonlySet<string>): string[][] {
   const masks: string[][] = [];
   const pending = [root];
   while (pending.length > 0) {
     const path = pending.pop()!;
+    if (inherited.has(path)) continue;
     try {
       const info = lstatSync(path);
       if (info.isSocket()) masks.push(["--ro-bind", "/dev/null", path]);
@@ -504,6 +521,7 @@ function bwrapArgs(
   policy: OsSandboxPolicy,
   command: string,
   args: readonly string[],
+  hostMounts: ReadonlySet<string>,
   cwd?: string,
   disableUserns = false,
 ): string[] {
@@ -531,12 +549,11 @@ function bwrapArgs(
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
   const exposed = unique([...systemMounts, ...policy.toolchainRoots, ...policy.writableRoots, ...policy.readOnlyWorkspaceRoots])
     .filter(path => path !== "/tmp" && path !== "/var/tmp" && path !== "/run");
+  const inherited = inheritedMounts(exposed, hostMounts);
   for (const path of exposed.filter(path => !exposed.some(other => other !== path && contains(other, path)))) {
-    for (const mount of maskingMounts(path, systemMounts.includes(path))) out.push(...mount);
+    for (const mount of maskingMounts(path, systemMounts.includes(path), inherited)) out.push(...mount);
   }
-  for (const line of readFileSync("/proc/self/mountinfo", "utf8").split("\n")) {
-    const mount = line.split(" ")[4]?.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)));
-    if (mount === undefined || !systemMounts.some(path => mount !== path && contains(path, mount))) continue;
+  for (const mount of inherited) {
     if (isDirectory(mount)) out.push("--tmpfs", mount, "--remount-ro", mount);
     else if (existsSync(mount)) out.push("--ro-bind", "/dev/null", mount);
   }
@@ -618,9 +635,9 @@ export function wrapWithOsSandbox(
       .some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a writable workspace root overlaps a system filesystem mount" };
   }
-  const applyGitProtection = (): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
+  const applyGitProtection = (hostMounts = new Set<string>()): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
     ...policy,
-    readOnlyGitRoots: gitMetadata(policy.workspaceRoots),
+    readOnlyGitRoots: gitMetadata(policy.workspaceRoots, hostMounts),
   };
   if (platform === "darwin") {
     const available = options.seatbeltAvailable ?? existsSync(SANDBOX_EXEC);
@@ -641,7 +658,8 @@ export function wrapWithOsSandbox(
       warnedAboutRoot = true;
       process.emitWarning("Safe Mode is running with host UID 0. Run the agent as an ordinary user where possible.", { code: "ATOMIC_AGENT_SANDBOX_ROOT" });
     }
-    return { ok: true, command: bwrap, args: bwrapArgs(applyGitProtection(), command, args, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
+    const hostMounts = process.platform === "linux" ? linuxHostMounts() : new Set<string>();
+    return { ok: true, command: bwrap, args: bwrapArgs(applyGitProtection(hostMounts), command, args, hostMounts, cwd, options.disableUsernsAvailable ?? supportsDisableUserns(bwrap)) };
   }
   return {
     ok: false,

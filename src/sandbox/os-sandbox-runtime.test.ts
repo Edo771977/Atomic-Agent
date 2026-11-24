@@ -7,11 +7,12 @@ import { expect, it } from "vitest";
 
 import { buildOsSandboxEnv, buildOsSandboxPolicy, findBwrap, wrapWithOsSandbox } from "./os-sandbox.js";
 
+const nestedMount = process.env.ATOMIC_AGENT_TEST_NESTED_MOUNT;
 const bwrap = process.platform === "linux" ? findBwrap() : null;
-function fixtureCommand(source: string, args: string[], network: boolean): Promise<{ code: number | null; output: string }> {
+function fixtureCommand(source: string, args: string[], network: boolean, workspaceRoots: string[] = []): Promise<{ code: number | null; output: string }> {
   const cwd = "/";
   const launch = wrapWithOsSandbox(process.execPath, ["-e", source, ...args], buildOsSandboxPolicy({
-    workspaceRoots: [], network,
+    workspaceRoots, network,
   }), { bwrap });
   if (!launch.ok) throw new Error(launch.reason);
   return new Promise((resolve, reject) => {
@@ -107,4 +108,13 @@ it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("rou
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+
+it.skipIf(!nestedMount)("round 4 point 1: a workspace does not inherit an unlisted host submount", async () => {
+  const probe = await fixtureCommand(
+    "try{require('node:fs').readFileSync(process.argv[1]);process.exit(2)}catch{process.exit(17)}",
+    [join(nestedMount!, "inherited", "marker")], false, [nestedMount!],
+  );
+  expect(probe).toMatchObject({ code: 17 });
 });
