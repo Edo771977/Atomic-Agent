@@ -182,7 +182,7 @@ static std::wstring childEnvironment(const SandboxRequest& request) {
 
 static DWORD fileProbe(const wchar_t* path, DWORD access) {
     LpacHandle file(CreateFileW(path, access, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr));
     return file ? ERROR_SUCCESS : GetLastError();
 }
 

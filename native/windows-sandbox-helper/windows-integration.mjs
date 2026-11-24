@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { copyFileSync, cpSync, mkdirSync, mkdtempSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { once } from "node:events";
 import { createServer } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
@@ -118,6 +119,23 @@ try {
       for (const [[host, target], label] of endpoints.map((endpoint, i) => [endpoint, ["loopback", "lan", "external"][i]])) {
         record(label, () => assert.match(launch([helper, "--socket-deny", host, target]), /TCP result: 10013/));
       }
+      if (candidate[0] === "appcontainer") {
+        for (const [name, path] of [["state-directory", state], ...["USERPROFILE", "APPDATA", "LOCALAPPDATA"].map(name => [name + "-directory", process.env[name]])]) {
+          assert.match(call(helper, ["--file-check", "read-allow", path]), /FILE result: 0/);
+          record(name, () => assert.match(launch([helper, "--file-check", "read-deny", path]), /FILE result: 5/));
+        }
+        record("package-acl-audit", () => {
+          const audit = call("pwsh.exe", ["-NoProfile", "-File",
+            fileURLToPath(new URL("./audit-app-packages.ps1", import.meta.url)), state], { timeout: 240_000 });
+          for (const line of audit.trim().split(/\r?\n/)) {
+            console.log("APP_PACKAGES_AUDIT " + line);
+          }
+          const entries = audit.trim().split(/\r?\n/).map(line => JSON.parse(line));
+          assert.equal(entries.length, 2);
+          assert.ok(entries.every(item => item.readable === 0 && item.inaccessibleToAudit === 0),
+            "the profile or state has packaged-app grants or could not be fully audited");
+        });
+      }
       const passed = Object.values(results).every(value => value === "pass");
       const verdict = { candidate, passed, results };
       verdicts.push(verdict);
@@ -130,13 +148,13 @@ try {
     assert.match(run([git, "status", "--short"]), /existing\.txt/);
     assert.equal(run([node, "-e", "console.log(1)"]).trim(), "1");
     assert.equal(run([node, "-p", "process.env.ATOMIC_TEST_PARENT_SECRET"]).trim(), "undefined");
-  
+
     for (const [host, target] of endpoints) {
       assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
       call(helper, ["--socket-winrt-allow", host, target]);
       assert.match(run([helper, "--socket-deny", host, target]), /TCP result: 10013/);
     }
-  
+
   }
 
   if (!matrix) {
