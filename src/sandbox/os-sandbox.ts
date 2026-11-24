@@ -116,7 +116,7 @@ export const SECRET_HOME_PATHS: readonly string[] = [
 /** The real path when it exists (Seatbelt matches resolved paths). */
 function real(path: string): string {
   try {
-    return realpathSync(path);
+    return process.platform === "linux" ? realpathSync.native(path) : realpathSync(path);
   } catch {
     return path;
   }
@@ -179,15 +179,20 @@ function nativeGitMetadata(root: string, roots: readonly string[], hostMounts: R
 function gitMetadata(roots: readonly string[], hostMounts: ReadonlySet<string>): string[] {
   const readonly = new Set<string>();
   for (const root of roots.filter(isDirectory)) {
-    const native = process.platform === "linux" ? nativeGitMetadata(root, roots, hostMounts) : undefined;
-    if (native !== undefined && native.size + readonly.size <= 512) {
-      for (const path of native) readonly.add(path);
-      continue;
-    }
     const pending = [root];
     let visited = 0;
     while (pending.length > 0) {
-      if (++visited > 50_000 || readonly.size > 512) {
+      visited++;
+      // Avoid a separate process for small trees. Large trees use the live
+      // native inventory with the same masks and without a directory cap.
+      if (visited === 128 && process.platform === "linux") {
+        const native = nativeGitMetadata(root, roots, hostMounts);
+        if (native !== undefined && native.size + readonly.size <= 512) {
+          for (const path of native) readonly.add(path);
+          break;
+        }
+      }
+      if (visited > 50_000 || readonly.size > 512) {
         // Keep commands usable with a conservative read-only workspace instead
         // of passing an unbounded number of mounts or leaving Git data writable.
         for (const path of readonly) if (contains(root, path)) readonly.delete(path);
@@ -675,8 +680,9 @@ function bwrapArgs(
   }
   const pinned = new Set<string>();
   for (const path of [...policy.toolchainRoots, ...policy.readOnlyWorkspaceRoots, ...policy.readOnlyGitRoots, ...policy.denyRead]) {
-    if (!existsSync(path)) continue;
-    for (let parent = dirname(path); policy.writableRoots.some(root => root !== parent && contains(root, parent)); parent = dirname(parent)) {
+    const firstParent = dirname(path);
+    if (!policy.writableRoots.some(root => root !== firstParent && contains(root, firstParent)) || !existsSync(path)) continue;
+    for (let parent = firstParent; policy.writableRoots.some(root => root !== parent && contains(root, parent)); parent = dirname(parent)) {
       pinned.add(parent);
     }
   }
