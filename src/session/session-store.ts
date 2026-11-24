@@ -1256,8 +1256,7 @@ export class SessionStore {
 
   /** Runtime task guard, including chats whose owner died since boot. */
   isOrphanIncognito(id: string): boolean {
-    return !this.openIncognito.has(id) &&
-      storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity);
+    return storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity, this.openIncognito.has(id));
   }
 
   /**

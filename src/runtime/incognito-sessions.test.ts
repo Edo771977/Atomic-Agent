@@ -160,6 +160,40 @@ describe("incognito sessions in the runtime", () => {
     liveRunner.close();
   });
 
+  it("blocks later claims by a live runner that saved someone else's orphan chat", async () => {
+    alive.add(10).add(20);
+    save(open(10), "s-dead", true);
+    const runnerSessions = open(20);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({
+      dbFile, ownerProbe: probe(20, alive),
+      skipSession: id => runnerSessions.isOrphanIncognito(id),
+    });
+    try {
+      const create = (scheduled = false) => tasks.create({
+        sessionId: "s-dead", userMessage: "private", origin: "cli", maxAttempts: 1,
+        ...(scheduled ? { schedule: { kind: "interval" as const, everyMs: 60_000 } } : {}),
+      });
+      const held = create(true);
+      const pending = create();
+      expect(tasks.markRunning(held.id)?.status).toBe("running");
+      runnerSessions.save(runnerSessions.load("s-dead")!);
+      alive.delete(10);
+      expect(await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, dbFile, {
+        ownerProbe: probe(30, alive),
+      })).toEqual({ deleted: [], retained: ["s-dead"] });
+      expect(tasks.listDue(Date.now() + 120_000)).toEqual([]);
+      expect(tasks.markRunning(pending.id)).toBeNull();
+      expect(tasks.get(held.id)?.status).toBe("running");
+      const now = Date.now();
+      expect(tasks.markInterrupted(held.id, { nextScheduledFor: now + 60_000 }, now)?.status).toBe("pending");
+      expect(tasks.listDue(now + 120_000)).toEqual([]);
+      expect(tasks.markRunning(held.id, now + 120_000)).toBeNull();
+    } finally {
+      tasks.close();
+    }
+  });
+
   it("erases run history for purged private tasks and keeps ordinary history", async () => {
     alive.add(10);
     save(open(10), "s-dead", true);
