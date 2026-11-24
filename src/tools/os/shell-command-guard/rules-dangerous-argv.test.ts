@@ -23,6 +23,15 @@ function expectNotDangerous(line: string): void {
   expect(verdict.action).not.toBe("block");
 }
 
+it.each(["install", "update", "restore", "uninstall", "enable", "disable", "tap", "curate"])(
+  "marks global skill %s as dangerous",
+  (verb) => expect(guardLine(`atomic-agent skill ${verb} demo`).rule).toBe("dangerous.skill_global_mutation"),
+);
+
+it("marks third-party global skill installs as dangerous", () => {
+  expect(guardLine("npx skills add example/skills -g").rule).toBe("dangerous.skill_global_mutation");
+});
+
 describe("dangerous git rules: table", () => {
   it.each([
     "git -C repo push --force",

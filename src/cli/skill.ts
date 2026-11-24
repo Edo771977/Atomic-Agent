@@ -1,3 +1,4 @@
+import { GLOBAL_SKILL_MUTATIONS, projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { learnedSkillScope } from "../skills/learning/learn-scope.js";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -106,6 +107,13 @@ export async function skillCommand(args: string[]): Promise<number> {
       if (!workspace || workspace.startsWith("--")) throw new Error("--workspace requires a directory");
       const rest = args.filter((_, i) => i !== workspaceIndex && i !== workspaceIndex + 1);
       return handleWorkspaceSkill(rest, workspace);
+    }
+    if (GLOBAL_SKILL_MUTATIONS.has(sub)) {
+      const refusal = projectDecisionOriginRefusal();
+      if (refusal) {
+        process.stderr.write("Global skill changes must be made outside an agent tool process.\n");
+        return 1;
+      }
     }
     switch (sub) {
       case "install":

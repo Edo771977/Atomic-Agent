@@ -1,3 +1,4 @@
+import { GLOBAL_SKILL_MUTATIONS } from "../../../sandbox/project-decision-origin.js";
 import type { GuardVerdict, NormalisedCommand } from "./guard-types.js";
 import {
   invocationsOf,
@@ -68,6 +69,7 @@ export function matchDangerousArgv(
     matchRm(segments) ??
     matchNestedShell(segments) ??
     matchPluginConsent(segments) ??
+    matchGlobalSkillMutation(segments) ??
     matchSkillDraftConsent(segments);
   if (hit === null) return null;
   return { action: "approval_required", rule: hit.id, reason: hit.reason };
@@ -776,4 +778,17 @@ function matchSkillDraftConsent(
     }
   }
   return null;
+}
+
+function matchGlobalSkillMutation(segments: readonly (readonly string[])[]): ArgvCheck | null {
+  const changesSkills = segments.some((words) => words.some((word, index) => {
+    const program = programName(word);
+    const verb = words[index + 1]?.toLowerCase() ?? "";
+    if (word.toLowerCase() === "skill" && GLOBAL_SKILL_MUTATIONS.has(verb)) return true;
+    return (program === "skills" || /^skills@[^/]+$/.test(program)) && verb === "add" &&
+      words.slice(index + 2).some((option) => option === "-g" || option === "--global");
+  }));
+  return changesSkills
+    ? { id: "dangerous.skill_global_mutation", reason: "change globally installed skills" }
+    : null;
 }

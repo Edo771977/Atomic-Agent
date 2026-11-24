@@ -1,5 +1,6 @@
+import { spawnSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -86,6 +87,33 @@ describe("skillCommand", () => {
     resetConfigCache();
     vi.restoreAllMocks();
   });
+
+  it("real CLI refuses a tool child's global install and allows the operator install", () => {
+    const sources = join(stateDir, "sources");
+    writeSkill(sources, "local-demo");
+    const env = { ...process.env, HOME: stateDir, ATOMIC_AGENT_SHARED_SKILLS_DIR: join(stateDir, "shared") };
+    const argv = ["--import", "tsx", "src/cli/index.ts", "skill", "install", join(sources, "local-demo"), "--yes"];
+    const child = spawnSync(process.execPath, argv, { env: { ...env, ATOMIC_AGENT_TOOL_CHILD: "1" }, encoding: "utf8" });
+    expect(child.status, child.stderr).toBe(1);
+    expect(child.stderr).toMatch(/agent tool process/i);
+    expect(existsSync(join(globalSkillsDir, "local-demo"))).toBe(false);
+    const operator = spawnSync(process.execPath, argv, { env, encoding: "utf8" });
+    expect(operator.status, operator.stderr).toBe(0);
+    expect(existsSync(join(globalSkillsDir, "local-demo", "SKILL.md"))).toBe(true);
+  }, 30_000);
+
+  it.each(["install", "update", "restore", "uninstall", "enable", "disable", "tap", "curate"])(
+    "rejects global skill %s in an agent tool process before handling its arguments",
+    async (verb) => {
+      vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+      try {
+        expect(await skillCommand([verb])).toBe(1);
+        expect(stderr).toMatch(/agent tool process/i);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    },
+  );
 
   it("update skips skills that were not installed from a hub", async () => {
     writeSkill(globalSkillsDir, "alpha");
