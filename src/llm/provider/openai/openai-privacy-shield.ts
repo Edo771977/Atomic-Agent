@@ -2,7 +2,7 @@ import { parseToolCalls } from "../../grammar/tool-call-grammar.js";
 import type { CompletionResult, OpenAiToolCall, StreamChunk } from "../completion-types.js";
 import {
   createStreamUnmasker,
-  isPrivacyShieldEnabled,
+  isPrivacyShieldEnabledForRequest,
   privacyVaultFor,
   rebuildPrivacyVault,
   PrivacyArchiveLimitError,
@@ -32,7 +32,7 @@ export function shieldVaultFor(
   local: boolean,
   mode: "on" | "off" | "auto" | undefined,
 ): PrivacyVault | null {
-  if (mode === "off" || (mode !== "on" && (local || !isPrivacyShieldEnabled()))) return null;
+  if (mode === "off" || (mode !== "on" && (local || !isPrivacyShieldEnabledForRequest(sessionId)))) return null;
   return privacyVaultFor(sessionId);
 }
 

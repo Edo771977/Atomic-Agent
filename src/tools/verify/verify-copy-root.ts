@@ -57,7 +57,7 @@ export function verifyCopyRoot(
   const refuse = (): VerifyCopyRoot => ({ ok: false, message: tooBroadWorkdirMessage(workingDir, "verify.run did not run: a verification copy") });
   let cwd: string;
   try {
-    cwd = resolveVerifyCwd(workingDir, args.cwd);
+    cwd = resolveVerifyCwd(workingDir, args.cwd, true);
   } catch (error) {
     return { ok: false, message: error instanceof Error ? error.message : String(error) };
   }

@@ -1,6 +1,6 @@
 import { sameSideCallProvider } from "./turn-sidecall-provider.js";
 import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
-import { forgetPrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
+import { forgetPrivacyVault, linkPrivacyVault, pinPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -820,8 +820,6 @@ export function createRuntimeTurnService(
           // The prompt_captured hook still records the worker's window
           // occupancy under its id; nothing persists it, so drop it.
           traces.clearContextUsage(session.id);
-          // A worker's turn is its whole life: nothing waits on its jobs.
-          forgetPrivacyVault(session.id);
           shellJobs.endSession(session.id);
           SHARED_URL_SEND_SITES.clearSession(session.id);
           // A throwaway worker must not keep its server slot pinned.
@@ -1194,13 +1192,17 @@ export function createRuntimeTurnService(
     });
   };
   const executeTurn: typeof executeTurnInPolicy = async (session, userMessage, runOptions) => {
+    const worker = readFusionWorkerMeta(session.metadata);
+    if (worker) linkPrivacyVault(session.id, worker.parentSessionId);
     const release = pinPrivacyVault(session.id);
     try {
-      return await inSessionPolicy(session, () => {
-        const run = () => executeTurnInPolicy(session, userMessage, runOptions);
-        return deps.experienceReview?.withTurn(session, run) ?? run();
-      });
+      return await withPrivacyShieldTurn(session.id, () =>
+        inSessionPolicy(session, () => {
+          const run = () => executeTurnInPolicy(session, userMessage, runOptions);
+          return deps.experienceReview?.withTurn(session, run) ?? run();
+        }));
     } finally {
+      if (worker) forgetPrivacyVault(session.id);
       release();
     }
   };

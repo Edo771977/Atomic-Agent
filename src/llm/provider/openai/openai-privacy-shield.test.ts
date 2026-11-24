@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { CompletionResult, StreamChunk } from "../completion-types.js";
 import {
   privacyVaultFor,
+  linkPrivacyVault,
+  withPrivacyShieldTurn,
   resetPrivacyVaults,
   setPrivacyKnownSecrets,
   setPrivacyShieldEnabled,
@@ -170,6 +172,31 @@ describe("OpenAiProvider with Privacy Shield (ATO-1081)", () => {
     expect(result.content).toBe(`Done, wrote to ${EMAIL}.`);
     expect(JSON.parse(result.toolCalls![0]!.function.arguments)).toEqual({ to: EMAIL });
     expect(privacyVaultFor("s1").stats().distinct).toBe(1);
+  });
+
+  it("keeps planner and cloud worker placeholders after disabling the next turn", async () => {
+    setPrivacyShieldEnabled(true);
+    const fetchImpl = vi.fn(async () =>
+      json({ model: "m", choices: [{ message: { content: "ok" }, finish_reason: "stop" }] }),
+    );
+    const cloud = provider(fetchImpl);
+    const local = provider(fetchImpl, "http://127.0.0.1:8080");
+    await withPrivacyShieldTurn("planner", async () => {
+      await cloud.complete({ prompt: "first@example.test " + EMAIL, sessionId: "planner" });
+      setPrivacyShieldEnabled(false);
+      linkPrivacyVault("worker", "planner");
+      await withPrivacyShieldTurn("worker", async () => {
+        const request = { prompt: EMAIL, sessionId: "worker" };
+        await cloud.complete(request);
+        await local.complete(request);
+      });
+    });
+    await withPrivacyShieldTurn("planner", () => cloud.complete({ prompt: EMAIL, sessionId: "planner" }));
+    expect(sentBody(fetchImpl, 0)).toContain("[EMAIL_1] [EMAIL_2]");
+    expect(sentBody(fetchImpl, 1)).toContain("[EMAIL_2]");
+    expect(sentBody(fetchImpl, 1)).not.toContain(EMAIL);
+    expect(sentBody(fetchImpl, 2)).toContain(EMAIL);
+    expect(sentBody(fetchImpl, 3)).toContain(EMAIL);
   });
 
   it("restores placeholders cut across stream chunks, in text and tool arguments", async () => {

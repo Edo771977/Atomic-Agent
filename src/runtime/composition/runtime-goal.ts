@@ -93,12 +93,13 @@ export function createRuntimeGoalRunner(deps: RuntimeGoalDeps) {
       // (`cmd.exe /c`), the same rule `verify.run` and `os.shell.run` use.
       const proc = spawnVerifyProcess(command, [], {
         cwd: context.workingDir,
+        workspaceRoot: context.workingDir,
         network: true,
         timeoutMs: GOAL_CHECK_TIMEOUT_MS,
         signal: context.signal,
       });
       const exit = await proc.exited;
-      const output = [proc.stdout.tail(), proc.stderr.tail(), exit.spawnError ?? ""]
+      const output = [proc.sandboxNotice ?? "", proc.stdout.tail(), proc.stderr.tail(), exit.spawnError ?? ""]
         .filter((part) => part.trim().length > 0)
         .join("\n");
       results.push({

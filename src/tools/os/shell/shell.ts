@@ -9,6 +9,14 @@ import {
 } from "../../../sandbox/command-job.js";
 import { buildCommandEnv, markAgentToolChild } from "../../../sandbox/command-env.js";
 import { withToolchainEnv } from "../../../sandbox/command-toolchain-env.js";
+import {
+  buildOsSandboxPolicy,
+  formatSandboxUnavailable,
+  readOsSandboxSettings,
+  wrapWithOsSandbox,
+  buildOsSandboxEnv,
+  type OsSandboxSettings,
+} from "../../../sandbox/os-sandbox.js";
 import { quoteCmdArg } from "../../../sandbox/shell-invocation.js";
 import {
   requireApproval,
@@ -17,7 +25,7 @@ import {
   type DangerousToolOptions,
 } from "../../../approval/dangerous-tool.js";
 import type { PinnedExec } from "../../../approval/approval-gate.js";
-import { offlineRefusal } from "../../../llm/offline-network.js";
+import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.js";
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
@@ -133,6 +141,19 @@ export interface OsShellToolOptions extends DangerousToolOptions {
    * none, so embedders and tests get the filtered environment too.
    */
   envPassthrough?: readonly string[];
+  /**
+   * Safe Mode's OS sandbox switch (ATO-469), read per call so a switch
+   * flipped mid-session applies to the next command. Omitted ⇒ read
+   * from `ATOMIC_AGENT_SANDBOX` / `ATOMIC_AGENT_SANDBOX_NETWORK`.
+   */
+  sandbox?: () => OsSandboxSettings;
+  /**
+   * `config.paths.stateDir`: hidden from a sandboxed command (its
+   * `.env`, config and tokens). Omitted ⇒ only the home credential
+   * folders are hidden.
+   */
+  stateDir?: string;
+  protectedPaths?: readonly string[];
   /** Test seam: the prompt watch's poll and quiet intervals. */
   promptWatch?: { pollMs?: number; quietMs?: number };
   /** Test seam: how long a `background: true` command is watched. */
@@ -426,6 +447,56 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       gog: isGogCommand(gogProbe),
       guard: guardVerdict,
     };
+    // Safe Mode (ATO-469/472): the same spawn, wrapped so the kernel
+    // keeps writes in the work folders, hides credential folders and the
+    // agent's state, and (unless allowed) blocks the network. Without a
+    // sandbox on this machine the command is refused, never run bare.
+    const sandbox = (options.sandbox ?? (() => readOsSandboxSettings()))();
+    let spawnCommand = spawnSpec.command;
+    let spawnArgs = spawnSpec.args;
+    let sandboxNotice: string | null = null;
+    if (sandbox.mode === "workspace") {
+      const network = rawArgs.network === true;
+      if (network && (!sandbox.network || isOfflineNetwork())) {
+        throw new Error("Safe Mode networking is disabled by the operator or offline mode.");
+      }
+      if (network) {
+        if (!options.approvalRequired) throw new Error("Safe Mode requires one-time approval to enable command networking.");
+        await requireApproval(options, {
+          sessionId: ctx.sessionId,
+          tool: "os.shell.run",
+          category: "http_write",
+          reason: "Allow this process and its descendants to use external networks and the host loopback, including local services such as browser debugging ports. On Linux this also exposes host abstract Unix sockets.",
+          preview: formatShellPreview(cmd, execArgs, useShell),
+          affectedResources: [cwd],
+        }, ctx.signal, true);
+      }
+      const wrapped = wrapWithOsSandbox(
+        spawnSpec.command,
+        spawnSpec.args,
+        // Roots from the session's working directory only: `cwd` is a
+        // model-supplied argument and must stay inside the workspace.
+        buildOsSandboxPolicy({
+          workspaceRoots: [ctx.workingDir],
+          ...(options.stateDir === undefined ? {} : { stateDir: options.stateDir }),
+          protectedPaths: options.protectedPaths,
+          network,
+        }),
+        { cwd: pinned?.cwd ?? cwd },
+      );
+      if (!wrapped.ok) {
+        return compressToolResult({
+          tool: "os.shell.run",
+          status: "error",
+          output: formatSandboxUnavailable(wrapped.reason),
+        });
+      }
+      spawnCommand = wrapped.command;
+      spawnArgs = wrapped.args;
+      sandboxNotice = network
+        ? "Safe Mode sandbox requested with network access approved for this command."
+        : "Safe Mode sandbox requested with external IP access blocked.";
+    }
     // Its own process group, so a stop reaches what the command
     // started too (`sleep 30 &` behind a subshell used to outlive the
     // shell and hold the result until it ended).
@@ -436,10 +507,11 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     const baseEnv = withToolchainEnv(
       buildCommandEnv(process.env, options.envPassthrough ?? []),
     );
-    const job = startCommandJob(spawnSpec.command, spawnSpec.args, {
+    const commandEnv = pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path);
+    const job = startCommandJob(spawnCommand, spawnArgs, {
       cwd: pinned?.cwd ?? cwd,
       // A pinned run gets only the pin's filtered PATH (issue #95).
-      env: markAgentToolChild(pinned === undefined ? baseEnv : withOnlyPath(baseEnv, pinned.path)),
+      env: markAgentToolChild(sandbox.mode === "workspace" ? buildOsSandboxEnv(commandEnv) : commandEnv),
       ...(facts.gog ? { maxOutputBytes: GOG_MAX_OUTPUT_BYTES } : {}),
       ...(spawnSpec.windowsVerbatimArguments
         ? { windowsVerbatimArguments: true }
@@ -454,6 +526,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       expandGlobs: useShell && process.platform !== "win32",
     });
     const notices = checkNotice === null ? [] : [checkNotice];
+    if (sandboxNotice !== null) notices.push(sandboxNotice);
 
     // `background: true` (a dev server, a watcher): watched briefly for
     // an early failure, then handed back as a kept job. It went through
@@ -560,7 +633,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     name: "os.shell.run",
     description:
       "Run an OS command in the session working directory. Prefer the structured form `{cmd, args:[...]}` (argv globs `*`/`?` are expanded). Shell metacharacters (`|`, `&&`, `;`, `>`, `<`, `$`, backticks) are interpreted via the OS subshell (`sh -c` on macOS/Linux, `cmd.exe /c` on Windows) — a full command line passed as `cmd` (e.g. `\"ffprobe -v quiet … f.mp3\"` or `\"pip3 list | grep foo\"`) runs as written. Do not use for deleting user files — use `os.fs.trash` unless the user explicitly requests permanent shell deletion. Not for controlling web browsers (`osascript` scripts that read or set tabs and URLs, `open -a <browser> <url>`): those are refused; use the browser tools. Runs through a pre-exec guard: safe commands run directly, risky commands require approval, catastrophic commands are blocked without execution. Run the steps of a task yourself (installs such as `brew install`, `npm i -g`, `pip install`, `git clone`, builds, `make`, `docker run`) instead of printing them for the user to type: the approval prompt is how the user keeps control. The command has no terminal and no stdin; a command that stops at a sign-in, a password, sudo or a terminal question comes back with \"this step needs the user: …\" — hand over only that step. Pass `background: true` for a command that keeps running (a dev server, a watcher): it is started, watched for 3 s, and returned as a kept job. " +
-      describeShellTimeoutDefault(defaultTimeoutMs),
+      (readOsSandboxSettings().mode === "workspace" ? "Pass network: true to request one-time network access. " : "") + describeShellTimeoutDefault(defaultTimeoutMs),
     readonly: false,
     async run(rawArgs, ctx) {
       // The job forms act on what this session already started; they

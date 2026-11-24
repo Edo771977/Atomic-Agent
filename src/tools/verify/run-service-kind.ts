@@ -4,9 +4,14 @@
  * group. A page run with `start` uses the same lifecycle and does its
  * browser work in `whileReady`, before the group is killed.
  */
+import { mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
+import { dirname, join } from "node:path";
 
-import { spawnVerifyProcess, type VerifyProcess } from "./spawn-verify-process.js";
+import { readOsSandboxSettings } from "../../sandbox/os-sandbox.js";
+import { linuxServiceInvocation, probeLinuxService } from "./linux-service-probe.js";
+
+import { resolveInvocation, spawnVerifyProcess, type VerifyProcess } from "./spawn-verify-process.js";
 import type { VerifyRequestSpec, VerifyRunArgs } from "./verify-run-args.js";
 
 export interface RequestOutcome {
@@ -74,6 +79,7 @@ async function waitForReady(
   proc: VerifyProcess,
   ready: NonNullable<VerifyRunArgs["ready"]>,
   fetchImpl: FetchLike,
+  openPort: (port: number) => Promise<boolean>,
 ): Promise<{ ready: boolean; readyMs: number | null; error?: string }> {
   const started = Date.now();
   let exited = false;
@@ -87,7 +93,7 @@ async function waitForReady(
     const open =
       ready.url !== undefined
         ? await urlAnswers(ready.url, fetchImpl)
-        : ready.port !== undefined && (await portOpen(ready.port));
+        : ready.port !== undefined && (await openPort(ready.port));
     if (open) return { ready: true, readyMs: Date.now() - started };
     await sleep(READY_POLL_MS);
   }
@@ -145,31 +151,71 @@ async function sendRequest(
   }
 }
 
-export async function runServiceKind(
+interface ServiceContext {
+  cwd: string;
+  workspaceRoot: string;
+  signal?: AbortSignal;
+  fetchImpl?: FetchLike;
+  /** Runs once the server is ready, after the requests; the server stays up until it settles. */
+  whileReady?: () => Promise<void>;
+}
+
+export async function runServiceKind(args: VerifyRunArgs, ctx: ServiceContext): Promise<ServiceRunOutcome> {
+  const privateNetwork = process.platform === "linux" && readOsSandboxSettings().mode === "workspace";
+  if (!privateNetwork) return await runServiceProcess(args, ctx);
+  if (ctx.whileReady !== undefined) {
+    throw new Error("Safe Mode: a host browser cannot reach a service in the private Linux network namespace.");
+  }
+  // Linux Unix sockets have a short path limit, independent of TMPDIR.
+  const relay = await mkdtemp("/tmp/atomic-verify-probe-");
+  try {
+    return await runServiceProcess(args, ctx, join(relay, "probe.sock"));
+  } finally {
+    await rm(relay, { recursive: true, force: true });
+  }
+}
+
+async function runServiceProcess(
   args: VerifyRunArgs,
-  ctx: {
-    cwd: string;
-    signal?: AbortSignal;
-    fetchImpl?: FetchLike;
-    /** Runs once the server is ready, after the requests; the server stays up until it settles. */
-    whileReady?: () => Promise<void>;
-  },
+  ctx: ServiceContext,
+  socketPath?: string,
 ): Promise<ServiceRunOutcome> {
   const started = Date.now();
-  const fetchImpl: FetchLike = ctx.fetchImpl ?? ((url, init) => fetch(url, init));
+  let fetchImpl: FetchLike = ctx.fetchImpl ?? ((url, init) => fetch(url, init));
+  let openPort = portOpen;
   const start = args.start ?? { cmd: "", args: [] };
   const ready = args.ready ?? { timeoutMs: 0 };
   const proc = spawnVerifyProcess(start.cmd, start.args ?? [], {
     cwd: ctx.cwd,
+    workspaceRoot: ctx.workspaceRoot,
     env: args.env,
     network: args.network,
     timeoutMs: args.timeoutMs,
     signal: ctx.signal,
+    ...(socketPath === undefined ? {} : {
+      relayDir: dirname(socketPath),
+      invocation: linuxServiceInvocation(resolveInvocation(start.cmd, start.args ?? []), socketPath),
+    }),
   });
   const requests: RequestOutcome[] = [];
   let readiness: Awaited<ReturnType<typeof waitForReady>>;
   try {
-    readiness = await waitForReady(proc, ready, fetchImpl);
+    if (socketPath !== undefined) {
+      const inNamespace = (signal: AbortSignal) => ctx.signal === undefined ? signal : AbortSignal.any([ctx.signal, signal]);
+      fetchImpl = async (url, { signal, ...request }) => {
+        const result = await probeLinuxService(socketPath, { url, ...request }, inNamespace(signal));
+        return { status: result.status, text: async () => result.body };
+      };
+      openPort = async port => {
+        try {
+          await probeLinuxService(socketPath, { port }, inNamespace(AbortSignal.timeout(1000)));
+          return true;
+        } catch {
+          return false;
+        }
+      };
+    }
+    readiness = await waitForReady(proc, ready, fetchImpl, openPort);
     if (readiness.ready) {
       const baseUrl = baseUrlFor(ready);
       for (const spec of args.requests ?? []) {

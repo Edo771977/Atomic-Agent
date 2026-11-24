@@ -53,6 +53,7 @@ describe("runtime session phases", () => {
         id, workingDir: dir, ...(incognito ? { incognito: store.newIncognitoMark() } : {}),
       });
       try {
+        expect(privacyVaultFor(id)).not.toBe(privacyVaultFor("another-chat"));
         expect(privacyVaultFor(id).mask("archive-only@example.test")).toBe("[EMAIL_1]");
         store.save(recordTurn(session, userTurn("Transcript text")));
         const transcript = JSON.stringify(store.load(id));

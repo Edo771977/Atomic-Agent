@@ -108,6 +108,17 @@ function isJsonContentType(value: string | null): boolean {
   return type === "application/json" || /^application\/[a-z0-9.+-]+\+json$/.test(type);
 }
 
+/** Authenticated operator choices still require JSON and a trusted browser origin. */
+export function checkOperatorJsonRequest(req: IncomingMessage): LoopbackGuardRejection | null {
+  if (!originAllowed(getHeader(req, "origin"), process.env, osHostname())) {
+    return { status: 403, code: "origin_not_allowed", message: "Origin is not allowed" };
+  }
+  if (!isJsonContentType(getHeader(req, "content-type"))) {
+    return { status: 415, code: "unsupported_media_type", message: "Request bodies must use JSON" };
+  }
+  return null;
+}
+
 /** Why the request is refused, or `null` when it may go on to routing. */
 export function checkLoopbackRequest(
   req: IncomingMessage,
