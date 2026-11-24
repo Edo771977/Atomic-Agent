@@ -1,3 +1,4 @@
+import { forgetPrivacyVault, privacyVaultFor } from "../../privacy/index.js";
 import { projectCommand } from "../../cli/projects-command.js";
 import { projectFilePath } from "../../session/project-store.js";
 import type { ProjectState } from "../../session/session-project.js";
@@ -126,6 +127,40 @@ it("skips phase-one receipts when an embedded chat shares an archived project's 
   }, f.ctx);
   expect(result.status).toBe("ok");
   expect(writer).not.toHaveBeenCalled();
+});
+
+it("signs a redacted artifact manifest after a worker uses a restored name", async () => {
+  const stateDir = await mkdtemp(join(tmpdir(), "fusion-private-receipt-"));
+  roots.push(stateDir);
+  const credentials = new Map<string, string>();
+  const warn = vi.fn();
+  const writer = vi.fn(createProjectReceiptWriter(stateDir, {
+    read: name => ({ ok: true, value: credentials.get(name) ?? null }),
+    write: (name, value) => { credentials.set(name, value); return true; },
+  }, warn));
+  const f = await fixture({ writeProjectReceipt: writer }, false);
+  const filename = "owner@example.test.json";
+  const vault = privacyVaultFor(f.ctx.sessionId);
+  vault.mask(filename);
+  try {
+    f.deps.runTurn = async session => {
+      await writeFile(join(session.workingDir, filename), "{}");
+      return { session, reason: "reply", stepCount: 1 };
+    };
+    const result = await buildFusionDelegateTool(f.deps).run({
+      tasks: [{ ...tasks[0], files: [filename] }],
+    }, f.ctx);
+    expect(result.status).toBe("ok");
+    const manifest = writer.mock.calls.find(([, kind]) => kind === "artifact-manifest");
+    expect(manifest).toBeDefined();
+    expect(JSON.stringify(manifest)).not.toContain(filename);
+    expect(JSON.stringify(manifest)).toContain("[redacted]");
+    expect(verifyProjectReceipts(stateDir, f.root)).toContain("valid");
+    expect(warn).not.toHaveBeenCalled();
+    expect(await readFile(join(f.root, filename), "utf8")).toBe("{}");
+  } finally {
+    forgetPrivacyVault(f.ctx.sessionId);
+  }
 });
 
 it.each([true, false])("archives direct task manifests outside incognito (incognito=%s)", async incognito => {

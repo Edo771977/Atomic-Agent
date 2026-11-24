@@ -2,11 +2,13 @@ import type { AnalyticsDisabledVia } from "../../analytics/index.js";
 import { getConfig } from "../../config/index.js";
 import type { AgentRuntime } from "../../runtime/bootstrap.js";
 import type { TuiEventBus } from "../tui-app.js";
+import { AGENT_TOOL_CHILD_ENV } from "../../sandbox/command-env.js";
 import { persistAnalyticsEnabled } from "../persist-analytics-enabled.js";
 import {
   readOfflineModeControl,
   snapshotOfflineMode,
 } from "./offline-mode.js";
+import { readPrivacyShieldControl, snapshotPrivacyShield } from "./privacy-shield.js";
 
 /**
  * Only TUI module that persists `analytics.enabled` and hot-applies it
@@ -18,6 +20,7 @@ export class PrivacyOrchestrator {
   constructor(
     private readonly runtime: AgentRuntime,
     private readonly bus: TuiEventBus & { emit(action: unknown): void },
+    private readonly currentSessionId: () => string | undefined = () => undefined,
   ) {}
 
   /**
@@ -32,6 +35,7 @@ export class PrivacyOrchestrator {
       analyticsEnabled: getConfig().analytics.enabled,
       sessionGrants: this.runtime.approvals.sessionGrants(),
       offline: snapshotOfflineMode(readOfflineModeControl(this.runtime)),
+      shield: snapshotPrivacyShield(readPrivacyShieldControl(this.runtime), this.currentSessionId()),
     });
     this.bus.emit({
       type: "approval_level_changed",
@@ -69,6 +73,44 @@ export class PrivacyOrchestrator {
       });
     }
     // Re-read either way: the panel shows what the agent says now.
+    this.refresh();
+  }
+
+  /**
+   * Flip Privacy Shield (ATO-1082) through the agent's own control, which
+   * persists `privacy.shield.enabled` and applies it to the next
+   * turn. A runtime without it gets a plain line and no state change.
+   */
+  async toggleShield(): Promise<void> {
+    if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+      this.bus.emit({
+        type: "privacy_action_settled",
+        error: "privacy shield can only be changed by the operator",
+      });
+      return;
+    }
+    const control = readPrivacyShieldControl(this.runtime);
+    if (!control) {
+      this.bus.emit({
+        type: "privacy_action_settled",
+        error: "privacy shield is not available in this agent build",
+      });
+      return;
+    }
+    this.bus.emit({ type: "privacy_action_started" });
+    try {
+      const next = !control.isEnabled();
+      await control.setEnabled(next);
+      this.bus.emit({
+        type: "privacy_action_settled",
+        message: next ? "privacy shield on" : "privacy shield off",
+      });
+    } catch {
+      this.bus.emit({
+        type: "privacy_action_settled",
+        error: "could not switch privacy shield",
+      });
+    }
     this.refresh();
   }
 

@@ -1,3 +1,4 @@
+import { readOsSandboxSettings } from "../sandbox/os-sandbox.js";
 import { PROJECT_LIMITS } from "../session/project-limits.js";
 import { MILESTONE_KINDS } from "../session/session-project.js";
 import { OS_FS_READ_CONTRACT } from "../tools/os/fs/fs-read-contract.js";
@@ -218,6 +219,7 @@ const DEFAULT_TOOL_ARGS_SCHEMAS: ReadonlyMap<string, Schema> = new Map<
       timeoutMs: numberSchema,
       keep: booleanSchema,
       background: booleanSchema,
+      ...(readOsSandboxSettings().mode === "workspace" ? { network: booleanSchema } : {}),
       wait: integerSchema,
       kill: integerSchema,
       jobs: booleanSchema,

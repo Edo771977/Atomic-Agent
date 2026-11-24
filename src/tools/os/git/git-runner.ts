@@ -1,6 +1,6 @@
+import { sandboxGitArgs, sandboxGitEnv, runSandboxGit } from "../../../sandbox/sandbox-git.js";
 import { stat } from "node:fs/promises";
 import {
-  runCommand,
   type CommandResult,
 } from "../../../sandbox/command-runner.js";
 import { buildCommandEnv } from "../../../sandbox/command-env.js";
@@ -74,9 +74,9 @@ export async function runGit(options: GitRunOptions): Promise<GitRunResult> {
   };
   let result: CommandResult;
   try {
-    result = await runCommand("git", ["--no-pager", ...options.args], {
+    result = await runSandboxGit(["--no-pager", ...sandboxGitArgs(), ...options.args], {
       cwd: repoRoot,
-      env,
+      env: sandboxGitEnv(env),
       timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
       maxOutputBytes: options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES,
       signal: options.signal,

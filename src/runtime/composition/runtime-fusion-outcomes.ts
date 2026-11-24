@@ -1,3 +1,4 @@
+import { redactPrivacyEvidence } from "../../privacy/index.js";
 import type { AgentLoopEvent } from "../../agent/agent-contract.js";
 import type { TurnUsageRecord } from "../../analytics/index.js";
 import type { ResolvedRunMode } from "../../llm/run-mode/index.js";
@@ -49,7 +50,7 @@ export function createRuntimeFusionOutcomes(deps: {
   const finish = (sessionId: string, emit: (event: AgentLoopEvent) => void): void => {
     const receipt = ledger.finish(sessionId);
     if (receipt === undefined) return;
-    outcomeLog.append([receipt.record]);
+    outcomeLog.append([redactPrivacyEvidence(sessionId, receipt.record)]);
     emit({
       type: "fusion_worker",
       taskId: FUSION_TURN_RECEIPT_TASK_ID,

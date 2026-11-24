@@ -96,6 +96,7 @@ export const criticalFiles = [
   'src/tools/fusion/branch-private-git.test.ts',
   'src/tools/fusion/contract-check-authorization.test.ts',
   'src/tools/verify/verify-authorization.test.ts',
+  'src/tools/verify/verify-cwd-sandbox.test.ts',
   'src/tools/verify/verify-page-local.test.ts',
   // Issue #53 (copy root below a broad folder) and the page-probe turn grant.
   'src/tools/verify/verify-copy-root.test.ts',

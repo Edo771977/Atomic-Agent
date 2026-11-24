@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -76,4 +76,24 @@ describe("buildMcpServeApprovals (ATO-549)", () => {
     },
     5000,
   );
+});
+
+it("review 10: MCP shell receives the configured protected state paths", async () => {
+  const root = mkdtempSync(join(tmpdir(), "mcp-shell-protection-"));
+  try {
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+    const state = join(root, "agent-state");
+    const toolSet = buildMcpServeTools({ allowWrite: false, allowExec: true, tools: [] }, {
+      notesRecallDefaultK: 5, notesMaxContentChars: 2000, skillRegistry: noSkills,
+      approvals: buildMcpServeApprovals({ agent: { approvalLevel: 5 }, paths: { stateDir: state } }),
+      shell: { stateDir: state, protectedPaths: [join(state, "serve-api.key")] },
+    });
+    const result = await toolSet.tools.find(item => item.wireName === "os_shell_run")!.definition.run({ cmd: "echo fixture" }, {
+      workingDir: root, sessionId: "mcp-sandbox", stepIndex: 0, signal: new AbortController().signal,
+    });
+    expect(result.summary).toContain("protected agent state overlaps");
+  } finally {
+    vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
 });

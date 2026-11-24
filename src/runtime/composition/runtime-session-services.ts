@@ -1,4 +1,3 @@
-import { forgetPrivacyVault } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -14,6 +13,7 @@ import type { createRuntimeTraces } from "./runtime-traces.js";
 import { FUSION_RUNS_DIR_NAME, FusionRunStore } from "../../tools/fusion/run-checkpoint.js";
 import { sweepOrphanIncognitoSessions } from "../incognito-sessions.js";
 import { projectStoreForStateDir, type SessionProjectStore } from "../../session/session-project-store.js";
+import { forgetPrivacyVault } from "../../privacy/index.js";
 
 /** The fusion project store every runtime surface shares (issue #109). */
 export function runtimeProjectStore(config: AtomicAgentConfig): SessionProjectStore {
@@ -172,6 +172,7 @@ export function installRuntimeSessionDelete(
       void (async () => fileCheckpoints.removeSession(id))().catch(() => undefined);
     }
     deleteSession(id);
+    // Its Privacy Shield placeholders (ATO-1083), memory only.
     forgetPrivacyVault(id);
   };
 }

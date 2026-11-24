@@ -8,6 +8,7 @@ import {
   type ProfileFact,
 } from "../memory/profile-store.js";
 import { isNameProfileKey } from "../memory/profile-name-keys.js";
+import { isEditableMemoryText, memoryFingerprint, operatorMemoryPayload, safeOperatorFact } from "./memory-operator-view.js";
 import { openaiError } from "./openai-errors.js";
 import {
   readJsonBody,
@@ -114,7 +115,11 @@ export function createListMemoryNotesHandler(): HttpHandler {
       limit,
       excludeArchived: params.get("includeArchived") !== "1",
     });
-    sendJson(res, 200, { notes });
+    sendJson(res, 200, operatorMemoryPayload({ notes: notes.map((note) => ({
+      ...note,
+      enabled: note.disabledAt === undefined,
+      fingerprint: memoryFingerprint(note),
+    })) }, ctx));
   };
 }
 
@@ -135,6 +140,9 @@ export function createEditMemoryNoteHandler(): HttpHandler {
       sendError(res, 400, openaiError("text must be a string"));
       return;
     }
+    if (!isEditableMemoryText(body.text)) {
+      return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
+    }
     let note: NoteJson | null;
     try {
       note = ctx.runtime.notesStore.updateContent(id, body.text, undefined, "user");
@@ -148,7 +156,7 @@ export function createEditMemoryNoteHandler(): HttpHandler {
       sendError(res, 404, openaiError(`note not found: ${id}`));
       return;
     }
-    sendJson(res, 200, { note });
+    sendJson(res, 200, operatorMemoryPayload({ note }, ctx));
   };
 }
 
@@ -171,7 +179,18 @@ export function createDeleteMemoryNoteHandler(): HttpHandler {
 /** `GET /api/memory/profile` — the active facts, sorted by key. */
 export function createListProfileFactsHandler(): HttpHandler {
   return async (_req, res, ctx) => {
-    sendJson(res, 200, { facts: ctx.runtime.profileStore.list().map(factJson) });
+    const canDelete = ctx.caller?.role === "owner" || ctx.caller?.role === "admin";
+    const facts = ctx.runtime.profileStore.list().flatMap((fact) => {
+      const safe = safeOperatorFact(fact);
+      if (!safe && !canDelete) return [];
+      return [{
+        ...factJson(fact),
+        enabled: fact.disabledAt === undefined,
+        ...(canDelete ? { deleteRef: `~${fact.id}` } : {}),
+        ...(safe ? { fingerprint: memoryFingerprint(fact) } : { key: "[redacted]", value: "[redacted]", keywords: [] }),
+      }];
+    });
+    sendJson(res, 200, operatorMemoryPayload({ facts }, ctx));
   };
 }
 
@@ -197,6 +216,9 @@ export function createEditProfileFactHandler(): HttpHandler {
       sendError(res, 400, openaiError("value must be a string"));
       return;
     }
+    if (!isEditableMemoryText(body.value)) {
+      return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
+    }
     const store = ctx.runtime.profileStore;
     try {
       const current = store.get(key);
@@ -209,7 +231,7 @@ export function createEditProfileFactHandler(): HttpHandler {
         keywords: current.keywords,
         ...(isNameProfileKey(current.key) ? { nameGrounding: "grounded" as const } : {}),
       });
-      sendJson(res, 200, { fact: factJson(fact) });
+      sendJson(res, 200, operatorMemoryPayload({ fact: factJson(fact) }, ctx));
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;
@@ -228,7 +250,9 @@ export function createDeleteProfileFactHandler(): HttpHandler {
     }
     let removed: boolean;
     try {
-      removed = ctx.runtime.profileStore.remove(key, "user");
+      const id = key.startsWith("~") ? parseNoteId(key.slice(1)) : null;
+      removed = id === null ? ctx.runtime.profileStore.remove(key, "user")
+        : ctx.runtime.profileStore.removeById(id);
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;
@@ -239,7 +263,7 @@ export function createDeleteProfileFactHandler(): HttpHandler {
       sendError(res, 404, openaiError(`profile fact not found: ${key}`));
       return;
     }
-    sendJson(res, 200, { removed: true, key });
+    sendJson(res, 200, operatorMemoryPayload({ removed: true, key }, ctx));
   };
 }
 
@@ -257,7 +281,7 @@ export function createProfileFactHistoryHandler(): HttpHandler {
     }
     try {
       const versions = ctx.runtime.profileStore.history(key).map(factJson);
-      sendJson(res, 200, { key, versions });
+      sendJson(res, 200, operatorMemoryPayload({ key, versions }, ctx));
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;
