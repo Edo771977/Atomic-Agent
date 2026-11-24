@@ -106,13 +106,15 @@ try {
     const ancestorFile = join(base, "ancestor-canary");
     writeFileSync(ancestorFile, "synthetic data outside the checkout");
     const emptyConfig = join(privateTemp, "empty-git-config");
-    writeFileSync(emptyConfig, "");
     check("null-device-read-write-denied", () => {
       assert.match(call(helper, ["--null-device-host"]), /NUL read\/write result: 0/);
       assert.match(launch([helper, "--null-device-deny"]), /NUL read\/write result: 5/);
     });
     const gitEnv = { ATOMIC_DIAGNOSTIC_GIT: "trace" };
     check("git-config-and-trace", () => assert.match(launch([git, "status", "--short"], gitEnv), /existing\.txt/));
+    writeFileSync(emptyConfig, "", { flag: "wx" });
+    check("git-empty-config-readable", () =>
+      assert.match(launch([helper, "--file-check", "read-allow", emptyConfig]), /FILE result: 0/));
     check("git-empty-config-file", () =>
       assert.match(launch([git, "status", "--short"], { ATOMIC_DIAGNOSTIC_GIT: "trace", ATOMIC_DIAGNOSTIC_EMPTY_CONFIG: "1" }), /existing\.txt/));
 
