@@ -200,7 +200,7 @@ describe("wrapWithOsSandbox", () => {
     expect(w.ok).toBe(true);
     if (!w.ok) return;
     expect(w.command).toBe("/usr/bin/bwrap");
-    expect(w.args.slice(0, 3)).toEqual(["--ro-bind", "/", "/"]);
+    expect(w.args.slice(0, 2)).toEqual(["--dev", "/dev"]);
     expect(w.args).toContain("--unshare-net");
     expect(w.args).toContain("--unshare-pid");
     expect(w.args).toContain("--proc");
@@ -405,4 +405,15 @@ it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("round 4 poi
     chmodSync(unreadable, 0o700);
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it("round 4 point 1: mounts selected system paths without binding the host root", () => {
+  const wrapped = wrapWithOsSandbox("true", [], policy(), {
+    platform: "linux", bwrap: "/usr/bin/bwrap",
+  });
+  if (!wrapped.ok) throw new Error(wrapped.reason);
+  const args = wrapped.args.join(" ");
+  expect(args).not.toContain("--ro-bind / / ");
+  expect(args).not.toMatch(/--ro-bind \/(?:etc|usr|usr\/local|var|opt|srv|mnt|media) \//);
+  expect(args).toContain("--ro-bind /usr/bin /usr/bin");
 });

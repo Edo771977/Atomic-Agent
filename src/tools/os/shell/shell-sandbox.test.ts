@@ -190,6 +190,10 @@ describe.skipIf(unavailable !== undefined)(
       expect(keys.summary).not.toMatch(/synthetic-(serve|llama)-marker/);
       const npm = await runner.run({ cmd: "npm", args: ["test"] }, ctx());
       expect(npm.summary).toContain("fixture-test-ok");
+      if (process.platform === "linux") {
+        const python = await runner.run({ cmd: "/usr/bin/python3", args: ["-c", "print('fixture-python-ok')"] }, ctx());
+        expect(python.summary).toContain("fixture-python-ok");
+      }
       const git = await runner.run({ cmd: "git init -q && git status --short" }, ctx());
       expect(git.summary).toContain("?? package.json");
     });

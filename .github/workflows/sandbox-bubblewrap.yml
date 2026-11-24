@@ -33,17 +33,39 @@ jobs:
         run: |
           fixtures=$(mktemp -d /tmp/atomic-bwrap-ci.XXXXXX)
           tag="atomic-bwrap-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          trap 'sudo rm -rf "$fixtures" "/run/$tag" "/run/lock/$tag"' EXIT
+          system_roots=(/etc/ssl/certs /usr/lib /usr/local /srv /mnt /media /opt)
+          private_roots=(/var/backups /etc/ssh /etc/ssl/private)
+          cleanup() {
+            sudo rm -rf "$fixtures" "/run/$tag" "/run/lock/$tag"
+            for root in "${system_roots[@]}" "${private_roots[@]}"; do sudo rm -rf "$root/$tag"; done
+          }
+          trap cleanup EXIT
           mkdir "$fixtures/bin"
-          cp "$(command -v node)" "$fixtures/bin/node"
+          node_bin=$(dirname "$(command -v node)")
+          cp "$node_bin/node" "$fixtures/bin/node"
+          export ATOMIC_AGENT_SANDBOX_TOOLCHAINS="$node_bin:$node_bin/../lib/node_modules/npm"
           chmod 0755 "$fixtures" "$fixtures/bin"
           sudo install -d -m 0700 -o "$(id -un)" "/run/$tag" "/run/lock/$tag"
           export PATH="$fixtures/bin:$PATH"
           export ATOMIC_AGENT_REQUIRE_BWRAP=1
           export ATOMIC_AGENT_TEST_RUNTIME_ROOTS="/run/$tag:/var/run/$tag:/run/lock/$tag"
+          fixture_roots=()
+          for root in "${system_roots[@]}"; do
+            sudo install -d -m 0770 -o "$(id -un)" -g "$(id -gn)" "$root/$tag"
+            fixture_roots+=("$root/$tag")
+          done
+          export ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$(IFS=:; echo "${fixture_roots[*]}")
+          private_files=()
+          for root in "${private_roots[@]}"; do
+            sudo install -d -m 0755 "$root/$tag"
+            printf 'synthetic private fixture\n' | sudo tee "$root/$tag/marker" >/dev/null
+            sudo chmod 0644 "$root/$tag/marker"
+            private_files+=("$root/$tag/marker")
+          done
+          export ATOMIC_AGENT_TEST_PRIVATE_FILES=$(IFS=:; echo "${private_files[*]}")
           args=(run src/sandbox/os-sandbox.test.ts src/sandbox/os-sandbox-runtime.test.ts src/sandbox/sandbox-git-integration.test.ts src/tools/os/shell/shell-sandbox.test.ts src/tools/verify/verify-cwd-sandbox.test.ts)
           if [[ "$TEST_MODE" == root ]]; then
-            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
+            sudo -H env "PATH=$PATH" ATOMIC_AGENT_REQUIRE_BWRAP=1 "ATOMIC_AGENT_TEST_RUNTIME_ROOTS=$ATOMIC_AGENT_TEST_RUNTIME_ROOTS" "ATOMIC_AGENT_TEST_SYSTEM_ROOTS=$ATOMIC_AGENT_TEST_SYSTEM_ROOTS" "ATOMIC_AGENT_TEST_PRIVATE_FILES=$ATOMIC_AGENT_TEST_PRIVATE_FILES" "ATOMIC_AGENT_SANDBOX_TOOLCHAINS=$ATOMIC_AGENT_SANDBOX_TOOLCHAINS" "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           else
             "$fixtures/bin/node" node_modules/vitest/vitest.mjs "${args[@]}"
           fi

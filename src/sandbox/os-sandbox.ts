@@ -250,9 +250,11 @@ export function buildOsSandboxPolicy(
   const node = real(input.nodeExecutable ?? process.execPath);
   const nodeDirectory = dirname(node);
   const privateRoots = ["/tmp", "/var/tmp", "/run", home, ...maskedHomes];
+  const npmDirectory = join(dirname(nodeDirectory), "lib", "node_modules", "npm");
   const declared = input.toolchainDirectories ?? (process.env.ATOMIC_AGENT_SANDBOX_TOOLCHAINS ?? "").split(delimiter);
   const toolchainRoots = unique([
     privateRoots.some(path => contains(nodeDirectory, path)) ? node : nodeDirectory,
+    ...(process.platform === "linux" && isDirectory(npmDirectory) && real(npmDirectory) === npmDirectory ? [npmDirectory] : []),
     ...declared.filter(isAbsolute).map(real).filter(path => !privateRoots.some(root => contains(path, root))),
   ]);
   const readOnlyWorkspaceRoots = unique((input.readOnlyWorkspaceRoots ?? []).map(path => real(resolve(path))));
@@ -378,12 +380,78 @@ function isDirectory(path: string): boolean {
   }
 }
 
-/**
- * Mount order matters (a later mount covers an earlier one): read-only
- * root, writable roots, then the denied paths covered (an empty tmpfs
- * on a folder, `/dev/null` on a file, since bwrap cannot mount a tmpfs
- * on a file).
- */
+const LINUX_SYSTEM_TREES = [
+  "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib32", "/usr/lib64", "/usr/libx32", "/usr/libexec",
+  "/usr/share", "/nix/store",
+];
+const LINUX_BROAD_ROOTS = ["/usr", "/usr/local", "/etc", "/var", "/srv", "/mnt", "/media", "/opt", "/nix"];
+const LINUX_SYSTEM_ALIASES = ["/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
+const LINUX_ETC_ENTRIES = [
+  "/etc/ld.so.cache", "/etc/passwd", "/etc/group", "/etc/nsswitch.conf",
+  "/etc/hosts", "/etc/host.conf", "/etc/gai.conf", "/etc/localtime",
+  "/etc/ssl/certs", "/etc/pki/ca-trust/extracted",
+];
+
+/** Report host sockets and directories whose contents we cannot inventory. */
+function maskingMounts(root: string, system: boolean): string[][] {
+  const masks: string[][] = [];
+  const pending = [root];
+  while (pending.length > 0) {
+    const path = pending.pop()!;
+    try {
+      const info = lstatSync(path);
+      if (info.isSocket()) masks.push(["--ro-bind", "/dev/null", path]);
+      if (!info.isDirectory()) continue;
+      if (system && (info.mode & 0o022) !== 0) {
+        masks.push(["--tmpfs", path], ["--remount-ro", path]);
+        continue;
+      }
+      for (const entry of readdirSync(path, { withFileTypes: true })) {
+        const entryPath = join(path, entry.name);
+        if (entry.isDirectory()) pending.push(entryPath);
+        else if (entry.isSocket()) masks.push(["--ro-bind", "/dev/null", entryPath]);
+      }
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EACCES" || code === "EPERM") masks.push(["--tmpfs", path], ["--remount-ro", path]);
+      else if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+    }
+  }
+  return masks;
+}
+
+/** Reconstruct only the system trees and public configuration used by tools. */
+function linuxSystemMounts(out: string[]): string[] {
+  const trees: string[] = [];
+  for (const path of LINUX_SYSTEM_TREES) {
+    if (real(path) !== path || !isDirectory(path)) continue;
+    out.push("--ro-bind", path, path);
+    trees.push(path);
+  }
+  for (const path of LINUX_SYSTEM_ALIASES) {
+    if (!isDirectory(path)) continue;
+    const source = real(path);
+    if (source === path) {
+      out.push("--ro-bind", path, path);
+      trees.push(path);
+    } else if (trees.some(tree => contains(tree, source))) {
+      out.push("--symlink", source, path);
+    }
+  }
+  for (const path of LINUX_ETC_ENTRIES) {
+    const source = real(path);
+    if (source !== path && !trees.some(tree => contains(tree, source))) continue;
+    if (!existsSync(source)) continue;
+    const info = statSync(source);
+    if (info.isFile() || info.isDirectory()) {
+      out.push("--ro-bind", source, path);
+      if (info.isDirectory()) trees.push(path);
+    }
+  }
+  return trees;
+}
+
+/** Mount the workspace before read-only overlays, then mask host endpoints. */
 function bwrapArgs(
   policy: OsSandboxPolicy,
   command: string,
@@ -391,14 +459,17 @@ function bwrapArgs(
   cwd?: string,
   disableUserns = false,
 ): string[] {
-  const out = ["--ro-bind", "/", "/", "--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
+  const out = ["--dev", "/dev", "--unshare-pid", "--unshare-ipc", "--unshare-user", "--cap-drop", "ALL"];
+  const systemMounts = linuxSystemMounts(out);
   if (disableUserns) out.push("--disable-userns");
   out.push("--tmpfs", policy.home, "--tmpfs", "/tmp", "--tmpfs", "/run", "--tmpfs", "/run/lock", "--tmpfs", "/var/tmp");
-  if (real("/var/run") !== "/run" && isDirectory("/var/run")) out.push("--tmpfs", "/var/run");
-  // A systemd resolv.conf symlink can point into the hidden runtime tree.
+  if (real("/var/run") === "/run") out.push("--symlink", "../run", "/var/run");
+  else out.push("--tmpfs", "/var/run");
+  // Expose only the resolver contents, never the host runtime directory.
   const resolver = real("/etc/resolv.conf");
-  if (policy.network && resolver.startsWith("/run/systemd/resolve/") && existsSync(resolver)) {
-    out.push("--ro-bind", resolver, resolver);
+  if (policy.network && (resolver === "/etc/resolv.conf" || resolver.startsWith("/run/systemd/resolve/")) &&
+    existsSync(resolver) && statSync(resolver).isFile()) {
+    out.push("--ro-bind", resolver, "/etc/resolv.conf");
   }
   const homeMasks = unique([policy.home, ...policy.maskedHomes]);
   for (const path of homeMasks) if (path !== policy.home && isDirectory(path)) out.push("--tmpfs", path);
@@ -410,15 +481,26 @@ function bwrapArgs(
   for (const dir of policy.toolchainRoots) out.push("--ro-bind", dir, dir);
   for (const path of policy.readOnlyWorkspaceRoots) out.push("--ro-bind", path, path);
   for (const path of policy.readOnlyGitRoots) out.push("--ro-bind", path, path);
+  const exposed = unique([...systemMounts, ...policy.toolchainRoots, ...policy.writableRoots, ...policy.readOnlyWorkspaceRoots])
+    .filter(path => path !== "/tmp" && path !== "/var/tmp" && path !== "/run");
+  for (const path of exposed.filter(path => !exposed.some(other => other !== path && contains(other, path)))) {
+    for (const mount of maskingMounts(path, systemMounts.includes(path))) out.push(...mount);
+  }
+  for (const line of readFileSync("/proc/self/mountinfo", "utf8").split("\n")) {
+    const mount = line.split(" ")[4]?.replace(/\\([0-7]{3})/g, (_, octal: string) => String.fromCharCode(parseInt(octal, 8)));
+    if (mount === undefined || !systemMounts.some(path => mount !== path && contains(path, mount))) continue;
+    if (isDirectory(mount)) out.push("--tmpfs", mount, "--remount-ro", mount);
+    else if (existsSync(mount)) out.push("--ro-bind", "/dev/null", mount);
+  }
   out.push("--proc", "/proc");
   for (const path of unique(policy.denyRead.map(real))) {
     if (homeMasks.includes(path) || !existsSync(path)) continue;
-    if (isDirectory(path)) out.push("--tmpfs", path);
+    if (isDirectory(path)) out.push("--tmpfs", path, "--remount-ro", path);
     else out.push("--ro-bind", "/dev/null", path);
   }
   if (!policy.network) out.push("--unshare-net");
   if (cwd !== undefined) out.push("--chdir", cwd);
-  out.push("--die-with-parent", "--new-session", "--", command, ...args);
+  out.push("--remount-ro", "/", "--die-with-parent", "--new-session", "--", command, ...args);
   return out;
 }
 
@@ -474,6 +556,15 @@ export function wrapWithOsSandbox(
   if (policy.readOnlyWorkspaceRoots.some(root => [policy.home, ...policy.maskedHomes].some(home => contains(root, home)) || contains(root, policy.stateDir) ||
     contains(policy.stateDir, root) || policy.protectedParents.some(path => contains(root, path) || contains(path, root)))) {
     return { ok: false, reason: "a read-only input root overlaps protected host data" };
+  }
+  if (platform === "linux" && [...policy.writableRoots, ...policy.readOnlyWorkspaceRoots, ...policy.toolchainRoots]
+    .some(root => LINUX_BROAD_ROOTS.some(path => contains(root, path)))) {
+    return { ok: false, reason: "a workspace or toolchain root would reopen a broad host filesystem tree" };
+  }
+  if (platform === "linux" && policy.writableRoots.some(root =>
+    [...LINUX_SYSTEM_TREES, ...LINUX_SYSTEM_ALIASES, ...LINUX_ETC_ENTRIES]
+      .some(path => contains(root, path) || contains(path, root)))) {
+    return { ok: false, reason: "a writable workspace root overlaps a system filesystem mount" };
   }
   const applyGitProtection = (): OsSandboxPolicy => policy.gitMetadataWritable ? policy : {
     ...policy,

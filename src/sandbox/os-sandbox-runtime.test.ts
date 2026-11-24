@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
-import { mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -72,3 +72,23 @@ it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("app
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
 });
+
+
+it.skipIf(bwrap === null || !process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS)("round 4 point 1: host system socket fixtures remain unreachable with group permissions", async () => {
+  const roots = process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS!.split(":");
+  for (const [index, root] of roots.entries()) {
+    const path = join(root, `fixture-system-${process.pid}-${index}.sock`);
+    const socket = createServer(client => client.end("synthetic endpoint"));
+    await new Promise<void>((resolve, reject) => {
+      socket.once("error", reject);
+      socket.listen(path, resolve);
+    });
+    try {
+      chmodSync(path, 0o770);
+      const probe = await fixtureCommand("const s=require('node:net').connect(process.argv[1]); s.on('error',()=>process.exit(17)); s.resume()", [path], true);
+      expect(probe, path).toMatchObject({ code: 17 });
+    } finally {
+      await new Promise<void>(resolve => socket.close(() => resolve()));
+    }
+  }
+}, 20_000);
