@@ -34,12 +34,22 @@ it("marks third-party global skill installs as dangerous", () => {
 
 it.each([
   "env -i atag skill list",
+  "env -i0 atag skill list",
+  "env -vi atag skill list",
+  "env -iu SAMPLE atag skill list",
+  "env - atag skill list",
+  "env -S '-vi atag skill list'",
+  "env --split-string='-i atag skill list'",
   "env --ignore-environment atomic-agent skill list",
   'atag "$TOPIC" list',
   'atomic-agent skill "$ACTION" demo',
 ])("flags opaque agent-command provenance: %s", (line) => {
   expect(guardLine(line).rule).toBe("dangerous.skill_approval_origin");
 });
+
+it.each(["env -u limi atag skill list", "env -- printf -i", "env printf -i"])(
+  "does not treat an operand as an environment reset: %s", expectNotDangerous,
+);
 
 it("allows reading workspace project trust status", () => {
   expectNotDangerous("atag skill project status --workspace /work");

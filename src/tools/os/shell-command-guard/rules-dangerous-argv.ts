@@ -10,6 +10,7 @@ import {
   splitCommandSegments,
 } from "./command-segments.js";
 import { isComputedOption, isComputedWord } from "./command-substitution.js";
+import { lexShellLine } from "./shell-line-lexer.js";
 import { findGitSubcommand } from "./rules-policy.js";
 
 /**
@@ -802,15 +803,43 @@ const INLINE_INTERPRETERS = /^(?:node|nodejs|bun|deno|python(?:[0-9.]+)?|ruby|pe
 const ORIGIN_MARKER = /\batomic_agent_tool_child\b/i;
 const LEARNED_CONSENT = /\bskill\s+learned\s+(?:approve|confirm)\b/i;
 
+function resetsEnvironment(args: readonly string[], splitBudget = 8): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--" || !arg.startsWith("-")) return false;
+    if (arg === "-" || arg === "--ignore-environment") return true;
+
+    let option = arg.split("=", 1)[0]!;
+    let attached = arg.length > option.length ? arg.slice(option.length + 1) : undefined;
+    if (!arg.startsWith("--")) {
+      for (let offset = 1; offset < arg.length; offset += 1) {
+        const letter = arg[offset]!;
+        if (letter === "i") return true;
+        if (!"uCSa".includes(letter)) continue;
+        option = "-" + letter;
+        attached = arg.slice(offset + 1) || undefined;
+        break;
+      }
+    }
+    if (!["-u", "--unset", "-C", "--chdir", "-a", "--argv0", "-S", "--split-string"].includes(option)) continue;
+    const value = attached ?? args[++index];
+    if ((option === "-S" || option === "--split-string") && value !== undefined && splitBudget > 0) {
+      const words = lexShellLine(value, "posix");
+      if (words?.every((word) => word.kind === "word")) {
+        return resetsEnvironment([...words.map((word) => word.text), ...args.slice(index + 1)], splitBudget - 1);
+      }
+    }
+  }
+  return false;
+}
+
 function matchSkillApprovalOrigin(segments: readonly (readonly string[])[]): ArgvCheck | null {
   const opaqueOrigin = segments.some((words) => words.some((word, index) => {
     if (ORIGIN_MARKER.test(word)) return true;
     const program = programName(word);
     if (PSEUDOTERMINAL_PROGRAMS.has(program)) return true;
     const args = words.slice(index + 1);
-    if (program === "env" && args.some((arg) =>
-      arg === "--ignore-environment" || /^-[i]+$/.test(arg)
-    )) return true;
+    if (program === "env" && resetsEnvironment(args)) return true;
     const learnedVerb = args[0]?.toLowerCase() === "skill" && args[1]?.toLowerCase() === "learned" &&
       isComputedWord(args[2] ?? "");
     if ((program === "atomic-agent" || program === "atag") && !learnedVerb && args.some(isComputedWord)) return true;
