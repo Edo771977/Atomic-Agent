@@ -384,4 +384,17 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       rmSync(home, { recursive: true, force: true });
     }
   });
+  it.each([
+    "patch < changes.diff",
+    "patch -i changes.diff",
+    "7z x bundle.7z",
+    "tar -xf bundle.tar",
+    "unzip bundle.zip",
+  ])("requires trust for unknown archive or patch members in the home: %s", (cmd) => {
+    const skills = "/scratch/.agents/skills/";
+    const state = { stateDir: "/settings", files: [], skillWritePaths: [skills] };
+    const env = { home: "/scratch", platform: "linux" } as const;
+    expect(findShellSkillWrites({ cmd }, { workingDir: env.home }, state, env)).toEqual([skills]);
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/scratch/project" }, state, env)).toEqual([]);
+  });
 });
