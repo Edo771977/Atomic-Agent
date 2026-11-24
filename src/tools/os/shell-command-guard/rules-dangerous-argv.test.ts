@@ -41,6 +41,9 @@ it.each([
   "env -S '-vi atag skill list'",
   "env --split-string='-i atag skill list'",
   "env --ignore-environment atomic-agent skill list",
+  "env --i atag skill list",
+  "env --ignore-env atag skill list",
+  "env -S '--ig atag skill list'",
   'atag "$TOPIC" list',
   'atomic-agent skill "$ACTION" demo',
 ])("flags opaque agent-command provenance: %s", (line) => {

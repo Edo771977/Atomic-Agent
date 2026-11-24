@@ -807,7 +807,7 @@ function resetsEnvironment(args: readonly string[], splitBudget = 8): boolean {
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index]!;
     if (arg === "--" || !arg.startsWith("-")) return false;
-    if (arg === "-" || arg === "--ignore-environment") return true;
+    if (arg === "-" || (arg.startsWith("--i") && "--ignore-environment".startsWith(arg))) return true;
 
     let option = arg.split("=", 1)[0]!;
     let attached = arg.length > option.length ? arg.slice(option.length + 1) : undefined;
