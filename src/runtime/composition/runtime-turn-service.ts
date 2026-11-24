@@ -1,4 +1,3 @@
-import { sameSideCallProvider } from "./turn-sidecall-provider.js";
 import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
 import { forgetPrivacyVault, linkPrivacyVault, pinPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
@@ -47,6 +46,7 @@ import type { GoalSpec, GoalState } from "../../agent/goal/index.js";
 import { createRuntimeGoalRunner } from "./runtime-goal.js";
 import { createNextStepSuggester } from "./runtime-next-step.js";
 import type { createExperienceReviewer } from "./runtime-experience-review.js";
+import { sameSideCallProvider } from "./turn-sidecall-provider.js";
 import { routeTurnProvider } from "./runtime-turn-router.js";
 import { assertProviderAllowed, currentPolicyAllows, currentProviderPolicy, runWithProviderPolicy } from "../../llm/provider-policy.js";
 import { ChannelRestrictedError, type SessionProviderPolicy } from "../session-provider-policy.js";
