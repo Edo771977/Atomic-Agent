@@ -8,7 +8,7 @@ import {
   type ProfileFact,
 } from "../memory/profile-store.js";
 import { isNameProfileKey } from "../memory/profile-name-keys.js";
-import { memoryFingerprint, operatorMemoryPayload, safeOperatorFact } from "./memory-operator-view.js";
+import { isEditableMemoryText, memoryFingerprint, operatorMemoryPayload, safeOperatorFact } from "./memory-operator-view.js";
 import { openaiError } from "./openai-errors.js";
 import {
   readJsonBody,
@@ -140,6 +140,9 @@ export function createEditMemoryNoteHandler(): HttpHandler {
       sendError(res, 400, openaiError("text must be a string"));
       return;
     }
+    if (!isEditableMemoryText(body.text)) {
+      return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
+    }
     let note: NoteJson | null;
     try {
       note = ctx.runtime.notesStore.updateContent(id, body.text, undefined, "user");
@@ -176,10 +179,18 @@ export function createDeleteMemoryNoteHandler(): HttpHandler {
 /** `GET /api/memory/profile` — the active facts, sorted by key. */
 export function createListProfileFactsHandler(): HttpHandler {
   return async (_req, res, ctx) => {
-    sendJson(res, 200, operatorMemoryPayload({ facts: ctx.runtime.profileStore.list().filter(safeOperatorFact).map((fact) => ({
-      ...factJson(fact),
-      enabled: fact.disabledAt === undefined, fingerprint: memoryFingerprint(fact),
-    })) }, ctx));
+    const canDelete = ctx.caller?.role === "owner" || ctx.caller?.role === "admin";
+    const facts = ctx.runtime.profileStore.list().flatMap((fact) => {
+      const safe = safeOperatorFact(fact);
+      if (!safe && !canDelete) return [];
+      return [{
+        ...factJson(fact),
+        enabled: fact.disabledAt === undefined,
+        ...(canDelete ? { deleteRef: `~${fact.id}` } : {}),
+        ...(safe ? { fingerprint: memoryFingerprint(fact) } : { key: "[redacted]", value: "[redacted]", keywords: [] }),
+      }];
+    });
+    sendJson(res, 200, operatorMemoryPayload({ facts }, ctx));
   };
 }
 
@@ -204,6 +215,9 @@ export function createEditProfileFactHandler(): HttpHandler {
     if (typeof body.value !== "string") {
       sendError(res, 400, openaiError("value must be a string"));
       return;
+    }
+    if (!isEditableMemoryText(body.value)) {
+      return sendError(res, 400, openaiError("Enter replacement text without display markers or invisible characters"));
     }
     const store = ctx.runtime.profileStore;
     try {
@@ -236,7 +250,9 @@ export function createDeleteProfileFactHandler(): HttpHandler {
     }
     let removed: boolean;
     try {
-      removed = ctx.runtime.profileStore.remove(key, "user");
+      const id = key.startsWith("~") ? parseNoteId(key.slice(1)) : null;
+      removed = id === null ? ctx.runtime.profileStore.remove(key, "user")
+        : ctx.runtime.profileStore.removeById(id);
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;

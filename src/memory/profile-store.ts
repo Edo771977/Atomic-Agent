@@ -545,7 +545,18 @@ export class ProfileStore {
    * who asked.
    */
   remove(key: string, by: MemoryChangeActor = "agent", excludeDisabled = false): boolean {
-    const normalisedKey = validateKey(key);
+    return this.removeStoredKey(validateKey(key), by, excludeDisabled);
+  }
+
+  /** Delete an active visible fact even when its legacy key is no longer valid. */
+  removeById(id: number): boolean {
+    return this.db.transaction(() => {
+      const row = this.selectActiveByIdStmt.get(id) as ProfileRow | undefined;
+      return row?.superseded_by === null && this.removeStoredKey(row.key, "user", false);
+    }).immediate();
+  }
+
+  private removeStoredKey(normalisedKey: string, by: MemoryChangeActor, excludeDisabled: boolean): boolean {
     return this.db.transaction((): boolean => {
       const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as ProfileRow | undefined;
       const before = row ? rowToFact(row) : null;

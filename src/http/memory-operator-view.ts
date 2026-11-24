@@ -44,3 +44,9 @@ function redact(value: unknown, known: readonly KnownSecret[]): unknown {
     key, key === "value" && secretFact ? "[redacted]" : redact(item, known),
   ]));
 }
+
+/** Presentation markers are never valid replacements for an operator's memory text. */
+export function isEditableMemoryText(value: string): boolean {
+  return !/\[redacted(?::[^\]]*)?\]|\\u\{[\da-f]+\}/i.test(value)
+    && value.search(PROJECT_LESSON_INVISIBLE_CHARACTERS) === -1;
+}

@@ -108,7 +108,7 @@ describe("operator memory routes", () => {
     expect(notes).toContain("202E");
     expect(notes).not.toContain("\u202e");
     expect(notes).not.toContain("test-secret");
-    expect(await (await send("/api/memory/profile")).json()).toEqual({ facts: [] });
+    expect(await (await send("/api/memory/profile", undefined, "viewer-test-token")).json()).toEqual({ facts: [] });
     harness.runtime.profileStore.remove("pin", "user");
     expect(await (await send("/api/memory/changes")).text()).not.toContain("4821");
   });
@@ -215,6 +215,49 @@ describe("operator memory routes", () => {
       await reader.cancel().catch(() => {});
     }
   });
+
+  it("keeps secret facts and invisible profile keys deletable by reference", async () => {
+    const db = harness.runtime.notesStore.getDatabaseHandleForEmbeddings();
+    const hidden = harness.runtime.profileStore.set("hidden", "Clean text");
+    const invisible = "left\u202eright";
+    db.prepare("UPDATE profile_facts SET key = ? WHERE id = ?").run(invisible, hidden.id);
+    db.prepare("UPDATE profile_facts SET key = 'pin', value = '4821' WHERE key = 'city'").run();
+    for (const token of ["admin-test-token", "owner-test-token"]) {
+      const response = await send("/api/memory/profile", undefined, token);
+      const text = await response.text();
+      expect(text).not.toContain("4821");
+      expect(text).not.toContain(invisible);
+      const { facts } = JSON.parse(text) as { facts: { key: string; value: string; deleteRef: string }[] };
+      expect(facts).toEqual(expect.arrayContaining([
+        expect.objectContaining({ key: "[redacted]", value: "[redacted]", deleteRef: expect.stringMatching(/^~\d+$/) }),
+        expect.objectContaining({ key: "left\\u{202E}right", deleteRef: `~${hidden.id}` }),
+      ]));
+    }
+    const { facts } = await (await send("/api/memory/profile")).json() as { facts: { deleteRef: string }[] };
+    for (const { deleteRef } of facts) {
+      const response = await fetch(harness.baseUrl + "/api/memory/profile/" + encodeURIComponent(deleteRef), {
+        method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+      });
+      expect(response.status).toBe(200);
+    }
+    expect(harness.runtime.profileStore.list()).toEqual([]);
+  });
+
+  it.each(["[redacted]", "[redacted:embedding-key]", "left\\u{202E}right", "left\u202eright"])
+    ("rejects display text copied into a memory PATCH: %s", async (text) => {
+      for (const [path, body] of [
+        [`/api/memory/notes/${noteId}`, { text }],
+        ["/api/memory/profile/city", { value: text }],
+      ] as const) {
+        const response = await fetch(harness.baseUrl + path, {
+          method: "PATCH", headers: { authorization: "Bearer admin-test-token", "content-type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        expect(response.status).toBe(400);
+      }
+      expect(harness.runtime.notesStore.get(noteId)?.content).toBe("Visible note");
+      expect(harness.runtime.profileStore.get("city")?.value).toBe("Rome");
+    });
 
   it("creates a server-selected backup and returns only metadata", async () => {
     expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
