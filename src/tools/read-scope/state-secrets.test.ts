@@ -604,6 +604,17 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     });
   }
 
+  it.each(["patch -i changes.diff", "tar -xf bundle.tar", "7z x bundle.7z", "unzip bundle.zip"])(
+    "refuses a Fusion worker's home extraction requiring trust: %s", async (cmd) => {
+      const worker = "s-w-home-extraction";
+      gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED, reasonFor: workerRefusalFor });
+      await expect(registry.invoke("os.shell.run", { cmd, cwd: s.home }, ctx(worker)))
+        .rejects.toThrow(FUSION_WORKER_OPERATOR_ONLY_MARKER);
+      expect(prompts).toEqual([]);
+      expect(innerShells).toBe(0);
+    },
+  );
+
   it("a fusion worker is refused at once, with a reason that says not to re-send it", async () => {
     install(1);
     const worker = "s-w-secret-1";
