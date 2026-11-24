@@ -246,6 +246,9 @@ export const INCOGNITO_OPENED_NOTICE =
 export const INCOGNITO_CLOSED_NOTICE =
   "the incognito chat was closed and deleted; nothing from it was saved to memory";
 
+const INCOGNITO_CLOSE_FAILED_NOTICE =
+  "could not delete the incognito chat — retry deletion or restart to retry cleanup";
+
 /**
  * Owns the single live chat session. Each call to `sendMessage` queues a
  * macro-turn through `runtime.runTurn`; only one turn is in flight at any
@@ -1209,9 +1212,15 @@ export class ChatOrchestrator {
       });
       return;
     }
+    const incognito = this.runtime.discardIncognitoSession?.(sessionId);
+    if (incognito === "failed") {
+      this.bus.emit({ type: "system_message", text: INCOGNITO_CLOSE_FAILED_NOTICE, variant: "warn" });
+      return;
+    }
+    if (incognito === "deferred") return;
+    if (incognito === undefined || incognito === "not_incognito") this.runtime.sessionStore.delete(sessionId);
     const deletingCurrent = this.session?.id === sessionId;
     this.pendingRows.delete(sessionId);
-    this.runtime.sessionStore.delete(sessionId);
     this.bus.emit({
       type: "system_message",
       text: `session deleted${deletingCurrent ? " — started a fresh one" : ""}`,
@@ -1485,8 +1494,11 @@ export class ChatOrchestrator {
     // runtime deletes the row and trace once that turn has ended.
     if (isIncognitoSession(previous)) {
       this.currentController?.abort();
-      this.runtime.discardIncognitoSession?.(previous.id);
-      notices.push({ text: INCOGNITO_CLOSED_NOTICE });
+      const outcome = this.runtime.discardIncognitoSession?.(previous.id);
+      notices.push({
+        text: outcome === "failed" ? INCOGNITO_CLOSE_FAILED_NOTICE :
+          outcome === "deferred" ? "the incognito chat will be deleted when its turn ends" : INCOGNITO_CLOSED_NOTICE,
+      });
     }
     // Denied for ANY pending approval on the thread being left, not
     // only when the parked turn is ours: a scheduler/HTTP/Telegram-
@@ -2583,7 +2595,10 @@ export class ChatOrchestrator {
     // ATO-586: an open incognito chat is closed with the app; a delete
     // that misses (its turn still unwinding) is swept at the next start.
     if (this.session && isIncognitoSession(this.session)) {
-      this.runtime.discardIncognitoSession?.(this.session.id);
+      const outcome = this.runtime.discardIncognitoSession?.(this.session.id);
+      if (outcome === "failed") {
+        this.bus.emit({ type: "system_message", text: INCOGNITO_CLOSE_FAILED_NOTICE, variant: "warn" });
+      }
     }
     this.abortCurrentTurn();
     this.detachedTurns.abortAll();

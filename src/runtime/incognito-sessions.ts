@@ -138,6 +138,8 @@ export type IncognitoDiscardOutcome =
   | "deleted"
   /** A turn is running on it: deleted when that turn ends (`settle`). */
   | "deferred"
+  /** Cleanup could not finish; leave the stored chat available for retry. */
+  | "failed"
   /** No stored incognito chat by that id (never sent to, or not incognito). */
   | "not_incognito";
 
@@ -192,23 +194,23 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
     }
   };
 
-  const remove = (sessionId: string): boolean => {
+  const remove = (sessionId: string): IncognitoDiscardOutcome => {
     try {
-      if (!deps.sessionStore.isIncognito(sessionId)) return false;
+      if (!deps.sessionStore.isIncognito(sessionId)) return "not_incognito";
       deps.taskStore?.removeForSession(sessionId);
       deps.sessionStore.delete(sessionId);
       open.delete(sessionId);
       removeIncognitoTrace(deps.tracesDir, sessionId);
       deps.fusionRuns?.removeForSession(sessionId);
       eraseSlots(sessionId);
-      return true;
+      return "deleted";
     } catch (err) {
       // Left for the next start's sweep.
       deps.logger.warn("could not delete an incognito chat; the next start will", {
         sessionId,
         error: err instanceof Error ? err.message : String(err),
       });
-      return false;
+      return "failed";
     }
   };
 
@@ -218,7 +220,7 @@ export function createIncognitoSessions(deps: IncognitoSessionsDependencies) {
       return "deferred";
     }
     pending.delete(sessionId);
-    return remove(sessionId) ? "deleted" : "not_incognito";
+    return remove(sessionId);
   };
 
   const settle = (sessionId: string): void => {

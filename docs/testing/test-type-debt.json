@@ -7559,22 +7559,6 @@
     {
       "path": "src/tui/rail-session-list.test.ts",
       "code": 6133,
-      "message": "'ChatOrchestrator' is declared but its value is never read.",
-      "anchor": "import { ChatOrchestrator } from \"./chat-orchestrator.js\";",
-      "line": 13,
-      "count": 1
-    },
-    {
-      "path": "src/tui/rail-session-list.test.ts",
-      "code": 6133,
-      "message": "'cloudGateFacts' is declared but its value is never read.",
-      "anchor": "cloudGateFacts",
-      "line": 5,
-      "count": 1
-    },
-    {
-      "path": "src/tui/rail-session-list.test.ts",
-      "code": 6133,
       "message": "'LocalTurnGateFacts' is declared but its value is never read.",
       "anchor": "import type { LocalTurnGateFacts } from \"./local-turn-gate.js\";",
       "line": 15,
@@ -7583,33 +7567,9 @@
     {
       "path": "src/tui/rail-session-list.test.ts",
       "code": 6133,
-      "message": "'makeTuiEventBus' is declared but its value is never read.",
-      "anchor": "import { makeTuiEventBus } from \"./make-event-bus.js\";",
-      "line": 14,
-      "count": 1
-    },
-    {
-      "path": "src/tui/rail-session-list.test.ts",
-      "code": 6133,
       "message": "'SessionPickerEntry' is declared but its value is never read.",
       "anchor": "import type { SessionPickerEntry } from \"./tui-state.js\";",
       "line": 17,
-      "count": 1
-    },
-    {
-      "path": "src/tui/rail-session-list.test.ts",
-      "code": 6133,
-      "message": "'stubRuntime' is declared but its value is never read.",
-      "anchor": "stubRuntime",
-      "line": 8,
-      "count": 1
-    },
-    {
-      "path": "src/tui/rail-session-list.test.ts",
-      "code": 6133,
-      "message": "'TuiAction' is declared but its value is never read.",
-      "anchor": "import type { TuiAction } from \"./tui-action.js\";",
-      "line": 16,
       "count": 1
     },
     {

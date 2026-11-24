@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -165,6 +165,34 @@ describe("incognito sessions in the runtime", () => {
     expect(tasks.get(dead)).toBeNull();
     expect(tasks.get(live)).not.toBeNull();
     tasks.close();
+  });
+
+  it("purges private tasks at startup after a retryable close failure", async () => {
+    alive.add(10);
+    const store = open(10);
+    save(store, "s-secret", true);
+    const tasksDbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({ dbFile: tasksDbFile });
+    try {
+      const task = tasks.create({ sessionId: "s-secret", userMessage: "private", origin: "cli", maxAttempts: 1 });
+      tasks.markRunning(task.id);
+      tasks.markFailed(task.id, { category: "tool", message: "private error" });
+      vi.spyOn(tasks, "removeForSession").mockImplementationOnce(() => { throw new Error("SQLITE_BUSY"); });
+      const sessions = createIncognitoSessions({ sessionStore: store, tracesDir, isBusy: () => false, logger, taskStore: tasks });
+      expect(sessions.discard("s-secret")).toBe("failed");
+      expect(store.load("s-secret")?.incognito).toBeDefined();
+      alive.delete(10);
+      const boot = open(30);
+      expect(await sweepOrphanIncognitoSessions(boot, tracesDir, logger, tasksDbFile)).toEqual({
+        deleted: ["s-secret"], retained: [],
+      });
+      expect(boot.load("s-secret")).toBeNull();
+      expect(existsSync(trace("s-secret"))).toBe(false);
+      expect(tasks.get(task.id)).toBeNull();
+      expect(tasks.listRuns(task.id)).toEqual([]);
+    } finally {
+      tasks.close();
+    }
   });
 
   it("retains an orphan chat while a live process owns one of its tasks", async () => {
