@@ -16,7 +16,7 @@ import { openaiError } from "./openai-errors.js";
 import { UndeliveredSteerStore } from "./undelivered-steers.js";
 import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
-import { isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
+import { canReadSession, isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
 import { sessionIdError } from "../session/session-id.js";
 import { routeKey, scopeForRoute, type HttpScope } from "./http-scopes.js";
 import type { StoredHttpToken } from "./http-token-store.js";
@@ -318,6 +318,12 @@ async function dispatch(
   const sessionIdProblem = sessionId === undefined ? null : sessionIdError(sessionId);
   if (sessionIdProblem !== null) {
     sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "id"));
+    return;
+  }
+  if (sessionId !== undefined && (method === "GET" || method === "HEAD")
+    && ctx.caller !== undefined && ctx.caller.role !== "owner"
+    && !canReadSession(ctx, ctx.runtime.sessionStore.load(sessionId))) {
+    sendError(res, 404, openaiError("session not found"));
     return;
   }
   if (sessionId !== undefined && serveWithheld(ctx, sessionId)()) {

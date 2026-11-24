@@ -1,3 +1,5 @@
+import { isIncognitoSession } from "../session/incognito.js";
+import type { SessionState } from "../session/session-state.js";
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 import { getConfig } from "../config/index.js";
 import { hasProjectConstraints } from "../llm/provider-policy.js";
@@ -53,6 +55,12 @@ export function serveWithheld(
       return true;
     }
   };
+}
+
+/** Named tokens can read only ordinary chats exposed by this listener. */
+export function canReadSession(ctx: HandlerContext, state: SessionState | null): state is SessionState {
+  return state !== null && (ctx.caller === undefined || ctx.caller.role === "owner"
+    || (!isIncognitoSession(state) && !serveWithheld(ctx, state)()));
 }
 
 /** An approval prompt as a network server may show it: no details for a restricted session. */
