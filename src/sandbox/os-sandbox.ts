@@ -593,7 +593,7 @@ function bwrapArgs(
     if (isDirectory(mount)) out.push("--tmpfs", mount, "--remount-ro", mount);
     else if (existsSync(mount)) out.push("--ro-bind", "/dev/null", mount);
   }
-  out.push("--proc", "/proc");
+  out.push("--proc", "/proc", "--remount-ro", "/proc");
   for (const path of unique(policy.denyRead.map(real))) {
     if (homeMasks.includes(path) || !existsSync(path)) continue;
     if (isDirectory(path)) out.push("--tmpfs", path, "--remount-ro", path);
@@ -689,6 +689,9 @@ export function wrapWithOsSandbox(
         ok: false,
         reason: "no system-managed bubblewrap (`bwrap`) was found; install it with your package manager (for example `sudo apt install bubblewrap`)",
       };
+    }
+    if (process.getuid?.() === 0 && process.env.ATOMIC_AGENT_SANDBOX_ALLOW_ROOT !== "1") {
+      return { ok: false, reason: "host UID 0 requires explicit operator consent via ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1" };
     }
     if (process.getuid?.() === 0 && !warnedAboutRoot) {
       warnedAboutRoot = true;

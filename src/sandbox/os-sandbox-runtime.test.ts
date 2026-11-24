@@ -142,3 +142,17 @@ it.skipIf(bwrap === null || !process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS)("masks 
     chmodSync(root, 0o770);
   }
 });
+
+it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("round 5 point 1: effective private proc mounts keep kernel controls read-only", async () => {
+  const probe = await fixtureCommand(`
+    const fs = require("node:fs");
+    const mounts = fs.readFileSync("/proc/self/mountinfo", "utf8").trim().split("\\n").map(line => line.split(" "));
+    const paths = ["/proc", "/proc/sys", "/proc/sys/kernel/core_pattern", "/proc/sysrq-trigger", "/proc/irq", "/proc/bus"];
+    for (const path of paths.filter(p => fs.existsSync(p))) {
+      const covering = mounts.filter(row => path === row[4] || path.startsWith(row[4] + "/"))
+        .sort((a, b) => a[4].length - b[4].length).at(-1);
+      if (!covering || !covering[5].split(",").includes("ro")) process.exit(4);
+    }
+  `, [], false);
+  expect(probe).toMatchObject({ code: 0 });
+});

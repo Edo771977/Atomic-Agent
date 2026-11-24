@@ -482,3 +482,21 @@ it.skipIf(process.platform !== "linux")("round 4 point 1: masks an inherited sub
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it.skipIf(process.platform !== "linux")("round 5 point 1: opts in to UID zero and remounts private proc read-only", () => {
+  const uid = vi.spyOn(process, "getuid").mockReturnValue(0);
+  try {
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX_ALLOW_ROOT", undefined);
+    const opts = { bwrap: "/usr/bin/bwrap" };
+    expect(wrapWithOsSandbox("true", [], policy(), opts)).toMatchObject({
+      ok: false, reason: expect.stringContaining("ATOMIC_AGENT_SANDBOX_ALLOW_ROOT=1"),
+    });
+    vi.stubEnv("ATOMIC_AGENT_SANDBOX_ALLOW_ROOT", "1");
+    const launch = wrapWithOsSandbox("true", [], policy(), opts);
+    if (!launch.ok) throw new Error(launch.reason);
+    expect(launch.args.join(" ")).toContain("--proc /proc --remount-ro /proc");
+  } finally {
+    uid.mockRestore();
+    vi.unstubAllEnvs();
+  }
+});
