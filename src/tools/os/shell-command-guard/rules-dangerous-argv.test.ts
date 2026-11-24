@@ -32,6 +32,19 @@ it("marks third-party global skill installs as dangerous", () => {
   expect(guardLine("npx skills add example/skills -g").rule).toBe("dangerous.skill_global_mutation");
 });
 
+it.each([
+  "env -i atag skill list",
+  "env --ignore-environment atomic-agent skill list",
+  'atag "$TOPIC" list',
+  'atomic-agent skill "$ACTION" demo',
+])("flags opaque agent-command provenance: %s", (line) => {
+  expect(guardLine(line).rule).toBe("dangerous.skill_approval_origin");
+});
+
+it("classifies workspace project trust changes as dangerous", () => {
+  expect(guardLine("atag skill project on --workspace /work").rule).toBe("dangerous.skill_global_mutation");
+});
+
 describe("dangerous git rules: table", () => {
   it.each([
     "git -C repo push --force",

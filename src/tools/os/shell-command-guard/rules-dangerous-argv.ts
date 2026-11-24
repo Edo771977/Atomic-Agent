@@ -806,6 +806,12 @@ function matchSkillApprovalOrigin(segments: readonly (readonly string[])[]): Arg
     const program = programName(word);
     if (PSEUDOTERMINAL_PROGRAMS.has(program)) return true;
     const args = words.slice(index + 1);
+    if (program === "env" && args.some((arg) =>
+      arg === "--ignore-environment" || /^-[i]+$/.test(arg)
+    )) return true;
+    const learnedVerb = args[0]?.toLowerCase() === "skill" && args[1]?.toLowerCase() === "learned" &&
+      isComputedWord(args[2] ?? "");
+    if ((program === "atomic-agent" || program === "atag") && !learnedVerb && args.some(isComputedWord)) return true;
     return INLINE_INTERPRETERS.test(program) &&
       args.some((arg) => /^(?:-[ceEpr]|--(?:eval|print)|-command)(?:=|$)/i.test(arg)) &&
       args.some((arg) => LEARNED_CONSENT.test(arg));
