@@ -23,6 +23,7 @@ import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
 import {
   findShellStateSecrets,
+  findShellSkillWrites,
   findStateSecretReads,
   type StateSecrets,
 } from "./state-secrets.js";
@@ -294,6 +295,35 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     await expect(isolated.invoke("os.shell.run", { cmd: "rm", args: ["-r", parent] }, ctx())).rejects.toThrow(ApprovalDeniedError);
     expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config"]);
     expect(innerShells).toBe(0);
+  });
+
+  it.each([
+    "cd /scratch && tar -xf demo.tar --directory=shared",
+    "tar -xC /scratch/shared -f sample.tar",
+    "tar -xC/scratch/shared -f sample.tar",
+    "unzip archive.zip -d /scratch/shared",
+    "unzip -Psample archive.zip -d /scratch/shared",
+    "git clone example.invalid/repo /scratch/shared/demo",
+    "git clone --separate-git-dir=/scratch/shared/repo.git example.invalid/repo /tmp/clone",
+    "git -C /scratch clone https://example.invalid/shared.git",
+    "curl --output=/scratch/shared/demo https://example.invalid/demo",
+    "curl -sSLo/scratch/shared/demo https://example.invalid/demo",
+    "cd /scratch/shared && curl -O https://example.invalid/demo",
+    "cd /scratch && curl -OJ https://example.invalid/demo",
+    "wget -P /scratch/shared https://example.invalid/demo",
+    "wget -qO/scratch/shared/demo https://example.invalid/demo",
+    "wget --output-document=/scratch/shared/file https://example.invalid/demo",
+    "cd /scratch/shared && dd if=/dev/zero of=demo",
+    "bash -c 'cd /scratch/shared && touch demo'",
+    "cp -rt /scratch /elsewhere/shared",
+    "cp -rt/scratch /elsewhere/shared",
+    "mv /elsewhere/shared /scratch",
+    'DEST=/scratch/shared/demo; touch "$DEST"',
+    'cat input > "$UNKNOWN"',
+  ])("classifies a write target for %s", (cmd) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    })).toContain("/scratch/shared/");
   });
 
   it("allows installed skill reads and script execution but gates mutations as trust config", async () => {

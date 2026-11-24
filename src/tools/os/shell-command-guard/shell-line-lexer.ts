@@ -110,6 +110,7 @@ const OPERATORS: Record<ShellDialect, readonly (readonly [string, Operator])[]> 
 export function lexShellLine(
   line: string,
   dialect: ShellDialect,
+  home = homedir(),
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
   const heredocs: { delimiter: string; stripTabs: boolean }[] = [];
@@ -144,7 +145,7 @@ export function lexShellLine(
     inWord = true;
   };
   const appendDollar = (at: number): number | null => {
-    const read = readDollar(line, at, word.length === 0);
+    const read = readDollar(line, at, word.length === 0, home);
     if (read === null) return null;
     word += read.text;
     dynamic ||= read.dynamic;
@@ -274,19 +275,20 @@ function readDollar(
   line: string,
   at: number,
   wordStart: boolean,
+  home: string,
 ): { text: string; dynamic: boolean; next: number } | null {
   const next = line[at + 1];
   if (next === "(") return null;
   if (next === "{") {
     if (wordStart && line.startsWith("${HOME}", at)) {
-      return { text: homedir(), dynamic: false, next: at + "${HOME}".length };
+      return { text: home, dynamic: false, next: at + "${HOME}".length };
     }
     return null;
   }
   const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(at + 1))?.[0];
   if (name !== undefined) {
     if (wordStart && name === "HOME") {
-      return { text: homedir(), dynamic: false, next: at + 1 + name.length };
+      return { text: home, dynamic: false, next: at + 1 + name.length };
     }
     return { text: `$${name}`, dynamic: true, next: at + 1 + name.length };
   }

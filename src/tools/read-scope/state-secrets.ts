@@ -5,6 +5,8 @@ import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
 import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
 import { checkShellCommandGuard } from "../os/shell-command-guard/index.js";
+import { execWriteTargets, shellWriteTargets, type WriteTargetScope } from "../os/shell-command-guard/write-targets.js";
+import { coerceShellArgs, needsShellInterpretation } from "../os/shell/shell-interpretation.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -414,6 +416,33 @@ function isShellWrite(command: string): boolean {
     /(^|[^<])>/.test(command);
 }
 
+function protectedWritePaths(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  entries: readonly string[],
+  env = { home: homedir(), platform: process.platform },
+  includeUnresolved = false,
+): string[] {
+  if (entries.length === 0 || typeof args.cmd !== "string") return [];
+  const argv = coerceShellArgs(args.args);
+  if (!argv) return [];
+  const cwd = typeof args.cwd === "string" && args.cwd ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
+  const scope: WriteTargetScope = { unresolved: false, recursive: [], placed: [], home: env.home };
+  const targets = needsShellInterpretation(args.cmd, argv)
+    ? shellWriteTargets(shellCommandLine(args), cwd, scope)
+    : execWriteTargets(args.cmd, argv, cwd, scope);
+  if (includeUnresolved && scope.unresolved) return [...entries];
+  const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
+  const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
+  return entries.filter((entry) => {
+    const path = resolve(entry);
+    return [path, canonical(path)].some((root) =>
+      writes.some((target) => samePath(root, target) ||
+        (isTrustDirectoryEntry(entry) && isInside(root, target))) ||
+      recursive.some((target) => isInside(target, root)));
+  });
+}
+
 export function findShellSkillWrites(
   args: Record<string, unknown>,
   ctx: Pick<ToolContext, "workingDir">,
@@ -422,6 +451,8 @@ export function findShellSkillWrites(
 ): string[] {
   const files = secrets.skillWritePaths;
   if (!files?.length) return [];
+  const precise = protectedWritePaths(args, ctx, files, env, true);
+  if (precise.length > 0) return precise;
   return [...new Set(shellCommandLine(args).split(/[;|&\n]+/).flatMap((cmd) =>
     isShellWrite(cmd) ? findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { stateDir: secrets.stateDir, files }, env) : [],
   ))];
