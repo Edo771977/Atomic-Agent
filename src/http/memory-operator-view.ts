@@ -59,8 +59,18 @@ export function isEditableMemoryText(value: string, original?: string, displayed
     if (!isAllowedFormatCharacter(character) && character.search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
   }
   if (displayed === undefined || displayed === original) return true;
-  const markers = (text: string) => text.toLowerCase().match(/\[redacted(?::[^\]]*)?\]/g) ?? [];
-  const sourceMarkers = new Set(markers(original ?? ""));
-  const displayOnly = new Set(markers(displayed).filter((marker) => !sourceMarkers.has(marker)));
-  return !markers(value).some((marker) => displayOnly.has(marker));
+  const counts = (text: string): Map<string, number> => {
+    const markers = new Map<string, number>();
+    for (const [marker] of text.toLowerCase().matchAll(/\[redacted(?::[^\]]*)?\]/g)) {
+      markers.set(marker, (markers.get(marker) ?? 0) + 1);
+    }
+    return markers;
+  };
+  const source = counts(original ?? "");
+  const edited = counts(value);
+  for (const [marker, displayedCount] of counts(displayed)) {
+    const originalCount = source.get(marker) ?? 0;
+    if (displayedCount > originalCount && (edited.get(marker) ?? 0) > originalCount) return false;
+  }
+  return true;
 }
