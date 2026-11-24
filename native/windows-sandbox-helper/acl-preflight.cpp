@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <string>
 #include "acl-tree.h"
+#include "lpac-token.h"
 
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "userenv.lib")
@@ -23,28 +24,6 @@ static DWORD checkFile(const wchar_t* name, DWORD disposition, DWORD access = 0)
     if (file == INVALID_HANDLE_VALUE) return GetLastError();
     CloseHandle(file);
     return ERROR_SUCCESS;
-}
-
-// Independent diagnostic: bit 1 is available to ordinary packages, bit 2
-// to restricted packages. Resume only if exactly the LPAC bit is granted.
-static bool hasLpacAccess(HANDLE token) {
-    HANDLE impersonation = nullptr;
-    require(DuplicateToken(token, SecurityImpersonation, &impersonation) != FALSE,
-        "duplicate token for access check");
-    PSECURITY_DESCRIPTOR descriptor = nullptr;
-    require(ConvertStringSecurityDescriptorToSecurityDescriptorW(
-        L"O:SYG:SYD:(A;;0x3;;;WD)(A;;0x1;;;S-1-15-2-1)(A;;0x2;;;S-1-15-2-2)",
-        SDDL_REVISION_1, &descriptor, nullptr) != FALSE, "create diagnostic security descriptor");
-    GENERIC_MAPPING mapping{};
-    PRIVILEGE_SET privileges{};
-    DWORD bytes = sizeof(privileges), granted = 0;
-    BOOL allowed = FALSE;
-    require(AccessCheck(descriptor, impersonation, MAXIMUM_ALLOWED, &mapping,
-        &privileges, &bytes, &granted, &allowed) != FALSE, "evaluate diagnostic ACL");
-    LocalFree(descriptor);
-    CloseHandle(impersonation);
-    std::printf("Diagnostic DACL granted mask=%lu\n", granted);
-    return allowed && granted == 2;
 }
 
 int wmain(int argc, wchar_t** argv) {
@@ -117,26 +96,7 @@ int wmain(int argc, wchar_t** argv) {
     require(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE,
         EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
         "launch LPAC probe");
-    HANDLE token = nullptr;
-    require(OpenProcessToken(process.hProcess, TOKEN_QUERY | TOKEN_DUPLICATE, &token) != FALSE, "open child token");
-    DWORD appContainer = 0, lpac = 0, bytes = 0;
-    BOOL queriedAppContainer = GetTokenInformation(token, TokenIsAppContainer, &appContainer,
-        sizeof(appContainer), &bytes);
-    DWORD appContainerError = queriedAppContainer ? ERROR_SUCCESS : GetLastError();
-    BOOL queriedLpac = GetTokenInformation(token, TokenIsLessPrivilegedAppContainer,
-        &lpac, sizeof(lpac), &bytes);
-    DWORD lpacError = queriedLpac ? ERROR_SUCCESS : GetLastError();
-    std::printf("AppContainer=%lu (query error=%lu), LPAC=%lu (query error=%lu)\n",
-        appContainer, appContainerError, lpac, lpacError);
-    alignas(TOKEN_GROUPS) BYTE capabilityBuffer[sizeof(TOKEN_GROUPS)]{};
-    BOOL queriedCapabilities = GetTokenInformation(token, TokenCapabilities, capabilityBuffer,
-        sizeof(capabilityBuffer), &bytes);
-    const bool noCapabilities = queriedCapabilities &&
-        reinterpret_cast<const TOKEN_GROUPS*>(capabilityBuffer)->GroupCount == 0;
-    const bool accessCheckVerified = hasLpacAccess(token);
-    CloseHandle(token);
-    if (!queriedAppContainer || appContainer != 1 || !noCapabilities || !accessCheckVerified ||
-        (queriedLpac && lpac != 1)) {
+    if (!verifyLpacToken(process.hProcess, sid)) {
         TerminateProcess(process.hProcess, 2);
         return 2;
     }
