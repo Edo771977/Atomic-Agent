@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { describe, expect, it, vi } from "vitest";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -451,7 +452,7 @@ it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("round 4 poi
   }
 });
 
-it("round 4 point 1: mounts selected system paths without binding the host root", () => {
+it.skipIf(process.platform !== "linux")("round 4 point 1: mounts selected system paths without binding the host root", () => {
   const wrapped = wrapWithOsSandbox("true", [], policy(), {
     platform: "linux", bwrap: "/usr/bin/bwrap",
   });
@@ -460,6 +461,8 @@ it("round 4 point 1: mounts selected system paths without binding the host root"
   expect(args).not.toContain("--ro-bind / / ");
   expect(args).not.toMatch(/--ro-bind \/(?:etc|usr|usr\/local|var|opt|srv|mnt|media) \//);
   expect(args).toContain("--ro-bind /usr/bin /usr/bin");
+  expect(args).not.toContain("--ro-bind /usr/share /usr/share");
+  if (existsSync("/usr/share/git-core")) expect(args).toContain("--ro-bind /usr/share/git-core /usr/share/git-core");
 });
 
 
