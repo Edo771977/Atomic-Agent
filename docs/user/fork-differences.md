@@ -220,3 +220,7 @@ Child process environment filtering depends on the launcher. The shell builder n
 - [#35](https://github.com/Edo771977/atomic-agent/issues/35): the Windows test run (install, Fusion costs, folder constraints, approvals, project quality).
 - [#47](https://github.com/Edo771977/atomic-agent/issues/47): the desktop line and its project card.
 - [#80](https://github.com/Edo771977/atomic-agent/issues/80): the Windows acceptance checks for the rollback and milestone fixes.
+
+## OS sandbox for commands
+
+The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.

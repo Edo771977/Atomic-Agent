@@ -248,6 +248,7 @@ export function registerRuntimeCoreTools(input: {
     // where it lives. Pinned by the level-4 `trust_config` case in
     // bootstrap.test.ts.
     trustConfigPaths: getTrustConfigPaths(config.paths),
+    sandboxProtectedPaths: getStateSecretPaths(config.paths),
     // Lets `os.web.search` persist its result cache and provider cooldown
     // across processes (#256); `web.search.persistCache: false` opts out.
     // Pinned by the `#256` seam case in bootstrap.test.ts — the direct

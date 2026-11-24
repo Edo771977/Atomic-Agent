@@ -1,3 +1,4 @@
+import { sandboxGitArgs, sandboxGitEnv, runSandboxGit, prepareSandboxGit } from "../../sandbox/sandbox-git.js";
 /** Independent Git stores. Only object data, refs and shallow boundaries cross the source boundary. */
 import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
@@ -9,8 +10,9 @@ import { Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { createDeflate } from "node:zlib";
 import { buildCommandEnv } from "../../sandbox/command-env.js";
-import { runCommand } from "../../sandbox/command-runner.js";
 import { killProcessTree } from "../../sandbox/kill-process-tree.js";
+import { buildOsSandboxPolicy, readOsSandboxSettings, selectSandboxGitExclude } from "../../sandbox/os-sandbox.js";
+import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { DEFAULT_VERIFY_MAX_GIT_OBJECT_BYTES } from "../../config/tool-config.js";
 
 const MAX_OBJECTS = 100_000, MAX_OUTPUT = 32 * 1024 * 1024;
@@ -29,9 +31,9 @@ const env = (emptyConfig: string): NodeJS.ProcessEnv => ({
   GIT_AUTHOR_NAME: "Fusion snapshot", GIT_AUTHOR_EMAIL: "fusion@localhost", GIT_COMMITTER_NAME: "Fusion snapshot", GIT_COMMITTER_EMAIL: "fusion@localhost",
 });
 const prefix = ["--no-pager", "-c", "core.hooksPath=/dev/null", "-c", "core.autocrlf=false"];
-async function git(args: string[], cwd: string, snapshot: Pick<PrivateGitSnapshot, "emptyConfig" | "budget">, input?: string): Promise<string> {
+async function git(args: string[], cwd: string, snapshot: Pick<PrivateGitSnapshot, "emptyConfig" | "budget">, input?: string, readOnlyRoots?: readonly string[]): Promise<string> {
   snapshot.budget.signal?.throwIfAborted();
-  const result = await runCommand("git", [...prefix, ...args], { cwd, env: env(snapshot.emptyConfig), input, timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, ...(snapshot.budget.signal === undefined ? {} : { signal: snapshot.budget.signal }) });
+  const result = await runSandboxGit([...prefix, ...sandboxGitArgs(), ...args], { cwd, env: env(snapshot.emptyConfig), input, timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, ...(snapshot.budget.signal === undefined ? {} : { signal: snapshot.budget.signal }) }, readOnlyRoots);
   snapshot.budget.signal?.throwIfAborted();
   if (result.exitCode !== 0 || result.timedOut || result.truncated || result.inputTruncated) throw new Error(`private Git ${args[0]} failed: ${result.stderr.trim() || "incomplete result"}`);
   return result.stdout;
@@ -54,8 +56,10 @@ async function objects(source: string, tips: string[], snapshot: PrivateGitSnaps
 async function importObjects(source: string, destination: string, tips: string[], snapshot: PrivateGitSnapshot): Promise<void> {
   const ids = await objects(source, tips, snapshot);
   const options = { env: env(snapshot.emptyConfig), windowsHide: true, stdio: "pipe" as const };
-  const producer = spawn("git", [...prefix, "pack-objects", "--stdout", "--threads=1", "--window=0"], { ...options, cwd: source });
-  const consumer = spawn("git", [...prefix, "index-pack", "--stdin"], { ...options, cwd: destination });
+  const producerGit = prepareSandboxGit([...prefix, ...sandboxGitArgs(), "pack-objects", "--stdout", "--threads=1", "--window=0"], source, options.env);
+  const consumerGit = prepareSandboxGit([...prefix, ...sandboxGitArgs(), "index-pack", "--stdin"], destination, options.env);
+  const producer = spawn(producerGit.command, producerGit.args, { ...options, env: producerGit.env, cwd: source });
+  const consumer = spawn(consumerGit.command, consumerGit.args, { ...options, env: consumerGit.env, cwd: destination });
   const children = [producer, consumer];
   let error: Error | undefined;
   const stop = (reason: unknown): void => {
@@ -198,12 +202,22 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
   const sourceEnv = env(emptyConfig); delete sourceEnv.GIT_CONFIG_GLOBAL; delete sourceEnv.GIT_CONFIG_NOSYSTEM;
   if (process.env.GIT_CONFIG_GLOBAL !== undefined) sourceEnv.GIT_CONFIG_GLOBAL = process.env.GIT_CONFIG_GLOBAL;
   if (process.env.GIT_CONFIG_NOSYSTEM !== undefined) sourceEnv.GIT_CONFIG_NOSYSTEM = process.env.GIT_CONFIG_NOSYSTEM;
-  const global = await runCommand("git", [...prefix, "config", "--path", "--null", "--get", "core.excludesFile"], { cwd: input.source, env: sourceEnv, timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, signal });
+  const safeMode = readOsSandboxSettings().mode === "workspace";
+  const global = await runSandboxGit([...prefix, ...sandboxGitArgs(), "config", "--path", "--null", "--get", "core.excludesFile"], { cwd: input.source, env: sandboxGitEnv(sourceEnv), timeoutMs: 120_000, maxOutputBytes: MAX_OUTPUT, signal });
   signal.throwIfAborted();
   if ((global.exitCode !== 0 && global.exitCode !== 1) || global.truncated || global.timedOut) throw new Error("cannot freeze source Git global exclusions");
   const configured = global.stdout.replace(/\0$/, "");
-  const globalPath = global.exitCode === 0 ? configured === "" ? null : resolve(input.source, configured) : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
-  if (globalPath !== null) snapshot.globalExclude = await freezeRule(globalPath, snapshot);
+  if (!safeMode) {
+    const globalPath = global.exitCode === 0 ? configured === "" ? null : resolve(input.source, configured) : join(process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"), "git", "ignore");
+    if (globalPath !== null) snapshot.globalExclude = await freezeRule(globalPath, snapshot);
+  } else if (global.exitCode !== 0 || configured !== "") {
+    const policy = buildOsSandboxPolicy({
+      workspaceRoots: [input.source], stateDir: resolveStateDir(),
+      protectedPaths: getStateSecretPaths(getConfig().paths), network: false, gitMetadataWritable: true,
+    });
+    const source = selectSandboxGitExclude(global.exitCode === 0 ? configured : undefined, input.source, policy);
+    if (source !== undefined) snapshot.globalExclude = await freezeRule(source, snapshot);
+  }
   const shallowPath = (await git(["rev-parse", "--git-path", "shallow"], input.source, snapshot)).trim();
   try {
     const file = resolve(input.source, shallowPath), info = await lstat(file);
@@ -229,12 +243,12 @@ export async function preparePrivateGitSnapshot(input: { source: string; selecte
     await git(["read-tree", "--empty"], snapshot.seed, snapshot);
   }
   const privateIndex = ["--git-dir", snapshot.seed, "--work-tree", input.source, "-c", "core.bare=false"];
-  const raw = await git([...privateIndex, "ls-files", "--stage", "-z"], input.source, snapshot);
+  const raw = await git([...privateIndex, "ls-files", "--stage", "-z"], input.source, snapshot, undefined, [snapshot.seed]);
   const entries = raw.split("\0").filter(Boolean);
   if (entries.length > MAX_OBJECTS) throw new Error("Git tracked snapshot entry limit exceeded");
   if (entries.some(line => /^\d{6} [a-f0-9]+ [123]\t/.test(line))) { snapshot.unmerged = true; return finishPreparation(snapshot, input.signal); }
   const selected = relative(input.source, input.selectedDir ?? input.source).replaceAll("\\", "/") || ".";
-  const list = async (ignored: boolean): Promise<string[]> => (await git(["--literal-pathspecs", ...privateIndex, "ls-files", "--others", ...(ignored ? ["--ignored", "--directory"] : []), "--exclude-standard", "-z", "--", selected], input.source, snapshot)).split("\0").filter(path => path !== "" && !/^\.git(?:\/|$)/i.test(path));
+  const list = async (ignored: boolean): Promise<string[]> => (await git(["--literal-pathspecs", ...privateIndex, "ls-files", "--others", ...(ignored ? ["--ignored", "--directory"] : []), "--exclude-standard", "-z", "--", selected], input.source, snapshot, undefined, [snapshot.seed])).split("\0").filter(path => path !== "" && !/^\.git(?:\/|$)/i.test(path));
   snapshot.untracked = await list(false); snapshot.ignored = await list(true);
   // Reconstruct the working-tree snapshot using only this private index.
   const index: string[] = [];

@@ -218,3 +218,18 @@ it("classifies HTTP clients below timeout and shell grammar in verify.run", () =
     expect(guard("verify.run", { kind: "command", cmd }, { sessionId: "s1" })?.message).toContain('add "http"');
   }
 });
+
+it("refuses a Safe Mode network override in a restricted project even for an allowed client", () => {
+  vi.stubEnv("ATOMIC_AGENT_SANDBOX", "workspace");
+  try {
+    const guard = createEgressGuard({ policyForSession: () => constrained(["http"]) });
+    const ctx = { sessionId: "restricted" };
+    const args = { cmd: "curl", args: ["https://example.com"] };
+    expect(guard("os.shell.run", args, ctx)).toBeNull();
+    expect(guard("os.shell.run", { ...args, network: true }, ctx)).toMatchObject({
+      code: EGRESS_NOT_ALLOWED_CODE, program: "Safe Mode network override",
+    });
+  } finally {
+    vi.unstubAllEnvs();
+  }
+});

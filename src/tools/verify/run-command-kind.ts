@@ -22,11 +22,12 @@ export interface CommandRunOutcome {
 
 export async function runCommandKind(
   args: VerifyRunArgs,
-  ctx: { cwd: string; signal?: AbortSignal },
+  ctx: { cwd: string; workspaceRoot: string; signal?: AbortSignal },
 ): Promise<CommandRunOutcome> {
   const started = Date.now();
   const proc = spawnVerifyProcess(args.cmd ?? "", args.args ?? [], {
     cwd: ctx.cwd,
+    workspaceRoot: ctx.workspaceRoot,
     env: args.env,
     network: args.network,
     timeoutMs: args.timeoutMs,
