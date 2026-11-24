@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
-import { chmodSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { expect, it } from "vitest";
@@ -92,3 +92,19 @@ it.skipIf(bwrap === null || !process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS)("round 
     }
   }
 }, 20_000);
+
+it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("round 4 point 6: a service home outside the mounted trees stays private", async () => {
+  const serviceRoot = (process.env.ATOMIC_AGENT_TEST_SYSTEM_ROOTS ?? "").split(":").find(path => path.startsWith("/srv/")) ?? process.cwd();
+  const home = mkdtempSync(join(serviceRoot, "atomic-service-home-"));
+  try {
+    const marker = join(home, "ordinary-marker.txt");
+    writeFileSync(marker, "synthetic home marker", { mode: 0o660 });
+    const probe = await fixtureCommand(
+      "try{require('node:fs').readFileSync(process.argv[1]);process.exit(2)}catch{process.exit(17)}",
+      [marker], false,
+    );
+    expect(probe).toMatchObject({ code: 17 });
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
