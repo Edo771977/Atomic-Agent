@@ -9,8 +9,9 @@ import { dirname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
+const appcontainer = process.argv.includes("--appcontainer");
 const targeted = process.argv.includes("--targeted");
-const matrix = process.argv.includes("--matrix") || targeted;
+const matrix = process.argv.includes("--matrix") || targeted || appcontainer;
 const helper = realpathSync.native(resolve(process.argv[2]));
 const base = realpathSync.native(mkdtempSync(join(process.env.RUNNER_TEMP ?? tmpdir(), "atomic-lpac-")));
 const profile = `AtomicAgent.Workspace.${randomBytes(16).toString("hex")}`;
@@ -90,7 +91,35 @@ try {
   await once(server, "listening");
   const port = String(server.address().port);
   const endpoints = [["127.0.0.1", port], [lan.address, port], ["1.1.1.1", "443"]];
-  if (targeted) {
+  if (appcontainer) {
+    // Prove endpoint reachability before interpreting any negative result.
+    for (const [host, target] of endpoints) {
+      assert.match(call(helper, ["--socket-allow", host, target]), /TCP result: 0/);
+      console.log(`APPCONTAINER host TCP ${host}: reachable`);
+    }
+    const launch = (args, timeout = 10_000) =>
+      call(helper, ["diagnose", stageRequest(args, timeout), "appcontainer"]);
+    const failures = [];
+    const check = (label, test) => {
+      try { test(); console.log(`APPCONTAINER ${label}: pass`); }
+      catch (error) {
+        failures.push(label);
+        console.log(`APPCONTAINER ${label}: fail ${[error.stderr, error.stdout].filter(Boolean).join(" | ") || error.message}`);
+      }
+    };
+    assert.match(call(helper, ["--null-device-host"]), /NUL read\/write result: 0/);
+    check("NUL read/write", () => assert.match(launch([helper, "--null-device-host"]), /NUL read\/write result: 0/));
+    check("Node", () => assert.equal(launch([node, "-e", "console.log(1)"]).trim(), "1"));
+    const cmd = join(process.env.SystemRoot, "System32", "cmd.exe");
+    call(cmd, ["/d", "/c", "echo x > nul"]);
+    check("cmd redirect NUL", () => launch([cmd, "/d", "/c", "echo x > nul"]));
+    check("Git status", () => assert.match(launch([git, "status", "--short"]), /existing\.txt/));
+    for (const [host, target] of endpoints) {
+      check(`TCP denial ${host}`, () =>
+        assert.match(launch([helper, "--socket-deny", host, target], 35_000), /TCP result: 10013/));
+    }
+    assert.deepEqual(failures, [], "AppContainer compatibility and containment preflight failures");
+  } else if (targeted) {
     const errors = [];
     const check = (label, validate) => {
       try {
