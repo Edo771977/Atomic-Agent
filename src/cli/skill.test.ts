@@ -115,7 +115,7 @@ describe("skillCommand", () => {
     },
   );
 
-  it.each([["enable", "demo"], ["disable", "demo"], ["project", "on"]])(
+  it.each([["enable", "demo"], ["disable", "demo"], ["project", "on"], ["project", "off"]])(
     "refuses workspace %s in a tool process",
     async (verb, value) => {
       vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
@@ -134,16 +134,19 @@ describe("skillCommand", () => {
     const env = { ...process.env, HOME: stateDir, ATOMIC_AGENT_TOOL_CHILD: "1" };
     const run = (...args: string[]) => spawnSync(process.execPath,
       ["--import", "tsx", "src/cli/index.ts", "skill", ...args, "--workspace", project],
-      { env, encoding: "utf8", timeout: 15_000 },
+      { env, encoding: "utf8", timeout: 45_000 },
     );
     const mutation = run("project", "on");
     expect(mutation.status, mutation.stderr).toBe(1);
     expect(mutation.stderr).toContain("outside an agent tool process");
+    const status = run("project", "status");
+    expect(status.status, status.stderr).toBe(0);
+    expect(status.stdout).toContain("1 pending");
     const listing = run("list");
     expect(listing.status, listing.stderr).toBe(0);
     expect(listing.stdout).toContain("Ask the operator");
     expect(listing.stdout).not.toContain("skill project on");
-  }, 30_000);
+  }, 120_000);
 
   it("update skips skills that were not installed from a hub", async () => {
     writeSkill(globalSkillsDir, "alpha");

@@ -81,7 +81,7 @@ const HELP =
     "  enable <name>              Re-enable a previously disabled skill (mutates config.json)",
     "  disable <name>             Hide a skill from the registry without removing files (mutates config.json)",
     "  enable|disable <name> --workspace <dir>  Change cloud workspace policy only",
-    "  project on|off --workspace <dir>        Trust (on) or revoke (off) the folder's project skills and AGENTS.md/CLAUDE.md files",
+    "  project on|off|status --workspace <dir>  Change or inspect trust for project skills and instruction files",
     "  list|show <name> --workspace <dir>      Inspect effective cloud workspace skills",
     "  browse [--source owner/repo]   Browse installable skills (ClawHub + configured GitHub taps)",
     "  search <query>             Search ClawHub + the configured GitHub taps",
@@ -164,6 +164,13 @@ export async function skillCommand(args: string[]): Promise<number> {
 
 function handleWorkspaceSkill(args: string[], workspace: string): number {
   const [command, value] = args;
+  if (command === "project" && value === "status" && args.length === 2) {
+    const trust = inspectProjectTrust(getConfig(), workspace);
+    const counts = (kind: "skills" | "instructions") =>
+      `${trust.trusted[kind].length} trusted, ${trust.pending[kind].length} pending, ${trust.declined[kind].length} declined`;
+    process.stdout.write(`workspace: ${resolve(workspace)}\nskills: ${counts("skills")}\ninstructions: ${counts("instructions")}\n`);
+    return 0;
+  }
   if (command === "enable" || command === "disable" || command === "project") {
     const refusal = projectDecisionOriginRefusal();
     if (refusal) throw new Error(refusal);
@@ -175,7 +182,7 @@ function handleWorkspaceSkill(args: string[], workspace: string): number {
     return 0;
   }
   if (command === "project") {
-    if ((value !== "on" && value !== "off") || args.length !== 2) throw new Error("Expected skill project on|off --workspace <dir>");
+    if ((value !== "on" && value !== "off") || args.length !== 2) throw new Error("Expected skill project on|off|status --workspace <dir>");
     // Off declines what is there while it is still listed, then switches the folder off;
     // on switches it back on first so its skills are counted when they are trusted.
     let trust: ProjectTrustStatus;

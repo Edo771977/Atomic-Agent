@@ -785,7 +785,9 @@ function matchGlobalSkillMutation(segments: readonly (readonly string[])[]): Arg
   const changesSkills = segments.some((words) => words.some((word, index) => {
     const program = programName(word);
     const verb = words[index + 1]?.toLowerCase() ?? "";
-    if (word.toLowerCase() === "skill" && GLOBAL_SKILL_MUTATIONS.has(verb)) return true;
+    if (word.toLowerCase() === "skill" && GLOBAL_SKILL_MUTATIONS.has(verb)) {
+      return verb !== "project" || words[index + 2]?.toLowerCase() !== "status";
+    }
     return (program === "skills" || /^skills@[^/]+$/.test(program)) && verb === "add" &&
       words.slice(index + 2).some((option) => option === "-g" || option === "--global");
   }));

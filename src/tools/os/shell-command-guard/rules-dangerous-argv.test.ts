@@ -41,6 +41,10 @@ it.each([
   expect(guardLine(line).rule).toBe("dangerous.skill_approval_origin");
 });
 
+it("allows reading workspace project trust status", () => {
+  expectNotDangerous("atag skill project status --workspace /work");
+});
+
 it("classifies workspace project trust changes as dangerous", () => {
   expect(guardLine("atag skill project on --workspace /work").rule).toBe("dangerous.skill_global_mutation");
 });
