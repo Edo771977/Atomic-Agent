@@ -18,6 +18,14 @@ const REGRANT = "reopen the project in the TUI to grant Windows sandbox access";
 const PROFILE_PREFIX = "AtomicAgent.Workspace.";
 const VERSION = 1;
 
+/**
+ * Keep Windows Safe Mode fail-closed while the stock Node and TCP
+ * acceptance tests cannot start under a zero-capability LPAC.
+ */
+export function windowsSandboxUnavailable(): string | undefined {
+  return "the Windows backend is disabled while stock Node fails Winsock startup in zero-capability LPAC (issue #212)";
+}
+
 interface Grant {
   root: string;
   profile: string;
@@ -173,6 +181,8 @@ function scanProject(root: string, countLimit: number): { count: number; probe?:
 /** Gather details for the operator prompt. This step only reads the workspace. */
 export function planWindowsSandbox(statePath: string, rootPath: string, protectedPaths: readonly string[]): WindowsSandboxPlan | undefined {
   requireOperator();
+  const unavailable = windowsSandboxUnavailable();
+  if (unavailable) throw new Error(unavailable);
   mkdirSync(statePath, { recursive: true });
   const state = canonical(statePath);
   const root = canonical(rootPath);
@@ -206,6 +216,8 @@ function changeAcl(plan: Omit<WindowsSandboxPlan, "approximateFiles">, operation
 
 export function applyWindowsSandboxGrant(plan: WindowsSandboxPlan): void {
   requireOperator();
+  const unavailable = windowsSandboxUnavailable();
+  if (unavailable) throw new Error(unavailable);
   initState(plan.state, plan.helper);
   withRegistryLock(plan.state, () => {
     const grants = readGrants(plan.state);
@@ -320,6 +332,8 @@ function createWindowsLaunch(command: string, args: readonly string[], root: str
 
 export function wrapWindowsSandbox(command: string, args: readonly string[], policy: OsSandboxPolicy, options: WindowsLaunch): OsSandboxWrap {
   if (policy.network) return { ok: false, reason: "the Windows sandbox denies all networking, including one-time requests" };
+  const unavailable = windowsSandboxUnavailable();
+  if (unavailable) return { ok: false, reason: unavailable };
   const root = policy.workspaceRoots[0];
   if (root === undefined || policy.workspaceRoots.length !== 1 || policy.readOnlyWorkspaceRoots.length > 0) {
     return { ok: false, reason: "Windows sandbox requires a single approved project root" };
@@ -331,6 +345,7 @@ export function wrapWindowsSandbox(command: string, args: readonly string[], pol
 }
 
 export function probeWindowsSandbox(root: string, state: string): boolean {
+  if (windowsSandboxUnavailable()) return false;
   // A native probe runs before this harmless command. Its exit status is also
   // checked before treating a stored ACL grant as current in the TUI.
   const command = windowsSystemExecutable("cmd.exe");

@@ -1,7 +1,5 @@
 name: Windows sandbox
 on:
-  push:
-    branches: [codex/windows-lpac-stage-1]
   pull_request:
     paths:
       - native/windows-sandbox-helper/**
@@ -16,9 +14,6 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '25'
       - name: Build and run the ACL feasibility test
         shell: cmd
         run: |
@@ -26,9 +21,7 @@ jobs:
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd /d "%RUNNER_TEMP%"
           cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
-          node -e "console.log(1)" || exit /b 1
-          for /f "usebackq delims=" %%i in (`where node.exe`) do if not defined NODE_BINARY set "NODE_BINARY=%%i"
-          acl-preflight.exe --benchmark "%NODE_BINARY%"
+          acl-preflight.exe --benchmark
   build-helper:
     runs-on: windows-latest
     timeout-minutes: 10
@@ -66,3 +59,21 @@ jobs:
           path: ${{ runner.temp }}/atomic-lpac-helper
       - name: Check the native launcher against reachable host fixtures
         run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-lpac-helper/atomic-sandbox-helper.exe"
+  lpac-node-compatibility:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '25'
+      - name: Compare offline Node startup with and without zero-capability LPAC
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
+          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
+          cd /d "%RUNNER_TEMP%"
+          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
+          node -e "console.log(1)" || exit /b 1
+          for /f "usebackq delims=" %%i in (`where node.exe`) do if not defined NODE_BINARY set "NODE_BINARY=%%i"
+          acl-preflight.exe --node "%NODE_BINARY%"

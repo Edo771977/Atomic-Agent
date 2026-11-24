@@ -5,7 +5,7 @@ Owner: docs/user/
 
 Launch the agent with `ATOMIC_AGENT_SANDBOX=workspace` to isolate shell commands and their descendants, including background jobs. Verification commands use the same isolation. Use `ATOMIC_AGENT_SANDBOX=off` to run with the ordinary tool approvals and project policy. The sandbox is off by default. Automatic activation is deferred pending real compatibility tests on Linux and macOS.
 
-On Linux, install Bubblewrap through the system package manager and use a host that permits its namespaces and mounts. The agent uses a system-managed executable. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. On Windows x64, the CLI uses the companion Windows sandbox helper when installed. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
+On Linux, install Bubblewrap through the system package manager and use a host that permits its namespaces and mounts. The agent uses a system-managed executable. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. Windows currently refuses commands when Safe Mode is enabled. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
 
 - Native dynamic-loader overrides are stripped before starting the sandbox backend.
 - Writes are confined to the trusted working directory and temporary directories. A tool argument cannot grant a new write root.
@@ -65,7 +65,15 @@ The directories must exist on the host. Add a separate library or package direct
 
 ## Windows CLI
 
-Start the TUI from the project with `ATOMIC_AGENT_SANDBOX=workspace` and an
+The Windows backend is gated off. On the hosted Windows runner, an ordinary
+Node installation fails inside LPAC before evaluating even an offline script.
+Winsock reports error 10107 and the second TCP client fails during COM
+initialization. The CLI therefore refuses commands and skips new ACL grants.
+The settings and ACL behavior below describe the experimental backend under
+test. See the [native helper guide](../../native/windows-sandbox-helper/README.md)
+to reproduce the results in disposable fixtures.
+
+To use the backend after it passes the Windows acceptance tests, start the TUI from the project with `ATOMIC_AGENT_SANDBOX=workspace` and an
 installed `atomic-sandbox-helper.exe`. On first use, the TUI shows the canonical
 project path, an approximate file count and the rights it will add. Approving
 adds inheritable NTFS allow entries for a project-specific LPAC SID to the
