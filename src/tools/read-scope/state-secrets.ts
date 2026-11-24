@@ -1,11 +1,12 @@
+import { lstatSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 
 import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
 import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
 import { checkShellCommandGuard } from "../os/shell-command-guard/index.js";
-import { execWriteTargets, shellWriteTargets, type WriteTargetScope } from "../os/shell-command-guard/write-targets.js";
+import { execWriteTargets, shellWriteTargets, type FindSelection, type WriteTargetScope } from "../os/shell-command-guard/write-targets.js";
 import { expandShellGlobArgs } from "../os/shell/expand-shell-glob-args.js";
 import { coerceShellArgs, needsShellInterpretation } from "../os/shell/shell-interpretation.js";
 import { processSecretCommand } from "./process-secret-commands.js";
@@ -435,6 +436,37 @@ export function shellServerKeyMutation(
   return protectedWritePaths(args, ctx, files, env).length > 0;
 }
 
+function findTouchesPath(selection: FindSelection, protectedPath: string, platform: NodeJS.Platform): boolean {
+  const { root, name, type, maxDepth = Infinity } = selection;
+  if (isInside(protectedPath, root)) return true;
+  if (!isInside(root, protectedPath)) return false;
+  const depth = relative(root, protectedPath).split(sep).filter(Boolean).length;
+  if (depth > maxDepth) return false;
+  if (!name && !type) return true;
+  let pattern: RegExp | undefined;
+  try {
+    pattern = name ? globToRegExp(name, platform) : undefined;
+  } catch {
+    return false;
+  }
+  const pending = [{ path: protectedPath, depth }];
+  for (let inspected = 0; pending.length > 0; inspected += 1) {
+    if (inspected >= 512) return true;
+    const item = pending.pop()!;
+    try {
+      const stat = lstatSync(item.path);
+      const kind = stat.isDirectory() ? "d" : stat.isFile() ? "f" : stat.isSymbolicLink() ? "l" : undefined;
+      if ((!type || kind === type) && (!pattern || pattern.test(basename(item.path)))) return true;
+      if (stat.isDirectory() && item.depth < maxDepth) {
+        for (const child of readdirSync(item.path)) pending.push({ path: resolve(item.path, child), depth: item.depth + 1 });
+      }
+    } catch {
+      // A missing entry cannot be emitted by this search.
+    }
+  }
+  return false;
+}
+
 function protectedWritePaths(
   args: Record<string, unknown>,
   ctx: Pick<ToolContext, "workingDir">,
@@ -447,13 +479,18 @@ function protectedWritePaths(
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
   const patterns = scope.patterns?.flatMap((pattern) => globAlternatives(pattern)) ?? [];
+  const findSelections = scope.findSelections?.flatMap((selection) => {
+    const root = canonical(selection.root);
+    return root === selection.root ? [selection] : [selection, { ...selection, root }];
+  }) ?? [];
   return entries.filter((entry) => {
     const path = resolve(entry);
     return [path, canonical(path)].some((root) =>
       writes.some((target) => samePath(root, target) ||
         (isTrustDirectoryEntry(entry) && isInside(root, target))) ||
       recursive.some((target) => isInside(target, root)) ||
-      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform)));
+      patterns.some((pattern) => globTouchesPath(pattern, root, env.platform)) ||
+      findSelections.some((selection) => findTouchesPath(selection, root, env.platform)));
   });
 }
 
