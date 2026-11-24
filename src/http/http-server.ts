@@ -251,15 +251,15 @@ export function createHttpServer(
           await closeServer(server, sockets);
           // ATO-586: the incognito chats this server opened. A chat whose
           // turn is still ending is deleted when it settles; one that
-          // cannot be deleted now is the next start's sweep.
+          // cannot be deleted stays tracked for another close or the boot sweep.
           for (const id of incognitoChats) {
             try {
-              options.runtime.discardIncognitoSession?.(id);
+              const outcome = options.runtime.discardIncognitoSession?.(id);
+              if (outcome !== "failed" && outcome !== "deferred") incognitoChats.delete(id);
             } catch {
-              /* left for the boot sweep */
+              /* Keep the id for another close or the boot sweep. */
             }
           }
-          incognitoChats.clear();
         },
       });
     };

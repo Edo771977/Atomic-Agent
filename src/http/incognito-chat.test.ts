@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { FileCheckpointStore } from "../tools/os/fs/fs-checkpoint-store.js";
 import type { CompletionResult } from "../llm/llama-server-client.js";
 
 import { deriveChatSessionId } from "./openai-session-id.js";
@@ -129,6 +130,22 @@ describe("incognito chats over HTTP", () => {
     const id = await chat({ incognito: true });
     expect(await chat({ session_id: id, incognito: false })).toBe(id);
     expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+  });
+
+  it("retries a private chat after server close could not write the cleanup marker", async () => {
+    const id = await chat({ incognito: true });
+    const marker = vi.spyOn(FileCheckpointStore.prototype, "markIncognitoRemoval").mockImplementationOnce(() => {
+      throw new Error("ENOSPC");
+    });
+    try {
+      await harness.handle.close();
+      expect(marker).toHaveBeenCalledWith(id);
+      expect(harness.runtime.sessionStore.load(id)?.incognito).toBeDefined();
+      await harness.handle.close();
+      expect(harness.runtime.sessionStore.load(id)).toBeNull();
+    } finally {
+      marker.mockRestore();
+    }
   });
 
   it("closing the server discards the incognito chats it opened", async () => {
