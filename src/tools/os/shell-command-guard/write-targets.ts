@@ -651,7 +651,39 @@ function directoryOptions(
   return result;
 }
 
-const GIT_WORKTREE_MUTATORS = new Set(["pull", "checkout", "apply", "reset", "merge", "am"]);
+const GIT_WORKTREE_MUTATORS = new Set([
+  "pull", "checkout", "apply", "reset", "merge", "am", "rebase", "switch",
+  "cherry-pick", "revert", "read-tree", "checkout-index",
+]);
+
+function gitWorktreeWrites(subcommand: string, args: readonly ShellWord[], cwd: string | undefined):
+  { words: ShellWord[]; cwd?: string; recursive?: boolean } | undefined {
+  const command = args[0]?.text;
+  const has = (option: string) => args.some(({ text }) => text === option);
+  if (subcommand === "apply" && has("--check") && !has("--apply")) return { words: [] };
+  if (subcommand === "stash" && command !== "pop" && command !== "apply") return { words: [] };
+  if (subcommand === "submodule" && !["add", "update", "deinit"].includes(command ?? "")) return { words: [] };
+  if (["clean", "rm", "mv"].includes(subcommand) &&
+      (has("--dry-run") || args.some(({ text }) => /^-[^-]*n/.test(text)))) return { words: [] };
+  if (subcommand === "worktree") {
+    const paths = plainOperands(args.slice(1), (flag) => flag === "-b" || flag === "-B");
+    if (command === "add" || command === "remove") return { words: paths.slice(0, 1), cwd, recursive: true };
+    if (command === "move") return { words: paths.slice(0, 2), cwd, recursive: true };
+    return { words: [] };
+  }
+  if (["rm", "mv", "restore"].includes(subcommand)) {
+    const paths = plainOperands(args, (flag) => flag === "-s" || flag === "--source");
+    return { words: paths, cwd, recursive: true };
+  }
+  if (subcommand === "checkout-index") {
+    const prefixes = directoryOptions(args, [], ["--prefix"]);
+    if (prefixes.length) return { words: prefixes, cwd, recursive: true };
+  }
+  if (GIT_WORKTREE_MUTATORS.has(subcommand) || ["stash", "submodule", "clean"].includes(subcommand)) {
+    return { words: [word(".")], cwd, recursive: true };
+  }
+  return undefined;
+}
 
 function structuredWrites(name: string, args: readonly ShellWord[], dir: string | undefined, scope?: WriteTargetScope):
   { words: ShellWord[]; cwd?: string; recursive?: boolean } | undefined {
@@ -711,9 +743,8 @@ function structuredWrites(name: string, args: readonly ShellWord[], dir: string 
       } else if (["-c", "--git-dir", "--work-tree", "--namespace", "--config-env"].includes(arg.text)) i += 1;
     }
     const subcommand = args[i]?.text ?? "";
-    if (subcommand === "apply" && args.slice(i + 1).some(({ text }) => text === "--check") &&
-      !args.slice(i + 1).some(({ text }) => text === "--apply")) return { words: [] };
-    if (GIT_WORKTREE_MUTATORS.has(subcommand)) return { words: [word(".")], cwd, recursive: true };
+    const writes = gitWorktreeWrites(subcommand, args.slice(i + 1), cwd);
+    if (writes) return writes;
     if (subcommand !== "clone") return undefined;
     const positionals = plainOperands(args.slice(i + 1), (flag) =>
       ["-b", "--branch", "-o", "--origin", "-c", "--config", "--depth", "--filter",

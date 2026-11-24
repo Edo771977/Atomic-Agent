@@ -129,4 +129,28 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
   });
+
+  it.each([
+    ["git -C /scratch/shared rebase main", true],
+    ["git -C /scratch/shared stash pop", true],
+    ["git -C /scratch/shared stash apply", true],
+    ["git -C /scratch/shared switch main", true],
+    ["git -C /scratch/shared cherry-pick HEAD", true],
+    ["git -C /scratch/shared revert HEAD", true],
+    ["git -C /scratch/shared restore file", true],
+    ["git -C /scratch/shared clean -fd", true],
+    ["git -C /scratch/shared rm file", true],
+    ["git -C /scratch/shared mv file new", true],
+    ["git -C /scratch/shared read-tree -u HEAD", true],
+    ["git -C /scratch/shared checkout-index -a", true],
+    ["git worktree add /scratch/shared/new", true],
+    ["git -C /scratch/shared submodule update --init", true],
+    ["git -C /scratch/shared clean -nd", false],
+    ["git -C /scratch/shared stash list", false],
+    ["git -C /scratch/shared worktree list", false],
+  ] as const)("round five point 5 classifies %s", (cmd, blocked) => {
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
+  });
 });
