@@ -208,9 +208,8 @@ function lineTargets(
   windows: boolean,
   scope?: WriteTargetScope,
 ): string[] | null {
-  let tokens = lexShellLine(line, dialect, scope?.home, scope !== undefined);
-  const substitutions = scope && dialect === "posix" && tokens === null ? liftSubstitutions(line) : null;
-  if (substitutions?.inner.length) tokens = lexShellLine(substitutions.outer, dialect, scope?.home, true);
+  const substitutions = scope && dialect === "posix" ? liftSubstitutions(line, true) : null;
+  const tokens = lexShellLine(substitutions?.outer ?? line, dialect, scope?.home, scope !== undefined, scope !== undefined);
   if (tokens === null) return null;
   if (substitutions?.inner.length === 1) {
     const body = lexShellLine(substitutions.inner[0]!, dialect, scope?.home);
@@ -252,7 +251,7 @@ function lineTargets(
     }
     if (token.kind === "redirect") {
       const next = tokens[k + 1];
-      if (next?.kind !== "word") return null;
+      if (next?.kind !== "word") return scope ? targets : null;
       k += 1;
       if (token.writes === "none" || token.writes === "here-string") {
         hasInputRedirect = true;
@@ -265,11 +264,11 @@ function lineTargets(
       if (target !== undefined) targets.push(target);
       continue;
     }
-    if (!flush(token.kind === "separator" && token.pipe)) return null;
+    if (!flush(token.kind === "separator" && token.pipe) && !scope) return null;
     if (token.kind === "open") outer.push(cwd);
     else if (token.kind === "close" && outer.length > 0) cwd = outer.pop();
   }
-  if (!flush()) return null;
+  if (!flush() && !scope) return null;
   for (const inner of substitutions?.inner ?? []) {
     targets.push(...(lineTargets(inner, dir, dialect, windows, scope) ?? []));
   }
@@ -891,6 +890,11 @@ function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: 
 function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
   const target = resolveDirectoryWord(word, dir, scope);
   if (target !== undefined || !scope || !word.dynamic) return target;
+  const fallback = /^\$\{[A-Za-z_]\w*:?[=-]([^$*?\[{}]+)\}([^$*?\[{}]*)$/.exec(word.text);
+  if (fallback) {
+    const candidate = resolveWord({ text: fallback[1]! + fallback[2], dynamic: false }, dir, scope.home);
+    if (candidate) scope.placed.push(candidate);
+  }
   const variable = /^\$(?:\{([A-Za-z_]\w*)[^}]*\}|([A-Za-z_]\w*))(.*)$/s.exec(word.text);
   if (variable) {
     const [, braced, bare, suffix] = variable;

@@ -36,8 +36,8 @@ export interface LiftedLine {
  * alone. Returns `null` when a substitution or a quote is not closed,
  * so the caller keeps its old fallback.
  */
-export function liftSubstitutions(line: string): LiftedLine | null {
-  if (!line.includes("$(") && !line.includes("`")) {
+export function liftSubstitutions(line: string, includeProcess = false): LiftedLine | null {
+  if (!line.includes("$(") && !line.includes("`") && (!includeProcess || !/[<>]\(/.test(line))) {
     return { outer: line, inner: [] };
   }
   const inner: string[] = [];
@@ -70,11 +70,12 @@ export function liftSubstitutions(line: string): LiftedLine | null {
       i += 1;
       continue;
     }
-    if (c === "$" && line[i + 1] === "(") {
+    const process = includeProcess && !inDouble && (c === "<" || c === ">");
+    if ((c === "$" || process) && line[i + 1] === "(") {
       const end = matchingClose(line, i + 2, "(", ")");
       if (end === -1) return null;
       const body = line.slice(i + 2, end);
-      if (body.startsWith("(") && body.endsWith(")")) {
+      if (!process && body.startsWith("(") && body.endsWith(")")) {
         // `$((1 + 2))` is arithmetic, not a command, but a substitution
         // inside it still runs: `$(( $(git push -f; echo 1) ))`.
         const nested = liftSubstitutions(body.slice(1, -1));
@@ -83,7 +84,7 @@ export function liftSubstitutions(line: string): LiftedLine | null {
         outer += SUBSTITUTION_PLACEHOLDER;
       } else {
         inner.push(body);
-        outer += PRINTS_LITERAL.test(body) ? PRINTED_PLACEHOLDER : SUBSTITUTION_PLACEHOLDER;
+        outer += !process && PRINTS_LITERAL.test(body) ? PRINTED_PLACEHOLDER : SUBSTITUTION_PLACEHOLDER;
       }
       i = end + 1;
       continue;
@@ -108,7 +109,7 @@ export function liftSubstitutions(line: string): LiftedLine | null {
  * Index of the `close` that ends a group opened just before `from`,
  * counting nested `open`s and skipping quoted text. `-1` if none.
  */
-function matchingClose(
+export function matchingClose(
   line: string,
   from: number,
   open: string,

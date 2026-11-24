@@ -1,4 +1,5 @@
 import { homedir } from "node:os";
+import { matchingClose } from "./command-substitution.js";
 
 /**
  * Which shell a command line is written for. `posix` is `sh -c`'s line;
@@ -111,8 +112,17 @@ export function lexShellLine(
   dialect: ShellDialect,
   home = homedir(),
   keepHeredocs = false,
+  recoverPrefix = false,
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
+  const incomplete = (): ShellToken[] | null => {
+    if (!recoverPrefix) return null;
+    for (let i = tokens.length - 1; i >= 0; i -= 1) {
+      const token = tokens[i]!;
+      if (token.kind === "separator" && !token.pipe) return tokens.slice(0, i);
+    }
+    return null;
+  };
   const heredocs: { delimiter: string; stripTabs: boolean; body?: ShellWord }[] = [];
   const operators = OPERATORS[dialect];
   const escape = dialect === "posix" ? "\\" : dialect === "cmd" ? "^" : null;
@@ -147,7 +157,7 @@ export function lexShellLine(
     inWord = true;
   };
   const appendDollar = (at: number): number | null => {
-    const read = readDollar(line, at, word.length === 0, home);
+    const read = readDollar(line, at, word.length === 0, home, recoverPrefix);
     if (read === null) return null;
     word += read.text;
     dynamic ||= read.dynamic;
@@ -160,7 +170,7 @@ export function lexShellLine(
     const c = line[i]!;
     if (c === "\n") {
       endWord();
-      if (pendingHeredoc !== null) return null;
+      if (pendingHeredoc !== null) return incomplete();
       tokens.push(SEPARATOR);
       i = skipHeredocBodies(line, i + 1, heredocs);
       heredocs.length = 0;
@@ -173,7 +183,7 @@ export function lexShellLine(
     }
     if (escape !== null && c === escape) {
       const next = line[i + 1];
-      if (next === undefined) return null;
+      if (next === undefined) return incomplete();
       // A line continuation joins the two lines.
       if (next !== "\n") {
         word += next;
@@ -183,10 +193,10 @@ export function lexShellLine(
       continue;
     }
     // POSIX command substitution; PowerShell's escape character.
-    if (c === "`") return null;
+    if (c === "`") return incomplete();
     if (singleQuotes && c === "'") {
       const end = line.indexOf("'", i + 1);
-      if (end === -1) return null;
+      if (end === -1) return incomplete();
       openQuote(line[i + 1]);
       word += line.slice(i + 1, end);
       i = end + 1;
@@ -197,9 +207,9 @@ export function lexShellLine(
       let j = i + 1;
       for (;;) {
         const d = line[j];
-        if (d === undefined) return null;
+        if (d === undefined) return incomplete();
         if (d === '"') break;
-        if (d === "`") return null;
+        if (d === "`") return incomplete();
         if (dialect === "posix" && d === "\\") {
           const next = line[j + 1];
           if (next !== undefined && '"\\$`\n'.includes(next)) {
@@ -210,7 +220,7 @@ export function lexShellLine(
         }
         if (variables && d === "$") {
           const next = appendDollar(j);
-          if (next === null) return null;
+          if (next === null) return incomplete();
           j = next;
           continue;
         }
@@ -223,7 +233,7 @@ export function lexShellLine(
     }
     if (variables && c === "$") {
       const next = appendDollar(i);
-      if (next === null) return null;
+      if (next === null) return incomplete();
       i = next;
       continue;
     }
@@ -243,7 +253,7 @@ export function lexShellLine(
         inWord = false;
       }
       endWord();
-      if (pendingHeredoc !== null) return null;
+      if (pendingHeredoc !== null) return incomplete();
       if (operator.kind === "heredoc") {
         pendingHeredoc = { stripTabs: operator.stripTabs };
       } else {
@@ -263,7 +273,7 @@ export function lexShellLine(
     i += 1;
   }
   endWord();
-  if (pendingHeredoc !== null) return null;
+  if (pendingHeredoc !== null) return incomplete();
   return tokens;
 }
 
@@ -278,15 +288,17 @@ function readDollar(
   at: number,
   wordStart: boolean,
   home: string,
+  allowComplexParameters: boolean,
 ): { text: string; dynamic: boolean; next: number } | null {
   const next = line[at + 1];
   if (next === "(") return null;
   if (next === "{") {
-    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)([%#][^{}$]*)?\}/.exec(line.slice(at + 1));
-    if (!match) return null;
-    const homeReference = wordStart && match[1] === "HOME" && !match[2];
-    return { text: homeReference ? home : "$" + match[0], dynamic: !homeReference,
-      next: at + 1 + match[0].length };
+    const end = matchingClose(line, at + 2, "{", "}");
+    if (end === -1) return null;
+    const parameter = line.slice(at + 2, end);
+    if (!allowComplexParameters && !/^[A-Za-z_]\w*(?:[%#][^{}$]*)?$/.test(parameter)) return null;
+    const homeReference = wordStart && parameter === "HOME";
+    return { text: homeReference ? home : line.slice(at, end + 1), dynamic: !homeReference, next: end + 1 };
   }
   const name = /^[A-Za-z_][A-Za-z0-9_]*/.exec(line.slice(at + 1))?.[0];
   if (name !== undefined) {
