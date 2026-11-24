@@ -45,6 +45,8 @@ import {
 
 export interface TaskStoreOptions {
   dbFile: string;
+  /** Refuse due selection, claims and recovery for these sessions. */
+  skipSession?: (sessionId: string) => boolean;
   /**
    * The process and host a claim records as the run's owner, and that
    * `recoverInterrupted` judges an owner against. Defaults to this
@@ -292,10 +294,15 @@ export class TaskStore {
            WHERE status = 'pending' AND session_id = ?
            ORDER BY created_at ASC LIMIT ?`,
       );
+      if (options.skipSession !== undefined) {
+        const skipSession = options.skipSession;
+        this.db.function("skip_task_session", (id: string | null) => id !== null && skipSession(id) ? 1 : 0);
+      }
+      const eligibleSession = options.skipSession === undefined ? "" : " AND NOT skip_task_session(session_id)";
       this.listDueStmt = this.db.prepare(
         `SELECT * FROM tasks
            WHERE status = 'pending'
-             AND (scheduled_for IS NULL OR scheduled_for <= ?)
+             AND (scheduled_for IS NULL OR scheduled_for <= ?)${eligibleSession}
            ORDER BY scheduled_for ASC, created_at ASC
            LIMIT ?`,
       );
@@ -313,7 +320,7 @@ export class TaskStore {
                 updated_at = @now,
                 last_error = NULL,
                 last_error_cat = NULL${claimOwner}
-          WHERE id = @id AND status = '${from}'`;
+          WHERE id = @id AND status = '${from}'${eligibleSession}`;
       this.markRunningStmt = this.db.prepare(claimSql("pending"));
       this.markRunningPausedStmt = this.db.prepare(claimSql("paused"));
       this.markCompletedStmt = this.db.prepare(
@@ -362,7 +369,7 @@ export class TaskStore {
       );
       this.listRunningStmt = this.db.prepare(
         `SELECT id, started_at, ${withOwners ? "run_owner" : "NULL AS run_owner"}
-           FROM tasks WHERE status = 'running'`,
+           FROM tasks WHERE status = 'running'${eligibleSession}`,
       );
       // Keyed on the claim the sweep judged (`started_at`), so a row
       // claimed again in between is never taken back on the old verdict.
@@ -825,6 +832,48 @@ export class TaskStore {
       return deleted;
     });
     return remove();
+  }
+
+  /**
+   * Purge an orphan incognito chat's tasks in one immediate transaction.
+   * Return null if a running claim still has a live or potentially live
+   * owner, so the caller leaves the session available to that runner.
+   */
+  removeForSessionAtBoot(
+    sessionId: string,
+    options: { staleAfterMs: number; now?: number; isOwnerGone?: (owner: string) => boolean },
+  ): number | null {
+    const now = options.now ?? Date.now();
+    const probe = this.ownerProbe;
+    const dbIdentity = this.dbIdentity;
+    const isOwnerGone =
+      options.isOwnerGone ??
+      ((owner: string) => isTurnOwnerGone(owner, probe, dbIdentity));
+    const ownerColumn = this.runOwnersUnavailable === null ? "run_owner" : "NULL AS run_owner";
+    const remove = this.db.transaction((): number | null => {
+      const running = this.db
+        .prepare(
+          `SELECT id, started_at, ${ownerColumn}
+             FROM tasks WHERE session_id = ? AND status = 'running'`,
+        )
+        .all(sessionId) as RunningRow[];
+      for (const row of running) {
+        const owner = parseTurnOwner(row.run_owner);
+        const ownsThisRun =
+          owner !== null && row.started_at !== null && owner.at === row.started_at;
+        const gone = ownsThisRun
+          ? isOwnerGone(row.run_owner as string)
+          : row.started_at !== null && row.started_at < now - options.staleAfterMs;
+        if (!gone) return null;
+      }
+      // Purge error text and session identifiers before deleting task rows.
+      // Match the task ID too, for runs opened before a session was assigned.
+      this.db.prepare(
+        "DELETE FROM task_runs WHERE session_id = ? OR task_id IN (SELECT id FROM tasks WHERE session_id = ?)",
+      ).run(sessionId, sessionId);
+      return this.db.prepare("DELETE FROM tasks WHERE session_id = ?").run(sessionId).changes;
+    });
+    return remove.immediate();
   }
 
   /**

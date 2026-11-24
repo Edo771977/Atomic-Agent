@@ -100,7 +100,7 @@ describe("incognito sessions in the store", () => {
     expect(store.listRecent(10)).toEqual([]);
   });
 
-  it("the boot sweep deletes chats whose process is gone and keeps live ones", () => {
+  it("the boot sweep deletes chats whose process is gone and keeps live ones", async () => {
     ALIVE.add(10).add(20);
     const dead = open(10);
     dead.save(spoken("s-dead", dead, true));
@@ -110,19 +110,19 @@ describe("incognito sessions in the store", () => {
     ALIVE.delete(10);
 
     const boot = open(30);
-    expect(boot.sweepOrphanIncognito()).toEqual(["s-dead"]);
+    expect(await boot.sweepOrphanIncognito()).toEqual(["s-dead"]);
     expect(boot.load("s-dead")).toBeNull();
     expect(boot.load("s-live")).not.toBeNull();
     expect(boot.load("s-plain")).not.toBeNull();
     // A second sweep has nothing left to do.
-    expect(boot.sweepOrphanIncognito()).toEqual([]);
+    expect(await boot.sweepOrphanIncognito()).toEqual([]);
   });
 
-  it("the boot sweep treats an unreadable owner as gone", () => {
+  it("the boot sweep treats an unreadable owner as gone", async () => {
     const store = open(1);
     const state = { ...spoken("s-broken", store, true), incognito: { since: 1, owner: "not json" } };
     store.save(state);
-    expect(open(2).sweepOrphanIncognito()).toEqual(["s-broken"]);
+    expect(await open(2).sweepOrphanIncognito()).toEqual(["s-broken"]);
   });
   it("deleting an incognito chat leaves none of its text in the database file or its WAL", () => {
     const store = open(1);
