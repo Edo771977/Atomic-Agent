@@ -15,6 +15,8 @@ Windows internal executables use [windows-system-executable.ts](windows-system-e
 
 [os-sandbox.ts](os-sandbox.ts) applies the OS sandbox to shell jobs and verification command processes. Set `ATOMIC_AGENT_SANDBOX=workspace` to enable it or `off` to disable it. Linux uses Bubblewrap with a private PID namespace and procfs. macOS uses a parameterized Seatbelt profile and keeps its host loopback available. Windows has no backend. A requested sandbox that fails to start never reruns the command without confinement.
 
+The [Windows LPAC feasibility test](../../native/windows-sandbox-helper/README.md) documents the NTFS results for existing workspaces.
+
 The working directory and temporary directories are writable. A command-supplied `cwd` adds no permissions. The state directory and known credential locations are hidden. On Linux, the available mounts also limit ordinary reads. OS permissions and the dispatch read scope still apply. See the user guide for the Linux mount list and coverage of local and directory-service homes. Linux blocks direct IP access to the host and the outside network when isolated. Pathname Unix sockets on Linux and process metadata on macOS have separate security boundaries.
 
 For activation, one-time network consent and service verification limits, see the [user guide](../../docs/user/os-sandbox.md).
