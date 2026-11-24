@@ -194,8 +194,8 @@ function ShieldSection({
           {"   "}Masks detected emails, phone numbers, card numbers, IBANs and keys
           in covered model text requests. The agent restores values locally. Local
           endpoints receive original values in auto mode. Claude and Codex CLI,
-          image and audio descriptions, web search and remote MCP tool arguments
-          bypass the shield.
+          image and audio descriptions, web search, remote MCP tool arguments,
+          non-loopback embeddings and MCP sampling bypass the shield.
         </Text>
       </Box>
       {shield.enabled && shield.fusionUsesSubscriptionCli ? (

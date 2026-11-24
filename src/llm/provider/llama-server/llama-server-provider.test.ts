@@ -146,7 +146,7 @@ describe("LlamaServerProvider", () => {
   ] as const)("applies text Privacy Shield for %s in %s mode", async (url, shield, enabled, sent) => {
     setPrivacyShieldEnabled(enabled);
     const complete = vi.fn<LlamaServerClient["complete"]>().mockImplementation(async (request) => ({
-      content: request.prompt, reasoningContent: "", stop: true, truncated: false,
+      content: request.prompt.endsWith("[EMAIL_1]") ? "[EMAIL_1]" : request.prompt, reasoningContent: "", stop: true, truncated: false,
       timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
       cacheHitTokens: 0, slotId: -1, modelId: null,
     }));
@@ -163,7 +163,7 @@ describe("LlamaServerProvider", () => {
     });
     try {
       const result = await provider.complete({ prompt: "person@example.test", sessionId: "shield-llama" });
-      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent }));
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent === "[EMAIL_1]" ? expect.stringMatching(/Privacy Shield[\s\S]*\[EMAIL_1\]/) : sent }));
       expect(result.content).toBe("person@example.test");
     } finally {
       resetPrivacyVaults();
@@ -201,9 +201,9 @@ describe("LlamaServerProvider", () => {
         next = await stream.next();
       }
       expect(applyTemplate).toHaveBeenCalledWith(expect.arrayContaining([
-        { role: "system", content: "Contact [EMAIL_1]" },
+        { role: "system", content: expect.stringMatching(/Privacy Shield[\s\S]*Contact \[EMAIL_1\]/) },
       ]), undefined);
-      expect(completeStream).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Contact [EMAIL_1] | Continue" }));
+      expect(completeStream).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringMatching(/Privacy Shield[\s\S]*Contact \[EMAIL_1\] \| Continue$/) }));
       expect(chunks.at(-1)?.done).toBe(true);
       expect(chunks.map((chunk) => chunk.delta).join("")).toContain("person@example.test");
       expect(next.value.content).toContain("person@example.test");
