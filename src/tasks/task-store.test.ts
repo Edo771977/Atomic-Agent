@@ -40,6 +40,15 @@ describe("TaskStore", () => {
   let tmp: string;
   let store: TaskStore;
 
+  it("purges orphan tasks when the optional run history table is absent", () => {
+    const abandoned = store.create({ sessionId: "private", userMessage: "secret", origin: "cli", maxAttempts: 1 });
+    const ordinary = store.create({ sessionId: "ordinary", userMessage: "public", origin: "cli", maxAttempts: 1 });
+    rawDb(db => db.exec("DROP TABLE task_runs"));
+    expect(store.removeForSessionAtBoot("private", { staleAfterMs: 0 })).toBe(1);
+    expect(store.get(abandoned.id)).toBeNull();
+    expect(store.get(ordinary.id)?.status).toBe("pending");
+  });
+
   /** Write to the store's file from outside, as another binary would. */
   function rawDb(write: (db: BetterSqlite3.Database) => void): void {
     const db = new DatabaseCtor(join(tmp, "tasks.sqlite"));
