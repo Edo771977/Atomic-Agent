@@ -402,14 +402,14 @@ function isDirectory(path: string): boolean {
 
 const LINUX_SYSTEM_TREES = [
   "/usr/bin", "/usr/sbin", "/usr/lib", "/usr/lib32", "/usr/lib64", "/usr/libx32", "/usr/libexec",
-  "/usr/share/ca-certificates", "/usr/share/git-core", "/usr/share/locale",
+  "/usr/include", "/usr/share/misc", "/usr/share/ca-certificates", "/usr/share/git-core", "/usr/share/locale",
   "/usr/share/nodejs", "/usr/share/pkgconfig", "/usr/share/python3",
   "/usr/share/terminfo", "/usr/share/zoneinfo", "/nix/store",
 ];
 const LINUX_BROAD_ROOTS = ["/proc", "/sys", "/dev", "/usr", "/usr/local", "/etc", "/var", "/srv", "/mnt", "/media", "/opt", "/nix"];
 const LINUX_SYSTEM_ALIASES = ["/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32"];
 const LINUX_ETC_ENTRIES = [
-  "/etc/ld.so.cache", "/etc/passwd", "/etc/group", "/etc/nsswitch.conf",
+  "/etc/alternatives", "/etc/services", "/etc/protocols", "/etc/os-release", "/etc/ld.so.cache", "/etc/passwd", "/etc/group", "/etc/nsswitch.conf",
   "/etc/hosts", "/etc/host.conf", "/etc/gai.conf", "/etc/localtime",
   "/etc/ssl/certs", "/etc/pki/ca-trust/extracted",
 ];
@@ -602,7 +602,7 @@ function bwrapArgs(
     if (isDirectory(mount)) out.push("--tmpfs", mount, "--remount-ro", mount);
     else if (existsSync(mount)) out.push("--ro-bind", "/dev/null", mount);
   }
-  out.push("--proc", "/proc", "--remount-ro", "/proc");
+  out.push("--proc", "/proc", "--remount-ro", "/proc", "--symlink", "/proc/self/mounts", "/etc/mtab");
   for (const path of unique(policy.denyRead.map(real))) {
     if (homeMasks.includes(path) || !existsSync(path)) continue;
     if (isDirectory(path)) out.push("--tmpfs", path, "--remount-ro", path);

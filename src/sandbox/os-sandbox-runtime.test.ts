@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createSocket } from "node:dgram";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 import { expect, it, vi } from "vitest";
@@ -176,4 +176,17 @@ it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1")("rou
     vi.unstubAllEnvs();
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+it.skipIf(bwrap === null || process.env.ATOMIC_AGENT_REQUIRE_BWRAP !== "1" || !existsSync("/usr/bin/cc"))("round 5 point 3: Debian tools and C headers work", async () => {
+  const probe = await fixtureCommand(`
+    const fs = require("node:fs"), {execFileSync} = require("node:child_process");
+    execFileSync("/usr/bin/awk", ["BEGIN { print 42 }"]);
+    execFileSync("/usr/bin/which", ["python3"]);
+    execFileSync("/usr/bin/python3", ["-c", "print(42)"]);
+    fs.writeFileSync("/tmp/hello.c", '#include <stdio.h>\\nint main(void) { return puts("hello") < 0; }\\n');
+    execFileSync("/usr/bin/cc", ["/tmp/hello.c", "-o", "/tmp/hello"]);
+    process.stdout.write(execFileSync("/tmp/hello"));
+  `, [], false);
+  expect(probe, probe.output).toEqual({ code: 0, output: "hello\n" });
 });
