@@ -3,7 +3,7 @@ import {
   type ApprovalGate,
   type ApprovalRequest,
 } from "../approval/approval-gate.js";
-import { approvalForServe, serveWithheld } from "./serve-egress.js";
+import { approvalForServe, canReadSession, serveWithheld } from "./serve-egress.js";
 import type { ProjectGateEvent } from "./project-gate-bus.js";
 import { describeAlwaysRule } from "../approval/approval-rules.js";
 
@@ -218,23 +218,25 @@ export function createApprovalEventsHandler(): HttpHandler {
     ctx.approvalBus.prune((request) =>
       ctx.runtime.approvals.isPending(request.approvalId),
     );
-    for (const pending of ctx.approvalBus.snapshot()) {
-      sse.writeEvent(
-        "approval_request",
-        approvalEventPayload(approvalForServe(ctx, pending), ctx.runtime.approvals),
-      );
-    }
-    const unsubscribe = ctx.approvalBus.subscribe((request) => {
-      sse.writeEvent(
-        "approval_request",
-        approvalEventPayload(approvalForServe(ctx, request), ctx.runtime.approvals),
-      );
-    });
+    const authorized = (): boolean => {
+      if (ctx.stillAuthorized?.() !== false) return true;
+      res.end();
+      return false;
+    };
+    const writeApproval = (request: ApprovalRequest): void => {
+      if (!authorized()) return;
+      const visible = approvalForServe(ctx, request);
+      if (visible) sse.writeEvent("approval_request", approvalEventPayload(visible, ctx.runtime.approvals));
+    };
+    for (const pending of ctx.approvalBus.snapshot()) writeApproval(pending);
+    const unsubscribe = ctx.approvalBus.subscribe(writeApproval);
     // Issue #39: fusion project gates, the open ones replayed so a
     // reloaded window draws its card again. A session whose content may
     // not leave over this server gets no frame.
     const writeGate = (event: ProjectGateEvent): void => {
-      if (serveWithheld(ctx, event.sessionId)()) return;
+      if (!authorized() || serveWithheld(ctx, event.sessionId)()) return;
+      if (ctx.caller !== undefined && ctx.caller.role !== "owner"
+        && !canReadSession(ctx, ctx.runtime.sessionStore.load(event.sessionId))) return;
       sse.writeEvent("project_gate", { session_id: event.sessionId, view: event.view });
     };
     for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);

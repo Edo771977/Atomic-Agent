@@ -65,9 +65,11 @@ export function canReadSession(ctx: HandlerContext, state: SessionState | null):
 
 /** An approval prompt as a network server may show it: no details for a restricted session. */
 export function approvalForServe(
-  ctx: Pick<HandlerContext, "networkServe" | "runtime">,
+  ctx: HandlerContext,
   request: ApprovalRequest,
-): ApprovalRequest {
+): ApprovalRequest | undefined {
+  if (ctx.caller !== undefined && ctx.caller.role !== "owner"
+    && !canReadSession(ctx, ctx.runtime.sessionStore.load(request.sessionId))) return undefined;
   return serveWithheld(ctx, request.sessionId)() ? withholdApprovalDetails(request) : request;
 }
 

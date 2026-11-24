@@ -126,7 +126,7 @@ describe("operator memory routes", () => {
     expect(blocked.status).toBe(409);
     expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
     const deleted = await fetch(harness.baseUrl + `/api/sessions/${id}`, {
-      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+      method: "DELETE", headers: { authorization: "Bearer owner-test-token" },
     });
     expect(deleted.status).toBe(200);
     expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
@@ -142,7 +142,7 @@ describe("operator memory routes", () => {
     vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(false);
     const discard = vi.spyOn(harness.runtime, "discardIncognitoSession").mockReturnValueOnce("deferred");
     const deleted = await fetch(harness.baseUrl + "/api/sessions/" + id, {
-      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+      method: "DELETE", headers: { authorization: "Bearer owner-test-token" },
     });
     expect(deleted.status).toBe(200);
     expect(discard).toHaveBeenCalledWith(id);

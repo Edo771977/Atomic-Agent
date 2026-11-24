@@ -320,7 +320,7 @@ async function dispatch(
     sendError(res, 400, openaiError(`Invalid session ID: ${sessionIdProblem}`, "invalid_request_error", "id"));
     return;
   }
-  if (sessionId !== undefined && (method === "GET" || method === "HEAD")
+  if (sessionId !== undefined
     && ctx.caller !== undefined && ctx.caller.role !== "owner"
     && !canReadSession(ctx, ctx.runtime.sessionStore.load(sessionId))) {
     sendError(res, 404, openaiError("session not found"));

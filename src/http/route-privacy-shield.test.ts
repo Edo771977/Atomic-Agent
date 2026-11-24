@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getConfig, resetConfigCache } from "../config/index.js";
 import { privacyVaultFor, resetPrivacyVaults } from "../privacy/index.js";
+import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -90,7 +91,7 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     }
   });
 
-  it.each(["viewer", "member", "operator"] as const)("hides unavailable chats on both read routes from %s", async (role) => {
+  it.each(["viewer", "member", "operator", "admin"] as const)("hides unavailable chats on both read routes from %s", async (role) => {
     const token = "atag_viewer-token-000000000000000";
     harness = await startTestHarness({
       apiKey: "k".repeat(32),
@@ -110,7 +111,74 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     const [hiddenChat, missingChat] = await Promise.all([readChat(chat.id), readChat("unknown")]);
     expect(hiddenChat.status).toBe(404);
     expect(await hiddenChat.json()).toEqual(await missingChat.json());
+    const request = (method: string, path: string, body: unknown) => fetch(harness!.baseUrl + path, {
+      method, headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const attempts = [
+      ["PATCH", "", { title: "fixture title" }],
+      ["POST", "/archived", { archived: true }],
+      ["POST", "/steer", { message: "fixture" }],
+      ["POST", "/fork", {}],
+      ["POST", "/rewind/preview", {}],
+    ] as const;
+    for (const [method, suffix, body] of attempts) {
+      const hidden = await request(method, "/api/sessions/" + chat.id + suffix, body);
+      const missing = await request(method, "/api/sessions/unknown" + suffix, body);
+      expect(hidden.status).toBe(role === "viewer" ? 403 : 404);
+      expect(await hidden.json()).toEqual(await missing.json());
+    }
+    const complete = (id: string) => request("POST", "/v1/chat/completions", {
+      model: "atomic-agent", session_id: id, messages: [{ role: "user", content: "fixture" }],
+    });
+    const hiddenTurn = await complete(chat.id);
+    const missingTurn = await complete("unknown");
+    expect(hiddenTurn.status).toBe(role === "viewer" ? 403 : 404);
+    expect(await hiddenTurn.json()).toEqual(await missingTurn.json());
 
+
+  });
+
+  it.each(["viewer", "member", "operator", "admin"] as const)("omits private approvals and gates from %s event streams", async (role) => {
+    const token = "atag_fixture-event-token-00000000000000";
+    harness = await startTestHarness({
+      apiKey: "k".repeat(32),
+      namedTokens: () => [{ name: "reader", role, sha256: hashHttpToken(token), createdAt: "" }],
+    });
+    const hidden = harness.runtime.createSession({ incognito: true });
+    const visible = harness.runtime.createSession();
+    vi.spyOn(harness.runtime.approvals, "isPending").mockReturnValue(true);
+    const approvals = harness.approvalBus;
+    const publish = (sessionId: string, approvalId: string) => approvals.publish({
+      approvalId, sessionId, tool: "os.shell.run", category: "shell", reason: "fixture",
+    });
+    publish(hidden.id, "private-replay");
+    const gates = harness.handle.projectGateBus;
+    const view = fixtureProjectGateView({ kind: "plan" });
+    gates.publish({ type: "project_gate", sessionId: hidden.id, view });
+    const stream = await fetch(harness.baseUrl + "/api/events", {
+      headers: { authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000),
+    });
+    const reader = stream.body!.getReader();
+    try {
+      publish(hidden.id, "private-live");
+      gates.publish({ type: "project_gate", sessionId: hidden.id, view });
+      publish(visible.id, "visible-approval");
+      const decoder = new TextDecoder();
+      let events = "";
+      while (!events.includes("visible-approval")) {
+        const item = await reader.read();
+        if (item.done) break;
+        events += decoder.decode(item.value, { stream: true });
+      }
+      expect(events).toContain("visible-approval");
+      expect(events).not.toContain(hidden.id);
+      expect(events).not.toContain("private-replay");
+      expect(events).not.toContain("private-live");
+    } finally {
+      await reader.cancel().catch(() => {});
+      vi.restoreAllMocks();
+    }
   });
 
   it("refuses a body without a boolean", async () => {
