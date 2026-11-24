@@ -123,6 +123,7 @@ export type GateJudge = (input: {
   items: readonly AcceptanceItem[];
   facts: JudgeFacts;
   reply: string;
+  escalationRerun?: WorkerTaskResult["escalationRerun"];
   contract: DelegateContract | undefined;
   workingDir: string;
   changes: readonly WorkspaceChange[];
@@ -287,6 +288,7 @@ export function buildMergeGate(input: MergeGateInput): MergeGate {
           findings,
         },
         reply: gated.reply,
+        escalationRerun: gated.escalationRerun,
         contract,
         workingDir: workspace.dir,
         changes: await workspace.changes(),

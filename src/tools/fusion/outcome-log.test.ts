@@ -77,6 +77,19 @@ describe("fusion outcome records", () => {
     expect(parseOutcomeLines(JSON.stringify(old))).toEqual([old]);
   });
 
+  it("records the escalation rerun model while keeping the original worker fields", () => {
+    const record = taskOutcomeRecord(row({
+      escalationRerun: { providerId: "third", model: "/private/model/versioned.gguf", requestedModel: "alias" },
+    }), CONTEXT, "s", new Date());
+    expect(record).toMatchObject({
+      provider: "local-llama", model: "small",
+      escalationRerun: { provider: "third", model: "versioned" },
+    });
+    expect(parseOutcomeLines(JSON.stringify(record))).toEqual([record]);
+    expect(JSON.stringify(record)).not.toContain("/private");
+    expect(taskOutcomeRecord(row(), CONTEXT, "s", new Date())).not.toHaveProperty("escalationRerun");
+  });
+
   it("records narrow task-check acceptance without trusting judge-only or escalated success", () => {
     const make = (over: Partial<WorkerTaskResult>) => taskOutcomeRecord(row(over), { ...CONTEXT, taskRole: null }, "s", new Date());
     expect(make({ checks: { total: 2, failed: 0 } })).toMatchObject({ acceptance: "checks-passed", acceptanceScope: "task-checks", taskRole: null });

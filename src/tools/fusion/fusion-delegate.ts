@@ -647,7 +647,10 @@ export function buildFusionDelegateTool(
       // before anything starts. A model name outside the allowed list
       // refuses the call; without `roles` every task is on the worker
       // leg, as before.
-      const workerLegRef = { providerId: workerProviderId, model: workerModel };
+      const workerLegRef = {
+        providerId: workerProviderId, model: workerModel,
+        ...(mode.workerPinModel === undefined ? {} : { pinModel: mode.workerPinModel }),
+      };
       // The fusion team (issue #37): its workers are the models a task
       // may name, keyed by member; the director is the session's.
       const teamContext = deps.resolveFusionTeam === undefined ? teamContextFromConfig() : deps.resolveFusionTeam();
@@ -751,6 +754,7 @@ export function buildFusionDelegateTool(
               : {
                   providerId: mode.orchestratorProviderId,
                   model: mode.orchestratorModel ?? mode.orchestratorProviderId,
+                  ...(mode.orchestratorPinModel === undefined ? {} : { pinModel: mode.orchestratorPinModel }),
                 };
       const modelProblem = unknownModels(
         parsed.tasks,
@@ -779,6 +783,7 @@ export function buildFusionDelegateTool(
           attempted: (id) => turnBudget.attempts(ctx.sessionId, id) > 0,
           cliToolsStayOn: (provider) => deps.cliToolsStayOn?.(provider) === true,
           identityFor: (provider) => deps.resolveRoutingIdentity?.(provider),
+          ...(deps.resolveDefaultModel === undefined ? {} : { defaultModelOf: deps.resolveDefaultModel }),
           ...(teamTasks === undefined ? {} : { team: true }),
         }) : undefined;
       if (routing !== undefined) taskLegs = routing.legs;
@@ -1574,6 +1579,13 @@ export function buildFusionDelegateTool(
       // the same resolver as the workers, and counted in the turn's cap.
       // A snapshot-only price estimates its spend but admits nothing.
       const escalationTarget = mode.escalation ?? null;
+      const isEscalationLeg = (leg: { providerId: string; model: string; pinModel?: string }): boolean =>
+        escalationTarget !== null && escalationTarget.providerId === leg.providerId &&
+        (deps.workerSupportsSlotAffinity(leg.providerId) || sameMember(
+          leg.pinModel === undefined && leg.model === leg.providerId ? leg.providerId : `${leg.providerId}:${leg.model}`,
+          `${escalationTarget.providerId}:${escalationTarget.pinModel ?? escalationTarget.model ?? "default"}`,
+          deps.resolveDefaultModel,
+        ));
       const escalationModel = escalationTarget?.model ?? escalationTarget?.providerId;
       const escalationPricing =
         escalationTarget === null || escalationModel === undefined
@@ -1665,9 +1677,9 @@ export function buildFusionDelegateTool(
           const taskId = readFusionWorkerMeta(session.metadata)?.taskId;
           const provider = options.providerId;
           if (taskId !== undefined) {
-            // A model of the turn's own (a team member's) is not what the
-            // entry's identity describes, unless it is the worker leg's.
-            const pinnedElsewhere = options.model !== undefined && options.model !== workerModel;
+            // The registry supplies an identity for the base entry only.
+            const pinnedElsewhere = options.model !== undefined &&
+              (provider === undefined || options.model !== deps.resolveDefaultModel?.(provider));
             const identity = provider === taskLegs.get(taskId)?.providerId && provider !== undefined && !pinnedElsewhere
               ? deps.resolveRoutingIdentity?.(provider) : undefined;
             // Once a task's identity changes between turns it stays unattributed.
@@ -2113,6 +2125,25 @@ export function buildFusionDelegateTool(
         run?.addSpend(usd);
         turnBudget.addWorkerSpend(ctx.sessionId, usd, deps.requestBudgetAccounting === true);
       };
+      const isReplacementAuthor = (
+        rerun: WorkerTaskResult["escalationRerun"],
+        providerId: string,
+        model: string | null,
+      ): boolean => {
+        if (rerun === undefined || providerId !== rerun.providerId) return false;
+        if (deps.workerSupportsSlotAffinity(providerId)) return true;
+        // A default we cannot identify on the same provider might be the author.
+        const isUnknownDefault = (value: string | null): boolean => value === null || value === "default";
+        if (deps.resolveDefaultModel?.(providerId) === undefined &&
+            (isUnknownDefault(model) || (isUnknownDefault(rerun.model) && isUnknownDefault(rerun.requestedModel)))) {
+          return true;
+        }
+        const target = `${providerId}:${model ?? "default"}`;
+        return [rerun.model, rerun.requestedModel].some(authorModel =>
+          sameMember(target, `${providerId}:${authorModel ?? "default"}`, deps.resolveDefaultModel));
+      };
+      const teamReviewerModel = (member: TeamMember): string | null =>
+        team?.pinsModel(member.providerId) === true ? member.model : deps.resolveDefaultModel?.(member.providerId) ?? null;
       const visionFor = async (
         input: Parameters<GateJudge>[0],
         target: JudgeTarget,
@@ -2129,7 +2160,10 @@ export function buildFusionDelegateTool(
           : pickVisionJudge({
               taskReviewer: asMember(target),
               reviewers: team?.reviewers ?? [],
-              sees: (m) => currentPolicyAllows(m.providerId) && vj.sees(m),
+              sees: (m) => !isReplacementAuthor(input.escalationRerun, m.providerId,
+                (team?.pinsModel(m.providerId) ?? teamContext?.pinsModel(m.providerId) ?? true)
+                  ? m.model : deps.resolveDefaultModel?.(m.providerId) ?? null) &&
+                currentPolicyAllows(m.providerId) && vj.sees(m),
               route: () => vj.route(),
             });
         const result = await judgeTaskVision({
@@ -2169,8 +2203,25 @@ export function buildFusionDelegateTool(
       const judgeOne: GateJudge = async (input) => {
         const stop = budgetStop();
         reviewCutShort.delete(input.task.id);
-        if (stop !== undefined || runSignal.aborted) {
-          reviewCutShort.add(input.task.id);
+        let target = judgeTargetFor(input.task.id);
+        const author = input.escalationRerun;
+        const plannedReviewer = taskReviewerOf(input.task.id).member;
+        if (author !== undefined && target !== null && isReplacementAuthor(author, target.providerId,
+          plannedReviewer === null ? target.pinModel ?? target.model : teamReviewerModel(plannedReviewer))) {
+          const model = author.model ?? "default";
+          const reviewer = team?.reviewerFor(
+            { providerId: author.providerId, model, ref: `${author.providerId}:${model}` },
+            member => !isReplacementAuthor(author, member.providerId, teamReviewerModel(member)),
+          ) ?? null;
+          target = reviewer === null ? null : {
+            providerId: reviewer.providerId,
+            model: reviewer.model,
+            ...(team!.pinsModel(reviewer.providerId) ? { pinModel: reviewer.model } : {}),
+          };
+          if (reviewer !== null) teamJudged.add(input.task.id);
+        }
+        if (stop !== undefined || runSignal.aborted || target === null) {
+          if (stop !== undefined || runSignal.aborted) reviewCutShort.add(input.task.id);
           // The checks' own criteria facts still stand (issue #40).
           const named = input.items.flatMap((item) => (item.criterion === undefined ? [] : [item.criterion]));
           return {
@@ -2178,12 +2229,12 @@ export function buildFusionDelegateTool(
             green: false,
             items: [],
             unverified:
-              stop === undefined ? "the turn was cancelled" : `not judged: ${stop.message}`,
+              stop !== undefined ? `not judged: ${stop.message}` : runSignal.aborted
+                ? "the turn was cancelled" : "not independently verified after escalation: no independent reviewer is available",
             costUsd: null,
             review: { decision: "unverified", issues: [], reviewer: null },
           };
         }
-        const target = judgeTargetFor(input.task.id)!;
         judgesUsed.add(target.model ?? target.providerId);
         // A red fact makes the list red whatever vision says: not paid for.
         const red = await hasRedFact(input.items, input.facts, input.workingDir);
@@ -2227,7 +2278,7 @@ export function buildFusionDelegateTool(
         const visionUsd = vision?.costUsd ?? null;
         return visionUsd === null ? judged : { ...judged, costUsd: (judged.costUsd ?? 0) + visionUsd };
       };
-      // The watch on running workers (issue #43), team runs only: every
+      // The watch on running workers (issue #43): every
       // task's own `watchMinutes`, else `team.watchEveryMinutes`; 0 off.
       // The judge is the task's reviewer (the same pick, policy and model
       // pin as its review; none with `team.review: "off"`), else the
@@ -2243,10 +2294,10 @@ export function buildFusionDelegateTool(
       // together pass a cap each alone would respect.
       let watchReservedUsd = 0;
       const watchFor =
-        teamContext === undefined || sideComplete === undefined
+        sideComplete === undefined
           ? undefined
           : (taskId: string): WorkerWatchPlan | undefined => {
-              const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext.team);
+              const minutes = watchMinutesOf.get(taskId) ?? watchEveryMinutesOf(teamContext?.team);
               if (minutes <= 0) return undefined;
               // The task's reviewer (`taskReviewerOf`: the approved plan
               // row's, else the default; `team.review: "off"` turns
@@ -2263,13 +2314,16 @@ export function buildFusionDelegateTool(
                       ref: `${mode.orchestratorProviderId}:${mode.orchestratorModel ?? mode.orchestratorProviderId}`,
                     });
               if (lead === null) return undefined;
+              const pinModel = team?.pinsModel(lead.providerId) === true ? lead.model
+                : reviewer === null && lead.providerId === mode.orchestratorProviderId ? mode.orchestratorPinModel
+                : undefined;
               const target: JudgeTarget = {
                 providerId: lead.providerId,
-                model: lead.model,
-                ...(team?.pinsModel(lead.providerId) === true ? { pinModel: lead.model } : {}),
+                model: pinModel ?? lead.model,
+                ...(pinModel === undefined ? {} : { pinModel }),
               };
               const label = target.model ?? target.providerId;
-              const cap = watchMaxChecksOf(teamContext.team);
+              const cap = watchMaxChecksOf(teamContext?.team);
               return {
                 intervalMs: minutes * 60_000,
                 firstTickJitterMs: watchFirstTickJitterMs(minutes * 60_000, deps.watchRandom),
@@ -2499,7 +2553,7 @@ export function buildFusionDelegateTool(
             writeScope,
             signal: runSignal,
             ...guardOptionsFor(workerProviderId, workerPricing, workerModel, tasks),
-            ...escalationOptions,
+            ...(isEscalationLeg(workerLegRef) ? {} : escalationOptions),
             ...(watchFor === undefined ? {} : { watch: watchFor }),
             ...(briefSuffix === undefined ? {} : { briefSuffix }),
             ...(workerPricing === undefined ? {} : { workerPricing }),
@@ -2512,7 +2566,7 @@ export function buildFusionDelegateTool(
       // A role model's leg (ATO-943): its own provider, label, price and
       // width. A cloud leg takes the cloud cap; a second local server is
       // one at a time, since its slots are nobody's measurement. The
-      // escalation target is dropped where it is this very provider.
+      // escalation target is dropped where it is this very model.
       const rolePricing = new Map(
         [...roleLegs.values()].map((leg) => [
           legKey(leg),
@@ -2575,10 +2629,7 @@ export function buildFusionDelegateTool(
             // An orchestrator task already runs on the strongest model
             // the session holds: whichever escalation provider is
             // configured, it can only be the same or a weaker one.
-            ...(escalationTarget?.providerId === leg.providerId ||
-            leg.orchestrator === true
-              ? {}
-              : escalationOptions),
+            ...(leg.orchestrator === true || isEscalationLeg(leg) ? {} : escalationOptions),
             ...(briefSuffix === undefined ? {} : { briefSuffix }),
             ...(pricing === undefined ? {} : { workerPricing: pricing }),
             ...(taskWorkspace === undefined ? {} : { taskWorkspace }),
@@ -3194,6 +3245,7 @@ export function buildFusionDelegateTool(
                     findings: contract?.findings ?? [],
                   },
                   reply: row.reply,
+                  escalationRerun: row.escalationRerun,
                   contract: parsed.contract,
                   workingDir: ctx.workingDir,
                   // No snapshot of the folder before the wave: file heads.

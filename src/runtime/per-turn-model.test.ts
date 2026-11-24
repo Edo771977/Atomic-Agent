@@ -77,3 +77,34 @@ describe("perTurnModelRefusal: a fusion team member's model is known for its pro
     expect(perTurnModelRefusal(withTeam(team), "codex", "model-team")).not.toBeNull();
   });
 });
+
+it("allows a configured local OpenAI-compatible model for Fusion workers only", () => {
+  const local = {
+    ...resolved,
+    providers: [...resolved.providers,
+      { id: "studio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", defaultChatModel: "base" } as const,
+      { id: "llama", kind: "llama-server", url: "http://127.0.0.1:8000" } as const,
+    ],
+    runMode: { mode: "fusion", fusion: { workerProvider: "studio", workerModel: "worker-model" } } as const,
+  };
+  expect(perTurnModelRefusal(local, "studio", "worker-model")).toMatch(/cloud providers only/);
+  expect(perTurnModelRefusal(local, "studio", "worker-model", { fusionWorker: true })).toBeNull();
+  expect(perTurnModelRefusal(local, "studio", "unknown", { fusionWorker: true })).toMatch(/not known/);
+  expect(perTurnModelRefusal(local, "llama", "worker-model", { fusionWorker: true })).toMatch(/cloud providers only/);
+});
+
+it("validates a Fusion worker pin using its parent session's director", () => {
+  const config: ResolvedLlmConfig = {
+    ...resolved, activeTextProvider: "router",
+    providers: [...resolved.providers, {
+      id: "studio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", defaultChatModel: "base",
+    }],
+    runMode: { mode: "fusion", fusion: {
+      orchestratorProvider: "compat", workerProvider: "studio", workerModel: "session-worker",
+    } },
+  };
+  const teamChoice = { director: { providerId: "compat", model: "base-model", ref: "compat:base-model" } };
+  expect(perTurnModelRefusal(config, "studio", "session-worker", { fusionWorker: true })).toMatch(/not known/);
+  expect(perTurnModelRefusal(config, "studio", "session-worker", { fusionWorker: true, teamChoice })).toBeNull();
+  expect(perTurnModelRefusal(config, "studio", "other-unknown", { fusionWorker: true, teamChoice })).toMatch(/not known/);
+});
