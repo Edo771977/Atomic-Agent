@@ -279,9 +279,9 @@ function readDollar(
   const next = line[at + 1];
   if (next === "(") return null;
   if (next === "{") {
-    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)\}/.exec(line.slice(at + 1));
+    const match = /^\{([A-Za-z_][A-Za-z0-9_]*)([%#][^{}$]*)?\}/.exec(line.slice(at + 1));
     if (!match) return null;
-    const homeReference = wordStart && match[1] === "HOME";
+    const homeReference = wordStart && match[1] === "HOME" && !match[2];
     return { text: homeReference ? home : "$" + match[0], dynamic: !homeReference,
       next: at + 1 + match[0].length };
   }

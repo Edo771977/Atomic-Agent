@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { basename, isAbsolute, resolve } from "node:path";
 import { expandHome, resolveUserPath } from "../expand-home.js";
+import { liftSubstitutions } from "./command-substitution.js";
 import { basenameCommand } from "./normalise.js";
 import {
   lexShellLine,
@@ -33,7 +34,7 @@ import {
 /** Extra findings for callers protecting trust paths. The returned paths stay
  * suitable for the narrower same-turn write-denial check. */
 export interface WriteTargetScope {
-  unresolved: boolean;
+  assignments?: Map<string, Set<string>>;
   home?: string;
   recursive: string[];
   placed: string[];
@@ -44,7 +45,6 @@ export interface WriteTargetScope {
 export function shellWriteTargets(commandLine: string, cwd: string, scope?: WriteTargetScope): string[] {
   const windows = process.platform === "win32";
   const targets = lineTargets(commandLine, cwd, windows ? "cmd" : "posix", windows, scope);
-  if (targets === null && scope) scope.unresolved = true;
   return targets === null ? [] : unique(targets);
 }
 
@@ -63,7 +63,6 @@ export function execWriteTargets(
 ): string[] {
   const words = [cmd, ...args].map((text) => ({ text, dynamic: false }));
   const found = commandTargets(words, cwd, process.platform === "win32", scope);
-  if (found === null && scope) scope.unresolved = true;
   return found === null ? [] : unique(found.targets);
 }
 
@@ -188,7 +187,9 @@ function lineTargets(
   windows: boolean,
   scope?: WriteTargetScope,
 ): string[] | null {
-  const tokens = lexShellLine(line, dialect, scope?.home);
+  let tokens = lexShellLine(line, dialect, scope?.home);
+  const substitutions = scope && dialect === "posix" && tokens === null ? liftSubstitutions(line) : null;
+  if (substitutions?.inner.length) tokens = lexShellLine(substitutions.outer, dialect, scope?.home);
   if (tokens === null) return null;
   const targets: string[] = [];
   // A `( … )` subshell's `cd` ends at its `)`.
@@ -226,6 +227,9 @@ function lineTargets(
     else if (token.kind === "close" && outer.length > 0) cwd = outer.pop();
   }
   if (!flush()) return null;
+  for (const inner of substitutions?.inner ?? []) {
+    targets.push(...(lineTargets(inner, dir, dialect, windows, scope) ?? []));
+  }
   return targets;
 }
 
@@ -245,6 +249,7 @@ function commandTargets(
   while (i < words.length) {
     const word = words[i]!.text;
     if (KEYWORDS.has(word) || /^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) {
+      if (scope) rememberAssignment(words[i]!, dir, scope);
       i += 1;
       continue;
     }
@@ -255,10 +260,7 @@ function commandTargets(
   const head = words[i];
   const none = { targets: [], dir };
   if (head === undefined) return none;
-  if (head.dynamic) {
-    if (scope) scope.unresolved = true;
-    return none;
-  }
+  if (head.dynamic) return none;
   const name = commandName(head.text);
   const args = words.slice(i + 1);
 
@@ -272,13 +274,7 @@ function commandTargets(
 
   const nested = nestedLine(name, args);
   if (nested !== undefined) {
-    if (nested === null) {
-      if (scope && args.some((arg, index) =>
-        (/^-[a-z]*c[a-z]*$/i.test(arg.text) || /^-(?:command)$/i.test(arg.text)) &&
-        args[index + 1]?.dynamic
-      )) scope.unresolved = true;
-      return none;
-    }
+    if (nested === null) return none;
     // Its own `cd` stays inside it; a cmd.exe or PowerShell line speaks
     // Windows verbs wherever it runs.
     const targets = lineTargets(
@@ -302,8 +298,7 @@ function commandTargets(
     const dest = copy.destination && resolveWriteWord(copy.destination, dir, scope);
     if (dest && !args.some(({ text }) => text === "-T" || text === "--no-target-directory")) {
       for (const source of copy.sources) {
-        if (source.dynamic) scope.unresolved = true;
-        else scope.placed.push(resolve(dest, basename(source.text)));
+        if (!source.dynamic) scope.placed.push(resolve(dest, basename(source.text)));
       }
     }
   }
@@ -551,6 +546,7 @@ function structuredWrites(name: string, args: readonly ShellWord[], dir: string 
     for (const url of urls) outputs.push(fromHeader ? { text: "", dynamic: true } : remoteLeaf(url));
     if (urls.length === 0) outputs.push({ text: "", dynamic: true });
   }
+  if (remoteName && fromHeader) return { words: [...outputs.filter((file) => !file.dynamic), base], recursive: true };
   return { words: outputs.map((file) => file.text === "-" || isAbsolute(file.text) || base.text === "."
     ? file : { text: base.text + "/" + file.text, dynamic: base.dynamic || file.dynamic }) };
 }
@@ -654,12 +650,42 @@ function resolveWord(word: ShellWord, dir: string | undefined, home?: string): s
   }
 }
 
+function rememberAssignment(word: ShellWord, dir: string | undefined, scope: WriteTargetScope): void {
+  const assignment = /^([A-Za-z_][A-Za-z0-9_]*)=(.+)$/s.exec(word.text);
+  if (!assignment) return;
+  const [, name, value] = assignment;
+  const target = resolveWord({ text: value!.replace(/^\$(?:HOME\b|\{HOME\})/, () => scope.home ?? homedir()), dynamic: word.dynamic && !/^\$(?:HOME\b|\{HOME\})[^$*?\[]*$/.test(value!) }, dir, scope.home);
+  if (target === undefined) return;
+  const assignments = scope.assignments ??= new Map();
+  const candidates = assignments.get(name!) ?? new Set<string>();
+  candidates.add(target);
+  assignments.set(name!, candidates);
+}
+
 function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
   const target = resolveWord(word, dir, scope?.home);
-  if (target === undefined && scope && (word.dynamic ||
-    (dir === undefined && word.text !== "-" && !word.text.startsWith("/dev/") && !/^nul$/i.test(word.text))
-  )) scope.unresolved = true;
-  return target;
+  if (target !== undefined || !scope || !word.dynamic) return target;
+  const variable = /^\$(?:\{([A-Za-z_]\w*)[^}]*\}|([A-Za-z_]\w*))(.*)$/s.exec(word.text);
+  if (variable) {
+    const [, braced, bare, suffix] = variable;
+    const name = (braced ?? bare)!;
+    const bases = name === "HOME" && scope.home ? [scope.home] : scope.assignments?.get(name) ?? [];
+    for (const base of bases) {
+      scope.placed.push(...plausibleWritePaths({ text: base + suffix, dynamic: true }, dir, scope.home));
+    }
+    return undefined;
+  }
+  scope.placed.push(...plausibleWritePaths(word, dir, scope.home));
+  return undefined;
+}
+
+function plausibleWritePaths(word: ShellWord, dir: string | undefined, home?: string): string[] {
+  const prefix = /^[^$*?\[]+/.exec(word.text)?.[0] ?? "";
+  if (!prefix || (prefix !== word.text && !prefix.includes("/"))) return [];
+  const slash = prefix.lastIndexOf("/");
+  const text = prefix === word.text ? prefix : prefix.slice(0, slash + 1);
+  const path = resolveWord({ text, dynamic: false }, dir, home);
+  return path === undefined ? [] : [path];
 }
 
 function unique(paths: readonly string[]): string[] {

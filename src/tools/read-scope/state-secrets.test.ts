@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
@@ -19,6 +20,7 @@ import {
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import { getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
+import { buildOsShellTool } from "../os/shell/shell.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
 import {
@@ -239,7 +241,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     },
   });
 
-  function install(level: ApprovalLevel): void {
+  function install(level: ApprovalLevel, useRealShell = false): void {
     gate = new ApprovalGate({
       level,
       emit: (request) => {
@@ -251,7 +253,9 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     });
     registry = new ToolRegistry();
     registry.register(stub("os.fs.read", () => (innerReads += 1)));
-    registry.register(stub("os.shell.run", () => (innerShells += 1)));
+    registry.register(useRealShell
+      ? buildOsShellTool({ approvals: gate, approvalRequired: true })
+      : stub("os.shell.run", () => (innerShells += 1)));
     confineReads(registry, {
       grantedDirs: () => [],
       readScope: () => readScope,
@@ -320,7 +324,6 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     "cp -rt/scratch /elsewhere/shared",
     "mv /elsewhere/shared /scratch",
     'DEST=/scratch/shared/demo; touch "$DEST"',
-    'cat input > "$UNKNOWN"',
   ])("classifies a write target for %s", (cmd) => {
     expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
@@ -339,6 +342,7 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
   });
 
   it.each([
+    'cat input > "$UNKNOWN"',
     "bash /scratch/shared/script.sh 2>/dev/null",
     'cat "${SKILL_FILE}" 2>&1',
     "cat /scratch/shared/SKILL.md 2>&1",
@@ -358,6 +362,36 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     expect(findShellTrustDeletes({ cmd }, { workingDir: "/work" }, {
       stateDir: "/settings", files: [], trustDeletePaths: ["/scratch/shared/"],
     })).toContain("/scratch/shared/");
+  });
+
+  it("allows a Fusion worker to run git log with a computed date", async () => {
+    execFileSync("git", ["init", "--quiet", s.work]);
+    install(4, true);
+    const worker = "s-w-shell-history-1";
+    gate.setSessionPolicy(worker, { onPrompt: "refuse", reason: FUSION_WORKER_APPROVAL_REFUSED });
+    execFileSync("git", ["-C", s.work, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
+      "commit", "--quiet", "--allow-empty", "-m", "Worker log fixture"]);
+    const result = await registry.invoke("os.shell.run", { cmd: "git log --since=$(date +%F)" }, ctx(worker));
+    expect(result.status).toBe("ok");
+    expect(result.summary).toContain("Worker log fixture");
+    expect(prompts).toEqual([]);
+  });
+
+  it("allows computed reads and ordinary dynamic output at approval level four", async () => {
+    for (const cmd of [
+      "echo $(date)", "ls $(pwd)", "git log --since=$(date +%F)",
+      "cat \`which node\`", 'echo "${PATH%:*}"',
+      'cd "$(git rev-parse --show-toplevel)" && git status',
+      'npm test > "$LOG"', "echo ok | tee /tmp/test.log",
+      'echo ok > "$TMPDIR/test.log"', "cp report /tmp/report",
+    ]) {
+      await shell({ cmd });
+      expect(prompts.filter((prompt) => prompt.category === "trust_config"), cmd).toEqual([]);
+    }
+    answer = { approved: false };
+    await expect(shell({ cmd: `DEST='${join(s.stateDir, "skills")}'; cp report "$DEST"` }))
+      .rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.at(-1)?.category).toBe("trust_config");
   });
 
   it("allows installed skill reads and script execution but gates mutations as trust config", async () => {

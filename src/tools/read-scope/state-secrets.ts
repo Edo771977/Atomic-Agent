@@ -413,12 +413,10 @@ function protectedWritePaths(
   ctx: Pick<ToolContext, "workingDir">,
   entries: readonly string[],
   env = { home: homedir(), platform: process.platform },
-  includeUnresolved = false,
 ): string[] {
   if (entries.length === 0) return [];
-  const scope: WriteTargetScope = { unresolved: false, recursive: [], placed: [], home: env.home };
+  const scope: WriteTargetScope = { recursive: [], placed: [], home: env.home };
   const targets = scanWritePaths(args, ctx, scope);
-  if (includeUnresolved && scope.unresolved) return [...entries];
   const writes = [...targets, ...scope.placed].flatMap((path) => [resolve(path), canonical(path)]);
   const recursive = scope.recursive.flatMap((path) => [resolve(path), canonical(path)]);
   return entries.filter((entry) => {
@@ -436,7 +434,7 @@ export function findShellSkillWrites(
   secrets: StateSecrets,
   env?: ShellScopeEnv,
 ): string[] {
-  return protectedWritePaths(args, ctx, secrets.skillWritePaths ?? [], env, true);
+  return protectedWritePaths(args, ctx, secrets.skillWritePaths ?? [], env);
 }
 
 function scanWritePaths(
@@ -462,7 +460,7 @@ export function findShellTrustDeletes(
   if (!secrets.trustDeletePaths?.length) return [];
   const removals: string[] = [];
   scanWritePaths(args, ctx, {
-    unresolved: false, recursive: [], placed: [], home: env.home, removals,
+    recursive: [], placed: [], home: env.home, removals,
     skipRemovals: (cmd, rawArgs, cwd) => checkShellCommandGuard({ cmd, rawArgs, cwd }).action === "block",
   });
   const targets = removals.flatMap((path) => [resolve(path), canonical(path)]);
