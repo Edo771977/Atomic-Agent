@@ -60,20 +60,17 @@ jobs:
           path: ${{ runner.temp }}/atomic-lpac-helper
       - name: Check the native launcher against reachable host fixtures
         run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-lpac-helper/atomic-sandbox-helper.exe"
-  appcontainer-compatibility:
+  restricted-token-compatibility:
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '25'
-      - name: Build the isolated diagnostic launcher
+      - name: Build and verify the restricted-token filesystem boundary
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd /d "%RUNNER_TEMP%"
-          cl /nologo /std:c++20 /W4 /O2 /MT /DATOMIC_SANDBOX_DIAGNOSTICS /Fe:atomic-sandbox-diagnostic.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\atomic-sandbox-helper.cpp" || exit /b 1
-      - name: Check NUL, stock Git and TCP denial in AppContainer
-        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --appcontainer
+          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:restricted-token-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\restricted-token-preflight.cpp" || exit /b 1
+          mkdir "%RUNNER_TEMP%\restricted-token-fixture" || exit /b 1
+          restricted-token-preflight.exe "%RUNNER_TEMP%\restricted-token-fixture"
