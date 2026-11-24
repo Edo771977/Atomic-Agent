@@ -465,7 +465,7 @@ describe("runtime tool assembly phases and live MCP catalog", () => {
     expect(wired.resolveRoutingIdentity?.("missing")).toBeUndefined();
     expect(protectedReads.approvals).toBe(dangerous);
     // The secret-file guard gets the state's own list (ATO-877).
-    expect(protectedReads.stateSecrets).toEqual({ stateDir: config.paths.stateDir, files: getStateSecretPaths(config.paths), skillWritePaths: getSkillWriteProtectionPaths(config.paths) });
+    expect(protectedReads.stateSecrets).toEqual({ stateDir: config.paths.stateDir, files: getStateSecretPaths(config.paths), skillWritePaths: getSkillWriteProtectionPaths(config.paths), trustDeletePaths: getTrustConfigPaths(config.paths) });
     config.agent.readScope = "unrestricted"; expect(protectedReads.readScope?.()).toBe("unrestricted");
     config.agent.readScope = "working-dir"; expect(protectedReads.readScope?.()).toBe("working-dir");
     expect(toolRegistry.list().map(tool => tool.name)).toEqual(["os.fs.read", "fusion.delegate", "project.brief", "project.plan", "project.milestone", "project.backlog.add", "project.lesson.propose"]);

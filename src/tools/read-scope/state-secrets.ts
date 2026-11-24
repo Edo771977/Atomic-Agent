@@ -4,6 +4,7 @@ import { dirname, isAbsolute, resolve } from "node:path";
 import { isInside } from "../../approval/fanout-scope.js";
 import { isTrustDirectoryEntry } from "../../config/config-file.js";
 import { invocationsOf, NESTED_SHELL_PROGRAMS, programName, scanNestedShellOptions, splitCommandSegments } from "../os/shell-command-guard/command-segments.js";
+import { checkShellCommandGuard } from "../os/shell-command-guard/index.js";
 import { processSecretCommand } from "./process-secret-commands.js";
 import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -59,6 +60,8 @@ export interface StateSecrets {
   files: readonly string[];
   /** Installed skill directories protected on recognized shell writes. */
   skillWritePaths?: readonly string[];
+  /** Trust paths used to detect deletion of a containing folder. */
+  trustDeletePaths?: readonly string[];
 }
 
 /**
@@ -422,6 +425,33 @@ export function findShellSkillWrites(
   return [...new Set(shellCommandLine(args).split(/[;|&\n]+/).flatMap((cmd) =>
     isShellWrite(cmd) ? findShellStateSecrets({ cmd, cwd: args.cwd }, ctx, { stateDir: secrets.stateDir, files }, env) : [],
   ))];
+}
+
+const DELETE_PROGRAMS = ["rm", "rmdir", "unlink", "del", "erase", "rd", "remove-item"];
+
+export function findShellTrustDeletes(
+  args: Record<string, unknown>,
+  ctx: Pick<ToolContext, "workingDir">,
+  secrets: StateSecrets,
+  env: ShellScopeEnv = { home: homedir(), platform: process.platform },
+): string[] {
+  if (!secrets.trustDeletePaths?.length) return [];
+  const cwd = typeof args.cwd === "string" ? resolveUserPath(args.cwd, ctx.workingDir) : ctx.workingDir;
+  const segments = splitCommandSegments(expandVariables(shellCommandLine(args), env.home, secrets.stateDir));
+  const words = DELETE_PROGRAMS.flatMap((program) =>
+    invocationsOf(segments, program)
+      .filter((rawArgs) => checkShellCommandGuard({ cmd: program, rawArgs, cwd }).action !== "block")
+      .flat(),
+  );
+  const targets = words.filter((word) => !word.startsWith("-")).flatMap((word) => {
+    const path = pathOfToken(word, cwd, env.home);
+    return path === null ? [] : [canonical(path)];
+  });
+  return secrets.trustDeletePaths.filter((trusted) => {
+    const path = canonical(resolve(trusted));
+    return targets.some((target) => isInside(target, path) ||
+      (isTrustDirectoryEntry(trusted) && isInside(path, target)));
+  });
 }
 
 /** `file` appears in `line` as a whole path: not `.env` inside `.env.example`. */

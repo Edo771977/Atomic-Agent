@@ -268,6 +268,10 @@ describe("fs approval scope", () => {
       ).toBe("fs_write_home");
     });
 
+    it("protects trash of the folder containing a trusted file", async () => {
+      expect(await categorizeFsMutation("trash", [stateDir], trustOpts())).toBe("trust_config");
+    });
+
     it("extraction into a directory that holds a trust file is trust_config", async () => {
       expect(
         await categorizeFsMutation("extract", [stateDir], trustOpts()),

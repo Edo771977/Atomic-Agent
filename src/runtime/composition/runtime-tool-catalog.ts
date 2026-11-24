@@ -115,6 +115,7 @@ function runtimeReadConfinement(
       stateDir: config.paths.stateDir,
       files: getStateSecretPaths(config.paths),
       skillWritePaths: getSkillWriteProtectionPaths(config.paths),
+      trustDeletePaths: getTrustConfigPaths(config.paths),
     },
   };
 }

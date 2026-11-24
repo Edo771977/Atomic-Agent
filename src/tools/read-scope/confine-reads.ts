@@ -32,6 +32,7 @@ import {
 import {
   findShellStateSecrets,
   findShellSkillWrites,
+  findShellTrustDeletes,
   findStateSecretReads,
   stateSecretReadPrompt,
   stateSecretShellPrompt,
@@ -140,11 +141,12 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
     // nor a `shell` grant speaks for the agent's keys (ATO-877,
     // ATO-760). A fusion worker's question is refused by its session
     // policy, like any other it cannot have answered.
+    const trustDeletes = secrets === null ? [] : findShellTrustDeletes(args, ctx, secrets, options.shellEnv);
     const secretPaths =
       secrets === null
         ? []
         : findShellStateSecrets(args, ctx, secrets, options.shellEnv);
-    if (secretPaths.length > 0) {
+    if (secretPaths.length > 0 && trustDeletes.length === 0) {
       const commandLine = shellCommandLine(args);
       const mutatesKey = secrets !== null && shellServerKeyMutation(args, ctx, secrets, options.shellEnv);
       await asker.confirmStateSecret(
@@ -158,7 +160,13 @@ export function createCommandReadCheck(options: ConfineReadsOptions): CommandRea
         mutatesKey ? "trust_config" : "state_secret",
       );
     }
-    const skillWrites = secrets === null ? [] : findShellSkillWrites(args, ctx, secrets, options.shellEnv);
+    const skillWrites = secrets === null || trustDeletes.length > 0 ? [] : findShellSkillWrites(args, ctx, secrets, options.shellEnv);
+    if (trustDeletes.length > 0) {
+      await asker.confirmStateSecret(tool, ctx, {
+        reason: "Delete a protected path or a folder that contains one",
+        preview: shellCommandLine(args),
+      }, trustDeletes, "trust_config");
+    }
     if (skillWrites.length > 0) {
       await asker.confirmStateSecret(tool, ctx, {
         reason: "Change protected installed skills",

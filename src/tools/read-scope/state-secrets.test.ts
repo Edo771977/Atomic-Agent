@@ -17,7 +17,7 @@ import {
   workerRefusalFor,
 } from "../fusion/worker-tool-policy.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
-import { getSkillWriteProtectionPaths, getStateSecretPaths, type ReadScope } from "../../config/index.js";
+import { getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths, type ReadScope } from "../../config/index.js";
 import { ToolRegistry, type ToolContext } from "../tool-registry.js";
 import { confineReads } from "./confine-reads.js";
 import type { ShellScopeEnv } from "./read-scope-shell.js";
@@ -272,6 +272,28 @@ posix("a secret-file call asks as state_secret, whatever the level grants", () =
     innerShells = 0;
     readScope = "unrestricted";
     install(4);
+  });
+
+  it("gates deletion of a parent of a custom trusted directory", async () => {
+    const parent = join(s.home, "custom");
+    const globalSkillsDir = join(parent, "installed");
+    mkdirSync(globalSkillsDir, { recursive: true });
+    const cfg = { stateDir: s.stateDir, globalSkillsDir, userConfigFile: s.config, localModelsDataDir: join(s.stateDir, "models") };
+    const isolated = new ToolRegistry();
+    isolated.register(stub("os.shell.run", () => (innerShells += 1)));
+    confineReads(isolated, {
+      grantedDirs: () => [],
+      approvals: { approvals: gate, approvalRequired: true },
+      stateSecrets: {
+        stateDir: s.stateDir, files: getStateSecretPaths(cfg),
+        skillWritePaths: getSkillWriteProtectionPaths(cfg),
+        trustDeletePaths: getTrustConfigPaths(cfg),
+      },
+    });
+    answer = { approved: false };
+    await expect(isolated.invoke("os.shell.run", { cmd: "rm", args: ["-r", parent] }, ctx())).rejects.toThrow(ApprovalDeniedError);
+    expect(prompts.map((prompt) => prompt.category)).toEqual(["trust_config"]);
+    expect(innerShells).toBe(0);
   });
 
   it("allows installed skill reads and script execution but gates mutations as trust config", async () => {
