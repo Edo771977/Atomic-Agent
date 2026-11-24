@@ -58,19 +58,13 @@ static void grant(const wchar_t* path, PSID sid, DWORD mask, DWORD inheritance) 
 
 int wmain(int argc, wchar_t** argv) {
     if (argc == 2 && std::wstring(argv[1]) == L"--child") {
-        DWORD lpac = 0;
-        DWORD bytes = 0;
-        HANDLE token = nullptr;
-        require(OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &token) != FALSE, "open token");
-        require(GetTokenInformation(token, TokenIsLessPrivilegedAppContainer, &lpac, sizeof(lpac), &bytes)
-            && lpac == 1, "verify LPAC");
-        CloseHandle(token);
         DWORD existing = checkFile(L"before", OPEN_EXISTING);
         DWORD inherited = checkFile(L"after", OPEN_EXISTING);
         DWORD created = checkFile(L"created-by-lpac", CREATE_NEW);
         std::printf("existing=%lu inherited=%lu created=%lu\n", existing, inherited, created);
-        require(inherited == ERROR_SUCCESS && created == ERROR_SUCCESS, "positive controls");
-        require(existing == ERROR_SUCCESS, "read existing workspace file", existing);
+        if (inherited != ERROR_SUCCESS) return 1000 + inherited;
+        if (created != ERROR_SUCCESS) return 2000 + created;
+        if (existing != ERROR_SUCCESS) return 3000 + existing;
         return 0;
     }
 
@@ -106,8 +100,25 @@ int wmain(int argc, wchar_t** argv) {
     PROCESS_INFORMATION process{};
     std::wstring command = L"\"" + std::wstring(executable) + L"\" --child";
     require(CreateProcessW(executable, command.data(), nullptr, nullptr, FALSE,
-        EXTENDED_STARTUPINFO_PRESENT, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
+        EXTENDED_STARTUPINFO_PRESENT | CREATE_SUSPENDED, nullptr, L"fixture", &startup.StartupInfo, &process) != FALSE,
         "launch LPAC probe");
+    HANDLE token = nullptr;
+    require(OpenProcessToken(process.hProcess, TOKEN_QUERY, &token) != FALSE, "open child token");
+    DWORD appContainer = 0, lpac = 0, bytes = 0;
+    BOOL queriedAppContainer = GetTokenInformation(token, TokenIsAppContainer, &appContainer,
+        sizeof(appContainer), &bytes);
+    DWORD appContainerError = queriedAppContainer ? ERROR_SUCCESS : GetLastError();
+    BOOL queriedLpac = GetTokenInformation(token, TokenIsLessPrivilegedAppContainer,
+        &lpac, sizeof(lpac), &bytes);
+    DWORD lpacError = queriedLpac ? ERROR_SUCCESS : GetLastError();
+    std::printf("AppContainer=%lu (query error=%lu), LPAC=%lu (query error=%lu)\n",
+        appContainer, appContainerError, lpac, lpacError);
+    CloseHandle(token);
+    if (!queriedAppContainer || appContainer != 1 || !queriedLpac || lpac != 1) {
+        TerminateProcess(process.hProcess, 2);
+        return 2;
+    }
+    require(ResumeThread(process.hThread) == 1, "resume verified LPAC probe");
     DWORD status = 2;
     if (WaitForSingleObject(process.hProcess, 10000) == WAIT_OBJECT_0) {
         require(GetExitCodeProcess(process.hProcess, &status) != FALSE, "read probe exit status");
@@ -120,5 +131,6 @@ int wmain(int argc, wchar_t** argv) {
     HeapFree(GetProcessHeap(), 0, attributes);
     FreeSid(sid);
     DeleteAppContainerProfile(profile.c_str());
+    std::printf("probe status=%lu (1000+error: inherited read, 2000+error: create, 3000+error: existing read)\n", status);
     return static_cast<int>(status);
 }
