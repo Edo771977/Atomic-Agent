@@ -196,7 +196,8 @@ function formatProfileSystemMessage(facts: readonly ProfileFact[]): string {
 /** `key: value`, with the ATO-199 marker on a name the user never wrote. */
 function formatProfileFactLine(fact: ProfileFact): string {
   const grounding = nameGroundingMarker(fact);
-  return `${fact.key}: ${fact.value}${grounding !== null ? ` (${grounding})` : ""}`;
+  const state = fact.disabledAt === undefined ? "" : " (disabled)";
+  return `${fact.key}: ${fact.value}${state}${grounding !== null ? ` (${grounding})` : ""}`;
 }
 
 /**
@@ -366,7 +367,7 @@ export class ChatOrchestrator {
       emit: (action) => bus.emit(action),
       refresh: async () => { await runtime.refreshSkills(); this.skills.refresh(); },
     });
-    this.memory = new MemoryOrchestrator(runtime, bus);
+    this.memory = new MemoryOrchestrator(runtime, bus, { isIncognito: () => isIncognitoSession(this.session) });
     this.mcp = new McpOrchestrator(runtime, bus);
     this.import = new ImportOrchestrator(runtime, bus, {
       refreshTasks: () => this.tasks.refresh(),

@@ -248,6 +248,7 @@ export function resolveTaskLegs(
     providerId: workerLeg.providerId,
     model: workerLeg.model,
     isWorkerLeg: true,
+    ...(workerLeg.pinModel === undefined ? {} : { pinModel: workerLeg.pinModel }),
     ...(note === undefined ? {} : { note }),
   });
   // Local providers this fan-out holds: the legs', then the first extra
@@ -256,7 +257,7 @@ export function resolveTaskLegs(
   for (const task of tasks) {
     const byRole = roles?.byRole ?? {};
     let picked:
-      | { providerId: string; model: string; local: boolean; role?: FusionRole }
+      | { providerId: string; model: string; pinModel?: string; local: boolean; role?: FusionRole }
       | undefined;
     if (task.model === ORCHESTRATOR_TASK_MODEL && orchestrator !== undefined) {
       // The orchestrator leg is one the session already holds, so the
@@ -284,6 +285,7 @@ export function resolveTaskLegs(
             providerId: entry.providerId,
             model: entry.model ?? entry.providerId,
             local: entry.local,
+            ...(entry.pinModel === undefined ? {} : { pinModel: entry.pinModel }),
             ...(task.role === role ? { role: role as FusionRole } : {}),
           };
           break;
@@ -308,6 +310,7 @@ export function resolveTaskLegs(
         providerId: entry.providerId,
         model: entry.model ?? entry.providerId,
         local: entry.local,
+        ...(entry.pinModel === undefined ? {} : { pinModel: entry.pinModel }),
         role: task.role,
       };
     }
@@ -340,6 +343,7 @@ export function resolveTaskLegs(
     legs.set(task.id, {
       providerId: picked.providerId,
       model: picked.model,
+      ...(picked.pinModel === undefined ? {} : { pinModel: picked.pinModel }),
       isWorkerLeg: false,
       ...(picked.role === undefined ? {} : { role: picked.role }),
     });
@@ -365,7 +369,7 @@ function resolveTeamTaskLegs(
   const fallback = (note?: string): TaskLeg => {
     const leg: TaskLeg =
       team.defaultWorker === null
-        ? { providerId: workerLeg.providerId, model: workerLeg.model, isWorkerLeg: true }
+        ? { ...workerLeg, isWorkerLeg: true }
         : memberLeg(team.defaultWorker, workerLeg, team);
     return note === undefined ? leg : { ...leg, note };
   };

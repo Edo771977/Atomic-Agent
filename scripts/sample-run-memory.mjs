@@ -72,6 +72,15 @@ function linuxChildren(pid) {
 }
 
 function linuxTree(root) {
+  // /proc/<pid>/task/<tid>/children depends on the kernel's procfs
+  // configuration. Fall back to parent IDs when that index is absent.
+  if (!existsSync(`/proc/self/task/${process.pid}/children`)) {
+    const rows = readdirSync('/proc')
+      .filter((entry) => /^\d+$/.test(entry))
+      .map((entry) => linuxStatus(Number(entry)))
+      .filter((row) => row !== null);
+    return treeOf(rows, root);
+  }
   const out = [];
   const queue = [root];
   const seen = new Set();

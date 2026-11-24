@@ -36,6 +36,20 @@ describe("/api/memory notes and profile (ATO-1124)", () => {
         : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     });
 
+  it("reports disabled timestamps and reversible history to the operator", async () => {
+    const note = harness.runtime.notesStore.store({ content: "paused note" });
+    harness.runtime.notesStore.setDisabled(note.id, true, 5_000);
+    harness.runtime.profileStore.set("city", "Rome");
+    harness.runtime.profileStore.setDisabled("city", true, 6_000);
+    expect(await (await send("/api/memory/notes", "GET")).json()).toMatchObject({ notes: [{ disabledAt: 5_000 }] });
+    expect(await (await send("/api/memory/profile", "GET")).json()).toMatchObject({ facts: [{ disabledAt: 6_000 }] });
+    const history = await (await send("/api/memory/changes", "GET")).json() as { changes: { id: number; op: string }[] };
+    expect(history.changes.map((change) => change.op)).toEqual(["set_disabled", "set_disabled"]);
+    const result = await send(`/api/memory/changes/${history.changes[0]?.id}/restore`, "POST");
+    expect(result.status).toBe(200);
+    expect(harness.runtime.profileStore.get("city")?.disabledAt).toBeUndefined();
+  });
+
   it("lists notes newest first", async () => {
     const notes = harness.runtime.notesStore;
     const older = notes.store({ content: "first note" }, 1_000);

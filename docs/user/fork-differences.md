@@ -17,6 +17,9 @@ Selective imports for offline use and chat data cleanup:
 - `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
 - `fix/ato-1501-delete-file-checkpoints-with-chat` (`7fb250af1a6fd7334ee3f0f553fb046669ba5f08`): delete file checkpoints when a chat is deleted. The test conflict was resolved by keeping both the fork's `TaskStore` import and the upstream `FileCheckpointStore` import.
 
+- `fix/ato-1547-incognito-tasks-after-crash` ([#1595](https://github.com/AtomicBot-ai/atomic-agent/pull/1595)): the boot sweep removes the abandoned chat’s tasks before task recovery and keeps failed cleanups eligible for retry, including when file checkpoints cannot be removed. Fusion checkpoints and spilled outputs use the fork’s existing cleanup.
+- Fusion model routing ([#1560](https://github.com/AtomicBot-ai/atomic-agent/pull/1560) and [#1561](https://github.com/AtomicBot-ai/atomic-agent/pull/1561)): legacy legs now send their configured models, and workers can escalate to a different model on the same provider. The fork retains team member selection, reviewer independence and signed receipt attribution.
+
 Selective Privacy Shield imports:
 
 - `feat/ato-599-privacy-shield-detector` (`31592d25ad9f28d75d60b09efdfa68f026331ba1`) and `feat/ato-1081-privacy-shield-providers` (`6a5ae1845c713bed46e0abd6f2faa0d852a8863a`) bring reversible masking to remote OpenAI-compatible providers and native Anthropic Messages. The fork reuses its known credentials and drops the in-memory archive on chat deletion, including incognito close. Enable it with `privacy.shield.enabled`. [Coverage and session behavior](../../src/privacy/README.md).
@@ -54,6 +57,10 @@ The official installer (`curl … atomicagent.io/install`) and upstream's releas
 - For the desktop app, use the `desktop-<platform>` artifact of the fork's **Desktop packages** workflow on `desktop-main`.
 
 Everything below exists only in this fork. Links are to the fork's pull requests.
+
+## Memory backup and entry controls
+
+CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
 
 ## Fusion team
 

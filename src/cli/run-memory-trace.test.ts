@@ -1,9 +1,10 @@
 import { spawn } from "node:child_process";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RUN_MEMORY_TRACE_ENV, startRunMemoryTrace } from "./run-memory-trace.js";
 
@@ -25,7 +26,14 @@ function expectNumbers(record: TraceRecord, fields: string[]): void {
   for (const field of fields) expect(typeof record[field], `${record.kind}.${field}`).toBe("number");
 }
 
-const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+function waitForSamples(
+  path: string,
+  condition: (records: TraceRecord[]) => boolean,
+): Promise<void> {
+  return vi.waitFor(() => {
+    expect(condition(readTrace(path))).toBe(true);
+  }, { timeout: 5_000 });
+}
 
 describe("the run memory trace (issue #106)", () => {
   let dir: string;
@@ -42,15 +50,28 @@ describe("the run memory trace (issue #106)", () => {
     const path = join(dir, "trace.ndjson");
     const trace = startRunMemoryTrace({ [RUN_MEMORY_TRACE_ENV]: path }, { argv: ["--cwd", "/secret/place", "--allow-command=x y"], intervalMs: 100 });
     expect(trace).not.toBeNull();
-    const outer = trace!.enter("outer");
-    await trace!.span("inner", async () => sleep(250), { n: 1 });
-    expect(() => trace!.span("throws", () => { throw new Error("no"); })).toThrow("no");
-    const hook = trace!.phaseHook("shutdown:");
-    hook("mcp", "enter");
-    hook("mcp", "exit", false);
-    outer();
-    await sleep(250);
-    await trace!.stop();
+    try {
+      const outer = trace!.enter("outer");
+      const started = Date.now();
+      await trace!.span("inner", async () => {
+        await waitForSamples(path, (records) =>
+          Date.now() - started >= 200 &&
+          records.some((record) => record.kind === "main" && record.phase === "inner") &&
+          records.some((record) => record.kind === "worker" && record.phase === "inner"),
+        );
+      }, { n: 1 });
+      expect(() => trace!.span("throws", () => { throw new Error("no"); })).toThrow("no");
+      const hook = trace!.phaseHook("shutdown:");
+      hook("mcp", "enter");
+      hook("mcp", "exit", false);
+      outer();
+      await waitForSamples(path, (records) =>
+        records.filter((record) => record.kind === "main").length >= 3 &&
+        records.filter((record) => record.kind === "worker").length >= 2,
+      );
+    } finally {
+      await trace!.stop();
+    }
     const records = readTrace(path);
     const start = records[0]!;
     expect(start).toMatchObject({ kind: "start", pid: process.pid, platform: process.platform, node: process.version, flags: ["--cwd", "--allow-command"], argCount: 3 });
@@ -81,8 +102,11 @@ describe("the run memory trace (issue #106)", () => {
     writeFileSync(fixture, [
       `import { startRunMemoryTrace } from ${JSON.stringify(pathToFileURL(join(process.cwd(), "src", "cli", "run-memory-trace.ts")).href)};`,
       `const trace = startRunMemoryTrace({ ${RUN_MEMORY_TRACE_ENV}: ${JSON.stringify(path)} }, { intervalMs: 250 });`,
-      // Let the worker come up and sample a calm process first.
-      "await new Promise((r) => setTimeout(r, 700));",
+      'import { readFileSync } from "node:fs";',
+      // Wait for an actual baseline sample before blocking the main loop.
+      `while (!readFileSync(${JSON.stringify(path)}, "utf8").includes('"kind":"worker"')) {`,
+      "  await new Promise((resolve) => setTimeout(resolve, 50));",
+      "}",
       "trace.enter(\"spin-phase\");",
       // Never yields to the event loop for 3 s; allocates up to 300 MiB on the way.
       "const kept = []; const until = Date.now() + 3_000; let i = 0;",
@@ -118,7 +142,7 @@ describe("the run memory trace (issue #106)", () => {
   }, 40_000);
 });
 
-/** The real `run` entry, spawned with stdin closed: the variable is read by the command itself. */
+/** The real `run` entry, with EOF on stdin: the command itself reads the variable. */
 describe("run with ATOMIC_AGENT_RUN_MEMORY_TRACE (issue #106)", () => {
   let stateDir: string;
   let workingDir: string;
@@ -127,17 +151,42 @@ describe("run with ATOMIC_AGENT_RUN_MEMORY_TRACE (issue #106)", () => {
     for (const path of [stateDir, workingDir, dir]) rmSync(path, { recursive: true, force: true });
   });
 
-  const runCli = (env: NodeJS.ProcessEnv): Promise<number | null> => new Promise((resolve) => {
+  async function runCli(env: NodeJS.ProcessEnv, path: string): Promise<void> {
     const child = spawn(process.execPath, ["--import", "tsx", join(process.cwd(), "src", "cli", "index.ts"), "run", "--cwd", workingDir], {
-      env, stdio: ["pipe", "ignore", "ignore"],
+      env, stdio: ["pipe", "ignore", "pipe"],
     });
-    child.stdin.end();
+    let stderr = "";
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => { stderr += chunk; });
+    const closed = new Promise<number | null>((resolve) => child.once("close", resolve));
+    const spawned = new Promise<void>((resolve, reject) => {
+      child.once("spawn", resolve);
+      child.once("error", reject);
+    });
     const killer = setTimeout(() => child.kill("SIGKILL"), 45_000);
-    child.on("close", (code) => {
+    try {
+      await spawned;
+      // Keep stdin empty until both threads sampled. Then send EOF and
+      // observe the real shutdown, which can finish between sample ticks.
+      while (child.exitCode === null && child.signalCode === null) {
+        const records = existsSync(path) ? readTrace(path) : [];
+        if (records.some((record) => record.kind === "main") &&
+            records.some((record) => record.kind === "worker")) {
+          child.stdin.end();
+          const code = await closed;
+          expect(code, stderr).toBe(0);
+          return;
+        }
+        await delay(50);
+      }
+      await closed;
+      throw new Error(`CLI closed before sampling (code ${child.exitCode ?? child.signalCode}): ${stderr}`);
+    } finally {
       clearTimeout(killer);
-      resolve(code);
-    });
-  });
+      if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
+      await closed;
+    }
+  }
 
   const baseEnv = (): NodeJS.ProcessEnv => {
     stateDir = mkdtempSync(join(tmpdir(), "aa-trace-cli-state-"));
@@ -159,7 +208,7 @@ describe("run with ATOMIC_AGENT_RUN_MEMORY_TRACE (issue #106)", () => {
   it("traces the run from boot through every shutdown step, with samples from both threads", async () => {
     const env = baseEnv();
     const path = join(dir, "run.ndjson");
-    expect(await runCli({ ...env, [RUN_MEMORY_TRACE_ENV]: path })).toBe(0);
+    await runCli({ ...env, [RUN_MEMORY_TRACE_ENV]: path }, path);
     const records = readTrace(path);
     expect(records[0]).toMatchObject({ kind: "start", flags: ["--cwd"] });
     const entered = records.filter((r) => r.kind === "phase" && r.edge === "enter").map((r) => r.phase as string);

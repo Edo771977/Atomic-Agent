@@ -64,7 +64,7 @@ export interface FusionTeamRouting {
    * serve (allowed, reachable, not the worker), else the team's pick;
    * null: `judgeProvider`, as before.
    */
-  reviewerFor(worker: TeamMember): TeamMember | null;
+  reviewerFor(worker: TeamMember, eligible?: (member: TeamMember) => boolean): TeamMember | null;
   readonly pinsModel: (providerId: string) => boolean;
 }
 
@@ -153,12 +153,12 @@ export function resolveTeamRouting(
     reviewers,
     reviewOff,
     reviewChosen: chosen !== undefined,
-    reviewerFor: (worker) => {
+    reviewerFor: (worker, eligible = () => true) => {
       if (reviewOff) return null;
-      if (chosen !== undefined && chosen.ref !== worker.ref) return chosen;
+      if (chosen !== undefined && chosen.ref !== worker.ref && eligible(chosen)) return chosen;
       return pickReviewer(team, worker, {
         familyOf: context.familyOf,
-        reachable: reviewerOk,
+        reachable: member => reviewerOk(member) && eligible(member),
         ...(context.strength === undefined ? {} : { strength: context.strength }),
       });
     },

@@ -93,6 +93,7 @@ export interface SlashDispatchResult {
   readonly triggerNewWindow: boolean;
   /** When true the caller should ask the orchestrator to dump the user profile. */
   readonly triggerMemoryDump: boolean;
+  readonly memoryBackup?: { operation: "backup" | "restore"; directory?: string; confirmed?: boolean; expectedHash?: string };
   /** When true the caller should ask the orchestrator to list the skill catalog in chat. */
   readonly triggerSkillCatalogDump: boolean;
   /** When true the caller should write the TUI debug zip (`/dump`). */
@@ -1053,8 +1054,22 @@ function dispatchMemorySub(rawArgs: string): SlashDispatchResult {
   if (argPart.toLowerCase() === "dump") {
     return pureActions([], { triggerMemoryDump: true });
   }
+  if (argPart === "backup" || argPart.startsWith("backup ")) {
+    const directory = argPart.slice(6).trim();
+    return pureActions([], { memoryBackup: { operation: "backup", ...(directory ? { directory } : {}) } });
+  }
+  if (argPart.startsWith("restore ") && argPart.slice(8).trim()) {
+    const input = argPart.slice(8).trim();
+    const confirmed = input.startsWith("--yes ");
+    if (confirmed) {
+      const match = /^--yes ([a-f0-9]{64}) +(.+)$/.exec(input);
+      if (!match) return pureActions([], { systemMessage: "Use /memory restore --yes <SHA-256 from preview> <directory>." });
+      return pureActions([], { memoryBackup: { operation: "restore", confirmed, expectedHash: match[1]!, directory: match[2]! } });
+    }
+    return pureActions([], { memoryBackup: { operation: "restore", directory: input } });
+  }
   return pureActions([], {
-    systemMessage: "usage: /memory | /memory dump",
+    systemMessage: "usage: /memory | /memory dump | /memory backup [directory] | /memory restore <directory>",
   });
 }
 

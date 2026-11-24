@@ -779,6 +779,8 @@ export class ConsolidatorJob {
     return this.deps.memoryStore.list({
       excludeArchived: true,
       excludeSuperseded: true,
+      // ATO-1124: a note the person turned off is not distilled.
+      excludeDisabled: true,
       updatedBefore: threshold,
       limit: 200,
     });

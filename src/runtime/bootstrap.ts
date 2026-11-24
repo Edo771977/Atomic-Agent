@@ -391,7 +391,10 @@ export async function createAgentRuntime(
   });
 
   const fileCheckpoints = new FileCheckpointStore(fileCheckpointsRoot(config.paths.stateDir));
-  const sessionStore = prepareRuntimeSessionStore(config, logger, fileCheckpoints);
+  let retainedIncognitoIds: readonly string[] = [];
+  const sessionStore = await prepareRuntimeSessionStore(config, logger, fileCheckpoints, undefined, ids => {
+    retainedIncognitoIds = ids;
+  });
   // Issue #109: the fusion project's folder store (stateless; the session store reads through its own).
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
@@ -643,10 +646,14 @@ export async function createAgentRuntime(
     turnBudget: fusionTurnBudget, budgetNotices,
     providerPolicy: { constraintsActive: sessionProviderPolicy.constraintsActive, policyForSession: (id) => sessionProviderPolicy.effectivePolicyForSession(id) },
     providerRegistry,
-    // A session director's model on its link (issue #37).
+    // Only the director's link receives its model override.
     turnModel: (sessionId, providerId) => {
       const director = sessionTeam.get(sessionId)?.director;
-      return director?.providerId === providerId ? director.model : undefined;
+      if (director != null) return director.providerId === providerId ? director.model : undefined;
+      const mode = resolveCurrentRunMode();
+      return mode.effective === "fusion" && mode.orchestratorProviderId === providerId
+        ? mode.orchestratorPinModel
+        : undefined;
     },
   });
   // Smart approval (ATO-465): off unless `agent.smartApproval`, read live.
@@ -664,7 +671,7 @@ export async function createAgentRuntime(
     slotId: () => slotManager.sideCallSlotId(),
     serverTemplate: () => getConfig().localModels.useServerTemplate !== "off",
   };
-  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger });
+  const { taskStore, webhookSessionStore } = createRuntimeTaskStores({ config, logger, sessionStore, retainedIncognitoIds });
   const { reflectionRunner, memoryContextProvider } = createRuntimeMemoryServices({
     config, profileStore, notesStore, linkStore, lessonStore, procedureStore, voteStore, embeddingClient,
     slotManager, llmComplete, toolTransport: bootstrapLlmSlice.transport, logger, metrics, touchRecorder, memoryHealth,

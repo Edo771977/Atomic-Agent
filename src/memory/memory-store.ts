@@ -50,6 +50,12 @@ export interface MemoryEntry {
    * inserts) and for every row migrated from v3.
    */
   lastRecalledAt: number | null;
+  /**
+   * ATO-1124. Set (wall-clock ms) while the person has turned this note
+   * off: it stays listed but is left out of recall, search, the prompt's
+   * index and consolidation. Absent while the note is on.
+   */
+  disabledAt?: number;
 }
 
 export interface MemoryStoreOptions {
@@ -144,6 +150,7 @@ export interface MemoryListOptions {
   scope?: "project" | "all";
   workingDir?: string | null;
   limit?: number;
+  offset?: number;
   /**
    * Memory-v2 phase 5. When `true` (default for the prompt-side
    * `### memory-index` rendering, opt-in for direct callers), rows
@@ -152,6 +159,11 @@ export interface MemoryListOptions {
    * drop out of the hot index view that competes for prompt budget.
    */
   excludeArchived?: boolean;
+  /**
+   * ATO-1124. Leave out notes the person turned off. `listIndex` always
+   * does; the person's own list (HTTP) shows them, marked.
+   */
+  excludeDisabled?: boolean;
   /**
    * Only return rows with `updated_at <= updatedBefore` (epoch ms).
    * Applied in SQL before `LIMIT`, so a caller that wants "rows older
@@ -259,7 +271,7 @@ export function isSupersededNote(entry: { tags: readonly string[] }): boolean {
 }
 
 /** SQL twin of {@link isSupersededNote} over a `tags` JSON column. */
-function supersededSql(tagsColumn: string): string {
+export function supersededSql(tagsColumn: string): string {
   return `(${tagsColumn} IS NOT NULL AND json_valid(${tagsColumn})
     AND EXISTS (SELECT 1 FROM json_each(${tagsColumn}) WHERE json_each.value = '${SUPERSEDED_NOTE_TAG}')
     AND EXISTS (SELECT 1 FROM json_each(${tagsColumn})
@@ -267,7 +279,7 @@ function supersededSql(tagsColumn: string): string {
                    AND substr(json_each.value, 15) NOT GLOB '*[^0-9]*'))`;
 }
 
-function withoutReservedTags(tags: string[]): string[] {
+export function withoutReservedTags(tags: string[]): string[] {
   return tags.some(isReservedSupersedeTag) ? tags.filter((tag) => !isReservedSupersedeTag(tag)) : tags;
 }
 
@@ -296,6 +308,8 @@ interface MemoryRow {
   tags: string | null;
   recall_count: number;
   last_recalled_at: number | null;
+  /** ATO-1124. Selected only where the caller needs it. */
+  disabled_at?: number | null;
 }
 
 /**
@@ -410,10 +424,10 @@ export class MemoryStore {
     this.restoreStmt = this.db.prepare(
       `INSERT INTO memories
          (id, content, created_at, updated_at, source, session_id, working_dir, tags,
-          recall_count, last_recalled_at, consolidating_at, constraint_scope)
+          recall_count, last_recalled_at, consolidating_at, constraint_scope, disabled_at)
        VALUES
          (@id, @content, @created_at, @updated_at, @source, @session_id, @working_dir, @tags,
-          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END)`,
+          0, NULL, NULL, CASE WHEN @scope_known = 1 THEN @constraint_scope ELSE memory_scope_write() END, @disabled_at)`,
     );
     this.rawScopeStmt = this.db.prepare(`SELECT constraint_scope AS scope FROM memories WHERE id = ?`);
     this.insertStmt = this.db.prepare(
@@ -427,7 +441,7 @@ export class MemoryStore {
     this.deleteStmt = this.db.prepare(`DELETE FROM memories WHERE id = ?`);
     this.getStmt = this.db.prepare(
       `SELECT id, content, created_at, updated_at, source, session_id, working_dir, tags,
-              recall_count, last_recalled_at
+              recall_count, last_recalled_at, disabled_at
          FROM memories WHERE id = ? AND memory_scope_visible(constraint_scope)`,
     );
     this.countStmt = this.db.prepare(`SELECT COUNT(*) AS count FROM memories`);
@@ -479,15 +493,15 @@ export class MemoryStore {
     // FTS5 candidate fetch for dedup. Returns the top 5 BM25 hits so
     // Jaccard similarity can be computed in JS over a small candidate
     // set without paying the cost of a full scan. Archived and
-    // superseded rows are never candidates: a write merged into a
-    // hidden row would stay hidden (a re-learned fact, a user's note).
+    // superseded rows are excluded from regular merges. Disabled rows
+    // still suppress relearning, including disabled archived rows.
     this.dedupCandidateStmt = this.db.prepare(
-      `SELECT m.id, m.content, m.tags, bm25(memories_fts) AS score
+      `SELECT m.id, m.content, m.tags, m.disabled_at, bm25(memories_fts) AS score
          FROM memories_fts
          JOIN memories m ON m.id = memories_fts.rowid
         WHERE memories_fts MATCH ?
-          AND m.consolidated_into IS NULL
-          AND NOT ${supersededSql("m.tags")}
+          AND (m.disabled_at IS NOT NULL) = ?
+          AND (m.disabled_at IS NOT NULL OR (m.consolidated_into IS NULL AND NOT ${supersededSql("m.tags")}))
           AND memory_scope_same(m.constraint_scope)
         ORDER BY score ASC
         LIMIT 5`,
@@ -522,8 +536,18 @@ export class MemoryStore {
     const sessionId = validateOptionalString(input.sessionId, "sessionId");
     const workingDir = validateOptionalString(input.workingDir, "workingDir");
 
+    if (source === "agent") {
+      const disabled = this.db.prepare(
+        `SELECT id, tags FROM memories WHERE disabled_at IS NOT NULL AND content = ? AND memory_scope_same(constraint_scope)`,
+      ).iterate(content) as Iterable<{ id: number; tags: string | null }>;
+      for (const candidate of disabled) {
+        if (!isTagSuperset(parseTags(candidate.tags), tags)) continue;
+        const entry = this.get(candidate.id);
+        if (entry) return entry;
+      }
+    }
     if (this.dedupEnabled) {
-      const merged = this.tryDedupMerge({ content, tags, now });
+      const merged = this.tryDedupMerge({ content, tags, now, suppressDisabled: source === "agent" });
       if (merged !== null) return merged;
     } else {
       this.metrics?.recordMemoryDedup({
@@ -609,6 +633,7 @@ export class MemoryStore {
     content: string;
     tags: string[];
     now: number;
+    suppressDisabled: boolean;
   }): MemoryEntry | null {
     const ftsQuery = buildFtsQuery(args.content);
     if (ftsQuery.length === 0) {
@@ -633,10 +658,11 @@ export class MemoryStore {
       content: string;
       tags: string | null;
       score: number;
+      disabled_at: number | null;
     };
     let candidates: CandidateRow[];
     try {
-      candidates = this.dedupCandidateStmt.all(ftsQuery) as CandidateRow[];
+      candidates = [...(args.suppressDisabled ? this.dedupCandidateStmt.all(ftsQuery, 1) : []), ...this.dedupCandidateStmt.all(ftsQuery, 0)] as CandidateRow[];
     } catch {
       // Malformed FTS query degrades to "no candidates"; the write
       // proceeds as a fresh INSERT rather than failing the call.
@@ -654,6 +680,10 @@ export class MemoryStore {
         tokens,
         tokeniseForSimilarity(row.content),
       );
+      if (row.disabled_at !== null) {
+        if (matchesDisabledNote(row, args.content, args.tags, this.dedupThreshold)) return this.get(row.id);
+        continue;
+      }
       if (best === null || score > best.score) {
         best = { id: row.id, score, row };
       }
@@ -724,6 +754,16 @@ export class MemoryStore {
    * returns an empty array without a database round-trip.
    */
   recall(query: string, opts: MemoryRecallOptions = {}): MemoryEntry[] {
+    const entries = this.searchNotes(query, opts, false);
+    if (entries.length > 0) this.touchOnRecall(entries);
+    return entries;
+  }
+
+  searchForOperator(query: string, opts: MemoryRecallOptions = {}): MemoryEntry[] {
+    return this.searchNotes(query, opts, true);
+  }
+
+  private searchNotes(query: string, opts: MemoryRecallOptions, includeDisabled: boolean): MemoryEntry[] {
     const normalizedQuery = validateQuery(query);
     const ftsQuery = buildFtsQuery(normalizedQuery);
     if (ftsQuery.length === 0) return [];
@@ -736,6 +776,7 @@ export class MemoryStore {
     const scope = opts.scope ?? "all";
     const requiredTags = validateTags(opts.tags);
     const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`];
+    if (!includeDisabled) where.push("m.disabled_at IS NULL");
     const params: unknown[] = [ftsQuery];
     if (scope === "project") {
       const dir = validateOptionalString(opts.workingDir, "workingDir");
@@ -747,7 +788,7 @@ export class MemoryStore {
     const sql = `
       SELECT m.id, m.content, m.created_at, m.updated_at,
              m.source, m.session_id, m.working_dir, m.tags,
-             m.recall_count, m.last_recalled_at
+             m.recall_count, m.last_recalled_at, m.disabled_at
         FROM memories_fts
         JOIN memories m ON m.id = memories_fts.rowid
        WHERE ${where.join(" AND ")}
@@ -760,9 +801,7 @@ export class MemoryStore {
       requiredTags.length === 0
         ? mapped
         : mapped.filter((e) => requiredTags.every((t) => e.tags.includes(t)));
-    const sliced = filtered.slice(0, k);
-    if (sliced.length > 0) this.touchOnRecall(sliced);
-    return sliced;
+    return filtered.slice(0, k);
   }
 
   /**
@@ -799,7 +838,7 @@ export class MemoryStore {
       return shared >= minShared;
     };
     const limit = clampPositiveInt(k, 1, MEMORY_RECALL_MAX_K, "k");
-    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL", "memory_scope_visible(m.constraint_scope)"];
+    const where: string[] = ["memories_fts MATCH ?", "m.consolidated_into IS NULL", "m.disabled_at IS NULL", "memory_scope_visible(m.constraint_scope)"];
     const params: unknown[] = [ftsQuery];
     if (opts.workingDir !== undefined) {
       where.push("m.working_dir IS ?");
@@ -891,11 +930,11 @@ export class MemoryStore {
    * Delete a note. The note as it was goes into the change journal
    * first (ATO-1059), so the deletion can be undone; `by` says who asked.
    */
-  remove(id: number, by: MemoryChangeActor = "agent"): boolean {
+  remove(id: number, by: MemoryChangeActor = "agent", excludeDisabled = false): boolean {
     const normalizedId = validateId(id);
     return this.db.transaction((): boolean => {
       const before = this.get(normalizedId);
-      if (before === null) return false;
+      if (before === null || (excludeDisabled && before.disabledAt !== undefined)) return false;
       const scope = this.rawScope(normalizedId);
       const result = this.deleteStmt.run(normalizedId) as { changes: number };
       if (result.changes === 0) return false;
@@ -936,6 +975,7 @@ export class MemoryStore {
       working_dir: snapshot.workingDir,
       tags: tags.length > 0 ? JSON.stringify(tags) : null,
       scope_known: scopeKnown ? 1 : 0,
+      disabled_at: snapshot.disabledAt ?? null,
       constraint_scope: scopeKnown ? snapshot.constraintScope ?? null : null,
     }) as { lastInsertRowid: number | bigint };
     const id = Number(result.lastInsertRowid);
@@ -995,6 +1035,8 @@ export class MemoryStore {
       MEMORY_LIST_MAX_LIMIT,
       "limit",
     );
+    const offset = opts.offset ?? 0;
+    if (!Number.isSafeInteger(offset) || offset < 0) throw new MemoryValidationError("offset", "offset must be a nonnegative integer");
     const scope = opts.scope ?? "all";
     const where: string[] = [`memory_scope_visible(constraint_scope)`];
     const params: unknown[] = [];
@@ -1006,6 +1048,9 @@ export class MemoryStore {
     }
     if (opts.excludeArchived) {
       where.push(`consolidated_into IS NULL`);
+    }
+    if (opts.excludeDisabled) {
+      where.push(`disabled_at IS NULL`);
     }
     for (const tag of opts.excludeTags ?? []) {
       where.push(
@@ -1037,12 +1082,12 @@ export class MemoryStore {
     const sql = `
       SELECT id, content, created_at, updated_at,
              source, session_id, working_dir, tags,
-             recall_count, last_recalled_at
+             recall_count, last_recalled_at, disabled_at
         FROM memories
         ${whereClause}
        ORDER BY updated_at DESC, id DESC
-       LIMIT ?`;
-    params.push(limit);
+       LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
     const rows = this.db.prepare(sql).all(...params) as MemoryRow[];
     return rows.map(rowToEntry);
   }
@@ -1058,7 +1103,8 @@ export class MemoryStore {
    * same trimming rules with the prompt renderer.
    */
   listIndex(opts: MemoryIndexOptions = {}): MemoryIndexEntry[] {
-    const entries = this.list(opts);
+    // ATO-1124: a turned-off note never reaches the prompt.
+    const entries = this.list({ ...opts, excludeDisabled: true });
     const previewChars = clampPreviewChars(opts.previewChars);
     return entries.map((e) => ({
       id: e.id,
@@ -1142,6 +1188,31 @@ export class MemoryStore {
       )
       .run(now, normalizedId, threshold) as { changes: number };
     return r.changes > 0;
+  }
+
+  /**
+   * ATO-1124. Turn one note off (`disabled: true`) or back on. Off keeps
+   * the note and its vector but leaves it out of recall, search, the
+   * prompt's index and dedup; `updated_at` is left alone. Returns the
+   * note, or `null` when the id is not stored.
+   */
+  setDisabled(id: number, disabled: boolean, now: number = this.now()): MemoryEntry | null {
+    return this.changeDisabledAt(id, disabled ? now : null, now);
+  }
+
+  changeDisabledAt(id: number, disabledAt: number | null, now = this.now()): MemoryEntry | null {
+    const normalizedId = validateId(id);
+    return this.db.transaction(() => {
+      const before = this.get(normalizedId);
+      if (before === null || (before.disabledAt !== undefined) === (disabledAt !== null)) return before;
+      this.db.prepare(`UPDATE memories SET disabled_at = ? WHERE id = ?`).run(disabledAt, normalizedId);
+      this.changeLog.record({
+        kind: "note", target: String(normalizedId), op: "set_disabled", by: "user",
+        before: noteSnapshot(before, this.rawScope(normalizedId)),
+        after: disabledAt === null ? "enabled" : "disabled",
+      }, now);
+      return this.get(normalizedId);
+    }).immediate();
   }
 
   /**
@@ -1509,7 +1580,7 @@ export class MemoryStore {
         `SELECT id, content, created_at, updated_at, source, session_id, working_dir, tags,
                 recall_count, last_recalled_at
            FROM memories WHERE id IN (${ids.map(() => "?").join(", ")})
-            AND memory_scope_visible(constraint_scope)`,
+            AND disabled_at IS NULL AND memory_scope_visible(constraint_scope)`,
       )
       .all(...ids) as MemoryRow[];
     return rows.map(rowToEntry);
@@ -1529,7 +1600,7 @@ export class MemoryStore {
     limit: number,
     excludeSuperseded: boolean,
   ): HybridRecallInputEntry[] {
-    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`];
+    const where: string[] = [`memories_fts MATCH ?`, `memory_scope_visible(m.constraint_scope)`, `m.disabled_at IS NULL`];
     const params: unknown[] = [ftsQuery];
     if (workingDir !== null) {
       where.push(`m.working_dir = ?`);
@@ -1588,7 +1659,8 @@ export class MemoryValidationError extends Error {
       | "sessionId"
       | "workingDir"
       | "k"
-      | "limit",
+      | "limit"
+      | "offset",
     message: string,
   ) {
     super(message);
@@ -1596,7 +1668,7 @@ export class MemoryValidationError extends Error {
   }
 }
 
-function validateContent(raw: unknown): string {
+export function validateContent(raw: unknown): string {
   if (typeof raw !== "string") {
     throw new MemoryValidationError(
       "content",
@@ -1622,7 +1694,7 @@ function validateContent(raw: unknown): string {
   return trimmed;
 }
 
-function validateTags(raw: unknown): string[] {
+export function validateTags(raw: unknown): string[] {
   if (raw === undefined || raw === null) return [];
   if (!Array.isArray(raw)) {
     throw new MemoryValidationError("tags", "tags must be a string array");
@@ -1783,6 +1855,7 @@ function rowToEntry(row: MemoryRow): MemoryEntry {
     recallCount: typeof row.recall_count === "number" ? row.recall_count : 0,
     lastRecalledAt:
       typeof row.last_recalled_at === "number" ? row.last_recalled_at : null,
+    ...(typeof row.disabled_at === "number" ? { disabledAt: row.disabled_at } : {}),
   };
 }
 
@@ -1823,6 +1896,18 @@ const SIMILARITY_STOPWORDS: ReadonlySet<string> = new Set(
    + "does did just only very more most other such each over after before while where why "
    + "how every").split(" "),
 );
+
+/** Disabled notes suppress compatible writes without merging or touching the stored row. */
+export function matchesDisabledNote(
+  candidate: { content: string; tags: string | null },
+  content: string,
+  tags: string[],
+  threshold: number,
+): boolean {
+  return isTagSuperset(parseTags(candidate.tags), tags)
+    && (candidate.content === content
+      || jaccardSimilarity(tokeniseForSimilarity(content), tokeniseForSimilarity(candidate.content)) >= threshold);
+}
 
 function jaccardSimilarity(a: Set<string>, b: Set<string>): number {
   if (a.size === 0 && b.size === 0) return 0;
@@ -1919,7 +2004,7 @@ function parseTags(raw: string | null): string[] {
  * gets lenient keyword semantics. An empty output signals "no usable
  * terms — skip the query".
  */
-function buildFtsQuery(query: string): string {
+export function buildFtsQuery(query: string): string {
   const tokens = query
     .toLowerCase()
     .split(/[^\p{L}\p{N}]+/u)
@@ -1940,5 +2025,6 @@ function noteSnapshot(entry: MemoryEntry, constraintScope: string | null): NoteS
     sessionId: entry.sessionId,
     workingDir: entry.workingDir,
     tags: entry.tags,
+    ...(entry.disabledAt === undefined ? {} : { disabledAt: entry.disabledAt }),
   };
 }

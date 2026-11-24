@@ -49,6 +49,7 @@ export interface FactJson {
   updatedAt: number;
   supersedes: number | null;
   supersededBy: number | null;
+  disabledAt?: number;
 }
 
 export function factJson(fact: ProfileFact): FactJson {
@@ -62,6 +63,7 @@ export function factJson(fact: ProfileFact): FactJson {
     updatedAt: fact.updatedAt,
     supersedes: fact.supersedes,
     supersededBy: fact.supersededBy,
+    ...(fact.disabledAt === undefined ? {} : { disabledAt: fact.disabledAt }),
   };
 }
 

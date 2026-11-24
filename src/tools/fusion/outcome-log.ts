@@ -135,6 +135,8 @@ export interface GamesOutcome {
 }
 
 export interface TaskOutcomeRecord {
+  /** Separate attribution for a replacement run, with the reported model when available. */
+  escalationRerun?: { provider: string; model: string | null };
   v: number;
   type: "task";
   /** ISO time the fan-out finished. */
@@ -538,6 +540,10 @@ export function taskOutcomeRecord(
     ...(context.milestoneId === undefined || context.milestoneId.length === 0 ? {} : { milestoneKey: outcomeKey(context.milestoneId) }),
     provider: outcomeLabel(context.provider),
     model: outcomeLabel(context.model),
+    ...(row.escalationRerun === undefined ? {} : { escalationRerun: {
+      provider: outcomeLabel(row.escalationRerun.providerId),
+      model: row.escalationRerun.model === null ? null : outcomeLabel(row.escalationRerun.model),
+    } }),
     leg: context.leg,
     role: context.role,
     ...(context.taskRole === undefined ? {} : { taskRole: context.taskRole }),

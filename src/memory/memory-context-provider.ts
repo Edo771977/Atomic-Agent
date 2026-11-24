@@ -366,7 +366,7 @@ function expandWithLinks(args: ExpandArgs): readonly MemoryEntry[] {
   for (const id of expanded) {
     if (seen.has(id)) continue;
     const entry = args.store.get(id);
-    if (!entry) continue;
+    if (!entry || entry.disabledAt !== undefined) continue;
     if (args.hideSuperseded && isSupersededNote(entry)) continue;
     hydrated.push(entry);
     seen.add(id);

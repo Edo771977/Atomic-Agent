@@ -2299,6 +2299,7 @@ async function runOneTask(
       replaceGraceTimer = armPermitGrace(() => replaceSettled);
     }, { once: true });
     let replaceSpent = 0;
+    let reportedModel: string | null = null;
     const unregisterReplace = deps.liveWorkers?.register(
       options.parentSessionId,
       task.id,
@@ -2409,6 +2410,9 @@ async function runOneTask(
                 // An observer never takes the worker down.
               }
             }
+            if (event.type === "llm_event" && event.event.type === "llm_completed") {
+              reportedModel = event.event.completion.modelId ?? reportedModel;
+            }
             if (
               event.type === "llm_event" &&
               event.event.type === "llm_completed" &&
@@ -2471,6 +2475,11 @@ async function runOneTask(
       const { usage: _replaceUsage, localTokens: _replaceTokens, ...row } = result;
       result = {
         ...row,
+        escalationRerun: {
+          providerId: target.providerId,
+          model: reportedModel ?? target.pinModel ?? target.model,
+          requestedModel: target.pinModel ?? target.model,
+        },
         ...(localUsage === undefined ? {} : { usage: localUsage }),
         ...(localTokens === undefined ? {} : { localTokens }),
       };
