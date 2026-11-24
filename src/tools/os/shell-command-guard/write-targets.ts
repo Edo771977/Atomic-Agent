@@ -528,15 +528,25 @@ function commandTargets(
     const copy = copyOperands(name, args);
     const dest = copy.destination && resolveWriteWord(copy.destination, cwd, scope);
     if (dest) {
-      const noTargetDirectory = args.some(({ text }) => text === "-T" || text === "--no-target-directory");
-      const recursiveCopy = args.some(({ text }) => text === "--recursive" || /^-[^-]*[Rra]/.test(text));
+      const noTargetDirectory = hasCopyFlag(args, "T", "--no-target-directory");
+      const recursiveCopy = args.some(({ text }) => text === "--archive") ||
+        ["R", "r", "a"].some((flag) => hasCopyFlag(args, flag, "--recursive"));
       for (const source of copy.sources) {
         const contentsOnly = name === "ditto" || (name === "rsync" && source.text.endsWith("/")) ||
           (name === "cp" && /(?:^|\/)\.$/.test(source.text));
         const input = resolveDirectoryWord(source, cwd, scope);
-        if (input && !contentsOnly && !noTargetDirectory) scope.placed.push(resolve(dest, basename(input)));
         const canPlaceTree = name === "mv" || name === "ln" || name === "rsync" || recursiveCopy;
-        if (contentsOnly || (canPlaceTree && (noTargetDirectory || !existsSync(dest)))) scope.recursive.push(dest);
+        if (contentsOnly || (canPlaceTree && (noTargetDirectory || !existsSync(dest)))) {
+          scope.recursive.push(dest);
+        } else if (!noTargetDirectory && input && !/[*?\[{]/.test(input)) {
+          scope.placed.push(resolve(dest, basename(input)));
+        } else if (!noTargetDirectory && canPlaceTree) {
+          const values = input ? [input] : pathVariableValues(source.text, scope);
+          for (const value of values) {
+            (scope.patterns ??= []).push(resolve(dest, basename(value)));
+          }
+          if (values.length === 0 || values.some((value) => value.includes("$"))) scope.recursive.push(dest);
+        }
       }
     }
   }
@@ -677,6 +687,14 @@ function valueOption(
   if (flag === undefined) return undefined;
   const offset = flag.length + (text[flag.length] === "=" ? 1 : 0);
   return { value: { ...arg, text: text.slice(offset) }, consumesNext: false };
+}
+
+function hasCopyFlag(args: readonly ShellWord[], short: string, long: string): boolean {
+  for (const { text } of args) {
+    if (text === "--") break;
+    if (text === long || /^-[^-]/.test(text) && text.slice(1).split(/[tS]/, 1)[0]!.includes(short)) return true;
+  }
+  return false;
 }
 
 function copyOperands(name: string, args: readonly ShellWord[]) {
@@ -1026,14 +1044,27 @@ function rememberAssignment(word: ShellWord, scope: WriteTargetScope): void {
   assignments.set(name!, candidates);
 }
 
+function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = false): string[] {
+  const references = /\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))/g;
+  let paths = [""];
+  let cursor = 0;
+  for (const match of text.matchAll(references)) {
+    const name = (match[1] ?? match[2])!;
+    const values = scope.assignments?.get(name) ?? (name === "HOME" && scope.home ? [scope.home] : []);
+    const prefix = text.slice(cursor, match.index);
+    const candidates = [...values];
+    if (candidates.length === 0 && unresolved && text.includes("/")) candidates.push("{.,}*");
+    if (candidates.length === 0) return [];
+    paths = paths.flatMap((path) => candidates.map((value) => path + prefix + value)).slice(0, 32);
+    cursor = match.index + match[0].length;
+  }
+  return paths.map((path) => path + text.slice(cursor));
+}
+
 function directoryWordValues(word: ShellWord, scope?: WriteTargetScope): string[] {
   if (!word.dynamic) return [word.text];
-  if (!scope) return [];
-  const variable = /^\$(?:\{([A-Za-z_]\w*)\}|([A-Za-z_]\w*))([^$*?\[{}]*)$/.exec(word.text);
-  if (!variable) return [];
-  const name = (variable[1] ?? variable[2])!;
-  const bases = scope.assignments?.get(name) ?? (name === "HOME" && scope.home ? [scope.home] : []);
-  return [...bases].map((base) => base + variable[3]);
+  if (!scope || /\$(?![A-Za-z_]|\{[A-Za-z_]\w*\})/.test(word.text)) return [];
+  return pathVariableValues(word.text, scope);
 }
 
 function resolveDirectoryWord(word: ShellWord, dir: string | undefined, scope?: WriteTargetScope): string | undefined {
@@ -1052,6 +1083,16 @@ function resolveWriteWord(word: ShellWord, dir: string | undefined, scope?: Writ
     return target;
   }
   if (!word.dynamic) return undefined;
+  const variants = pathVariableValues(word.text, scope, true);
+  if (word.text.includes("$") && variants.length && variants.every((value) => !value.includes("$"))) {
+    for (const value of variants) {
+      const path = resolveWord({ text: value, dynamic: false }, dir, scope.home);
+      if (!path) continue;
+      if (/[*?\[{]/.test(path)) (scope.patterns ??= []).push(path);
+      else scope.placed.push(path);
+    }
+    return undefined;
+  }
   const fallback = /^\$\{[A-Za-z_]\w*:?[=-]([^$*?\[{}]+)\}([^$*?\[{}]*)$/.exec(word.text);
   if (fallback) {
     const candidate = resolveWord({ text: fallback[1]! + fallback[2], dynamic: false }, dir, scope.home);

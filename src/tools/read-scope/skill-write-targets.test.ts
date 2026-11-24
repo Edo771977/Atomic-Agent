@@ -346,4 +346,42 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
   });
+
+  it.each([
+    ["cp -rT source /scratch", true],
+    ["cp -aT source /scratch", true],
+    ["cp -r /other/.agen* /scratch", true],
+    ["cp -a /other/.agen* /scratch", true],
+    ["cd /scratch; mv /other/.agen* .", true],
+    ["ROOT=.agents; touch /scratch/${ROOT}/skills/demo", true],
+    ["touch /scratch/${DIR}/skills/demo", true],
+    ["touch /scratch/ordinary/${DIR}/file", false],
+  ] as const)("round six point 6 classifies %s", (cmd, blocked) => {
+    const protectedDir = "/scratch/.agents/skills/";
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
+  });
+  it.each([
+    ["cp -rT source .", true],
+    ["cp -aT source .", true],
+    ["cp -r ./source/.agen* .", true],
+    ["cp -a ./source/.agen* .", true],
+    ["mv ./source/.agen* .", true],
+    ['cp -r "$SOURCE" .', true],
+    ['mv "$SOURCE" .', true],
+    ["cp -r ./source/ordinary* .", false],
+    ["cp -r ./source/ordinary .", false],
+  ] as const)("round six recursive copy and move with an existing parent: %s", (cmd, blocked) => {
+    const home = mkdtempSync(join(tmpdir(), "skill-copy-parent-"));
+    try {
+      const skills = join(home, ".agents", "skills");
+      mkdirSync(skills, { recursive: true });
+      expect(findShellSkillWrites({ cmd }, { workingDir: home }, {
+        stateDir: join(home, ".atomic-agent"), files: [], skillWritePaths: [skills + "/"],
+      }, { home, platform: "linux" })).toEqual(blocked ? [skills + "/"] : []);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
 });
