@@ -504,6 +504,7 @@ function fastLinuxMasks(roots: string[], inherited: ReadonlySet<string>, system:
   const result = spawnSync("/usr/bin/find", [
     "-P", ...roots, ...inheritedArgs,
     ...(system ? ["-type", "d", "-perm", "/022", "-prune", "-printf", String.raw`d%p\0`, "-o"] : []),
+    "-type", "d", "(", "!", "-readable", "-o", "!", "-executable", ")", "-prune", "-printf", String.raw`d%p\0`, "-o",
     "-type", "s", "-printf", String.raw`s%p\0`,
   ], { encoding: "utf8", env: { PATH: "/usr/bin:/bin", LC_ALL: "C" }, maxBuffer: 1024 * 1024 });
   if (result.status !== 0 || result.error !== undefined) return undefined;

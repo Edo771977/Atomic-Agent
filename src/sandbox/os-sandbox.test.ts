@@ -26,11 +26,15 @@ import {
   wrapWithOsSandbox,
 } from "./os-sandbox.js";
 
-const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined }));
+const mountFixture = vi.hoisted(() => ({ contents: undefined as string | undefined, blocked: "", directoryReads: 0 }));
 vi.mock("node:fs", async importOriginal => {
   const fs = await importOriginal<typeof import("node:fs")>();
   return {
     ...fs,
+    readdirSync: (...args: unknown[]) => {
+      if (args[0] === mountFixture.blocked) mountFixture.directoryReads++;
+      return Reflect.apply(fs.readdirSync, fs, args);
+    },
     readFileSync: (...args: unknown[]) => args[0] === "/proc/self/mountinfo" && mountFixture.contents !== undefined
       ? mountFixture.contents
       : Reflect.apply(fs.readFileSync, fs, args),
@@ -530,6 +534,26 @@ it.skipIf(process.platform !== "linux")("round 5 point 8: global ignores reject 
     }
   } finally {
     vi.unstubAllEnvs();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+
+it.skipIf(process.platform !== "linux" || process.getuid?.() === 0)("round 5 point 9: native socket inventory masks inaccessible directories without the JS walk", () => {
+  const root = mkdtempSync(join(tmpdir(), "atomic-denied-inventory-"));
+  const blocked = join(root, "blocked");
+  mkdirSync(blocked, { mode: 0 });
+  mountFixture.blocked = blocked;
+  mountFixture.directoryReads = 0;
+  try {
+    const p = buildOsSandboxPolicy({ workspaceRoots: [root], network: false, gitMetadataWritable: true });
+    const launch = wrapWithOsSandbox("true", [], p, { bwrap: "/usr/bin/bwrap" });
+    if (!launch.ok) throw new Error(launch.reason);
+    expect(launch.args.join(" ")).toContain(`--tmpfs ${blocked} --remount-ro ${blocked}`);
+    expect(mountFixture.directoryReads).toBe(0);
+  } finally {
+    mountFixture.blocked = "";
+    chmodSync(blocked, 0o700);
     rmSync(root, { recursive: true, force: true });
   }
 });
