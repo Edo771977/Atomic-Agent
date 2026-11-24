@@ -173,6 +173,7 @@ static std::wstring childEnvironment(const SandboxRequest& request) {
         if (value != request.env.end()) settings.emplace(value->first, value->second);
     }
 #ifdef ATOMIC_SANDBOX_DIAGNOSTICS
+    settings.emplace(L"PATHEXT", L".COM;.EXE;.BAT;.CMD");
     if (request.env.count(L"ATOMIC_DIAGNOSTIC_GIT")) {
         settings.emplace(L"GIT_TRACE", L"1");
         settings.emplace(L"GIT_TRACE2_EVENT", L"1");
