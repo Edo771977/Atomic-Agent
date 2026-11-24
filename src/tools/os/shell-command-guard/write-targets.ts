@@ -1053,7 +1053,7 @@ function pathVariableValues(text: string, scope: WriteTargetScope, unresolved = 
     const values = scope.assignments?.get(name) ?? (name === "HOME" && scope.home ? [scope.home] : []);
     const prefix = text.slice(cursor, match.index);
     const candidates = [...values];
-    if (candidates.length === 0 && unresolved && text.includes("/")) candidates.push("{.,}*");
+    if (candidates.length === 0 && unresolved && match.index > 0 && text.includes("/")) candidates.push("{.,}*");
     if (candidates.length === 0) return [];
     paths = paths.flatMap((path) => candidates.map((value) => path + prefix + value)).slice(0, 32);
     cursor = match.index + match[0].length;

@@ -415,4 +415,16 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
     const cmd = prefix + '\nprintf "%s" "$(touch /scratch/.agents/skills/demo)"';
     expect(checkRoundSeven(cmd)).toEqual(["/scratch/.agents/skills/"]);
   });
+
+  it.each([
+    "cp x \"$DEST/\"",
+    "cp \"$src\" \"$dst/\"",
+    "cp -r templates/* \"$OUT_DIR/\"",
+    "D=$(mktemp -d); cp -r templates/* \"$D/\"",
+    "mv x \"$TMPDIR/$f\"",
+    "cp x \"$TMPDIR/$f\"",
+  ])("round seven point 2: %s", (prefix) => {
+    expect(checkRoundSeven(prefix)).toEqual([]);
+    expect(checkRoundSeven(prefix.replace(/\/(?="$)/, ""))).toEqual([]);
+  });
 });
