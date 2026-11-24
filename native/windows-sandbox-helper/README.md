@@ -22,12 +22,13 @@ from a fresh disposable directory on NTFS.
 ```cmd
 cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "<checkout>\native\windows-sandbox-helper\acl-preflight.cpp"
 acl-preflight.exe --benchmark
-acl-preflight.exe --node "<absolute path to stock node.exe>"
 cl /nologo /std:c++20 /W4 /O2 /MT /Fe:atomic-sandbox-helper.exe "<checkout>\native\windows-sandbox-helper\atomic-sandbox-helper.cpp"
 node "<checkout>\native\windows-sandbox-helper\windows-integration.mjs" "%CD%\atomic-sandbox-helper.exe"
 ```
 
-Use a separate disposable directory for each preflight invocation.
+To reproduce the Node startup diagnostic, run the preflight from a new
+disposable directory with `--node "<absolute path to stock node.exe>"`
+in place of `--benchmark`.
 
 The preflight adds inheritable allow entries only for a new test profile on
 the disposable fixture and binary. It compares host and LPAC access, checks
