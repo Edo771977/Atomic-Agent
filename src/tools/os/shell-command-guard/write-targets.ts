@@ -1,3 +1,4 @@
+import { maskHeredocBodies } from "./heredoc-bodies.js";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
@@ -218,11 +219,14 @@ function lineTargets(
   windows: boolean,
   scope?: WriteTargetScope,
 ): string[] | null {
-  const substitutions = scope && dialect === "posix" ? liftSubstitutions(line, true) : null;
-  const tokens = lexShellLine(substitutions?.outer ?? line, dialect, scope?.home, scope !== undefined, scope !== undefined);
+  const masked = scope && dialect === "posix" && line.includes("<<") ? maskHeredocBodies(line) : undefined;
+  const substitutions = scope && dialect === "posix" ? liftSubstitutions(masked?.text ?? line, true) : null;
+  const restore = (text: string) => masked?.restore(text) ?? text;
+  const tokens = lexShellLine(substitutions ? restore(substitutions.outer) : line,
+    dialect, scope?.home, scope !== undefined, scope !== undefined);
   if (tokens === null) return null;
   if (substitutions?.inner.length === 1) {
-    const body = lexShellLine(substitutions.inner[0]!, dialect, scope?.home);
+    const body = lexShellLine(restore(substitutions.inner[0]!), dialect, scope?.home);
     const literal = body?.every((token) => token.kind === "word") ? literalShellInput(body) : undefined;
     if (literal) {
       for (const token of tokens) {
@@ -265,6 +269,11 @@ function lineTargets(
       const next = tokens[k + 1];
       if (next?.kind !== "word") return scope ? targets : null;
       k += 1;
+      if (scope && next.expandHeredoc) {
+        for (const inner of liftSubstitutions(next.text, false, true)?.inner ?? []) {
+          targets.push(...(lineTargets(inner, cwd, dialect, windows, scope) ?? []));
+        }
+      }
       if (token.writes === "none" || token.writes === "here-string") {
         hasInputRedirect = true;
         stdin = token.writes === "here-string" ? next : undefined;
@@ -282,7 +291,7 @@ function lineTargets(
   }
   if (!flush() && !scope) return null;
   for (const inner of substitutions?.inner ?? []) {
-    targets.push(...(lineTargets(inner, dir, dialect, windows, scope) ?? []));
+    targets.push(...(lineTargets(restore(inner), dir, dialect, windows, scope) ?? []));
   }
   return targets;
 }

@@ -36,7 +36,7 @@ export interface LiftedLine {
  * alone. Returns `null` when a substitution or a quote is not closed,
  * so the caller keeps its old fallback.
  */
-export function liftSubstitutions(line: string, includeProcess = false): LiftedLine | null {
+export function liftSubstitutions(line: string, includeProcess = false, heredocBody = false): LiftedLine | null {
   if (!line.includes("$(") && !line.includes("`") && (!includeProcess || !/[<>]\(/.test(line))) {
     return { outer: line, inner: [] };
   }
@@ -58,13 +58,13 @@ export function liftSubstitutions(line: string, includeProcess = false): LiftedL
       i += 2;
       continue;
     }
-    if (c === "'" && !inDouble) {
+    if (!heredocBody && c === "'" && !inDouble) {
       inSingle = true;
       outer += c;
       i += 1;
       continue;
     }
-    if (c === '"') {
+    if (!heredocBody && c === '"') {
       inDouble = !inDouble;
       outer += c;
       i += 1;

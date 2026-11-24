@@ -17,6 +17,7 @@ export type ShellDialect = "posix" | "cmd" | "powershell";
 export interface ShellWord {
   text: string;
   dynamic: boolean;
+  expandHeredoc?: boolean;
 }
 
 /**
@@ -138,7 +139,7 @@ export function lexShellLine(
   const endWord = (): void => {
     if (!inWord) return;
     if (pendingHeredoc !== null) {
-      const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false } : undefined;
+      const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false, expandHeredoc: !quoted } : undefined;
       if (body) tokens.push({ kind: "redirect", writes: "here-string" }, body);
       heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
@@ -188,6 +189,7 @@ export function lexShellLine(
       if (next !== "\n") {
         word += next;
         inWord = true;
+        if (pendingHeredoc) quoted = true;
       }
       i += 2;
       continue;

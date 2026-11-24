@@ -296,4 +296,18 @@ describe.skipIf(process.platform === "win32")("skill write destinations", () => 
       stateDir: "/settings", files: [], skillWritePaths: ["/scratch/shared/"],
     }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? ["/scratch/shared/"] : []);
   });
+
+  it.each([
+    ["cat > README.md <<'EOF'\nExample: $(cp ./demo /scratch/.agents/skills/demo)\nEOF", false],
+    ["git commit -F - <<'EOF'\nExample: `touch /scratch/.agents/skills/demo`\nEOF", false],
+    ["gh pr create --body \"$(cat <<'EOF'\nExample: `touch /scratch/.agents/skills/demo`\nEOF\n)\"", false],
+    ["cat > docs/skills.md <<'EOF'\nExample: $(mkdir /scratch/.agents/skills/demo)\nEOF", false],
+    ["cat <<EOF\n${LABEL:-x} $(touch /scratch/.agents/skills/demo)\nEOF", true],
+    ["cat <<EOF\n'$(touch /scratch/.agents/skills/demo)'\nEOF", true],
+  ] as const)("round six point 2 classifies %s", (cmd, blocked) => {
+    const protectedDir = "/scratch/.agents/skills/";
+    expect(findShellSkillWrites({ cmd }, { workingDir: "/work" }, {
+      stateDir: "/settings", files: [], skillWritePaths: [protectedDir],
+    }, { home: "/scratch", platform: "linux" })).toEqual(blocked ? [protectedDir] : []);
+  });
 });
