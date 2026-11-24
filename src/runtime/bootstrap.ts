@@ -1326,6 +1326,7 @@ export async function createAgentRuntime(
     logger,
     metrics,
     createSession,
+    anyIncognitoOpen: incognitoSessions.anyOpen,
     discardIncognitoSession: incognitoSessions.discard,
     createEphemeralSession,
     runTurn,

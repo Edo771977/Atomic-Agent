@@ -4,6 +4,7 @@ import {
   type Server,
   type ServerResponse,
 } from "node:http";
+import { EventEmitter } from "node:events";
 import type { Socket } from "node:net";
 
 import type { AgentRuntime } from "../runtime/bootstrap.js";
@@ -185,6 +186,7 @@ export function createHttpServer(
     options.undeliveredSteers ?? new UndeliveredSteerStore();
   const compiled = options.routes.map(compileRoute);
   const incognitoChats = new Set<string>();
+  const memoryEvents = new EventEmitter().setMaxListeners(0);
   // Issue #33: on a network address, sessions of constrained folders
   // without "serve" are refused (serve-egress.ts).
   const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
@@ -199,6 +201,7 @@ export function createHttpServer(
         completionRegistry,
         undeliveredSteers,
         incognitoChats,
+        memoryEvents,
         networkServe,
       }, options.namedTokens);
     } catch (err) {

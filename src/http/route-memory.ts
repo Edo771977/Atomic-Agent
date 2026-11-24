@@ -8,6 +8,7 @@ import {
   type ProfileFact,
 } from "../memory/profile-store.js";
 import { isNameProfileKey } from "../memory/profile-name-keys.js";
+import { memoryFingerprint, operatorMemoryPayload, safeOperatorFact } from "./memory-operator-view.js";
 import { openaiError } from "./openai-errors.js";
 import {
   readJsonBody,
@@ -114,7 +115,11 @@ export function createListMemoryNotesHandler(): HttpHandler {
       limit,
       excludeArchived: params.get("includeArchived") !== "1",
     });
-    sendJson(res, 200, { notes });
+    sendJson(res, 200, operatorMemoryPayload({ notes: notes.map((note) => ({
+      ...note,
+      enabled: note.disabledAt === undefined,
+      fingerprint: memoryFingerprint(note),
+    })) }, ctx));
   };
 }
 
@@ -148,7 +153,7 @@ export function createEditMemoryNoteHandler(): HttpHandler {
       sendError(res, 404, openaiError(`note not found: ${id}`));
       return;
     }
-    sendJson(res, 200, { note });
+    sendJson(res, 200, operatorMemoryPayload({ note }, ctx));
   };
 }
 
@@ -171,7 +176,10 @@ export function createDeleteMemoryNoteHandler(): HttpHandler {
 /** `GET /api/memory/profile` — the active facts, sorted by key. */
 export function createListProfileFactsHandler(): HttpHandler {
   return async (_req, res, ctx) => {
-    sendJson(res, 200, { facts: ctx.runtime.profileStore.list().map(factJson) });
+    sendJson(res, 200, operatorMemoryPayload({ facts: ctx.runtime.profileStore.list().filter(safeOperatorFact).map((fact) => ({
+      ...factJson(fact),
+      enabled: fact.disabledAt === undefined, fingerprint: memoryFingerprint(fact),
+    })) }, ctx));
   };
 }
 
@@ -209,7 +217,7 @@ export function createEditProfileFactHandler(): HttpHandler {
         keywords: current.keywords,
         ...(isNameProfileKey(current.key) ? { nameGrounding: "grounded" as const } : {}),
       });
-      sendJson(res, 200, { fact: factJson(fact) });
+      sendJson(res, 200, operatorMemoryPayload({ fact: factJson(fact) }, ctx));
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;
@@ -239,7 +247,7 @@ export function createDeleteProfileFactHandler(): HttpHandler {
       sendError(res, 404, openaiError(`profile fact not found: ${key}`));
       return;
     }
-    sendJson(res, 200, { removed: true, key });
+    sendJson(res, 200, operatorMemoryPayload({ removed: true, key }, ctx));
   };
 }
 
@@ -257,7 +265,7 @@ export function createProfileFactHistoryHandler(): HttpHandler {
     }
     try {
       const versions = ctx.runtime.profileStore.history(key).map(factJson);
-      sendJson(res, 200, { key, versions });
+      sendJson(res, 200, operatorMemoryPayload({ key, versions }, ctx));
     } catch (err) {
       const message = validationMessage(err);
       if (message === null) throw err;

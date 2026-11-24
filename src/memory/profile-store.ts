@@ -633,12 +633,13 @@ export class ProfileStore {
     return this.changeDisabledAt(key, disabled ? now : null, now);
   }
 
-  changeDisabledAt(key: string, disabledAt: number | null, now = Date.now()): ProfileFact | null {
+  changeDisabledAt(key: string, disabledAt: number | null, now = Date.now(), check?: (entry: ProfileFact) => void): ProfileFact | null {
     const normalisedKey = validateKey(key);
     return this.db.transaction(() => {
       const row = this.selectVisibleActiveByKeyStmt.get(normalisedKey) as ProfileRow | undefined;
       if (row === undefined) return null;
       const before = rowToFact(row);
+      check?.(before);
       if ((before.disabledAt !== undefined) === (disabledAt !== null)) return before;
       this.db.prepare(`UPDATE profile_facts SET disabled_at = ? WHERE id = ?`).run(disabledAt, row.id);
       this.changeLog.record({

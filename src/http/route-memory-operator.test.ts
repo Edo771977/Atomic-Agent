@@ -1,0 +1,121 @@
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { hashHttpToken } from "./http-token-store.js";
+import { startTestHarness, type Harness } from "./test-harness.js";
+
+describe("operator memory routes", () => {
+  let harness: Harness;
+  let noteId: number;
+  const tokens = [
+    { name: "test-admin", role: "admin" as const, sha256: hashHttpToken("admin-test-token"), createdAt: new Date(0).toISOString() },
+    { name: "test-viewer", role: "viewer" as const, sha256: hashHttpToken("viewer-test-token"), createdAt: new Date(0).toISOString() },
+  ];
+  beforeEach(async () => {
+    harness = await startTestHarness({ apiKey: "owner-test-token", namedTokens: () => tokens });
+    noteId = harness.runtime.notesStore.store({ content: "Visible note" }).id;
+    harness.runtime.profileStore.set("city", "Rome");
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await harness.cleanup();
+  });
+
+  const send = (path: string, body?: unknown, token = "admin-test-token", extras: Record<string, string> = {}) =>
+    fetch(harness.baseUrl + path, {
+      method: body === undefined ? "GET" : "POST",
+      headers: {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...extras,
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+
+  it.each(["note", "profile", "backup"] as const)("enforces auth, request policy and idle mode for %s", async (kind) => {
+    const path = kind === "note" ? `/api/memory/notes/${noteId}/state`
+      : kind === "profile" ? "/api/memory/profile/city/state" : "/api/memory/backup";
+    const body = kind === "backup" ? {} : { enabled: false, fingerprint: "0".repeat(64) };
+    expect((await send(path, body, "")).status).toBe(401);
+    expect((await send(path, body, "viewer-test-token")).status).toBe(403);
+    expect((await send(path, body, undefined, { origin: "https://untrusted.example" })).status).toBe(403);
+    expect((await send(path, body, undefined, { "content-type": "text/plain" })).status).toBe(415);
+    const busy = vi.spyOn(harness.runtime.turnController, "busySessionIds").mockReturnValue(["running"]);
+    const refused = await send(path, body);
+    expect(refused.status).toBe(409);
+    expect(await refused.json()).toMatchObject({ error: { code: "turn-running" } });
+    busy.mockRestore();
+    const incognito = vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(true);
+    const privateResponse = await send(path, body);
+    expect(privateResponse.status).toBe(409);
+    expect(await privateResponse.json()).toMatchObject({ error: { code: "incognito" } });
+    incognito.mockRestore();
+    if (kind !== "backup") {
+      const stale = await send(path, body);
+      expect(stale.status).toBe(409);
+      expect(await stale.json()).toMatchObject({ error: { code: "stale-view" } });
+    }
+  });
+
+  it.each(["note", "profile"] as const)("updates and journals %s and publishes a bounded SSE event", async (kind) => {
+    const list = kind === "note" ? "/api/memory/notes" : "/api/memory/profile";
+    const path = kind === "note" ? `/api/memory/notes/${noteId}/state` : "/api/memory/profile/city/state";
+    const key = kind === "note" ? "notes" : "facts";
+    const before = await (await send(list, undefined, "viewer-test-token")).json() as Record<string, { fingerprint: string }[]>;
+    const last = before[key]?.[0];
+    expect(last?.fingerprint).toMatch(/^[a-f0-9]{64}$/);
+    const abort = new AbortController();
+    const events = await fetch(harness.baseUrl + "/api/events", {
+      headers: { authorization: "Bearer viewer-test-token" }, signal: abort.signal,
+    });
+    const reader = events.body!.getReader();
+    try {
+      const changed = await send(path, { enabled: false, fingerprint: last!.fingerprint });
+      expect(changed.status).toBe(200);
+      const result = await changed.json();
+      expect((await send(path, { enabled: true, fingerprint: last!.fingerprint })).status).toBe(409);
+      expect(result).toEqual({ enabled: false, fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/) });
+      const event = new TextDecoder().decode((await reader.read()).value);
+      expect(event).toContain("event: memory_state_changed");
+      expect(event).toContain("data: {}");
+      expect(event).not.toContain("Visible note");
+      expect(event).not.toContain("Rome");
+      expect(await (await send(list)).json()).toMatchObject({ [key]: [{ enabled: false }] });
+      const entry = harness.runtime.notesStore.getChangeLog().list()[0]!;
+      expect(entry.op).toBe("set_disabled");
+      expect(entry.by).toBe("user");
+      expect((await send(`/api/memory/changes/${entry.id}/restore`, {})).status).toBe(200);
+      expect(await (await send(list)).json()).toMatchObject({ [key]: [{ enabled: true }] });
+    } finally {
+      abort.abort();
+      await reader.cancel().catch(() => {});
+    }
+  });
+
+  it("redacts legacy credentials and neutralizes invisible characters in lists", async () => {
+    const db = harness.runtime.notesStore.getDatabaseHandleForEmbeddings();
+    db.prepare("UPDATE memories SET tags = ? WHERE id = ?").run(JSON.stringify(["password: test-secret"]), noteId);
+    harness.runtime.notesStore.store({ content: "left\u202eright" });
+    db.prepare("UPDATE profile_facts SET key = 'pin', value = '4821' WHERE key = 'city'").run();
+    const notes = await (await send("/api/memory/notes")).text();
+    expect(notes).toContain("202E");
+    expect(notes).not.toContain("\u202e");
+    expect(notes).not.toContain("test-secret");
+    expect(await (await send("/api/memory/profile")).json()).toEqual({ facts: [] });
+    harness.runtime.profileStore.remove("pin", "user");
+    expect(await (await send("/api/memory/changes")).text()).not.toContain("4821");
+  });
+
+  it("creates a server-selected backup and returns only metadata", async () => {
+    expect((await send("/api/memory/backup", { directory: "ignored" })).status).toBe(400);
+    const response = await send("/api/memory/backup", {});
+    expect(response.status).toBe(200);
+    const backup = await response.json() as { name: string };
+    expect(backup).toEqual({
+      name: expect.stringMatching(/^memory-\d{8}-\d{6}$/),
+      size: expect.any(Number), date: expect.any(String),
+    });
+    expect(await readdir(join(harness.stateDir, "backups", backup.name))).toContain("memory.sqlite");
+    expect((await send("/api/memory/restore", {})).status).toBe(404);
+  });
+});

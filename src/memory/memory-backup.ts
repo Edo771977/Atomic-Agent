@@ -120,7 +120,7 @@ function assertNoSecrets(db: Database.Database): void {
 }
 
 /** Publish the complete database into an exclusively claimed directory. */
-export async function createMemoryBackup(context: MemoryBackupContext, directory: string): Promise<string> {
+export async function createMemoryBackup(context: MemoryBackupContext, directory: string, beforePublish?: () => void): Promise<string> {
   assertMemoryBackupAllowed(context.incognito);
   const dest = resolve(directory);
   if (!existsSync(context.memoryDbFile)) throw new MemoryBackupError("no memory database to back up");
@@ -168,6 +168,7 @@ export async function createMemoryBackup(context: MemoryBackupContext, directory
     restrictBackupPath(instructions, false);
     syncDirectoryBestEffort(staging);
     try {
+      beforePublish?.();
       mkdirSync(dest, { mode: 0o700 });
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "EEXIST") {
