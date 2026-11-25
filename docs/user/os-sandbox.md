@@ -61,3 +61,7 @@ export ATOMIC_AGENT_SANDBOX_TOOLCHAINS=/usr/local/bin:/usr/local/lib/python3.12
 ```
 
 The directories must exist on the host. Add a separate library or package directory when the executable refers to it. Safe Mode mounts each approved directory read-only.
+
+## Windows
+
+Su Windows nativo Safe Mode non è disponibile e rifiuta i comandi. Per l'ambiente protetto usa CLI o TUI dentro WSL2. Il supporto del Desktop con WSL2 è seguito nell'issue [#218](https://github.com/AtomicBot-ai/atomic-agent/issues/218).
