@@ -196,7 +196,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(description).toContain("NOT for source code");
     expect(description).toContain("os.fs.read");
     expect(description).toContain(
-      "pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, plain",
+      "pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain",
     );
     // It must not claim the tool refuses text files: it reads .txt/.md/.csv
     // as `plain`, and the whole point of issue #113 is removing ambiguity.
@@ -248,6 +248,9 @@ describe("os.fs.read_document dispatcher", () => {
         mbox: fakeExtractor({ format: "mbox", text: "x" }, () =>
           seen.push("mbox"),
         ),
+        msg: fakeExtractor({ format: "msg", text: "o" }, () =>
+          seen.push("msg"),
+        ),
         plain: fakeExtractor({ format: "plain", text: "t" }, () =>
           seen.push("plain"),
         ),
@@ -272,6 +275,7 @@ describe("os.fs.read_document dispatcher", () => {
       "a.xhtml",
       "a.eml",
       "a.mbox",
+      "a.msg",
       "a.txt",
       "a.md",
       "a.log",
@@ -303,17 +307,29 @@ describe("os.fs.read_document dispatcher", () => {
       "html",
       "eml",
       "mbox",
+      "msg",
       ...Array<string>(10).fill("plain"),
     ]);
   });
 
-  it("points Outlook .msg files at .eml instead of reading binary as text", async () => {
+  it("reports a broken Outlook .msg file instead of reading binary as text", async () => {
     const tool = buildOsFsReadDocumentTool({});
     const path = join(dir, "mail.msg");
     await writeFile(path, Buffer.from([0xd0, 0xcf, 0x11, 0xe0]));
     await expect(tool.run({ path }, makeCtx(dir))).rejects.toThrow(
-      /\.msg" files are not supported.*\.eml/,
+      /not a readable Outlook \.msg file/,
     );
+  });
+
+  it("rejects an oversized Outlook input before invoking the extractor", async () => {
+    await writeFile(join(dir, "large.msg"), Buffer.alloc(65));
+    let calls = 0;
+    const tool = buildOsFsReadDocumentTool({
+      maxMsgInputBytes: 64,
+      extractors: { msg: fakeExtractor({ format: "msg" }, () => { calls += 1; }) },
+    });
+    await expect(tool.run({ path: "large.msg", maxBytes: 4 }, makeCtx(dir))).rejects.toThrow(/Outlook.*64 bytes/i);
+    expect(calls).toBe(0);
   });
 
   it("rejects unknown format overrides", async () => {
@@ -342,7 +358,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(error).toBeInstanceOf(Error);
     const message = (error as Error).message;
     expect(message).toContain('unknown format override "text"');
-    expect(message).toContain("pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, plain");
+    expect(message).toContain("pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain");
     expect(message).toContain("os.fs.read");
   });
 
