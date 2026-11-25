@@ -356,6 +356,14 @@ export interface RecentWorkingDirRow {
   updatedAt: number;
 }
 
+/** `metadata.archived` is a literal `true`, as `readSessionArchived` reads it. */
+const IS_ARCHIVED_SQL = `
+SELECT 1 AS hit
+  FROM sessions
+ WHERE id = ?
+   AND json_valid(payload)
+   AND json_type(payload, '$.metadata.archived') = 'true'`;
+
 /**
  * Durable session persistence. The SessionState is serialised as JSON,
  * optimising for developer iteration over schema stability, except for the
@@ -1273,6 +1281,16 @@ export class SessionStore {
   /** Runtime task guard, including chats whose owner died since boot. */
   isOrphanIncognito(id: string): boolean {
     return storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity, this.ownedIncognitoMarks.get(id));
+  }
+
+  /**
+   * Whether the stored row `id` is archived (`metadata.archived: true`,
+   * ATO-1150), read in SQL so the payload is not parsed. The terminal's
+   * history search uses it to keep archived chats out, as the rail does
+   * (ATO-1510).
+   */
+  isArchived(id: string): boolean {
+    return this.db.prepare(IS_ARCHIVED_SQL).get(id) !== undefined;
   }
 
   /**

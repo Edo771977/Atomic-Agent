@@ -360,6 +360,7 @@ export class OpenAiProvider implements LlmProvider {
         ? { anthropicCacheControl: true }
         : {}),
       ...(isDeepSeekHost(options.baseUrl) ? { reasoningRequired: true } : {}),
+      ...(isGeminiOpenAiCompatUrl(options.baseUrl) ? { thoughtSignatures: true } : {}),
     };
     this.http = {
       baseUrl: normalizeOpenAiBaseUrl(options.baseUrl),
