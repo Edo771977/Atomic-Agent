@@ -120,6 +120,8 @@ Run `atag http tokens add <name> --role <viewer|member|operator|admin>` from you
 
 Use `viewer` for read-only access, `member` for ordinary agent work, `operator` to also make human decisions, and `admin` to also manage server resources. See the [HTTP authorization matrix](../http/README.md#named-http-tokens).
 
+ACP (upstream #1646) remains deferred: `atag acp` is an unknown command, including in agent tool children. No editor starts a runtime or listener through that command. The [protocol review](../http/README.md) records the full three-commit provenance, unsafe approval attribution and upstream persistent editor grants.
+
 ## MCP server
 
 `mcp-server [--allow-write] [--allow-exec] [--tool <name>]... [--cwd <dir>]` (ATO-549) serves the agent's own tools to another MCP client (Claude Code, Codex, Cursor) over stdio, e.g. `claude mcp add atomic-agent -- atag mcp-server`. It boots no runtime and no model: [mcp-server-command.ts](mcp-server-command.ts) opens the memory database and the skill folders, [mcp-server-tools.ts](mcp-server-tools.ts) builds the tools with the runtime's own builders, and [mcp-server-bridge.ts](mcp-server-bridge.ts) answers `tools/list` and `tools/call` through a `ToolRegistry`, so secret masking applies. It exits when the client closes stdin; stdout carries only the protocol.
