@@ -45,7 +45,7 @@ const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function prefixCommandFlags(name: string): readonly string[] | undefined {
   return Object.prototype.hasOwnProperty.call(PREFIX_COMMANDS, name)
     ? PREFIX_COMMANDS[name]
-    : RULE_WRAPPERS[name];
+    : Object.prototype.hasOwnProperty.call(RULE_WRAPPERS, name) ? RULE_WRAPPERS[name] : undefined;
 }
 
 const RULE_WRAPPERS: Readonly<Record<string, readonly string[]>> = {

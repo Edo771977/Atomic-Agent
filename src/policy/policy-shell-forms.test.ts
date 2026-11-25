@@ -60,4 +60,8 @@ describe("shared shell rule decisions on synthetic parser fixtures", () => {
     const rule: ApprovalRule = { id: "fixture", source: "user", createdAt: "", decision: "allow", category: "shell", commandPrefix: ["fixture-check", "stop"] };
     expect(matchRules([rule], { tool: "os.shell.run", category: "shell", commandArgv: ["fixture-check.exe", "stop"] })).toBeNull();
   });
+  it("ordinary executable names are not inherited wrapper-table properties", () => {
+    expect(shellRuleSegments("constructor", ["--ordinary"], false)).toEqual([["constructor", "--ordinary"]]);
+    expect(shellRuleSegments("toString", ["--ordinary"], false)).toEqual([["toString", "--ordinary"]]);
+  });
 });
