@@ -263,7 +263,7 @@ describe("os.fs.xlsx op chart (ATO-541)", () => {
 
   it("rejects an oversized existing package before opening ExcelJS or asking to chart it", async () => {
     const path = await workbookWithData();
-    await writeFile(path, await withDeclaredOfficePartSize(await readFile(path), 65 * 1024 * 1024));
+    await writeFile(path, await withDeclaredOfficePartSize(await readFile(path), 257 * 1024 * 1024));
     await expect(tool().run({ path: "sales.xlsx", op: "chart", range: "A1:C3" }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
     expect(prompts).toHaveLength(1);
   });

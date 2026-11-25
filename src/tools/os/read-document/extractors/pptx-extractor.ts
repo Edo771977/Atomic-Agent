@@ -1,3 +1,4 @@
+import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
 import type { Extractor } from "./extractor-types.js";
 import {
   joinExtracted,
@@ -111,4 +112,3 @@ function visit(nodes: ReturnType<typeof parseXml>, out: string[]): void {
     if (tag === "a:p") out.push("\n");
   }
 }
-import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";

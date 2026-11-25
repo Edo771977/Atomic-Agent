@@ -75,7 +75,7 @@ async function textOf(path: string): Promise<string> {
 
 describe("os.fs.docx", () => {
   it.each(["append", "replace"] as const)("rejects an oversized existing package before Word %s approval", async op => {
-    await writeFile(join(dir, "large.docx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65 * 1024 * 1024));
+    await writeFile(join(dir, "large.docx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 257 * 1024 * 1024));
     await expect(tool().run({
       path: "large.docx", op, blocks: ["fixture"], find: "all systems nominal", replaceWith: "fix",
     }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
