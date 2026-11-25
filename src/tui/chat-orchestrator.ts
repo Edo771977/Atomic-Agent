@@ -121,6 +121,9 @@ import { withSessionFusionDirector, withSessionFusionWorker } from "../session/s
 import { needsDirectorPick, teamPickerState } from "./fusion-team-picker.js";
 import type { SessionPickerEntry, TuiState } from "./tui-state.js";
 import { claimTurnProgress } from "../agent/step/turn-progress-opt-in.js";
+import type { ReasoningLevel } from "../llm/reasoning-levels.js";
+import type { ReasoningEffort } from "../llm/provider/completion-types.js";
+import { reasoningOverrideFor } from "./commands/think-command.js";
 
 const DEBUG_BUNDLE_TRACE_LIMIT = 10;
 const DEBUG_BUNDLE_DIR_NAME = "atomic-agent-debug";
@@ -301,6 +304,8 @@ export class ChatOrchestrator {
    * ordinary backlog from the next one's point of view.
    */
   private steeredAhead = 0;
+  /** `/think` (ATO-490): sent on every turn started from here; absent for `auto`. */
+  private reasoningOverride: ReasoningEffort | undefined = undefined;
   /**
    * Abort handles of turns the operator switched away from — see
    * `detachRunningTurn`. Switching back re-attaches the handle; quit
@@ -1859,6 +1864,15 @@ export class ChatOrchestrator {
   }
 
   /**
+   * `/think <level>` (ATO-490): the reasoning level of the next turns
+   * this window starts, in every chat, until changed. A turn already
+   * running keeps the level it started with; `auto` sends none.
+   */
+  setReasoningLevel(level: ReasoningLevel): void {
+    this.reasoningOverride = reasoningOverrideFor(level);
+  }
+
+  /**
    * Drop every parked message without touching the running turn
    * (`/queue clear`). No-op on an empty queue so the TUI is not spammed
    * with redundant `queue_changed` frames.
@@ -2201,6 +2215,10 @@ export class ChatOrchestrator {
         ...(this.options.maxSteps === undefined
           ? {}
           : { maxSteps: this.options.maxSteps }),
+        // ATO-490: the `/think` level; `auto` sends none.
+        ...(this.reasoningOverride === undefined
+          ? {}
+          : { reasoningOverride: this.reasoningOverride }),
         signal: controller.signal,
         origin: "tui",
         // The operator is at the chat: a model that runs out of memory
