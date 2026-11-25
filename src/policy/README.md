@@ -93,6 +93,8 @@ Remote Git verbs retain local edit checks: clone checks its new tree, fetch/push
 - [policy-targets.ts](policy-targets.ts): a gate request or a tool call as action and resources.
 - [policy-enforce.ts](policy-enforce.ts): answers for the gate, the dispatcher, skills and MCP.
 - [policy-active.ts](policy-active.ts): the policy installed at boot.
+- [policy-paths.ts](policy-paths.ts), [policy-mutations.ts](policy-mutations.ts): canonical identities, protected read exclusions and complete mutation plans.
+- [policy-web.ts](policy-web.ts), [policy-web-identity.ts](policy-web-identity.ts): independent destination decisions and URL/host identities.
 
 ## Validation
 
