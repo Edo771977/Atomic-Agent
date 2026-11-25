@@ -255,10 +255,10 @@ Ondate:
 | [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Importare |
 | [#1576](https://github.com/AtomicBot-ai/atomic-agent/pull/1576) | 1 | feat(fallback): ask once whether to keep the local model as the last resort | Importare |
 | [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importare |
-| [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importare |
-| [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importare |
+| [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
+| [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importare |
-| [#1590](https://github.com/AtomicBot-ai/atomic-agent/pull/1590) | 1 | Refuse self-update when installed through mise or aqua (ATO-1485) | Importare |
+| [#1590](https://github.com/AtomicBot-ai/atomic-agent/pull/1590) | 1 | Refuse self-update when installed through mise or aqua (ATO-1485) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
 | [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
@@ -266,15 +266,15 @@ Ondate:
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
-| [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importare |
+| [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Importare |
 | [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importare |
 | [#1660](https://github.com/AtomicBot-ai/atomic-agent/pull/1660) | 2 | TUI: offer /runmode on the start page (ATO-1640) | Importare |
-| [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Importare |
+| [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Gia equivalente su main: tutte le 71 chiavi completate da upstream hanno gia una descrizione non vuota nella tabella generata del fork; preservate le formulazioni del fork. |
 | [#1667](https://github.com/AtomicBot-ai/atomic-agent/pull/1667) | 1 | TUI: show how far a local model has read the prompt (ATO-1001) | Importare |
 | [#1678](https://github.com/AtomicBot-ai/atomic-agent/pull/1678) | 1 | TUI: /think sets the reasoning level of the next turns (ATO-490) | Importare |
-| [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importare |
-| [#1692](https://github.com/AtomicBot-ai/atomic-agent/pull/1692) | 1 | Local engine: detect a model's MTP head and gate MTP on Core support (ATO-4 | Importare |
+| [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). Offline prevale anche su force; test di regressione aggiunto. |
+| [#1692](https://github.com/AtomicBot-ai/atomic-agent/pull/1692) | 1 | Local engine: detect a model's MTP head and gate MTP on Core support (ATO-4 | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). Test aggiunto sul seam Core load overrides esistente. |
 | [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Importare |
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
@@ -365,7 +365,7 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 | `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importare. |
 | `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importare. |
 | `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importare dopo verifica della firma. |
-| `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importare. |
+| `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). Conservato Ask the operator; nessun invito al modello a concedersi fiducia. |
 | `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Importare. |
 | `fix/ato-421-desktop-restart-pending` | `8178f1994e66` | fix(desktop): mark the supervisor's restart as a chat start on its way (ATO-421) | Importare in `desktop-main`. |
 | `fix/ato-1729-chat-image-revalidate` | `af3f28642495` | fix(desktop): do not throw when a chat repeats a missing image (ATO-1729) | Importare in `desktop-main`. |
