@@ -66,10 +66,13 @@ function revisionAttrs(rev: Revision): string {
   return `w:id="${id}" w:author="${escapeXmlText(rev.author)}" w:date="${revisionStamp(rev)}"`;
 }
 
-/** The largest number in `attr="N"` across `xml`, or 0. */
+/** The largest usable ID in `attr="N"` across `xml`, or 0. */
 export function maxAttr(xml: string, attr: RegExp): number {
   let max = 0;
-  for (const match of xml.matchAll(attr)) max = Math.max(max, Number(match[1]));
+  for (const match of xml.matchAll(attr)) {
+    const id = Number(match[1]);
+    if (Number.isSafeInteger(id) && id < Number.MAX_SAFE_INTEGER) max = Math.max(max, id);
+  }
   return max;
 }
 

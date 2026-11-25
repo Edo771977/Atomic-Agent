@@ -232,3 +232,9 @@ describe("trackedReplaceInPartXml", () => {
     expect(new Set(ids).size).toBe(6);
   });
 });
+import { maxAttr } from "./docx-blocks.js";
+
+it("ignores unsafe Office IDs so the next generated ID stays finite", () => {
+  const xml = '<w:p w:id="17"/><w:p w:id="9007199254740992"/><w:p w:id="' + "9".repeat(310) + '"/>';
+  expect(maxAttr(xml, /\bw:id="(\d+)"/g)).toBe(17);
+});
