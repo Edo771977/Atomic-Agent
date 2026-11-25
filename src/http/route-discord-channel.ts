@@ -30,7 +30,7 @@ export function createDiscordChannelHandler(): HttpHandler {
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
-      lastError: lastError ? "channel_error" : null,
+      lastError: isChannelLockConflict(lastError) ? "channel_locked" : lastError ? "channel_error" : null,
       hasToken: channel.hasToken(),
       otherPoller: discordOtherPollerOf(lastError),
     });
