@@ -483,7 +483,8 @@ export interface PresetEntryFields {
  * preset's key variable and, for an `openai-compatible` entry, its header
  * contract and its key command (Vertex AI's token, cloned like the
  * headers, so the frozen preset literal cannot be mutated through the
- * saved entry). A native kind sends its own headers.
+ * saved entry). A native kind sends its own headers. The key resolver
+ * still enforces the destination policy for reserved vendor names.
  */
 export function presetEntryFields(
   preset: ProviderPreset,

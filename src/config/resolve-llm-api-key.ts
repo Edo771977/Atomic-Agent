@@ -130,12 +130,18 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
 }
 
 const OPENAI_ORIGIN = "https://api.openai.com";
+const AIMLAPI_KEY = { origin: DEFAULT_AIMLAPI_BASE, name: "AIMLAPI_API_KEY" };
 
 const NATIVE_KEY_DEFAULTS = new Map([
   ["anthropic", { origin: "https://api.anthropic.com", name: "ANTHROPIC_API_KEY" }],
   ["gemini", { origin: "https://generativelanguage.googleapis.com", name: "GEMINI_API_KEY" }],
   ["openrouter", { origin: "https://openrouter.ai", name: "OPENROUTER_API_KEY" }],
 ]);
+
+const NATIVE_KEY_DESTINATIONS = new Map(
+  [...NATIVE_KEY_DEFAULTS, ["aimlapi", AIMLAPI_KEY] as const]
+    .map(([kind, { name, origin }]) => [name, { kind, origin }] as const),
+);
 
 /** The variables that usually hold the operator's real OpenAI key (ATO-1703). */
 export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
@@ -178,15 +184,21 @@ function mayReceiveDefaultKey(baseUrl: string | undefined, officialOrigin: strin
 }
 
 /**
- * Whether `entry` may read its key from the variable `name`. Only the
- * OpenAI variables are restricted: they go to OpenAI or this machine, and
- * never to a native kind (OpenRouter, Gemini, ...), whose host is not OpenAI.
+ * Reserved vendor variable names belong to the vendor's API or loopback.
+ * With no explicit URL, a native kind supplies its own default origin.
  */
 function mayUseKeyVariable(
   entry: { readonly kind?: string; readonly baseUrl?: string },
   name: string,
 ): boolean {
-  if (!OPENAI_KEY_VARIABLES.has(name.toUpperCase())) return true;
+  const canonical = name.toUpperCase();
+  const native = NATIVE_KEY_DESTINATIONS.get(canonical);
+  if (native !== undefined) {
+    return entry.baseUrl
+      ? mayReceiveDefaultKey(entry.baseUrl, native.origin)
+      : entry.kind === native.kind;
+  }
+  if (!OPENAI_KEY_VARIABLES.has(canonical)) return true;
   if (entry.baseUrl !== undefined && entry.baseUrl.length > 0) {
     return mayReceiveOpenAiKey(entry.baseUrl);
   }
@@ -236,8 +248,8 @@ export function resolveExtraApiKeys(
   env: NodeJS.ProcessEnv = process.env,
   options: {
     /**
-     * `false` reads every named variable, the OpenAI ones included, for
-     * callers that only mask values in output and never send them.
+     * Despite the historical name, `false` reads every reserved variable
+     * for callers that only mask values in output and never send them.
      */
     readonly scopeOpenAiKey?: boolean;
   } = {},
@@ -257,3 +269,4 @@ export function resolveExtraApiKeys(
   }
   return out;
 }
+import { DEFAULT_AIMLAPI_BASE } from "../llm/provider/aimlapi/aimlapi-endpoint.js";
