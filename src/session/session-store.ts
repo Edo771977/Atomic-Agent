@@ -1287,6 +1287,21 @@ export class SessionStore {
     return row === undefined ? null : row.incognito === 1;
   }
 
+  /** Recent ordinary chats with goals, projected without loading any transcript. */
+  listRecentGoals(limit: number): Pick<SessionState, "id" | "metadata">[] {
+    const rows = this.db.prepare(`
+      SELECT id, json_extract(payload, '$.metadata.goal') AS goal
+      FROM sessions
+      WHERE CASE WHEN json_valid(payload) THEN
+        json_type(payload, '$.metadata.goal') = 'object'
+        AND json_type(payload, '$.incognito') IS NOT 'object'
+        AND json_type(payload, '$.incognito') IS NOT 'array'
+      ELSE 0 END
+      ORDER BY updated_at DESC LIMIT ?
+    `).all(limit) as { id: string; goal: string }[];
+    return rows.map(({ id, goal }) => ({ id, metadata: { goal: JSON.parse(goal) as unknown } }));
+  }
+
   /** The saved fields needed for egress and provider policy, without the transcript. */
   loadPolicySubject(id: string): { workingDir: string; metadata?: Record<string, unknown> } | null {
     const row = this.db.prepare(`

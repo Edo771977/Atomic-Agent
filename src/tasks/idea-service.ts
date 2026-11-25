@@ -32,6 +32,7 @@ export interface IdeaRefreshDeps {
   tasks: Pick<TaskStore, "list">;
   sessions: {
     listRecent(limit?: number): Pick<SessionState, "id" | "metadata" | "incognito">[];
+    listRecentGoals?(limit: number): Pick<SessionState, "id" | "metadata">[];
     isIncognito?(id: string): boolean;
     getSessionPrivacy?(id: string): boolean | null;
   };
@@ -49,7 +50,8 @@ export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
   const now = deps.now ?? Date.now();
   const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }).filter((task) =>
     task.incognito !== true && (task.sessionId === null || deps.sessions.isIncognito?.(task.sessionId) !== true));
-  const sessions = deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)
+  const sessions = (deps.sessions.listRecentGoals?.(IDEA_REFRESH_SESSION_SCAN)
+    ?? deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN))
     .filter(session => deps.sessions.isIncognito?.(session.id) !== true);
   const candidates = buildIdeaCandidates({
     tasks,
@@ -102,6 +104,7 @@ export interface IdeaCarrySource {
   tasks: Pick<TaskStore, "get">;
   sessions: {
     load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata" | "incognito">>) | null;
+    loadPolicySubject?(id: string): { workingDir: string; metadata?: Record<string, unknown> } | null;
     isIncognito?(id: string): boolean;
     getSessionPrivacy?(id: string): boolean | null;
   };
@@ -166,7 +169,9 @@ export function ideaTaskCarry(
   if (taskId === null) return null;
   const original = source.tasks.get(taskId);
   if (original === null) return null;
-  const session = original.sessionId ? source.sessions.load(original.sessionId) : null;
+  const readSubject = (id: string) => source.sessions.loadPolicySubject
+    ? source.sessions.loadPolicySubject(id) : source.sessions.load(id);
+  const session = original.sessionId ? readSubject(original.sessionId) : null;
   return {
     sourceTaskId: original.id,
     maxSteps: original.maxSteps,
@@ -187,7 +192,8 @@ export function ideaTaskCarry(
  * one task; if the task is refused the idea goes back to `new`.
  * With `carryFrom`, a Retry card hands the factory the original task's
  * limits, notify target and folder (`IdeaTaskCarry`).
- * Returns `null` for an unknown id; throws `IdeaStateError` when the
+ * Returns `null` when the idea is unavailable or the caller supplies no
+ * origin lookup for a Retry. Throws `IdeaStateError` when the
  * idea was already decided and `TaskValidationError` for a bad prompt.
  */
 export function acceptIdea(

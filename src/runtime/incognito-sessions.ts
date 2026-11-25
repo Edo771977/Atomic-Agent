@@ -84,7 +84,7 @@ function createIncognitoTaskSweeper(
  * the next start and costs the user nothing else.
  */
 export async function sweepOrphanIncognitoSessions(
-  sessionStore: Pick<SessionStore, "sweepOrphanIncognito"> & Partial<Pick<SessionStore, "load">>,
+  sessionStore: Pick<SessionStore, "sweepOrphanIncognito"> & Partial<Pick<SessionStore, "getSessionPrivacy" | "load">>,
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
   tasksDbFile?: string | null,
@@ -96,6 +96,7 @@ export async function sweepOrphanIncognitoSessions(
   try {
     try {
       tasks.cleanupIdeas((id) => {
+        if (sessionStore.getSessionPrivacy) return sessionStore.getSessionPrivacy(id);
         const state = sessionStore.load?.(id);
         return state == null ? null : isIncognitoSession(state);
       });
