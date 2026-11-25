@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../privacy/index.js";
 import { buildCloudSubcallRequest } from "../llm/provider/cloud-subcall.js";
 import type {
   CompletionRequest,
@@ -276,7 +277,7 @@ export async function generateNextStep(
               }),
         };
   try {
-    const result = await deps.complete(request);
+    const result = await withFreshPrivacyVault(() => deps.complete(request));
     return sanitizeNextStep(extractNextStepText(result));
   } catch (err) {
     deps.onError?.(err);

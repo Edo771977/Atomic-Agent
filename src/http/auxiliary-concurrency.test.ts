@@ -43,8 +43,8 @@ it("shares per-token and global limits between complete and btw, including the o
   await vi.waitFor(() => expect(f.releases).toHaveLength(2));
   try {
     expect((await f.post(OWNER, "btw", "probe")).status).toBe(429);
-    pending.push(f.post(A, "complete", "hold"), f.post(A, "btw", "hold"));
-    await vi.waitFor(() => expect(f.releases).toHaveLength(4));
+    pending.push(f.post(A, "complete", "hold"), f.post(A, "btw", "hold"), f.post(B, "complete", "hold"), f.post(B, "btw", "hold"));
+    await vi.waitFor(() => expect(f.releases).toHaveLength(6));
     expect((await f.post(B, "btw", "probe")).status).toBe(429);
     expect((await f.post(B, "complete", "probe")).status).toBe(429);
   } finally { f.releases.forEach(release => release()); await Promise.all(pending); }

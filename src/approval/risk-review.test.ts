@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalRequest } from "./approval-gate.js";
 import {
@@ -270,7 +271,7 @@ describe("createModelRiskReviewer", () => {
       slotId: () => 3,
       nonce: () => "n0nce",
       userRequest: () => "build it",
-      complete: async (params) => {
+      complete: async (params) => { assertAuxiliaryArchive(params.sessionId);
         calls.push(params);
         const content = typeof answer === "string" ? answer : await answer();
         return { content };

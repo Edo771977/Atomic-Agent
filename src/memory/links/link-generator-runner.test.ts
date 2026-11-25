@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -102,7 +103,7 @@ describe("createLinkGeneratorRunner", () => {
   it("skips the LLM call when candidates < minCandidates", async () => {
     let called = false;
     const runner = createLinkGeneratorRunner({
-      llmComplete: async () => {
+      llmComplete: async (privacyRequest) => { assertAuxiliaryArchive(privacyRequest.sessionId);
         called = true;
         return completion("NONE");
       },
@@ -130,12 +131,11 @@ describe("createLinkGeneratorRunner", () => {
 
   it("persists links the LLM emits", async () => {
     const runner = createLinkGeneratorRunner({
-      llmComplete: async () =>
-        completion(
+      llmComplete: async (privacyRequest) => { assertAuxiliaryArchive(privacyRequest.sessionId); return completion(
           ["LINK 1 2 [kind=RELATES_TO]", "LINK 2 3 [kind=CAUSED_BY]"].join(
             "\n",
           ) + "\n",
-        ),
+        ); },
       linkStore: h.linkStore,
       reflectionSlotId: 7,
       timeoutMs: 1_000,

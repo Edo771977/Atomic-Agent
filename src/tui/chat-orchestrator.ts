@@ -1,3 +1,4 @@
+import { releasePrivacyVault } from "../privacy/index.js";
 import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import type { ProviderRestriction } from "../llm/provider-policy.js";
 import { homedir } from "node:os";
@@ -1939,6 +1940,7 @@ export class ChatOrchestrator {
     // Saved, not only held: `/resume` and the rail read the store, and a
     // restart before the resend lands must not bring the old answer back.
     this.runtime.sessionStore.save(plan.state);
+    releasePrivacyVault(session.id);
     // A stopped turn keeps its resume marker; the turn it points at is gone.
     this.runtime.sessionStore.clearTurnProgress(session.id);
     return { ok: true, text: plan.text };
@@ -1990,6 +1992,7 @@ export class ChatOrchestrator {
     // Saved, not only held: `/resume` and the rail read the store, and a
     // restart must not bring the removed turns back.
     this.runtime.sessionStore.save(plan.state);
+    releasePrivacyVault(session.id);
     this.runtime.sessionStore.clearTurnProgress(session.id);
     // Same re-emit a re-attach uses: the reducer rebuilds the transcript
     // from the turns that are left.
