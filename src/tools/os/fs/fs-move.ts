@@ -79,6 +79,9 @@ export function buildOsFsMoveTool(
             ...dests,
             ...(await trustPathsInside(plan, options.trustConfigPaths ?? [], fs)),
           ],
+          // A new destination cannot be stat'ed yet. Carry the source's
+          // directory kind so policy checks its possible destination children.
+          policyDirectories: plan.filter(move => move.folder).flatMap(move => [move.source, move.dest]),
           sessionId: ctx.sessionId,
           tool: NAME,
           reason: describeMoves(plan),
