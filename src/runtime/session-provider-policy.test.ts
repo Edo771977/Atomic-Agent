@@ -119,6 +119,8 @@ describe("session provider policy (issue #33)", () => {
       expect(policy.effectivePolicyForSession("s-home")).toBeUndefined();
       live.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
       expect(policy.effectivePolicyForSession("s-home")?.allowsEgress("channels")).toBe(false);
+      expect(policy.effectivePolicyForSession("btw:s-home")?.allowsEgress("serve")).toBe(false);
+      expect(policy.effectivePolicyForSession("btw:s-home")?.allows("openai")).toBe(false);
       live.clear();
       stored.set("s-home", { workingDir: home, metadata: { providerReadTaint: stamp } });
       expect(policy.effectivePolicyForSession({ id: "s-home", workingDir: home })?.key).toBe(project);

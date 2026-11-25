@@ -17,7 +17,7 @@ type DocxOptions = {
  * hints.
  */
 export async function docxExtractor(input: ExtractorInput, options?: DocxOptions): Promise<ExtractResult> {
-  await loadBoundedOfficeZip(input.data);
+  const zip = await loadBoundedOfficeZip(input.data);
   const mammoth = await loadMammoth();
   const warnings: string[] = [];
 
@@ -26,7 +26,8 @@ export async function docxExtractor(input: ExtractorInput, options?: DocxOptions
       ? mammoth.extractRawText
       : mammoth.convertToMarkdown;
 
-  const result = await convertFn({ buffer: input.data }, options);
+  const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "STORE", streamFiles: true });
+  const result = await convertFn({ buffer }, options);
   for (const msg of result.messages) {
     if (msg.type === "error" || msg.type === "warning") {
       warnings.push(`${msg.type}: ${msg.message}`);

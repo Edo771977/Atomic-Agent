@@ -1,4 +1,4 @@
-import { removeSessionIdeas, removeUnsafeRetryIdeas } from "./idea-privacy.js";
+import { removeSessionIdeas, removeUnsafeIdeas } from "./idea-privacy.js";
 import type Database from "better-sqlite3";
 import { Database as DatabaseCtor } from "../native/load-better-sqlite3.js";
 import { mkdirSync } from "node:fs";
@@ -872,7 +872,7 @@ export class TaskStore {
 
   /** Startup migration for retained Retry cards, including accepted and dismissed history. */
   removeUnsafeIdeas(sessionPrivacy: (id: string) => boolean | null): number {
-    return this.db.transaction(() => removeUnsafeRetryIdeas(this.db, sessionPrivacy)).immediate();
+    return this.db.transaction(() => removeUnsafeIdeas(this.db, sessionPrivacy)).immediate();
   }
 
   private purgeSessionTasks(sessionId: string): number {

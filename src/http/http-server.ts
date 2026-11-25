@@ -1,4 +1,5 @@
 import { routeErrorDiagnostics } from "./route-error-diagnostics.js";
+import { AuxiliaryCompletions } from "./auxiliary-concurrency.js";
 import {
   createServer,
   type IncomingMessage,
@@ -190,6 +191,7 @@ export function createHttpServer(
   const compiled = options.routes.map(compileRoute);
   const incognitoChats = new Set<string>();
   const memoryEvents = new EventEmitter().setMaxListeners(0);
+  const auxiliaryCompletions = new AuxiliaryCompletions();
   // Issue #33: on a network address, sessions of constrained folders
   // without "serve" are refused (serve-egress.ts).
   const networkServe = options.networkServe ?? isNetworkListenHost(options.host);
@@ -206,6 +208,7 @@ export function createHttpServer(
         undeliveredSteers,
         incognitoChats,
         memoryEvents,
+        auxiliaryCompletions,
         networkServe,
       }, (path) => { template = path; }, options.namedTokens);
     } catch (err) {

@@ -114,10 +114,11 @@ function handleRefresh(): number {
   const sessions = new SessionStore({ dbFile: config.paths.sessionsDbFile });
   try {
     return withIdeas((ideas) => {
-      const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
+      const loadSession = (sid: string) => sessions.loadPolicySubject(sid);
+      const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession });
       const result = refreshIdeas({
         ideas, tasks, sessions,
-        sourcePolicy: (sid) => sessionPolicyStamp(policy, (id) => sessions.load(id), sid) as Record<string, unknown> | null | undefined,
+        sourcePolicy: (sid) => sessionPolicyStamp(policy, loadSession, sid) as Record<string, unknown> | null | undefined,
       });
       const fresh = ideas.list({ status: "new" }).filter(idea => !ideaRetryIsUnsafe(idea, { tasks, sessions }));
       process.stdout.write(
@@ -190,7 +191,7 @@ function handleAccept(args: string[]): number {
             const target = inFolder ?? ideaRetryFallbackDir();
             // This process runs no turn, so the stored row is the live view here
             // (`serve` uses the runtime's `retrySessionSeed`, which sees its turns).
-            const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.load(sid) });
+            const policy = createSessionProviderPolicy({ readConfig: getConfig, loadSession: (sid) => sessions.loadPolicySubject(sid) });
             const seed = retrySessionSeed(policy, source, target);
             if (!seed.ok) throw new IdeaUnavailableError(`${seed.error}; the card is retired`);
             if (inFolder !== null || seed.restricted) {
