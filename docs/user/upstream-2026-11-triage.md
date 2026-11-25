@@ -291,6 +291,7 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Rinviata in ondata B: il ramo dipende da withChatStartPending e dalla reason start_pending, assenti nel core importabile; il cherry-pick non compila e richiede prima il contratto di lifecycle mancante. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
@@ -366,7 +367,6 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 | `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importare. |
 | `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importare dopo verifica della firma. |
 | `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importare. |
-| `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Importare. |
 | `fix/ato-421-desktop-restart-pending` | `8178f1994e66` | fix(desktop): mark the supervisor's restart as a chat start on its way (ATO-421) | Importare in `desktop-main`. |
 | `fix/ato-1729-chat-image-revalidate` | `af3f28642495` | fix(desktop): do not throw when a chat repeats a missing image (ATO-1729) | Importare in `desktop-main`. |
 | `fix/ato-1697-sidebar-waiting-dot` | `e2dc48b997da` | fix(desktop): show the waiting-for-approval dot on a background chat that is still running | Importare in `desktop-main`. |

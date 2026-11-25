@@ -103,8 +103,8 @@ describe("computeSplashFit", () => {
       wordmark: false,
       tagline: false,
       // 12 rows − 3 for the mark − 1 margin − 1 slack leaves seven rows:
-      // every tip, `/theme` included.
-      tipCount: SPLASH_TIPS.length,
+      // Seven tips fit, even when the catalog gains another command.
+      tipCount: Math.min(7, SPLASH_TIPS.length),
       labelWidth: 10,
       descriptions: "short",
     });
