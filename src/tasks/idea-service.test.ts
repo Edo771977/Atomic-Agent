@@ -150,6 +150,14 @@ describe("idea service", () => {
     expect(refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added).toEqual([]);
   });
 
+  it("leaves an ordinary Retry intact when acceptance has no source lookup", () => {
+    failedTask("synthetic ordinary task", Date.now() - 1_000);
+    const [card] = refreshIdeas({ ideas, tasks, sessions: noSessions }).added;
+    const result = acceptIdea(ideas, () => { throw new Error("must not create a task"); }, card!.id);
+    expect(result).toBeNull();
+    expect(ideas.get(card!.id)?.status).toBe("new");
+  });
+
   it("a refused task leaves the idea new with its old prompt", () => {
     const now = Date.now();
     failedTask("tidy the inbox", now - 10_000);

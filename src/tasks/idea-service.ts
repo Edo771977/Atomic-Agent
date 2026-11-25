@@ -190,6 +190,8 @@ export function acceptIdea(
   const now = options.now ?? Date.now();
   const before = ideas.get(id);
   if (before === null) return null;
+  // A caller without a source lookup cannot decide a Retry's privacy.
+  if (before.kind === "retry_task" && options.carryFrom === undefined) return null;
   if (ideaRetryIsUnsafe(before, options.carryFrom)) {
     ideas.discardPrivateRetry(id);
     return null;
