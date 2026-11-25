@@ -262,7 +262,7 @@ Ondate:
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
 | [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
-| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
+| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); firma verificata, conservati path tunnel, requiresSecret e gate del fork. |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
@@ -364,7 +364,7 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 | `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Importare con #1562 e #1563. |
 | `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importare. |
 | `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importare. |
-| `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importare dopo verifica della firma. |
+| `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); firma verificata, conservati path tunnel, requiresSecret e gate del fork. |
 | `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importare. |
 | `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Importare. |
 | `fix/ato-421-desktop-restart-pending` | `8178f1994e66` | fix(desktop): mark the supervisor's restart as a chat start on its way (ATO-421) | Importare in `desktop-main`. |
