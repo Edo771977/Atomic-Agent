@@ -100,7 +100,7 @@ export async function sweepOrphanIncognitoSessions(
         return state == null ? null : isIncognitoSession(state);
       });
     } catch {
-      logger.warn("could not clean retained Retry ideas at startup; the next start will retry");
+      logger.warn("could not clean ideas with private or missing sources at startup; the next start will retry");
     }
     const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {

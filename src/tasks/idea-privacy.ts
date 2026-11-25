@@ -46,8 +46,8 @@ export function removeSessionIdeas(db: Database.Database, sessionId: string): vo
   }
 }
 
-/** Legacy cards without an extant task survive only when their source is provably ordinary. */
-export function removeUnsafeRetryIdeas(db: Database.Database, sessionPrivacy: (id: string) => boolean | null): number {
+/** Private sources and goal cards without a provably ordinary chat are purged at boot. */
+export function removeUnsafeIdeas(db: Database.Database, sessionPrivacy: (id: string) => boolean | null): number {
   const ideas = storedIdeas(db);
   if (!ideas.length) return 0;
   const columns = db.prepare("PRAGMA table_info(ideas)").all() as { name: string }[];
@@ -57,6 +57,11 @@ export function removeUnsafeRetryIdeas(db: Database.Database, sessionPrivacy: (i
   const record = db.prepare("UPDATE ideas SET source_session_id = COALESCE(source_session_id, ?) WHERE id = ?");
   let removed = 0;
   for (const idea of ideas) {
+    if (idea.kind === "resume_goal") {
+      const origin = idea.source_session_id ?? idea.session_id;
+      if (origin === null || sessionPrivacy(origin) !== false) removed += remove.run(idea.id).changes;
+      continue;
+    }
     if (idea.kind !== "retry_task") continue;
     const source = task.get(sourceTaskId(idea) ?? "") as { session_id: string | null; incognito: number } | undefined;
     const origin = source?.session_id ?? idea.source_session_id ?? idea.session_id;

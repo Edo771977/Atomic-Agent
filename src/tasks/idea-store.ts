@@ -106,7 +106,11 @@ export class IdeaStore {
    *  - A `new` idea whose source no longer qualifies (the task was run
    *    again, the goal finished) is removed.
    */
-  sync(candidates: readonly IdeaCandidate[], now: number = Date.now()): IdeaSyncResult {
+  sync(
+    candidates: readonly IdeaCandidate[],
+    now: number = Date.now(),
+    isOrdinaryGoalSource?: (id: string) => boolean,
+  ): IdeaSyncResult {
     const insert = this.db.prepare(
       `INSERT INTO ideas (id, kind, source_key, title, reason, evidence_json, prompt,
          session_id, status, task_id, created_at, updated_at, decided_at, source_policy, source_session_id)
@@ -139,6 +143,11 @@ export class IdeaStore {
         if (c.kind === "retry_task") {
           const taskId = ideaSourceTaskId(c);
           if (taskId === null || ordinaryTask?.get(taskId) === undefined) continue;
+        } else if (isOrdinaryGoalSource !== undefined &&
+            (c.sessionId === null || !isOrdinaryGoalSource(c.sessionId))) {
+          // Closing an incognito chat removes its cards under the same
+          // tasks write lock. Recheck the stored chat after taking it.
+          continue;
         }
         recordOrigin.run(c.sourceSessionId ?? c.sessionId, c.sourceKey);
         qualifying.add(c.sourceKey);

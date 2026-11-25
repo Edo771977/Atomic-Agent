@@ -107,6 +107,25 @@ describe("incognito sessions in the runtime", () => {
     expect(existsSync(trace("s-secret"))).toBe(false);
   });
 
+  it("startup removes legacy goal cards for incognito or missing chats", async () => {
+    alive.add(30);
+    const store = open(30);
+    save(store, "ordinary-goal", false);
+    save(store, "private-goal", true);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({ dbFile });
+    const ideas = new IdeaStore({ dbFile });
+    try {
+      ideas.sync(["ordinary-goal", "private-goal", "missing-goal"].map(id => ({
+        kind: "resume_goal", sourceKey: "goal:" + id + ":1", title: "fixture", reason: "fixture",
+        evidence: { source: "goal", ref: id, excerpt: "fixture", at: null },
+        prompt: "synthetic goal fixture", sessionId: id,
+      })));
+      await sweepOrphanIncognitoSessions(store, tracesDir, logger, dbFile);
+      expect(ideas.list().map(idea => idea.sessionId)).toEqual(["ordinary-goal"]);
+    } finally { ideas.close(); tasks.close(); }
+  });
+
   it("discard never deletes an ordinary chat", () => {
     const store = open(1);
     save(store, "s-plain", false);

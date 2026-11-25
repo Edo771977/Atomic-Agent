@@ -31,8 +31,9 @@ export interface IdeaRefreshDeps {
   ideas: Pick<IdeaStore, "sync">;
   tasks: Pick<TaskStore, "list">;
   sessions: {
-    listRecent(limit?: number): Pick<SessionState, "id" | "metadata">[];
+    listRecent(limit?: number): Pick<SessionState, "id" | "metadata" | "incognito">[];
     isIncognito?(id: string): boolean;
+    getSessionPrivacy?(id: string): boolean | null;
   };
   /**
    * A chat's provider policy now (issue #68): a stamp, `null` when
@@ -48,13 +49,19 @@ export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
   const now = deps.now ?? Date.now();
   const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }).filter((task) =>
     task.incognito !== true && (task.sessionId === null || deps.sessions.isIncognito?.(task.sessionId) !== true));
+  const sessions = deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)
+    .filter(session => deps.sessions.isIncognito?.(session.id) !== true);
   const candidates = buildIdeaCandidates({
     tasks,
-    goals: goalIdeaInputs(deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)),
+    goals: goalIdeaInputs(sessions),
     now,
   });
   const sourcePolicy = deps.sourcePolicy;
-  if (sourcePolicy === undefined) return deps.ideas.sync(candidates, now);
+  const isOrdinaryGoalSource = (id: string): boolean =>
+    deps.sessions.getSessionPrivacy !== undefined
+      ? deps.sessions.getSessionPrivacy(id) === false
+      : deps.sessions.isIncognito?.(id) !== true;
+  if (sourcePolicy === undefined) return deps.ideas.sync(candidates, now, isOrdinaryGoalSource);
   const sessionOf = new Map(tasks.map((t) => [t.id, t.sessionId]));
   return deps.ideas.sync(candidates.map((c) => {
     const taskId = ideaSourceTaskId(c);
@@ -62,7 +69,7 @@ export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
     if (sessionId === null) return c;
     const policy = sourcePolicy(sessionId);
     return policy === undefined ? c : { ...c, sourcePolicy: policy };
-  }), now);
+  }), now, isOrdinaryGoalSource);
 }
 
 /**
