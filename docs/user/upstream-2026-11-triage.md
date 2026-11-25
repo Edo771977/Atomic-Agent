@@ -266,7 +266,7 @@ Ondate:
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
 | [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importare |
 | [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Gia equivalente su main: cap 16 e frase senza em dash; conservata la descrizione estesa del fork. |
-| [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). |
+| [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). Preservati gate di fiducia, vincoli, lesson gate e richiesta completa del worker. |
 | [#1660](https://github.com/AtomicBot-ai/atomic-agent/pull/1660) | 2 | TUI: offer /runmode on the start page (ATO-1640) | Importare |
 | [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Importare |
 | [#1667](https://github.com/AtomicBot-ai/atomic-agent/pull/1667) | 1 | TUI: show how far a local model has read the prompt (ATO-1001) | Importare |
@@ -281,7 +281,7 @@ Ondate:
 | [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
 | [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
 | [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Importare |
-| [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). |
+| [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). Preservati journal/receipts, cap e contabilità; test aggiunto sugli stop incapsulati. |
 | [#1730](https://github.com/AtomicBot-ai/atomic-agent/pull/1730) | 2 | ATO-1679: say why a subscription CLI exited, and what to do for an old CLI  | Importare |
 
 ### Ondata B: funzioni con impatto sulla sicurezza
