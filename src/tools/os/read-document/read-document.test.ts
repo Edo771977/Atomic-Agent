@@ -321,6 +321,17 @@ describe("os.fs.read_document dispatcher", () => {
     );
   });
 
+  it("rejects an oversized Outlook input before invoking the extractor", async () => {
+    await writeFile(join(dir, "large.msg"), Buffer.alloc(65));
+    let calls = 0;
+    const tool = buildOsFsReadDocumentTool({
+      maxMsgInputBytes: 64,
+      extractors: { msg: fakeExtractor({ format: "msg" }, () => { calls += 1; }) },
+    });
+    await expect(tool.run({ path: "large.msg", maxBytes: 4 }, makeCtx(dir))).rejects.toThrow(/Outlook.*64 bytes/i);
+    expect(calls).toBe(0);
+  });
+
   it("rejects unknown format overrides", async () => {
     const tool = buildOsFsReadDocumentTool({});
     const path = join(dir, "any.txt");

@@ -305,6 +305,13 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("omits attachment sizes larger than the compound file", async () => {
+    const { buffer } = buildCfb(sampleMessage("Body text"));
+    const offset = buffer.indexOf(Buffer.from(b(0x3701) + "\0", "utf16le"));
+    expect(offset).toBeGreaterThan(0);
+    buffer.writeUInt32LE(buffer.length + 1024, offset + 0x78);
+    expect((await extract(buffer)).text).toContain("- report-q3.pdf (application/pdf)");
+  });
   it("skips oversized string properties and caps recipient and attachment traversal", async () => {
     const subject = { name: "__substg1.0_0037001F", data: Buffer.alloc(1024 * 1024 + 2, 0x41) };
     const { buffer } = buildCfb([subject, ...Array.from({ length: 1001 }, (_, i) => [

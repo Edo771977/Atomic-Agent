@@ -31,6 +31,7 @@ export interface CfbEntry {
 }
 
 export interface CfbFile {
+  byteLength: number;
   root: CfbEntry;
   entry(index: number): CfbEntry;
   /** Child of a storage by name, case-insensitive (as MS-CFB compares). */
@@ -266,6 +267,7 @@ export function openCfb(data: Buffer): CfbFile {
   };
 
   return {
+    byteLength: data.length,
     root,
     entry: (index) => {
       const e = entries[index];

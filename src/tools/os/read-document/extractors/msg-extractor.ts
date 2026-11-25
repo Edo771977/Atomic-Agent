@@ -338,7 +338,7 @@ function readAttachments(
     const mime = readString(a, PR_ATTACH_MIME_TAG) ?? "application/octet-stream";
     // The size comes from the directory entry: the data is never read.
     const data = ctx.cfb.child(storage, substgName(PR_ATTACH_DATA, PT_BINARY));
-    const size = data?.type === "stream" ? `, ${formatSize(data.size)}` : "";
+    const size = data?.type === "stream" && data.size <= ctx.cfb.byteLength ? `, ${formatSize(data.size)}` : "";
     attachments.push(`${name} (${mime}${size})`);
   }
 }
