@@ -1,4 +1,5 @@
 import type { ReasoningExtractor } from "./reasoning-extractor.js";
+import { readThoughtSignature } from "../gemini/gemini-thought-signature.js";
 import { extractPartialReplyTextFromToolArguments } from "./tool-arguments-stream-parser.js";
 import { SSE_LINE_BREAK } from "../../sse-line-endings.js";
 
@@ -24,6 +25,8 @@ export interface OpenAiToolCallDelta {
      */
     argumentsWhole?: true;
   };
+  /** Gemini 3's thought signature, on the delta that opens the call (ATO-1680). */
+  thoughtSignature?: string;
 }
 
 export function parseOpenAiSseEvent(
@@ -176,6 +179,7 @@ export function parseOpenAiSseEvent(
                 },
               }
             : {}),
+          ...withThoughtSignature(toolCall),
         })),
       };
     }
@@ -270,4 +274,9 @@ function readArgumentsFragment(
 /** `{ serviceTier }` when the payload names a served tier, else nothing. */
 export function readServiceTier(raw: unknown): { serviceTier?: string } {
   return typeof raw === "string" && raw.length > 0 ? { serviceTier: raw } : {};
+}
+
+function withThoughtSignature(toolCall: unknown): { thoughtSignature?: string } {
+  const signature = readThoughtSignature(toolCall);
+  return signature !== undefined ? { thoughtSignature: signature } : {};
 }

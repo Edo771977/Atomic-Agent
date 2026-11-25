@@ -6,6 +6,7 @@ import {
 import { runRunModeVerb } from "./commands/run-mode-verb.js";
 import { runModelModeCommand } from "./commands/model-mode-command.js";
 import { runPersonaCommand } from "./commands/persona-command.js";
+import { describeThinkLevel } from "./commands/think-command.js";
 import {
   parseSlashCommand,
   slashPrefix,
@@ -425,6 +426,11 @@ export function runSlashCommand(
     if (callbacks.onLearnCommand) callbacks.onLearnCommand(result.learnCommand);
     else dispatch({ type: "system_message", text: "learned skills are not available here" });
   }
+  // ATO-490: `/think`. The level reaches the orchestrator, which sends it on the next turns.
+  if (result.reasoningLevel !== undefined) callbacks.onReasoningLevelChanged?.(result.reasoningLevel);
+  if (result.thinkShow) {
+    dispatch({ type: "system_message", text: describeThinkLevel(state.reasoningLevel ?? "auto") });
+  }
   if (result.fusionWorkerAction !== undefined) {
     const worker = result.fusionWorkerAction;
     if (state.session.sessionId === null || callbacks.onFusionWorkerAction === undefined) {
@@ -550,13 +556,14 @@ export function runSlashCommand(
     dispatch({ type: "show_steps_set", on });
     callbacks.onShowStepsPersistRequested?.(on);
   }
-  // `/verbose`: session-only, so nothing is written to the config.
+  // `/verbose`: same shape as `/steps`, written to `tui.verboseSteps`.
   if (result.verboseStepsVerb) {
     const on =
       result.verboseStepsVerb === "toggle"
         ? !state.verboseSteps
         : result.verboseStepsVerb === "on";
     dispatch({ type: "verbose_steps_set", on });
+    callbacks.onVerboseStepsPersistRequested?.(on);
     dispatch({
       type: "system_message",
       text: on
