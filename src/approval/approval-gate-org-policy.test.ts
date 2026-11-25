@@ -124,4 +124,38 @@ describe("ApprovalGate with an organization policy (ATO-587)", () => {
     });
     expect((await g.request(shell(["rm", "x"]))).approved).toBe(false);
   });
+
+  it.each(["deny", "ask"] as const)("Fusion relative edit rules retain %s in the original project working directory", async effect => {
+    const original = join(stateDir, "project");
+    const candidate = join(stateDir, "candidate");
+    const p = mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" },
+      file: parsePolicyFile({ rules: [{ action: "edit", resource: "private/*.txt", effect }] }) }]);
+    const g = new ApprovalGate({ emit: r => emitted.push(r), level: 5 });
+    g.setOrgPolicy(request => policyRuleMatch(p, request));
+    g.setSessionPolicy("worker", { onPrompt: "refuse", reason: "worker cannot approve", ruleWorkdir: original, rulePathRoot: candidate });
+    // The resource is already mapped to the original project; the rule must use that same base.
+    const request = { sessionId: "worker", tool: "os.fs.write", category: "fs_write_workspace" as const,
+      reason: "fixture", workdir: candidate, targetPaths: [join(original, "private", "fixture.txt")] };
+    expect(g.ruleDecisionFor(request)).toBe(effect);
+    expect((await g.request(request)).approved).toBe(false);
+    expect(emitted).toEqual([]);
+  });
+
+  it.each(["deny", "ask"] as const)("mapping Fusion paths never relaxes a direct %s", async effect => {
+    const original = join(stateDir, "project");
+    const candidate = join(stateDir, "candidate");
+    const p = mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" },
+      file: parsePolicyFile({ rules: [
+        { action: "edit", resource: join(candidate, "fixture.txt"), effect },
+        { action: "edit", resource: join(original, "fixture.txt"), effect: "allow" },
+      ] }) }]);
+    const g = new ApprovalGate({ emit: r => emitted.push(r), level: 5 });
+    g.setOrgPolicy(request => policyRuleMatch(p, request));
+    g.setSessionPolicy("worker", { onPrompt: "refuse", reason: "worker cannot approve", ruleWorkdir: original, rulePathRoot: candidate });
+    const request = { sessionId: "worker", tool: "os.fs.write", category: "fs_write_workspace" as const,
+      reason: "fixture", workdir: candidate, targetPaths: [join(candidate, "fixture.txt")] };
+    expect(g.ruleDecisionFor(request)).toBe(effect);
+    expect((await g.request(request)).approved).toBe(false);
+    expect(emitted).toEqual([]);
+  });
 });

@@ -1145,8 +1145,17 @@ export class ApprovalGate {
     const own = this.matchSavedRule(request);
     if (own?.decision === "deny" || this.orgPolicy === undefined) return own;
     try {
-      const map = (paths: readonly string[] | undefined): string[] | undefined => paths?.flatMap(path => [path, this.originalCandidatePath(request.sessionId, path)]);
-      return this.orgPolicy({ ...request, targetPaths: map(request.targetPaths), affectedResources: map(request.affectedResources) }) ?? own;
+      const direct = this.orgPolicy(request);
+      if (direct?.decision === "deny") return direct;
+      const policy = this.policiesBySession.get(request.sessionId);
+      if (policy?.rulePathRoot === undefined || policy.ruleWorkdir === undefined) return direct ?? own;
+      const map = (paths: readonly string[] | undefined): string[] | undefined => paths?.map(path => this.originalCandidatePath(request.sessionId, path));
+      // A relative pattern and a mapped candidate path must share the original
+      // project base. Keep the direct verdict too: mapping cannot relax a rule.
+      const original = this.orgPolicy({ ...request, workdir: policy.ruleWorkdir,
+        targetPaths: map(request.targetPaths), affectedResources: map(request.affectedResources) });
+      if (original?.decision === "deny" || original?.decision === "ask" && direct?.decision !== "ask") return original;
+      return direct ?? original ?? own;
     } catch {
       return { decision: "deny", rule: { id: "org-policy:unavailable", decision: "deny", tool: request.tool, createdAt: "", source: "user", note: "Organization policy could not be evaluated" } };
     }
