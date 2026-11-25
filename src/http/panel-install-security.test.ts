@@ -26,6 +26,9 @@ it.each(ASSETS)("serves only fixed public bytes at %s, with restrictive headers"
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
   expect(response.headers.get("content-security-policy")).toContain("default-src 'none'");
+  for (const directive of ["frame-ancestors 'none'", "base-uri 'none'", "form-action 'none'"]) {
+    expect(response.headers.get("content-security-policy")).toContain(directive);
+  }
   const bytes = Buffer.from(await response.arrayBuffer());
   expect(bytes.equals(Buffer.from(await (await fetch(base + path)).arrayBuffer()))).toBe(true);
   for (const secret of [KEY, "PRIVATE-CHAT", "private-host.example", "9876"]) expect(bytes.toString()).not.toContain(secret);
