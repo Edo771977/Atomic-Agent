@@ -75,6 +75,20 @@ export function invalidLocalFileUrlReason(url: string): string | null {
 
 const NON_FILE_READ_PROTOCOLS = new Set(["http:", "https:", "data:", "blob:", "about:"]);
 
+/** Shell arguments are paths unless they are unambiguous HTTP(S) URLs. */
+export function isShellHttpUrl(value: string): boolean {
+  if (!/^https?:\/\/[^/?#\\\s]+/i.test(value) || /[\s\\]/.test(value)) return false;
+  // WHATWG URL parsing removes these segments. Check the original token
+  // first because it could also name a relative filesystem path.
+  if (value.split("/").some(segment => /^(?:\.|%2e){2}(?:[?#].*)?$/i.test(segment))) return false;
+  try {
+    const url = new URL(value);
+    return url.hostname.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function isNonFileReadUrl(value: string): boolean {
   let rest = value.trim();
   try {

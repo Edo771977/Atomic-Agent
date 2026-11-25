@@ -1,4 +1,5 @@
 import type { Extractor } from "./extractor-types.js";
+import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
 
 /**
  * XLSX extractor backed by exceljs. Produces a compact pipe-separated
@@ -20,6 +21,7 @@ import type { Extractor } from "./extractor-types.js";
  * LibreOffice first.
  */
 export const xlsxExtractor: Extractor = async (input) => {
+  await loadBoundedOfficeZip(input.data);
   const ExcelJS = await loadExcelJs();
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.load(toArrayBuffer(input.data));

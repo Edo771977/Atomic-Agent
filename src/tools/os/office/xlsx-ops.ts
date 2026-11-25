@@ -1,4 +1,6 @@
 import type * as ExcelJS from "exceljs";
+import type JSZip from "jszip";
+import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 
 /**
  * Spreadsheet operations behind `os.fs.xlsx`, on exceljs (already a
@@ -36,16 +38,27 @@ export async function loadExcelJs(): Promise<ExcelJsModule> {
   return excelJs;
 }
 
-export async function openWorkbook(data?: Buffer): Promise<ExcelJS.Workbook> {
+interface WorkbookOpenOptions {
+  maxUncompressedBytes?: number;
+  checkArchive?: (zip: JSZip) => void;
+}
+
+export async function openWorkbook(data?: Buffer, options?: WorkbookOpenOptions): Promise<ExcelJS.Workbook> {
+  if (data !== undefined) return (await openWorkbookPackage(data, options)).workbook;
+  const { Workbook } = await loadExcelJs();
+  return new Workbook();
+}
+
+export async function openWorkbookPackage(data: Buffer, options: WorkbookOpenOptions = {}) {
+  const zip = await loadBoundedOfficeZip(data, options.maxUncompressedBytes);
+  options.checkArchive?.(zip);
   const { Workbook } = await loadExcelJs();
   const workbook = new Workbook();
-  if (data !== undefined) {
-    // A standalone ArrayBuffer: a Node Buffer may be a view into a shared pool.
-    const copy = new Uint8Array(data.byteLength);
-    copy.set(data);
-    await workbook.xlsx.load(copy.buffer);
-  }
-  return workbook;
+  // A standalone ArrayBuffer: a Node Buffer may be a view into a shared pool.
+  const copy = new Uint8Array(data.byteLength);
+  copy.set(data);
+  await workbook.xlsx.load(copy.buffer);
+  return { workbook, zip };
 }
 
 export async function saveWorkbook(workbook: ExcelJS.Workbook): Promise<Buffer> {

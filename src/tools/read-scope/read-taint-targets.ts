@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { resolveUserPath } from "../os/expand-home.js";
-import { READ_TOOL_TARGETS, SHELL_TOOL, VERIFY_TOOL, isNonFileReadUrl, localFileOfUrl, readTargetPaths, verifyRunShellCalls } from "./read-scope-targets.js";
+import { READ_TOOL_TARGETS, SHELL_TOOL, VERIFY_TOOL, isShellHttpUrl, localFileOfUrl, readTargetPaths, verifyRunShellCalls } from "./read-scope-targets.js";
 import { shellTokens } from "./read-scope-shell.js";
 import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
 
@@ -54,7 +54,7 @@ export function readTaintTargets(
       else {
         const file = localFileOfUrl(value);
         if (file !== null) raw.push(file);
-        else if (/(^|[\\/])\.\.([\\/]|$)/.test(value) && !isNonFileReadUrl(value)) raw.push(resolve(cwd, value));
+        else if (/(^|[\\/])\.\.([\\/]|$)/.test(value) && !isShellHttpUrl(value)) raw.push(resolve(cwd, value));
       }
     }
   }
