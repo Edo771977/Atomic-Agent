@@ -8,8 +8,10 @@ import { STRICT_CLOUD_KEY_VARS, MIN_CLOUD_KEY_LENGTH } from "../config/api-key-s
 import { resolveStateDir } from "../config/load-config.js";
 import { decodeDotenvBytes, dotenvTextValue } from "../config/load-dotenv.js";
 import {
+  describeOpenAiKeyDestination,
   resolveLlmProviderApiKey,
   resolveLlmProviderApiKeyWithSource,
+  sharedOpenAiKeyNotSent,
   type LlmApiKeySource,
 } from "../config/resolve-llm-api-key.js";
 import type { UserLlmProviderEntry } from "../config/llm-config.js";
@@ -230,6 +232,11 @@ async function checkCloudKey(entry: UserLlmProviderEntry, probes: EngineProbes):
   const resolution = resolveLlmProviderApiKeyWithSource(entry);
   const dotenv = probes.readDotenv();
   if (!target) {
+    const withheld = sharedOpenAiKeyNotSent(entry);
+    const note = withheld && describeOpenAiKeyDestination(withheld);
+    if (note) {
+      return [{ check: "key", status: "warn", message: `${entry.id}: ${note} Configure this server's own API key.` }];
+    }
     const ignored = resolution.ignored;
     if (ignored) {
       const where = ignored.source.kind === "config" ? "apiKey in config.json" : `${ignored.source.name} in this shell's environment`;
