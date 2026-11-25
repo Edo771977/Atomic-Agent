@@ -5,6 +5,7 @@ import type {
   ToolCallTransport,
 } from "../llm/provider/completion-types.js";
 import { stripTitleReasoning } from "../session/session-title.js";
+import { withFreshPrivacyVault } from "../privacy/index.js";
 
 /**
  * One plain request to the current model for a client that only wants
@@ -223,7 +224,7 @@ export async function completePlain(
   }, deps.timeoutMs ?? PLAIN_COMPLETE_TIMEOUT_MS);
   timer.unref?.();
   try {
-    const result = await deps.complete(buildPlainCompleteRequest(input, deps, abort.signal));
+    const result = await withFreshPrivacyVault(() => deps.complete(buildPlainCompleteRequest(input, deps, abort.signal)));
     const text = extractPlainCompleteText(result);
     if (text.length === 0) {
       deps.onError?.(new Error("the model returned an empty answer"));
