@@ -196,6 +196,22 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     expect(turn).not.toHaveBeenCalled();
   });
 
+  it("returns the same AG-UI error for a private and unknown thread", async () => {
+    const token = "fixture-member";
+    harness = await startTestHarness({ apiKey: "k".repeat(32), namedTokens: () => [
+      { name: "member", role: "member", sha256: hashHttpToken(token), createdAt: "" },
+    ] });
+    const hidden = harness.runtime.createSession({ incognito: true });
+    const run = (threadId: string) => fetch(harness!.baseUrl + "/api/ag-ui", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ threadId, runId: "fixture", messages: [{ role: "user", content: "fixture" }] }),
+    });
+    const concealed = await run(hidden.id);
+    const absent = await run("absent-thread");
+    expect(concealed.status).toBe(404);
+    expect(await concealed.json()).toEqual(await absent.json());
+  });
+
   it("refuses a body without a boolean", async () => {
     harness = await startTestHarness();
     const bad = await post(harness.baseUrl, { enabled: "yes" });
