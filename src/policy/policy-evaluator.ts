@@ -1,5 +1,6 @@
 import { globMatches, matchPolicyGlob, MAX_POLICY_RESOURCE_LENGTH } from "./policy-glob.js";
 import type { McpAllowlist, PolicyAction, PolicyEffect, PolicyRule } from "./policy-schema.js";
+import { normalizeWebPattern, webResourceForms, canonicalWebEndpoint } from "./policy-web-identity.js";
 
 /** Where a piece of the effective policy came from. No source can loosen another. */
 export type PolicySourceKind = "user" | "system" | "url";
@@ -63,7 +64,9 @@ export function evaluatePolicy(
   resources: readonly string[],
   options: { unreadable?: boolean } = {},
 ): PolicyVerdict | null {
-  const groups = rulesBySource(policy.rules);
+  const rules = action === "webfetch" ? policy.rules.map(rule => rule.action === action ? { ...rule, resource: normalizeWebPattern(rule.resource) } : rule) : policy.rules;
+  if (action === "webfetch") resources = [...new Set(resources.flatMap(webResourceForms))];
+  const groups = rulesBySource(rules);
   let best: PolicyVerdict | null = null;
   // A script no one can read could be the very command a deny or ask
   // names, so every such rule of the action matches it.
@@ -136,9 +139,10 @@ export interface McpServerVerdict {
  * mode only warns. No allowlist allows everything.
  */
 export function mcpServerVerdict(policy: EffectivePolicy, server: McpServerIdentity): McpServerVerdict {
-  const keys = [server.name, server.url, server.command].filter((k): k is string => typeof k === "string" && k.length > 0);
+  const keys = [server.name, server.command].filter((k): k is string => typeof k === "string" && k.length > 0);
   const missing = policy.mcpAllowlists.filter(
-    (list) => !list.servers.some((pattern) => keys.some((key) => globMatches(pattern, key))),
+    (list) => !list.servers.some((pattern) => keys.some((key) => globMatches(pattern, key)) ||
+      server.url !== undefined && globMatches(/^https?:\/\//i.test(pattern) ? normalizeWebPattern(pattern, false) : pattern, canonicalWebEndpoint(server.url))),
   );
   if (missing.length === 0) return { allowed: true };
   const enforced = missing.find((list) => !list.warnOnly);
