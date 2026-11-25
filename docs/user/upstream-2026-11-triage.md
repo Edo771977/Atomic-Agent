@@ -359,7 +359,7 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 
 | Ramo | Commit in punta | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
-| `fix/ato-1703-openai-key-only-to-openai` | `70d4dca36fb1` | fix(tui): check a reconfigured provider's key against the new address (ATO-1703) | Importare per primo: evita di inviare la chiave di un provider a un indirizzo diverso. |
+| `fix/ato-1703-openai-key-only-to-openai` | `70d4dca36fb1` | fix(tui): check a reconfigured provider's key against the new address (ATO-1703) | Importato con cherry-pick -x in [#222](https://github.com/Edo771977/Atomic-Agent/pull/222). Preservate diagnostica e restrizioni del fork; ultimo commit già equivalente. |
 | `fix/ato-1703-desktop-openai-key` | `69717680e29c` | fix(desktop): keep the codex billing warning and gate the smoke key names (ATO-1703) | Importare in `desktop-main` insieme al ramo core. |
 | `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Importare con #1562 e #1563. |
 | `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importare. |
