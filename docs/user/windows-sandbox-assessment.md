@@ -48,6 +48,26 @@ La pipeline SEA `.github/workflows/release.yml` firma già gli artefatti Windows
 - Job separato su `windows-latest`, con fixture sintetica e prova di riferimento senza isolamento per accertare che file e destinazione controllata siano davvero raggiungibili. Verificare lettura negata di `serve-api.key`, scrittura negata fuori progetto, connessione esterna negata e successo di `git status` e `node -e`. Provare stato annidato, processi figli e ambiente sintetico. Sul runner previsto, un backend non operativo o un controllo negativo non conclusivo devono fallire il job.
 - Prova dell’artefatto SEA e del pacchetto Desktop installato e aggiornato sotto un utente standard. Documentare aree scrivibili private, limiti di enumerazione dei processi, IPC, strumenti compatibili ed eventuali differenze tra build di Windows.
 
+## Esito delle prove (novembre 2026)
+
+Le [prove riproducibili](../../native/windows-sandbox-helper/README.md) hanno confrontato tre configurazioni su `windows-latest` senza interventi amministrativi sulle DACL dei dispositivi o delle cartelle di sistema.
+
+| Configurazione | File | Rete | `NUL` e Git |
+| --- | --- | --- | --- |
+| LPAC con `registryRead` e ACE di attributo sugli antenati | I bersagli protetti e la scrittura fuori progetto sono risultati negati nelle fixture. | TCP esterno, LAN e loopback negati esplicitamente. | Apertura in lettura e scrittura negata. Git si ferma in `sanitize_stdfds()`. |
+| AppContainer normale senza capability | I bersagli sintetici sono risultati protetti. L’audit ha trovato tre file di cache del profilo con ACE di lettura per `ALL APPLICATION PACKAGES`. | Esterno negato esplicitamente. LAN e loopback scadono dopo il successo dei controlli dall’host. | Apertura in lettura e scrittura negata. Git si ferma all’avvio. |
+| Token ristretto con Everyone, Users e SID dedicato | Due file condivisi fuori progetto risultano leggibili e scrivibili anche a integrità Low. Il file riservato al proprietario resta inaccessibile. | Il token non isola la rete. | L’apertura Win32 riesce. La prova si ferma al confine filesystem prima dei test Git. |
+
+- La concessione ricorsiva ha reso accessibili i file preesistenti, con revoca verificata. La misura di riferimento è **5,3 secondi su 50.107 oggetti**, senza salti né errori.
+- Node in LPAC con zero capability termina durante `WSAStartup` con errore 10107. `registryRead` permette l’avvio di Node mantenendo i dinieghi TCP e sui file protetti delle fixture.
+- Con le sole ACE non ereditabili `FILE_READ_ATTRIBUTES | SYNCHRONIZE` sugli antenati, `npm --version` e `npm ci --offline` funzionano. L’elenco della radice e la lettura di un file nell’antenato restano negati. `npm test` arriva allo script e la shell non risolve `node`.
+- Git per Windows apre sempre `NUL` in lettura e scrittura durante `sanitize_stdfds()`, prima di caricare la configurazione. I tentativi con una configurazione isolata e con un file vuoto privato lasciano il blocco invariato. Un proxy Git sull’host sposterebbe l’esecuzione fuori dal perimetro protetto.
+- Nel caso del token ristretto, Everyone e Users possono soddisfare il secondo controllo di accesso di Windows anche per file esterni. Un audit del solo profilo e dello stato non copre quei file condivisi.
+
+### Conclusione
+
+Lo sviluppo della sandbox nativa si ferma. Su Windows nativo Safe Mode continua a rifiutare i comandi quando richiesto. Le prove rimangono disponibili come valutazione manuale e non fanno parte della CI ordinaria. Per un ambiente protetto su Windows, eseguire CLI o TUI dentro WSL2 con Bubblewrap. Lo sviluppo del Desktop con agente in WSL2 prosegue nell’issue [#218](https://github.com/AtomicBot-ai/atomic-agent/issues/218).
+
 ## Riferimenti
 
 - [Valutazione multipiattaforma](os-sandbox-assessment.md) e [guida utente](os-sandbox.md)
