@@ -257,10 +257,10 @@ Ondate:
 | [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importare |
 | [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importare |
 | [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importare |
-| [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importare |
+| [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importato con cherry-pick -x in [#229](https://github.com/Edo771977/Atomic-Agent/pull/229). |
 | [#1590](https://github.com/AtomicBot-ai/atomic-agent/pull/1590) | 1 | Refuse self-update when installed through mise or aqua (ATO-1485) | Importare |
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
-| [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
+| [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importato con cherry-pick -x in [#229](https://github.com/Edo771977/Atomic-Agent/pull/229). |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
 | [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
