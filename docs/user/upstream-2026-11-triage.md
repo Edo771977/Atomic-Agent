@@ -257,10 +257,10 @@ Ondate:
 | [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importare |
 | [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
-| [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importare |
+| [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importato con cherry-pick -x in [#229](https://github.com/Edo771977/Atomic-Agent/pull/229). |
 | [#1590](https://github.com/AtomicBot-ai/atomic-agent/pull/1590) | 1 | Refuse self-update when installed through mise or aqua (ATO-1485) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
-| [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
+| [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importato con cherry-pick -x in [#229](https://github.com/Edo771977/Atomic-Agent/pull/229). |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
 | [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
@@ -275,7 +275,6 @@ Ondate:
 | [#1678](https://github.com/AtomicBot-ai/atomic-agent/pull/1678) | 1 | TUI: /think sets the reasoning level of the next turns (ATO-490) | Importare |
 | [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). Offline prevale anche su force; test di regressione aggiunto. |
 | [#1692](https://github.com/AtomicBot-ai/atomic-agent/pull/1692) | 1 | Local engine: detect a model's MTP head and gate MTP on Core support (ATO-4 | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). Test aggiunto sul seam Core load overrides esistente. |
-| [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Importare |
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
 | [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
@@ -291,6 +290,7 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Rinviata in ondata B: estende il restore HTTP a eviction, merge, lesson e procedure; gli snapshot aggiunti vanno adattati a constraintKey e stato disabilitato del fork prima di riattivare memoria. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
