@@ -120,6 +120,7 @@ import {
   type OutcomeLeg,
 } from "./outcome-log.js";
 import type { FusionTurnLedger } from "./turn-receipt.js";
+import { workerInheritsWorkspace } from "./worker-workspace.js";
 import {
   planResume,
   readResumeRequest,
@@ -2568,7 +2569,7 @@ export function buildFusionDelegateTool(
           // Workers run in the parent's folder in every model mode, so a
           // live folder switch reaches them too (#1121). Only cloud
           // workers inherit the parent's workspace.
-          { ...workerDeps, workingDir: ctx.workingDir, ...(ctx.modelMode === "cloud" ? { inheritWorkspace: true } : {}) },
+          { ...workerDeps, workingDir: ctx.workingDir, ...(workerInheritsWorkspace({ modelMode: ctx.modelMode, sessionDir: ctx.workingDir, startupDir: deps.workingDir }) ? { inheritWorkspace: true } : {}) },
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
@@ -2639,7 +2640,7 @@ export function buildFusionDelegateTool(
         );
         const onlyRole = roles.size === 1 ? [...roles][0] : "-";
         return runWorkerTasks(
-          { ...workerDeps, workingDir: ctx.workingDir, ...(ctx.modelMode === "cloud" ? { inheritWorkspace: true } : {}) },
+          { ...workerDeps, workingDir: ctx.workingDir, ...(workerInheritsWorkspace({ modelMode: ctx.modelMode, sessionDir: ctx.workingDir, startupDir: deps.workingDir }) ? { inheritWorkspace: true } : {}) },
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
