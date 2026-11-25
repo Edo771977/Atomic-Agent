@@ -144,6 +144,7 @@ export {
   IdeaUnavailableError,
   acceptIdea,
   ideaRetryFallbackDir,
+  ideaRetryIsUnsafe,
   ideaSourceTaskId,
   ideaTaskCarry,
   ideaToJson,

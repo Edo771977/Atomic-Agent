@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { IdeaStore, TaskStore } from "../tasks/index.js";
 
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -44,6 +45,32 @@ describe("/api/ideas", () => {
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     });
   }
+
+  it("does not list or accept a retained legacy Retry from an incognito chat", async () => {
+    const runtime = harness.runtime;
+    const session = runtime.createSession({ persist: false });
+    runtime.sessionStore.save({ ...session, incognito: runtime.sessionStore.newIncognitoMark() });
+    const dbFile = runtime.config.paths.tasksDbFile;
+    const legacy = new TaskStore({ dbFile });
+    const ideas = new IdeaStore({ dbFile });
+    try {
+      const task = legacy.create({ sessionId: session.id, userMessage: "synthetic-private-prompt", origin: "cli", maxAttempts: 1 });
+      legacy.markRunning(task.id);
+      legacy.markFailed(task.id, { category: "transport", message: "fixture" });
+      const [card] = ideas.sync([{
+        kind: "retry_task", title: "Private fixture", reason: "fixture", prompt: task.userMessage,
+        sourceKey: `task:${task.id}`, sessionId: null, sourceSessionId: session.id,
+        evidence: { source: "task", ref: task.id, excerpt: "", at: null },
+      }]).added;
+      expect(await (await fetch(`${harness.baseUrl}/api/ideas`)).json()).toEqual({ ideas: [] });
+      expect((await post(`/api/ideas/${card!.id}/accept`)).status).toBe(404);
+      expect(ideas.get(card!.id)).toBeNull();
+      expect(runtime.taskStore.list()).toHaveLength(1);
+    } finally {
+      ideas.close();
+      legacy.close();
+    }
+  });
 
   it("refresh offers a failed task with its evidence; list returns it", async () => {
     const taskId = failedTask("tidy the inbox");
