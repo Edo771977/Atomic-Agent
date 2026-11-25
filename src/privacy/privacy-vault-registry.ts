@@ -17,6 +17,17 @@ const closedSessions = new Map<string, number>();
 const closedWorkers = new Map<string, number>();
 const activeTurns = new Map<string, number>();
 
+const AUXILIARY_PREFIXES = new Set([
+  "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
+  "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn",
+]);
+
+/** Only a known auxiliary prefix denotes an owner; colons in chat IDs are literal. */
+function auxiliaryOwner(id: string): string | null {
+  const colon = id.indexOf(":");
+  return colon > 0 && AUXILIARY_PREFIXES.has(id.slice(0, colon)) ? id.slice(colon + 1) : null;
+}
+
 function pruneClosed(ids: Map<string, number>, now: number): void {
   for (const [id, expires] of ids) {
     if (expires > now) break;
@@ -28,10 +39,9 @@ function isClosed(id: string): boolean {
   const now = performance.now();
   pruneClosed(closedSessions, now);
   pruneClosed(closedWorkers, now);
-  for (let suffix = id; ; suffix = suffix.slice(suffix.indexOf(":") + 1)) {
-    if (closedSessions.has(suffix) || closedWorkers.has(suffix)) return true;
-    if (suffix.indexOf(":") < 0) return false;
-  }
+  const owner = auxiliaryOwner(id);
+  return closedSessions.has(id) || closedWorkers.has(id)
+    || (owner !== null && (closedSessions.has(owner) || closedWorkers.has(owner)));
 }
 
 function markClosed(id: string, worker = id.startsWith("s-w-")): void {
@@ -200,7 +210,7 @@ export function releasePrivacyVault(sessionId: string): void {
 
 function dropDerivedVaults(id: string): void {
   for (const key of vaults.keys()) {
-    if (key === id || key.endsWith(`:${id}`)) vaults.delete(key);
+    if (key === id || auxiliaryOwner(key) === id) vaults.delete(key);
   }
 }
 
