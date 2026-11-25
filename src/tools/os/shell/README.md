@@ -26,6 +26,8 @@ The existing [shell-command-guard](../shell-command-guard/index.ts) owns command
 
 The network command classifier also reads explicit HTTP(S) URLs passed to recognized clients such as curl, wget and Invoke-WebRequest. Offline refusal and URL data approval apply before spawn. The check sees the command arguments and the shell segments it can classify. Redirects handled inside the network client and URLs computed by another program are outside that dispatch check.
 
+Dot segments in HTTP(S) shell operands still go through the local-path guards, including percent-encoded forms that URL parsing would remove. A shell argument can be passed to a filesystem command verbatim, so the guards check the original spelling. For a genuine network destination, use its canonical URL without parent-directory segments.
+
 ## Validation
 
 Run `npx vitest run src/tools/os/shell src/tools/os/shell-command-guard` and affected runtime lifecycle seams for job ownership changes. Adjacent suites cover command policy, detach, jobs, result formatting, timeouts, argv glob expansion and node-check notices. Use disposable directories and fixtures. Run `npm run lint`, `npm run typecheck:tests` and `npm run imports:check`; preserve catalog/resource-class coverage when changing registration. Moving modules does not authorize changing tool descriptions, approval rules or process lifecycle.

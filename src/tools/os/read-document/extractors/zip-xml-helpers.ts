@@ -1,5 +1,6 @@
 import { XMLParser } from "fast-xml-parser";
-import JSZip from "jszip";
+import type JSZip from "jszip";
+import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
 
 /**
  * Shared helpers for OOXML / OpenDocument containers (zip + XML inside).
@@ -18,7 +19,7 @@ const xmlParser = new XMLParser({
 export type XmlNode = Record<string, unknown>;
 
 export async function openZip(data: Buffer): Promise<JSZip> {
-  return JSZip.loadAsync(data);
+  return loadBoundedOfficeZip(data);
 }
 
 export async function readZipText(

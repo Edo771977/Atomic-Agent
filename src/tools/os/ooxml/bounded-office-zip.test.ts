@@ -7,7 +7,7 @@ it("gives existing Office packages a 256 MiB default budget", async () => {
   const zip = new JSZip();
   const minimal = await zip.generateAsync({ type: "nodebuffer" });
   // The fixtures only claim these sizes. The compressed payload is tiny.
-  const within = await withDeclaredOfficePartSize(minimal, 65 * 1024 * 1024);
+  const within = await withDeclaredOfficePartSize(minimal, 64 * 1024 * 1024);
   const over = await withDeclaredOfficePartSize(minimal, 256 * 1024 * 1024 + 1);
   await expect(loadBoundedOfficeZip(within)).rejects.toThrow(/does not match its uncompressed size/);
   await expect(loadBoundedOfficeZip(over)).rejects.toThrow(/uncompressed size limit \(268435456 bytes\)/);

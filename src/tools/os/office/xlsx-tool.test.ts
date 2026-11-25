@@ -58,6 +58,11 @@ async function textOf(path: string, sheets?: string[]): Promise<string> {
 }
 
 describe("os.fs.xlsx", () => {
+  it.each(["read", "write"] as const)("rejects %s when one archive part declares 200 MiB", async (op) => {
+    await writeFile(join(dir, "part-limit.xlsx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 200 * 1024 * 1024));
+    await expect(tool().run({ path: "part-limit.xlsx", op, ...(op === "write" ? { rows: [["fixture"]] } : {}) }, ctx()))
+      .rejects.toThrow(/per-part size limit.*67108864/);
+  });
   it.each(["read", "write"] as const)("rejects %s before unbounded workbook loading", async op => {
     await writeFile(join(dir, "limit.xlsx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65_537));
     const bounded = buildOsFsXlsxTool({ approvals: gate, approvalRequired: true }, { maxUncompressedBytes: 65_536 });
