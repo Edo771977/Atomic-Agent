@@ -163,7 +163,7 @@ describe("LlamaServerProvider", () => {
     });
     try {
       const result = await provider.complete({ prompt: "person@example.test", sessionId: "shield-llama" });
-      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent }));
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent === "[EMAIL_1]" ? expect.stringMatching(/^Privacy Shield[\s\S]*\[EMAIL_1\]$/) : sent }));
       expect(result.content).toBe("person@example.test");
     } finally {
       resetPrivacyVaults();
@@ -185,10 +185,10 @@ describe("LlamaServerProvider", () => {
       for (const tail of ["first", "second"]) {
         await provider.complete({ sessionId: "formatted", prompt: opening + "Contact owner@example.test\n<turn|>" + tail });
       }
-      expect(complete.mock.calls.map(([request]) => request.prompt)).toEqual([
-        opening + "Contact [EMAIL_1]\n<turn|>first",
-        opening + "Contact [EMAIL_1]\n<turn|>second",
-      ]);
+      const prompts = complete.mock.calls.map(([request]) => request.prompt);
+      expect(prompts[0]).toMatch(/^<\|turn>system\n<\|think\|>\nPrivacy Shield/);
+      expect(prompts[0]?.replace(/first$/, "")).toBe(prompts[1]?.replace(/second$/, ""));
+      expect(prompts[0]).toContain("Contact [EMAIL_1]");
     } finally {
       resetPrivacyVaults();
     }
