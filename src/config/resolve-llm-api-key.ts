@@ -180,8 +180,8 @@ export function describeProviderKeyDestination(name: string): string | null {
 /**
  * ATO-1703: whether `OPENAI_API_KEY` / `ATOMIC_AGENT_OPENAI_API_KEY` may be
  * sent to a compat entry's `baseUrl`. Only OpenAI's own API and this
- * machine qualify. Reserved keys accept localhost (with an optional root
- * dot), 127/8, ::1 and IPv4-mapped 127/8. No `baseUrl` answers `true`: the
+ * machine qualify. Reserved keys accept literal localhost, 127/8, ::1
+ * and IPv4-mapped 127/8. No `baseUrl` answers `true`: the
  * compat providers refuse to start without one, so nothing is sent, and
  * callers that look a key up before the address is known keep working.
  * Anything unparsable gets nothing.
@@ -200,8 +200,10 @@ function mayReceiveDefaultKey(baseUrl: string | undefined, officialOrigin: strin
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (url.origin === officialOrigin) return true;
+  // Unlike the readiness classifier, the credential guard must not
+  // treat a name with a DNS root dot as the literal localhost address.
+  if (url.hostname === "localhost" || url.hostname === "[::1]") return true;
   const host = classifiableHostOf(baseUrl);
-  if (host === "localhost" || host === "::1") return true;
   if (host === null || !/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return false;
   // The general host classifier also unwraps routed IPv6 prefixes.
   return !url.hostname.startsWith("[") || /^\[::ffff:[0-9a-f]+:[0-9a-f]+\]$/i.test(url.hostname);

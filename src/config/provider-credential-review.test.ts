@@ -5,7 +5,8 @@ import { findProviderPreset, presetEntryFields } from "../llm/provider/presets/p
 afterEach(() => vi.unstubAllEnvs());
 
 it.each([
-  ["http://localhost.:8000", true],
+  ["http://localhost.:8000", false],
+  ["http://localhost:8000", true],
   ["http://[::ffff:127.0.0.2]:8000", true],
   ["http://0.0.0.0:8000", false],
   ["http://[::]:8000", false],
@@ -17,6 +18,20 @@ it.each([
   const entry = { id: "fixture", kind: "openrouter", baseUrl, extraApiKeyEnvVars: ["OPENAI_API_KEY"] };
   expect(resolveLlmProviderApiKey(entry)).toBe(allowed ? "fixture-native" : undefined);
   expect(resolveExtraApiKeys(entry)).toEqual(allowed ? ["fixture-openai"] : []);
+});
+
+it("withholds native and OpenAI credentials from the dotted localhost name", () => {
+  vi.stubEnv("ANTHROPIC_API_KEY", "fixture-anthropic");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-openrouter");
+  vi.stubEnv("OPENAI_API_KEY", "fixture-openai");
+  vi.stubEnv("OPENAI_COMPAT_API_KEY", undefined);
+  const baseUrl = "http://localhost.:4000";
+  expect([
+    resolveLlmProviderApiKey({ id: "fixture", kind: "anthropic", baseUrl }),
+    resolveLlmProviderApiKey({ id: "fixture", kind: "openai-compatible", baseUrl, apiKeyEnvVar: "OPENAI_API_KEY" }),
+    resolveLlmProviderApiKey({ id: "fixture", kind: "openai-compatible", baseUrl }),
+    resolveExtraApiKeys({ baseUrl, extraApiKeyEnvVars: ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"] }),
+  ]).toEqual([undefined, undefined, undefined, []]);
 });
 
 it.each(["openai_api_key", "AtOmIc_AgEnT_OpenAI_API_Key"])(
