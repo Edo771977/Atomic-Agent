@@ -32,6 +32,8 @@ A run cut off from outside (the boot sweep took it back from a dead process, or 
 
 Startup cleanup drops abandoned incognito sessions’ tasks before task recovery, including running tasks whose recorded process is gone. A live or potentially live claim keeps the chat and its tasks for a later startup. Tasks belonging to other sessions follow normal recovery.
 
+Task creation records whether its bound chat is incognito. If a marked task reaches the runner after that chat is gone, the runner purges the task and its run history before executing its prompt. Ordinary recurring tasks, including rows from before the privacy flag was added, keep their history and can recreate a missing chat. With provider constraints that disallow recreation, the task stays saved as `blocked`.
+
 ## Pausing a recurring task
 
 A recurring task can be paused and resumed ([task-pause.ts](task-pause.ts), ATO-21; Telegram's `/cron pause|resume` uses it). It is a thin layer over the queue's own `paused` state (`TaskStore.pause` / `resume`, ATO-590) that returns a refusal reason instead of throwing and only takes recurring tasks; a run in progress is refused. Resume arms the next firing after now, so firings that fell inside the pause are skipped. Delete is the plain cancel.

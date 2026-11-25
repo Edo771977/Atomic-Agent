@@ -19,6 +19,8 @@ export interface SkillRecord {
   /** Absolute path to the SKILL.md file. */
   manifestPath: string;
   source: SkillSource;
+  /** A project-scoped skill approved from an experience review. */
+  learned?: true;
   /** Set for a skill an installed plugin contributes; its name is `plugin:skill`. */
   plugin?: string;
   /** Read from the shared `~/.agents/skills` folder other agents install into (ATO-706). */

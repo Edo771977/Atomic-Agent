@@ -1,3 +1,4 @@
+import { GLOBAL_SKILL_MUTATIONS } from "../../../sandbox/project-decision-origin.js";
 import type { GuardVerdict, NormalisedCommand } from "./guard-types.js";
 import {
   invocationsOf,
@@ -9,6 +10,7 @@ import {
   splitCommandSegments,
 } from "./command-segments.js";
 import { isComputedOption, isComputedWord } from "./command-substitution.js";
+import { lexShellLine } from "./shell-line-lexer.js";
 import { findGitSubcommand } from "./rules-policy.js";
 
 /**
@@ -66,8 +68,11 @@ export function matchDangerousArgv(
     matchFind(segments) ??
     matchXargsRm(segments) ??
     matchRm(segments) ??
+    matchSkillApprovalOrigin(segments) ??
     matchNestedShell(segments) ??
-    matchPluginConsent(segments);
+    matchPluginConsent(segments) ??
+    matchGlobalSkillMutation(segments) ??
+    matchSkillDraftConsent(segments);
   if (hit === null) return null;
   return { action: "approval_required", rule: hit.id, reason: hit.reason };
 }
@@ -749,4 +754,100 @@ function matchPluginConsent(
     }
   }
   return null;
+}
+
+/**
+ * The agent approving its own learned skill draft (ATO-67): `atomic-agent
+ * skill learned approve <id>@<fingerprint>`. A person must activate every
+ * learned draft. This asks every time like `plugin allow-code`. Matched on the
+ * words, not the binary name (`atag`, `node dist/cli/index.js`); the
+ * verb is compared case-insensitively because the command parser is.
+ * `undo`, `discard` and the listing stay on the ordinary path.
+ */
+function matchSkillDraftConsent(
+  segments: readonly (readonly string[])[],
+): ArgvCheck | null {
+  for (const words of segments) {
+    for (let i = 0; i < words.length - 2; i += 1) {
+      if (words[i]?.toLowerCase() !== "skill" || words[i + 1]?.toLowerCase() !== "learned") continue;
+      const verb = words[i + 2]?.toLowerCase();
+      if (verb !== undefined && !["list", "show", "discard", "undo"].includes(verb)) {
+        return {
+          id: "dangerous.skill_draft_consent",
+          reason: "approve a learned skill draft or run an unrecognized learned-skill action",
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function matchGlobalSkillMutation(segments: readonly (readonly string[])[]): ArgvCheck | null {
+  const changesSkills = segments.some((words) => words.some((word, index) => {
+    const program = programName(word);
+    const verb = words[index + 1]?.toLowerCase() ?? "";
+    if (word.toLowerCase() === "skill" && GLOBAL_SKILL_MUTATIONS.has(verb)) {
+      return verb !== "project" || words[index + 2]?.toLowerCase() !== "status";
+    }
+    return (program === "skills" || /^skills@[^/]+$/.test(program)) && verb === "add" &&
+      words.slice(index + 2).some((option) => option === "-g" || option === "--global");
+  }));
+  return changesSkills
+    ? { id: "dangerous.skill_global_mutation", reason: "change globally installed skills" }
+    : null;
+}
+
+
+const PSEUDOTERMINAL_PROGRAMS = new Set(["script", "winpty", "unbuffer", "expect"]);
+const INLINE_INTERPRETERS = /^(?:node|nodejs|bun|deno|python(?:[0-9.]+)?|ruby|perl|php|pwsh|powershell)$/;
+const ORIGIN_MARKER = /\batomic_agent_tool_child\b/i;
+const LEARNED_CONSENT = /\bskill\s+learned\s+(?:approve|confirm)\b/i;
+
+function resetsEnvironment(args: readonly string[], splitBudget = 8): boolean {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "--" || !arg.startsWith("-")) return false;
+    if (arg === "-" || (arg.startsWith("--i") && "--ignore-environment".startsWith(arg))) return true;
+
+    let option = arg.split("=", 1)[0]!;
+    let attached = arg.length > option.length ? arg.slice(option.length + 1) : undefined;
+    if (!arg.startsWith("--")) {
+      for (let offset = 1; offset < arg.length; offset += 1) {
+        const letter = arg[offset]!;
+        if (letter === "i") return true;
+        if (!"uCSa".includes(letter)) continue;
+        option = "-" + letter;
+        attached = arg.slice(offset + 1) || undefined;
+        break;
+      }
+    }
+    if (!["-u", "--unset", "-C", "--chdir", "-a", "--argv0", "-S", "--split-string"].includes(option)) continue;
+    const value = attached ?? args[++index];
+    if ((option === "-S" || option === "--split-string") && value !== undefined && splitBudget > 0) {
+      const words = lexShellLine(value, "posix");
+      if (words?.every((word) => word.kind === "word")) {
+        return resetsEnvironment([...words.map((word) => word.text), ...args.slice(index + 1)], splitBudget - 1);
+      }
+    }
+  }
+  return false;
+}
+
+function matchSkillApprovalOrigin(segments: readonly (readonly string[])[]): ArgvCheck | null {
+  const opaqueOrigin = segments.some((words) => words.some((word, index) => {
+    if (ORIGIN_MARKER.test(word)) return true;
+    const program = programName(word);
+    if (PSEUDOTERMINAL_PROGRAMS.has(program)) return true;
+    const args = words.slice(index + 1);
+    if (program === "env" && resetsEnvironment(args)) return true;
+    const learnedVerb = args[0]?.toLowerCase() === "skill" && args[1]?.toLowerCase() === "learned" &&
+      isComputedWord(args[2] ?? "");
+    if ((program === "atomic-agent" || program === "atag") && !learnedVerb && args.some(isComputedWord)) return true;
+    return INLINE_INTERPRETERS.test(program) &&
+      args.some((arg) => /^(?:-[ceEpr]|--(?:eval|print)|-command)(?:=|$)/i.test(arg)) &&
+      args.some((arg) => LEARNED_CONSENT.test(arg));
+  }));
+  return opaqueOrigin
+    ? { id: "dangerous.skill_approval_origin", reason: "an opaque terminal or a protected agent origin marker" }
+    : null;
 }

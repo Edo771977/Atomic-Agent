@@ -26,6 +26,7 @@ import {
   getDotenvPath,
   getStateSecretPaths,
   getTrustConfigPaths,
+  getSkillWriteProtectionPaths,
   isTrustDirectoryEntry,
   getUserConfigPath,
   readUserConfigFileSync,
@@ -971,7 +972,23 @@ describe("the state's secret files (ATO-877)", () => {
     expect(trust).toContain(dirname(installedPluginDir(stateDir, "x")) + sep);
     expect(isTrustDirectoryEntry(dirname(installedPluginDir(stateDir, "x")) + sep)).toBe(true);
     expect(isTrustDirectoryEntry(userHooksPath(stateDir))).toBe(false);
-    expect(getStateSecretPaths(paths)).toEqual(expect.arrayContaining([...trust]));
+    expect(getStateSecretPaths(paths)).toEqual(expect.arrayContaining(trust.filter((path) => !getSkillWriteProtectionPaths(paths).includes(path))));
+  });
+
+  it("protects custom and shared skill writes without making the installed scripts secret", () => {
+    const stateDir = join(tmpdir(), "atomic-state");
+    const globalSkillsDir = join(tmpdir(), "custom-installed-skills");
+    const sharedDir = join(tmpdir(), "shared-installed-skills");
+    vi.stubEnv("ATOMIC_AGENT_SHARED_SKILLS_DIR", sharedDir);
+    try {
+      const paths = { stateDir, globalSkillsDir, userConfigFile: getUserConfigPath(stateDir), localModelsDataDir: join(stateDir, "models") };
+      for (const dir of [globalSkillsDir, sharedDir]) {
+        expect(getTrustConfigPaths(paths)).toContain(dir + sep);
+        expect(getStateSecretPaths(paths)).not.toContain(dir + sep);
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("lists the trust surface and every key file, where their owners put them", () => {
@@ -987,7 +1004,7 @@ describe("the state's secret files (ATO-877)", () => {
       resolveApiKeyFilePath(paths.localModelsDataDir), serveApiKeyPath(stateDir), httpTokensPath(stateDir),
     ]));
     expect(getStateSecretPaths(paths)).toEqual([
-      ...getTrustConfigPaths(paths),
+      ...getTrustConfigPaths(paths).filter((path) => !getSkillWriteProtectionPaths(paths).includes(path)),
       coreSessionPath(paths.localModelsDataDir, "chat"),
       coreSessionPath(paths.localModelsDataDir, "embedding"),
       resolveSessionPath(stateDir),

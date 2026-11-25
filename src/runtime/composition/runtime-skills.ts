@@ -7,7 +7,7 @@ import { SkillRegistry } from "../../skills/skill-registry.js";
 import { listEnabledPluginSkills } from "../../plugins/plugin-runtime.js";
 import { buildSkillCatalogSection } from "../../skills/skill-catalog.js";
 import { listStarterSkillNames, seedStarterSkillsIfMissing } from "../../skills/seed-starter-skills.js";
-import { createProjectSkillTrustGate, projectTrustHint } from "../../skills/project-trust.js";
+import { createProjectSkillTrustGate, PROJECT_TRUST_OPERATOR_HINT } from "../../skills/project-trust.js";
 import { runSkillCurator, skillCuratorAutoRunEnabled, skillCuratorPaths } from "../../skills/curator/index.js";
 import type { TaskStore } from "../../tasks/task-store.js";
 
@@ -97,7 +97,7 @@ export async function prepareRuntimeSkills(
     if (signature === hinted) return;
     hinted = signature;
     if (pending.length) logger.warn("project skills in this folder are not trusted yet and were not loaded", {
-      workingDir, skills: pending.length, hint: projectTrustHint(workingDir) });
+      workingDir, skills: pending.length, hint: PROJECT_TRUST_OPERATOR_HINT });
   };
   hintUntrusted();
   const createCatalog = () => {

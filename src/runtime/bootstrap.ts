@@ -16,6 +16,7 @@ import { createBackgroundCompaction } from "./compaction-background.js";
 import { createCompactionTokenCounter } from "./compaction-token-counter.js";
 import { createWorkspaceLoader } from "./session-workspace.js";
 import { prepareRuntimeSkills, recurringTaskTexts, startRuntimeSkillCurator } from "./composition/runtime-skills.js";
+import { createExperienceReviewer } from "./composition/runtime-experience-review.js";
 import { createRuntimeToolRegistry, registerRuntimeCoreTools, registerRuntimeVisionTools, registerRuntimeImageTools, registerRuntimeVideoTools, registerRuntimeAudioTools, connectRuntimeMcpCatalog, mcpGrammarHookFor, registerRuntimeFusionAndReadScope } from "./composition/runtime-tool-catalog.js";
 import { prepareRuntimeSessionStore, installRuntimeSessionDelete, createRuntimeSessionFactories, runtimeProjectStore } from "./composition/runtime-session-services.js";
 import { createInterruptedTurns } from "./interrupted-turns.js";
@@ -1123,6 +1124,19 @@ export async function createAgentRuntime(
     },
     emit: (sessionId, event) => emitAgentLoopEventFor(sessionId, { ...event, sessionId }),
   });
+  // Opt-in self-learning proposes drafts after long turns.
+  const experienceReview = createExperienceReviewer({
+    getConfig, llmComplete, slotManager,
+    resolveTransport: (providerId) => resolveActiveLlmSlice(providerId).transport,
+    activeProvider: () => resolveModelMode(captureModelModePolicy(resolveLlmConfig(getConfig()), resolveActiveModelName)),
+    skillRegistry,
+    restricted: (session) => sessionProviderPolicy.effectivePolicyForSession(session) !== undefined,
+    pending: turnState.pendingSessionNamings,
+    isShutdown: () => lifecycle.isShutdown(),
+    // A turn that read outside content only drafts a skill for approval (prompt injection).
+    outsideContentSources: (sessionId) => approvals.outsideContentSources(sessionId),
+    logger,
+  });
   const turnService = createRuntimeTurnService(config, {
     sessions: { sessionStore, turnContext, turnRequests, turnPreviousReplies, turnsWithoutQuestions },
     execution: { loop, turnController, steeringInbox, shellJobs, slotManager, llmComplete },
@@ -1132,6 +1146,7 @@ export async function createAgentRuntime(
     emitEvent: emitAgentLoopEventFor,
     onProjectTurnEnd: runtimeProject.noteTurnEnd,
     projectStore,
+    experienceReview,
   });
   const { steer, controlGoal } = turnService;
   const runQueuedTurn = holdWhileRunning(keepAwake, turnService.runTurn);

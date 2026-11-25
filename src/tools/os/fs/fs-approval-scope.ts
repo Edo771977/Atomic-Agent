@@ -79,7 +79,7 @@ export async function categorizeFsMutation(
   options: FsScopeOptions,
 ): Promise<ApprovalCategory> {
   const trustPaths = options.trustConfigPaths ?? [];
-  if (await touchesTrustConfig(absolutePaths, trustPaths, kind === "extract")) {
+  if (await touchesTrustConfig(absolutePaths, trustPaths, kind !== "write")) {
     return "trust_config";
   }
   if (await touchesProjectStore(absolutePaths, kind !== "write")) return "trust_config";

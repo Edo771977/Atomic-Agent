@@ -1,3 +1,7 @@
+import { listStarterSkillNames } from "../skills/seed-starter-skills.js";
+import { learnedSkillScope, learnedTurnRunning, withLearnedDecision } from "../skills/learning/learn-scope.js";
+import { SessionStore } from "../session/session-store.js";
+import { projectDecisionOriginRefusal } from "../sandbox/project-decision-origin.js";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { getConfig } from "../config/index.js";
@@ -13,7 +17,7 @@ import {
   type CuratorVerdict,
   type SkillChangeEntry,
 } from "../skills/curator/index.js";
-import { listStarterSkillNames } from "../skills/seed-starter-skills.js";
+import { parseLearnCommand, runLearnCommand } from "../skills/learning/index.js";
 import { TaskStore } from "../tasks/task-store.js";
 
 /**
@@ -23,11 +27,52 @@ import { TaskStore } from "../tasks/task-store.js";
  */
 
 export const SKILL_HISTORY_HELP_LINES = [
-  "  history [name]             Show the skill change log (create/edit/archive/restore) and saved versions",
-  "  restore <name> [--version <id>|archive]",
-  "                             Put a skill back from the archive or a saved version (the current copy is saved first)",
+  "  history [name] [--learned] Show the skill change log (create/edit/archive/restore) and saved versions",
+  "  restore <name> [--version <id>|archive] [--learned]",
+  "                             Restore a skill; --learned uses the current folder’s learned history.",
   "  curate [--dry-run]         Archive agent-learned skills unused for 30 days now (never starter, hub or your own)",
+  "  learned [undo <id>]        List the current folder’s approved learned skills and drafts; undo one (a new skill is",
+  "                             archived, a patched one goes back to the version saved before the patch)",
+  "  learned show <id> [--json] Print a draft pending review in full: path, where it came from, its SKILL.md,",
+  "                             and for a patch a diff against the live skill",
+  "  learned discard <id>       Discard a draft. To approve one, use /learn in the TUI.",
+  "                             Approve the reviewed text or discard the draft.",
 ];
+
+/** `skill learned [show|undo|approve|discard <id>]` (ATO-67): the TUI's `/learn`. */
+export async function handleSkillLearned(args: string[]): Promise<number> {
+  const command = parseLearnCommand(args.join(" "));
+  if (command.kind === "approve" || args[0]?.toLowerCase() === "approve") {
+    if (args.length !== 2) {
+      process.stderr.write("usage: atomic-agent skill learned approve <id>\n");
+      return 2;
+    }
+    process.stderr.write("Approve learned skills in the TUI. Use /learn show <id> and follow the /learn approval and confirmation steps.\n");
+    return 1;
+  }
+  if (command.kind === "error") {
+    process.stderr.write("usage: atomic-agent skill learned [show <id> [--json] | undo <id> | discard <id>]\n");
+    return 2;
+  }
+  const config = getConfig();
+  const scope = learnedSkillScope(config.paths.stateDir, process.cwd());
+  const result = await runLearnCommand(
+    command,
+    { ...scope,
+      activationRefusal: () => {
+        const origin = projectDecisionOriginRefusal();
+        if (origin) return origin;
+        if (!existsSync(config.paths.sessionsDbFile)) return undefined;
+        const store = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+        try { return store.liveFolderTurn(scope.folder) ? "A turn is running in this folder. Wait for it to finish." : undefined; }
+        finally { store.close(); }
+      },
+    },
+    "atomic-agent skill learned",
+  );
+  (result.ok ? process.stdout : process.stderr).write(`${result.text}\n`);
+  return result.ok ? 0 : 1;
+}
 
 function dirsFor(stateDir: string, skillsDir: string) {
   const paths = skillCuratorPaths(stateDir);
@@ -50,7 +95,9 @@ export async function handleSkillHistory(args: string[]): Promise<number> {
     return 2;
   }
   const config = getConfig();
-  const { paths } = dirsFor(config.paths.stateDir, config.paths.globalSkillsDir);
+  const scope = args.includes("--learned") ? learnedSkillScope(config.paths.stateDir, process.cwd()) : null;
+  const skillsDir = scope?.skillsDir ?? config.paths.globalSkillsDir;
+  const { paths } = dirsFor(scope?.stateDir ?? config.paths.stateDir, skillsDir);
   const changes = await readSkillChanges(paths.changeLog, name);
   const shown = name === undefined ? changes.slice(-50) : changes;
   if (shown.length === 0) process.stdout.write(name ? `(no changes recorded for ${name})\n` : "(no skill changes recorded)\n");
@@ -59,7 +106,7 @@ export async function handleSkillHistory(args: string[]): Promise<number> {
     const versions = await listSkillVersions(paths.historyDir, name);
     process.stdout.write(versions.length ? `versions: ${versions.join(" ")}\n` : "versions: (none)\n");
     if (existsSync(join(paths.archiveDir, name))) process.stdout.write(`archived: yes (atomic-agent skill restore ${name})\n`);
-    const usage = await new SkillChangeRecorder(config.paths.globalSkillsDir, paths).ledger.get(name);
+    const usage = await new SkillChangeRecorder(skillsDir, paths).ledger.get(name);
     if (usage) {
       const last = usage.lastUsedAt ? new Date(usage.lastUsedAt).toISOString() : "never";
       process.stdout.write(`uses: ${usage.useCount}, last used: ${last}${usage.origin ? `, learned by the ${usage.origin}` : ""}\n`);
@@ -81,21 +128,32 @@ export async function handleSkillRestore(args: string[]): Promise<number> {
     return 2;
   }
   const config = getConfig();
-  const { paths, dirs } = dirsFor(config.paths.stateDir, config.paths.globalSkillsDir);
-  const now = Date.now();
-  const result = await restoreSkill(dirs, name, version, now);
-  await new SkillChangeRecorder(config.paths.globalSkillsDir, paths).ledger.markRestored(name, now);
-  await appendSkillChange(paths.changeLog, {
-    at: now,
-    name,
-    action: "restore",
-    actor: "user",
-    restoredFrom: result.restoredFrom,
-    ...(result.snapshot ? { snapshot: result.snapshot } : {}),
-  });
-  process.stdout.write(
-    `restored ${name} from ${result.restoredFrom}${result.snapshot ? ` (previous copy saved as ${result.snapshot})` : ""}\n`,
-  );
+  const scope = args.includes("--learned") ? learnedSkillScope(config.paths.stateDir, process.cwd()) : null;
+  const skillsDir = scope?.skillsDir ?? config.paths.globalSkillsDir;
+  const { paths, dirs } = dirsFor(scope?.stateDir ?? config.paths.stateDir, skillsDir);
+  const restore = async () => {
+    if (scope) {
+      const refusal = projectDecisionOriginRefusal();
+      if (refusal) throw new Error(refusal);
+      if (learnedTurnRunning(scope.stateDir)) throw new Error("A turn is running in this folder. Wait for it to finish.");
+    }
+    const now = Date.now();
+    const result = await restoreSkill(dirs, name, version, now);
+    await new SkillChangeRecorder(skillsDir, paths).ledger.markRestored(name, now);
+    await appendSkillChange(paths.changeLog, {
+      at: now,
+      name,
+      action: "restore",
+      actor: "user",
+      restoredFrom: result.restoredFrom,
+      ...(result.snapshot ? { snapshot: result.snapshot } : {}),
+    });
+    process.stdout.write(
+      `restored ${name} from ${result.restoredFrom}${result.snapshot ? ` (previous copy saved as ${result.snapshot})` : ""}\n`,
+    );
+  };
+  if (scope) await withLearnedDecision(scope.stateDir, restore);
+  else await restore();
   return 0;
 }
 
