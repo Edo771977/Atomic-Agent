@@ -1,5 +1,3 @@
-import { readOsSandboxSettings } from "../sandbox/os-sandbox.js";
-import { probeWindowsSandbox, windowsSandboxUnavailable } from "../sandbox/windows-sandbox.js";
 import { projectDecisionOriginRefusal } from "./project-decision-origin.js";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -936,14 +934,6 @@ export async function runAgentCommand(args: string[], options: RunAgentCommandOp
   // the process ends, so the exit path is in it too.
   const trace = "memoryTrace" in options ? options.memoryTrace ?? null : startRunMemoryTrace(process.env, { argv: args });
   const config = getConfig();
-  if (process.platform === "win32" && readOsSandboxSettings().mode === "workspace") {
-    const unavailable = windowsSandboxUnavailable();
-    if (unavailable) {
-      process.stderr.write(`Windows Safe Mode cannot run commands: ${unavailable}.\n`);
-    } else if (!probeWindowsSandbox(parsed.workingDir, config.paths.stateDir)) {
-      process.stderr.write("Windows Safe Mode could not verify this project's grant. Open the project in the TUI to grant access. Commands will be refused.\n");
-    }
-  }
   const approvalLevel = resolveBootApprovalLevel(
     parsed.noApproval,
     config.agent.approvalLevel,

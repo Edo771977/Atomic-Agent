@@ -5,7 +5,7 @@ Owner: docs/user/
 
 Launch the agent with `ATOMIC_AGENT_SANDBOX=workspace` to isolate shell commands and their descendants, including background jobs. Verification commands use the same isolation. Use `ATOMIC_AGENT_SANDBOX=off` to run with the ordinary tool approvals and project policy. The sandbox is off by default. Automatic activation is deferred pending real compatibility tests on Linux and macOS.
 
-On Linux, install Bubblewrap through the system package manager and use a host that permits its namespaces and mounts. The agent uses a system-managed executable. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. Windows currently refuses commands when Safe Mode is enabled. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
+On Linux, install Bubblewrap through the system package manager and use a host that permits its namespaces and mounts. The agent uses a system-managed executable. An installed binary can still fail in a container or under host user-namespace restrictions. macOS requires an operational `/usr/bin/sandbox-exec`. Windows has no supported backend. If isolation is requested and the backend cannot start, the command fails and is never retried without the wrapper.
 
 - Native dynamic-loader overrides are stripped before starting the sandbox backend.
 - Writes are confined to the trusted working directory and temporary directories. A tool argument cannot grant a new write root.
@@ -61,71 +61,3 @@ export ATOMIC_AGENT_SANDBOX_TOOLCHAINS=/usr/local/bin:/usr/local/lib/python3.12
 ```
 
 The directories must exist on the host. Add a separate library or package directory when the executable refers to it. Safe Mode mounts each approved directory read-only.
-
-
-## Windows CLI
-
-The Windows backend is gated off. On the hosted Windows runner, an ordinary
-Node installation fails inside LPAC before evaluating even an offline script.
-Winsock reports error 10107 and the second TCP client fails during COM
-initialization. The CLI therefore refuses commands and skips new ACL grants.
-The settings and ACL behavior below describe the experimental backend under
-test. See the [native helper guide](../../native/windows-sandbox-helper/README.md)
-to reproduce the results in disposable fixtures.
-
-To use the backend after it passes the Windows acceptance tests, start the TUI from the project with `ATOMIC_AGENT_SANDBOX=workspace` and an
-installed `atomic-sandbox-helper.exe`. On first use, the TUI shows the canonical
-project path, an approximate file count and the rights it will add. Approving
-adds inheritable NTFS allow entries for a project-specific LPAC SID to the
-project and to existing files and directories under it. The project grant
-permits reading, writing and execution. Explicitly listed runtime locations
-get read and execute access. Existing ACL entries remain in place. The helper
-skips reparse points, rejects hard-linked files during a grant, and reports
-ACL errors. The host profile, state and system trees remain outside the
-writable grant. FAT, exFAT and nonlocal paths are unsupported.
-
-In PowerShell, set your offline runtime directories before opening the TUI.
-Use paths where your Windows account can manage ACLs, for example a portable
-Git installation and a portable Node executable in a dedicated local folder.
-Install the unsigned x64 helper from the Windows sandbox CI artifact or build
-it locally. Place it alongside `atomic-agent.exe` for a standalone installation,
-or at `native/windows-sandbox-helper/atomic-sandbox-helper.exe` under the
-installed Node package. Development builds can use the absolute
-`ATOMIC_AGENT_WINDOWS_SANDBOX_HELPER` override. Keep the helper and the
-agent installation outside approved writable projects.
-
-```powershell
-$env:ATOMIC_AGENT_SANDBOX = 'workspace'
-$env:ATOMIC_AGENT_SANDBOX_TOOLCHAINS = 'D:\Tools\Git\ucrt64\bin;D:\Tools\Node\node.exe'
-atomic-agent tui
-```
-
-To inspect the entries, run `icacls "D:\Projects\example" /T` and look for the
-SID recorded in `windows-sandbox/grants.json` under the agent state directory.
-Close active sandbox sessions before revoking their ACLs. Run
-`atomic-agent sandbox windows revoke "D:\Projects\example"` from your own
-terminal, or use `atomic-agent sandbox windows revoke --all`. Turning Safe
-Mode off stops sandboxing future commands. The grants remain on disk until the
-operator revokes them. Revoke before uninstalling the CLI so the registry and
-helper remain available for the operation.
-
-The helper checks ACL coverage and uses a real LPAC process to test an existing
-project file, denied state access, denied out-of-project writes and a reachable
-loopback listener before each launch. Files copied with their own ACLs can
-lose the grant. OneDrive, backup tools or antivirus may also recreate files or
-reset ACLs. Reopen the project in the TUI to regrant access. If a registered
-root was moved, restore it to its registered path before revoking.
-
-LPAC denies direct IP networking, including external, LAN and loopback
-connections. Temporary network consent is unavailable. Commands can still use
-container-private storage and approved standard input and output handles. The
-Job Object terminates descendants when the helper exits, is cancelled or reaches
-its timeout. Windows has no private PID namespace here and some process metadata
-may be enumerable. OS-provided IPC endpoints can remain accessible according
-to their Windows security descriptors.
-
-Node or npm installed inside the user profile, Store Python, PowerShell
-profile modules and commands that require network access may fail. Verify
-services that require host networking and Fusion worktrees outside the
-approved root can also be refused. Run `git status` and
-`node -e "console.log(1)"` from the sandboxed shell to check the local tools.

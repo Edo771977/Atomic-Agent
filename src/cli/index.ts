@@ -7,7 +7,6 @@ import { isSea } from "node:sea";
 import { argv } from "node:process";
 import { exitAfterFlush } from "./exit-after-flush.js";
 import { ensureUtf8Console } from "./windows-console-utf8.js";
-import { sandboxCommand } from "./sandbox-command.js";
 import { runAgentCommand } from "./run-agent.js";
 import { debugReplCommand } from "./debug-repl.js";
 import { skillCommand } from "./skill.js";
@@ -106,11 +105,6 @@ const COMMANDS: CommandDescriptor[] = [
     name: "run",
     summary: "Run a full agent loop against a goal in a working directory",
     run: runAgentCommand,
-  },
-  {
-    name: "sandbox",
-    summary: "Manage approved Windows sandbox filesystem access",
-    run: sandboxCommand,
   },
   {
     name: "skill",

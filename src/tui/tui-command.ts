@@ -1,5 +1,3 @@
-import { getStateSecretPaths } from "../config/index.js";
-import { runWindowsSandboxStartup } from "./windows-sandbox-startup.js";
 import { spawnSync } from "node:child_process";
 import { homedir } from "node:os";
 import { isSea } from "node:sea";
@@ -148,10 +146,6 @@ export async function tuiCommand(args: string[]): Promise<number> {
     recentDirs: () => readRecentWorkingDirs(getConfig().paths.sessionsDbFile),
   });
   const workingDir = startupDir.workingDir;
-  if (process.platform === "win32") {
-    const paths = getConfig().paths;
-    await runWindowsSandboxStartup(workingDir, paths.stateDir, getStateSecretPaths(paths), line => configNotices.push(line));
-  }
   // Theme selection BEFORE any Ink render or stdin listener (the first-run
   // flow and the main render). An explicit
   // `tui.theme` (a registered name) wins; otherwise `"auto"` (or an unknown

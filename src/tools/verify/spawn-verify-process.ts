@@ -159,21 +159,20 @@ export function spawnVerifyProcess(
       stateDir: resolveStateDir(),
       protectedPaths: getStateSecretPaths(getConfig().paths),
       network: false,
-    }), { cwd, env: options.env, timeoutMs: options.timeoutMs, windowsVerbatimArguments: invocation.windowsVerbatimArguments })
+    }), { cwd })
     : { ok: true as const, command: invocation.command, args: invocation.args };
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
   const env = withEnvOverrides({
     ...buildCommandEnv(process.env),
     ...(options.network ? {} : networkBlockEnv()),
   }, options.env ?? {});
-  const helperCwd = "helperCwd" in wrapped ? wrapped.helperCwd : undefined;
   const child = spawn(wrapped.command, wrapped.args, {
-    cwd: helperCwd ?? cwd,
-    env: helperCwd === undefined ? markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env) : {},
+    cwd,
+    env: markAgentToolChild(sandboxed ? buildOsSandboxEnv(env) : env),
     detached,
     stdio: [options.stdin === undefined ? "ignore" : "pipe", "pipe", "pipe"],
     windowsHide: true,
-    ...(("windowsVerbatimArguments" in wrapped ? wrapped.windowsVerbatimArguments : undefined) ?? invocation.windowsVerbatimArguments
+    ...(invocation.windowsVerbatimArguments
       ? { windowsVerbatimArguments: true }
       : {}),
   });

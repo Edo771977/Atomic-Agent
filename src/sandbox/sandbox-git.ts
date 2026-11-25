@@ -23,14 +23,14 @@ export function prepareSandboxGit(
   env: NodeJS.ProcessEnv,
   readOnlyWorkspaceRoots: readonly string[] = [],
   workspaceRoots: readonly string[] = [cwd],
-): { command: string; args: string[]; env: NodeJS.ProcessEnv; helperCwd?: string } {
+): { command: string; args: string[]; env: NodeJS.ProcessEnv } {
   if (readOsSandboxSettings().mode !== "workspace") return { command: "git", args: [...args], env };
   const wrapped = wrapWithOsSandbox("git", args, buildOsSandboxPolicy({
     workspaceRoots, readOnlyWorkspaceRoots, gitMetadataWritable: true,
     stateDir: resolveStateDir(), protectedPaths: getStateSecretPaths(getConfig().paths), network: false,
-  }), { cwd, env });
+  }), { cwd });
   if (!wrapped.ok) throw new Error(formatSandboxUnavailable(wrapped.reason));
-  return { ...wrapped, env: wrapped.helperCwd === undefined ? buildOsSandboxEnv(sandboxGitEnv(env)) : {} };
+  return { ...wrapped, env: buildOsSandboxEnv(sandboxGitEnv(env)) };
 }
 
 export function runSandboxGit(
@@ -40,5 +40,5 @@ export function runSandboxGit(
   workspaceRoots?: readonly string[],
 ): ReturnType<typeof runCommand> {
   const launch = prepareSandboxGit(args, options.cwd, options.env, readOnlyWorkspaceRoots, workspaceRoots);
-  return runCommand(launch.command, launch.args, { ...options, cwd: launch.helperCwd ?? options.cwd, env: launch.env });
+  return runCommand(launch.command, launch.args, { ...options, env: launch.env });
 }
