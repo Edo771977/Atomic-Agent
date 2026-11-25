@@ -275,7 +275,6 @@ Ondate:
 | [#1678](https://github.com/AtomicBot-ai/atomic-agent/pull/1678) | 1 | TUI: /think sets the reasoning level of the next turns (ATO-490) | Importare |
 | [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importare |
 | [#1692](https://github.com/AtomicBot-ai/atomic-agent/pull/1692) | 1 | Local engine: detect a model's MTP head and gate MTP on Core support (ATO-4 | Importare |
-| [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Importare |
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
 | [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
@@ -291,6 +290,7 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Rinviata in ondata B: estende il restore HTTP a eviction, merge, lesson e procedure; gli snapshot aggiunti vanno adattati a constraintKey e stato disabilitato del fork prima di riattivare memoria. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
