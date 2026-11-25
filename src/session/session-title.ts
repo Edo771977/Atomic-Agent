@@ -6,6 +6,7 @@ import type {
 } from "../llm/provider/completion-types.js";
 import type { SessionState } from "./session-state.js";
 import { isStoppedTurnMarker } from "./conversation-turn.js";
+import { withFreshPrivacyVault } from "../privacy/index.js";
 
 /**
  * Where a generated session name lives. Reserved metadata, set by the
@@ -360,7 +361,7 @@ export async function generateSessionTitle(
               }),
         };
   try {
-    const result = await deps.complete(request);
+    const result = await withFreshPrivacyVault(() => deps.complete(request));
     const title = sanitizeSessionTitle(extractSessionTitleText(result) ?? "");
     if (title === null) {
       // Reported, not swallowed. An empty answer and a thrown request

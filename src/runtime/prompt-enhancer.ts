@@ -5,6 +5,7 @@ import type {
   ToolCallTransport,
 } from "../llm/provider/completion-types.js";
 import { stripTitleReasoning } from "../session/session-title.js";
+import { withFreshPrivacyVault } from "../privacy/index.js";
 
 /**
  * Partition the enhancer call sits in, like `title:` / `reflection:` /
@@ -251,7 +252,7 @@ export async function enhancePrompt(
   }, deps.timeoutMs ?? PROMPT_ENHANCE_TIMEOUT_MS);
   timer.unref?.();
   try {
-    const result = await deps.complete(buildEnhanceRequest(text, deps, abort.signal));
+    const result = await withFreshPrivacyVault(() => deps.complete(buildEnhanceRequest(text, deps, abort.signal)));
     const extracted = extractEnhancedPromptText(result);
     const rewritten = sanitizeEnhancedPrompt(extracted.text, {
       draft: text,
