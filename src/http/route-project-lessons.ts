@@ -5,7 +5,7 @@ import { PROJECT_LESSON_INVISIBLE_CHARACTERS } from "../session/project-lesson-t
 import { readProjectRef } from "../session/session-project-store.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
-import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { isNamedCaller, sessionUnavailableToCaller, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 
 function printableProblem(text: string): string {
   return text.replace(PROJECT_LESSON_INVISIBLE_CHARACTERS, character =>
@@ -45,6 +45,9 @@ export function createProjectLessonsHandler(): HttpHandler {
     if (typeof sessionId !== "string" || sessionId.length === 0) {
       return sendError(res, 400, openaiError("session is required"));
     }
+    if (sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
+    }
     if (serveWithheld(ctx, sessionId)()) {
       return sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
     }
@@ -53,6 +56,7 @@ export function createProjectLessonsHandler(): HttpHandler {
     if (!session) return sendError(res, 404, openaiError("Unknown session."));
     const ref = readProjectRef(session);
     if (ref && serveWithheld(ctx, { id: session.id, workingDir: ref.folder, metadata: session.metadata })()) {
+      if (isNamedCaller(ctx)) return sendError(res, 404, openaiError("session not found"));
       return sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
     }
     const result = projectLessonPanel(session, runtime.config.paths.stateDir, (folder, id) =>

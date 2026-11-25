@@ -215,6 +215,8 @@ export interface TaskRunnerOptions {
 
 export interface DrainOptions {
   sessionId?: string;
+  /** Restrict the drain to tasks visible to the caller. */
+  includeTask?: (task: TaskRecord) => boolean;
   /** Hard upper bound on the number of pending tasks consumed in this drain. */
   limit?: number;
   /**
@@ -1086,7 +1088,7 @@ export class TaskRunner {
       ...(opts.sessionId ? { sessionId: opts.sessionId } : {}),
       limit,
     });
-    return this.drainBatch(pending, opts.signal);
+    return this.drainBatch(opts.includeTask ? pending.filter(opts.includeTask) : pending, opts.signal);
   }
 
   /**

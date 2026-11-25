@@ -1,3 +1,5 @@
+import { isIncognitoSession } from "../session/incognito.js";
+import type { SessionState } from "../session/session-state.js";
 import type { ApprovalRequest } from "../approval/approval-gate.js";
 import { getConfig } from "../config/index.js";
 import { hasProjectConstraints } from "../llm/provider-policy.js";
@@ -55,11 +57,32 @@ export function serveWithheld(
   };
 }
 
+/** Named tokens can read only ordinary chats exposed by this listener. */
+export function canReadSession(ctx: HandlerContext, state: SessionState | null): state is SessionState {
+  return state !== null && (ctx.caller === undefined || ctx.caller.role === "owner"
+    || (!isIncognitoSession(state) && !serveWithheld(ctx, state)()));
+}
+
+export function isNamedCaller(ctx: HandlerContext): boolean {
+  return ctx.caller !== undefined && ctx.caller.role !== "owner";
+}
+
+export function sessionUnavailableToCaller(ctx: HandlerContext, id: string): boolean {
+  return isNamedCaller(ctx) && !canReadSession(ctx, ctx.runtime.sessionStore.load(id));
+}
+
+/** The persisted flag also protects old tasks whose chat row has disappeared. */
+export function taskUnavailableToCaller(ctx: HandlerContext, task: { sessionId: string | null; incognito?: boolean }): boolean {
+  return isNamedCaller(ctx) && (task.incognito === true
+    || (task.sessionId !== null && sessionUnavailableToCaller(ctx, task.sessionId)));
+}
+
 /** An approval prompt as a network server may show it: no details for a restricted session. */
 export function approvalForServe(
-  ctx: Pick<HandlerContext, "networkServe" | "runtime">,
+  ctx: HandlerContext,
   request: ApprovalRequest,
-): ApprovalRequest {
+): ApprovalRequest | undefined {
+  if (sessionUnavailableToCaller(ctx, request.sessionId)) return undefined;
   return serveWithheld(ctx, request.sessionId)() ? withholdApprovalDetails(request) : request;
 }
 

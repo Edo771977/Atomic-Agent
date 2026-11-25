@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getConfig, resetConfigCache } from "../config/index.js";
 import { privacyVaultFor, resetPrivacyVaults } from "../privacy/index.js";
+import { fixtureProjectGateView } from "../session/project-gate-view-fixtures.js";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
 
@@ -90,11 +91,11 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     }
   });
 
-  it("gives viewers the same response for an unavailable chat and an unknown ID", async () => {
+  it.each(["viewer", "member", "operator", "admin"] as const)("hides unavailable chats on both read routes from %s", async (role) => {
     const token = "atag_viewer-token-000000000000000";
     harness = await startTestHarness({
       apiKey: "k".repeat(32),
-      namedTokens: () => [{ name: "reader", role: "viewer", sha256: hashHttpToken(token), createdAt: new Date().toISOString() }],
+      namedTokens: () => [{ name: "reader", role, sha256: hashHttpToken(token), createdAt: new Date().toISOString() }],
     });
     const chat = harness.runtime.createSession({ incognito: true });
     privacyVaultFor(chat.id).mask("private@example.test");
@@ -104,6 +105,111 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     const [unavailable, absent] = await Promise.all([read(chat.id), read("unknown")]);
     expect(unavailable.status).toBe(absent.status);
     expect(await unavailable.json()).toEqual(await absent.json());
+    const readChat = (id: string) => fetch(harness!.baseUrl + "/api/sessions/" + id, {
+      headers: { authorization: "Bearer " + token },
+    });
+    const [hiddenChat, missingChat] = await Promise.all([readChat(chat.id), readChat("unknown")]);
+    expect(hiddenChat.status).toBe(404);
+    expect(await hiddenChat.json()).toEqual(await missingChat.json());
+    const request = (method: string, path: string, body: unknown) => fetch(harness!.baseUrl + path, {
+      method, headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    const attempts = [
+      ["PATCH", "", { title: "fixture title" }],
+      ["POST", "/archived", { archived: true }],
+      ["POST", "/steer", { message: "fixture" }],
+      ["POST", "/fork", {}],
+      ["POST", "/rewind/preview", {}],
+    ] as const;
+    for (const [method, suffix, body] of attempts) {
+      const hidden = await request(method, "/api/sessions/" + chat.id + suffix, body);
+      const missing = await request(method, "/api/sessions/unknown" + suffix, body);
+      expect(hidden.status).toBe(role === "viewer" ? 403 : 404);
+      expect(await hidden.json()).toEqual(await missing.json());
+    }
+    const complete = (id: string) => request("POST", "/v1/chat/completions", {
+      model: "atomic-agent", session_id: id, messages: [{ role: "user", content: "fixture" }],
+    });
+    const hiddenTurn = await complete(chat.id);
+    const missingTurn = await complete("unknown");
+    expect(hiddenTurn.status).toBe(role === "viewer" ? 403 : 404);
+    expect(await hiddenTurn.json()).toEqual(await missingTurn.json());
+
+
+  });
+
+  it.each(["viewer", "member", "operator", "admin"] as const)("omits private approvals and gates from %s event streams", async (role) => {
+    const token = "atag_fixture-event-token-00000000000000";
+    harness = await startTestHarness({
+      apiKey: "k".repeat(32),
+      namedTokens: () => [{ name: "reader", role, sha256: hashHttpToken(token), createdAt: "" }],
+    });
+    const hidden = harness.runtime.createSession({ incognito: true });
+    const visible = harness.runtime.createSession();
+    vi.spyOn(harness.runtime.approvals, "isPending").mockReturnValue(true);
+    const approvals = harness.approvalBus;
+    const publish = (sessionId: string, approvalId: string) => approvals.publish({
+      approvalId, sessionId, tool: "os.shell.run", category: "shell", reason: "fixture",
+    });
+    publish(hidden.id, "private-replay");
+    const gates = harness.handle.projectGateBus;
+    const view = fixtureProjectGateView({ kind: "plan" });
+    gates.publish({ type: "project_gate", sessionId: hidden.id, view });
+    const stream = await fetch(harness.baseUrl + "/api/events", {
+      headers: { authorization: "Bearer " + token }, signal: AbortSignal.timeout(4000),
+    });
+    const reader = stream.body!.getReader();
+    try {
+      publish(hidden.id, "private-live");
+      gates.publish({ type: "project_gate", sessionId: hidden.id, view });
+      publish(visible.id, "visible-approval");
+      const decoder = new TextDecoder();
+      let events = "";
+      while (!events.includes("visible-approval")) {
+        const item = await reader.read();
+        if (item.done) break;
+        events += decoder.decode(item.value, { stream: true });
+      }
+      expect(events).toContain("visible-approval");
+      expect(events).not.toContain(hidden.id);
+      expect(events).not.toContain("private-replay");
+      expect(events).not.toContain("private-live");
+    } finally {
+      await reader.cancel().catch(() => {});
+      vi.restoreAllMocks();
+    }
+  });
+
+  it("refuses named incognito creation before running a turn", async () => {
+    const token = "fixture-member";
+    harness = await startTestHarness({ apiKey: "k".repeat(32), namedTokens: () => [
+      { name: "member", role: "member", sha256: hashHttpToken(token), createdAt: "" },
+    ] });
+    const turn = vi.spyOn(harness.runtime, "runTurn");
+    const response = await fetch(harness.baseUrl + "/v1/chat/completions", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ model: "atomic-agent", incognito: true, messages: [{ role: "user", content: "fixture" }] }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "incognito_owner_only" } });
+    expect(turn).not.toHaveBeenCalled();
+  });
+
+  it("returns the same AG-UI error for a private and unknown thread", async () => {
+    const token = "fixture-member";
+    harness = await startTestHarness({ apiKey: "k".repeat(32), namedTokens: () => [
+      { name: "member", role: "member", sha256: hashHttpToken(token), createdAt: "" },
+    ] });
+    const hidden = harness.runtime.createSession({ incognito: true });
+    const run = (threadId: string) => fetch(harness!.baseUrl + "/api/ag-ui", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ threadId, runId: "fixture", messages: [{ role: "user", content: "fixture" }] }),
+    });
+    const concealed = await run(hidden.id);
+    const absent = await run("absent-thread");
+    expect(concealed.status).toBe(404);
+    expect(await concealed.json()).toEqual(await absent.json());
   });
 
   it("refuses a body without a boolean", async () => {

@@ -33,7 +33,7 @@ import { createEmptySessionState, type SessionState } from "../session/index.js"
 import { createAgUiTranslator } from "./ag-ui-events.js";
 import { isValidSessionId } from "../session/session-id.js";
 import { openaiError } from "./openai-errors.js";
-import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { canReadSession, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import {
   beginSse,
   onClientGone,
@@ -92,6 +92,10 @@ export function createAgUiRunHandler(): HttpHandler {
       return;
     }
     const session = resolveThreadSession(input.threadId, ctx);
+    if (session === null) {
+      sendError(res, 404, openaiError("session not found", "invalid_request_error", "threadId"));
+      return;
+    }
     // Issue #33: a network server refuses a restricted session's turn
     // before it runs, like `/v1/chat/completions`.
     if (serveWithheld(ctx, session)()) {
@@ -161,8 +165,9 @@ async function runAgUiTurn(
 }
 
 /** The thread's session, or a new one in the server's folder. */
-function resolveThreadSession(threadId: string, ctx: HandlerContext): SessionState {
+function resolveThreadSession(threadId: string, ctx: HandlerContext): SessionState | null {
   const existing = ctx.runtime.sessionStore.load(threadId);
+  if (ctx.caller !== undefined && ctx.caller.role !== "owner" && !canReadSession(ctx, existing)) return null;
   if (existing) return existing;
   const state = createEmptySessionState({
     id: threadId,

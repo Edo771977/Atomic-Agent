@@ -163,11 +163,13 @@ function assertBackupCapacity(root: string): void {
 export function createMemoryBackupHandler(): HttpHandler {
   let running = false;
   let lastBackup = -Infinity;
+  let retryAfterFailure = -Infinity;
   return operatorPost(async (body, ctx) => {
     if (Object.keys(body).length !== 0) throw new RequestError(400, "Backup accepts an empty JSON object");
     if (running) throw new MemoryChoiceConflict("backup-running");
     const now = performance.now();
     if (now - lastBackup < 60_000) throw new RequestError(429, "Wait one minute between HTTP backups.", "backup-cooldown");
+    if (now < retryAfterFailure) throw new RequestError(429, "Wait five seconds after a failed HTTP backup.", "backup-cooldown");
     running = true;
     try {
       const paths = ctx.runtime.config.paths;
@@ -185,6 +187,9 @@ export function createMemoryBackupHandler(): HttpHandler {
       });
       const metadata = await stat(file);
       return { name: basename(directory), size: metadata.size, date: metadata.mtime.toISOString() };
+    } catch (error) {
+      if (!(error instanceof MemoryChoiceConflict) && !(error instanceof RequestError)) retryAfterFailure = performance.now() + 5_000;
+      throw error;
     } finally {
       running = false;
     }

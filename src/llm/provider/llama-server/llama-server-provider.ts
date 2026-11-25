@@ -1,12 +1,12 @@
 import { createHash } from "node:crypto";
 import type { ProviderPrivacyConfig } from "../../../config/llm-config.js";
 import { isLocalServerUrl } from "../openai/local-server-url.js";
-import { createChunkUnmasker, maskWithArchiveRecovery, shieldVaultFor, unmaskCompletion } from "../openai/openai-privacy-shield.js";
+import { addPrivacyInstructionsToText, createChunkUnmasker, maskWithArchiveRecovery, shieldVaultFor, unmaskCompletion } from "../openai/openai-privacy-shield.js";
 import { getConfig } from "../../../config/index.js";
 import { checkLlamaServer } from "../../llama-server-health.js";
 import { apiKeyForUrl } from "../../../local-llm/server/managed-api-key.js";
 import type { LlamaServerClient } from "../../llama-server-client.js";
-import type { ModelProfile } from "../../model-profile.js";
+import { getReasoningTurnFraming, type ModelProfile } from "../../model-profile.js";
 import type {
   CompletionRequest,
   CompletionResult,
@@ -178,13 +178,25 @@ export class LlamaServerProvider implements LlmProvider {
     const { chat } = request;
     const body = { messages: chat ? [chat.system, chat.user, request.prompt] : [request.prompt] };
     const active = maskWithArchiveRecovery(body, vault, request.sessionId, false);
-    const prompt = body.messages.at(-1)!;
+    const prompt = this.addRawPrivacyInstructions(body.messages.at(-1)!);
     if (!chat) return { request: { ...request, prompt }, vault: active };
-    const [system, user] = body.messages as [string, string, string];
+    const [maskedSystem, user] = body.messages as [string, string, string];
+    const system = addPrivacyInstructionsToText(maskedSystem);
     // The template cache must distinguish raw and masked system messages,
     // as well as masking that produced different references in another chat.
     const prefixHash = createHash("sha256").update(chat.prefixHash).update(system).digest("hex");
     return { request: { ...request, prompt, chat: { ...chat, system, user, prefixHash } }, vault: active };
+  }
+
+  private addRawPrivacyInstructions(prompt: string): string {
+    const profile = this.getProfile();
+    if (profile.reasoningStyle === "none") return addPrivacyInstructionsToText(prompt);
+    const opener = getReasoningTurnFraming(profile)?.systemOpen ?? "### system\n";
+    if (!prompt.startsWith(opener)) return prompt;
+    let insertion = opener.length;
+    const token = profile.reasoningSystemToken;
+    if (token && prompt.startsWith(token, insertion)) insertion += token.length;
+    return prompt.slice(0, insertion) + addPrivacyInstructionsToText(prompt.slice(insertion));
   }
 
   /**

@@ -5,7 +5,11 @@ import { createHmac, randomBytes } from "node:crypto";
 import { containsSecret, containsSecretPair, isSecretKey } from "../memory/memory-secret-guard.js";
 import type { MemoryEntry } from "../memory/memory-store.js";
 import type { ProfileFact } from "../memory/profile-store.js";
-const MEMORY_DISPLAY_INVISIBLE = /[\u200B\u202A-\u202E\u2060\u2066-\u2069\uFEFF\u{E0000}-\u{E007F}\p{Co}]/gu;
+const MEMORY_DISPLAY_INVISIBLE = /[\p{Cf}\p{Co}\p{Cn}\u2028\u2029\uFFF9-\uFFFB]/gu;
+
+function isAllowedFormatCharacter(character: string): boolean {
+  return character === "\u200C" || character === "\u200D" || character === "\u00AD";
+}
 
 const signingKey = randomBytes(32);
 
@@ -18,7 +22,7 @@ export function memoryFingerprint(entry: MemoryEntry | ProfileFact): string {
 
 export function operatorMemoryText(value: string): string {
   if (containsSecret(value)) return "[redacted]";
-  return value.replace(MEMORY_DISPLAY_INVISIBLE, (character) =>
+  return value.replace(MEMORY_DISPLAY_INVISIBLE, (character) => isAllowedFormatCharacter(character) ? character :
     "\\u{" + character.codePointAt(0)!.toString(16).toUpperCase() + "}");
 }
 
@@ -47,10 +51,29 @@ function redact(value: unknown, known: readonly KnownSecret[]): unknown {
 
 /** Reject invisible characters and placeholders copied from this entry's display. */
 export function isEditableMemoryText(value: string, original?: string, displayed?: string): boolean {
-  if (value.search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
+  if ([...value.matchAll(MEMORY_DISPLAY_INVISIBLE)].some(([character]) => !isAllowedFormatCharacter(character))) return false;
   for (const [, hex] of value.matchAll(/\\u\{([\da-f]+)\}/gi)) {
     const codePoint = Number.parseInt(hex!, 16);
-    if (codePoint <= 0x10ffff && String.fromCodePoint(codePoint).search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
+    if (codePoint > 0x10ffff) continue;
+    const character = String.fromCodePoint(codePoint);
+    if (!isAllowedFormatCharacter(character) && character.search(MEMORY_DISPLAY_INVISIBLE) !== -1) return false;
   }
-  return value !== displayed || value === original || !/\[redacted(?::[^\]]*)?\]/i.test(value);
+  if (displayed === undefined || displayed === original) return true;
+  if (value === displayed) return false;
+  const counts = (text: string): Map<string, number> => {
+    const markers = new Map<string, number>();
+    for (const [marker] of text.toLowerCase().matchAll(/\[redacted(?::[^\]]*)?\]/g)) {
+      markers.set(marker, (markers.get(marker) ?? 0) + 1);
+    }
+    return markers;
+  };
+  const source = counts(original ?? "");
+  const edited = counts(value);
+  if (displayed.toLowerCase() === "[redacted]") return edited.size === 0;
+  for (const [marker, displayedCount] of counts(displayed)) {
+    const originalCount = source.get(marker) ?? 0;
+    const added = displayedCount - originalCount;
+    if (added > 0 && (edited.get(marker) ?? 0) > Math.max(0, originalCount - added)) return false;
+  }
+  return true;
 }

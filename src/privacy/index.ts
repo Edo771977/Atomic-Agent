@@ -15,6 +15,7 @@ export {
 export { createStreamUnmasker, partialPlaceholderStart, type StreamUnmasker } from "./stream-unmasker.js";
 export {
   forgetPrivacyVault,
+  releasePrivacyVault,
   isPrivacyShieldEnabled,
   isPrivacyShieldEnabledForRequest,
   privacyShieldSessionStats,

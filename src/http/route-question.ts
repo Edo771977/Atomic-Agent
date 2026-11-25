@@ -1,3 +1,4 @@
+import { isNamedCaller, sessionUnavailableToCaller } from "./serve-egress.js";
 import { validateUserQuestionAnswer } from "../approval/user-question.js";
 
 import { openaiError } from "./openai-errors.js";
@@ -47,6 +48,9 @@ export function createAnswerQuestionHandler(): HttpHandler {
       return;
     }
     const request = ctx.runtime.approvals.pendingRequest(approvalId);
+    if (isNamedCaller(ctx) && (request === null || sessionUnavailableToCaller(ctx, request.sessionId))) {
+      return sendError(res, 404, openaiError("approvalId not pending"));
+    }
     if (request === null) {
       ctx.approvalBus.resolved(approvalId);
       sendError(res, 404, openaiError(`approvalId not pending: ${approvalId}`));

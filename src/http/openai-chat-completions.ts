@@ -33,7 +33,7 @@ import { parseProjectFields, type SessionProject } from "../session/session-proj
 import { sessionIdError } from "../session/session-id.js";
 import type { ReasoningEffort } from "../llm/provider/completion-types.js";
 import { reasoningOverrideFromRequest } from "../llm/reasoning-levels.js";
-import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { canReadSession, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 import { perTurnModelRefusal } from "../runtime/per-turn-model.js";
 import { teamChoiceMembershipError } from "../runtime/session-director.js";
 import { resolveLlmConfig } from "../llm/provider/index.js";
@@ -215,7 +215,15 @@ export function createChatCompletionsHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const parsed = await parseRequestBody(req, res);
     if (!parsed) return;
+    if (parsed.incognito && ctx.caller !== undefined && ctx.caller.role !== "owner") {
+      sendError(res, 403, openaiError("Starting an incognito chat requires the owner key", "permission_error", "incognito", "incognito_owner_only"));
+      return;
+    }
     const session = resolveSession(parsed, ctx);
+    if (session === "unavailable") {
+      sendError(res, 404, openaiError("session not found", "invalid_request_error", "session_id"));
+      return;
+    }
     if (session === null) {
       // ATO-586: the chat by that id remembers; turning it incognito now
       // would not undo what it already wrote, and running the turn there
@@ -1695,7 +1703,7 @@ function isExtensionsHeaderTruthy(value: string | null): boolean {
 function resolveSession(
   parsed: ParsedRequest,
   ctx: HandlerContext,
-): SessionState | null {
+): SessionState | null | "unavailable" {
   // An incognito chat never takes the derived id: the same opening prompt
   // would resume an ordinary chat that started with it, and that one
   // remembers. It gets its own id, and continues by `session_id`.
@@ -1705,6 +1713,8 @@ function resolveSession(
       ? `api-${randomUUID()}`
       : deriveChatSessionId(parsed.systemPrompt, parsed.firstUserMessage));
   const existing = ctx.runtime.sessionStore.load(desiredId);
+  if (ctx.caller !== undefined && ctx.caller.role !== "owner"
+    && (parsed.sessionIdOverride !== null || existing !== null) && !canReadSession(ctx, existing)) return "unavailable";
   if (existing) {
     // `null`: incognito asked for on an ordinary chat (refused upstream).
     if (parsed.incognito && !isIncognitoSession(existing)) return null;

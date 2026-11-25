@@ -23,9 +23,9 @@ export class CompletionRegistry {
     this.entries.delete(completionId);
   }
 
-  cancel(completionId: string): boolean {
+  cancel(completionId: string, canCancel?: (sessionId: string) => boolean): boolean {
     const entry = this.entries.get(completionId);
-    if (!entry) return false;
+    if (!entry || canCancel?.(entry.sessionId) === false) return false;
     entry.controller.abort();
     this.entries.delete(completionId);
     return true;

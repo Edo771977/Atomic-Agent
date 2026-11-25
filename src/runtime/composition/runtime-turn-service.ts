@@ -1,5 +1,5 @@
 import { approvalActors, type ApprovalActors } from "../../approval/approval-actors.js";
-import { forgetPrivacyVault, linkPrivacyVault, pinPrivacyVault, unlinkPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
+import { releasePrivacyVault, linkPrivacyVault, pinPrivacyVault, unlinkPrivacyVault, withPrivacyShieldTurn } from "../../privacy/index.js";
 import { SHARED_URL_SEND_SITES } from "../../tools/os/web/url-data-guard.js";
 import { projectFolderOf } from "../../session/project-folder.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
@@ -427,18 +427,18 @@ export function createRuntimeTurnService(
   const releaseCompletedArchive = (state: SessionState): void => {
     const pending = pendingArchiveCalls.get(state.id);
     if (!pending?.size) {
-      forgetPrivacyVault(state.id);
+      releasePrivacyVault(state.id);
       return;
     }
     const release = pinPrivacyVault(state.id);
     void Promise.allSettled(pending).then(() => {
       if (lifecycle.isShutdown()) {
-        forgetPrivacyVault(state.id);
+        releasePrivacyVault(state.id);
         return;
       }
       const current = sessionStore.load(state.id);
       if (!current || (current.status === "completed" && current.turnCount === state.turnCount)) {
-        forgetPrivacyVault(state.id);
+        releasePrivacyVault(state.id);
       }
     }).catch(() => {
       // The store can close while side calls settle.

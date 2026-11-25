@@ -1,3 +1,4 @@
+import { sessionUnavailableToCaller } from "./serve-egress.js";
 import { getConfig } from "../config/index.js";
 import type { TeamMember } from "../llm/run-mode/fusion-team.js";
 import { resolveLlmConfig } from "../llm/provider/registry/provider-types.js";
@@ -20,6 +21,9 @@ export function createFusionTeamHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const { runtime } = ctx;
     const sessionId = new URL(req.url ?? "/", "http://localhost").searchParams.get("session");
+    if (sessionId && sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
+    }
     const session = sessionId === null || sessionId.length === 0 ? null : runtime.sessionStore.load(sessionId);
     if (sessionId !== null && sessionId.length > 0 && session === null) {
       sendError(res, 404, openaiError(`no session ${sessionId}`));

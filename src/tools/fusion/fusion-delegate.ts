@@ -1,4 +1,4 @@
-import { redactPrivacyEvidence } from "../../privacy/index.js";
+import { isPrivacyShieldEnabledForRequest, redactPrivacyEvidence } from "../../privacy/index.js";
 import { checkDidNotRun } from "./check-ran.js";
 import type { ApprovalGate } from "../../approval/approval-gate.js";
 import {
@@ -1372,23 +1372,26 @@ export function buildFusionDelegateTool(
       };
       const checkpointStore = ctx.incognito ? undefined : deps.runCheckpoints;
       const evidenceRunsDir = checkpointStore?.runsDir;
-      const protectEvidence = <T>(value: T): T => redactPrivacyEvidence(ctx.sessionId, value, { always: true });
+      const shieldEnabled = isPrivacyShieldEnabledForRequest(ctx.sessionId);
+      const protectEvidence = <T>(value: T): T => shieldEnabled ? redactPrivacyEvidence(ctx.sessionId, value) : value;
       const recordCheckRun: CheckRunRecorder | undefined = receiptWriter === undefined && evidenceRunsDir === undefined
         ? undefined
         : (check, record, ok) => {
           const kind = check.kind ?? check.type ?? "command";
+          const output = kind === "ui" ? protectEvidence(record.output) : record.output;
           if (kind === "ui" && evidenceRunsDir !== undefined && checkRun !== undefined) {
-            writeRunUiOutput(evidenceRunsDir, checkRun, record.output);
+            writeRunUiOutput(evidenceRunsDir, checkRun, output);
           }
           writeReceipt("check-run-record", () => ({
             kind,
             ...(check.task === undefined ? {} : { task: check.task }),
             definitionHash: receiptHash(JSON.parse(JSON.stringify(check))),
-            recordHash: receiptHash(record),
-            outputHash: receiptHash(record.output),
+            recordHash: receiptHash({ ...record, output }),
+            outputHash: receiptHash(output),
             exitCode: record.exitCode,
             ok,
           }));
+          return output;
         };
       let candidate: CandidateIntegration | undefined;
       const completedCandidateRows = new Map<string, WorkerTaskResult>();

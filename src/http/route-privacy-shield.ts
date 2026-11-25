@@ -1,7 +1,6 @@
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HandlerContext, type HttpHandler } from "./request-context.js";
-import { isIncognitoSession } from "../session/incognito.js";
-import { serveWithheld } from "./serve-egress.js";
+import { canReadSession } from "./serve-egress.js";
 import type { PrivacyShieldControl } from "../runtime/runtime-contract.js";
 
 /**
@@ -17,9 +16,8 @@ import type { PrivacyShieldControl } from "../runtime/runtime-contract.js";
  * answers the same shape.
  */
 function snapshot(control: PrivacyShieldControl, sessionId: string | null, ctx: HandlerContext) {
-  const viewer = sessionId && ctx.caller?.role === "viewer" ? ctx.runtime.sessionStore.load(sessionId) : null;
-  const unavailable = sessionId !== null && ctx.caller?.role === "viewer"
-    && (viewer === null || isIncognitoSession(viewer) || serveWithheld(ctx, viewer)());
+  const unavailable = sessionId !== null && ctx.caller !== undefined && ctx.caller.role !== "owner"
+    && !canReadSession(ctx, ctx.runtime.sessionStore.load(sessionId));
   const { masked, sessions, session } = control.stats(unavailable ? undefined : sessionId ?? undefined);
   return {
     enabled: control.isEnabled(),

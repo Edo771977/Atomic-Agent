@@ -12,7 +12,7 @@ Masks personal data and keys before a request goes to a cloud model and puts the
 
 The [provider adapter](../llm/provider/openai/openai-privacy-shield.ts) covers OpenAI, OpenRouter, Gemini, AIMLAPI, hosted OpenAI-compatible endpoints and native Anthropic Messages. It masks messages before transport conversion, restores split placeholders in streamed text and reasoning, and restores JSON-escaped arguments before the agent dispatches tools. Unknown placeholders pass through unchanged. Subscription CLI providers and separate image and audio requests are outside this coverage. Managed local models receive the original text. OpenAI-compatible and Anthropic endpoints classified as local do so in auto mode.
 
-The archive lives in process memory. Chat deletion, including incognito close, drops its archive. Calls without a session use a fresh archive for each completion. The archive is excluded from logs, traces, transcripts, error reports, durable memory and prompt facts. Local conversation history still receives the restored text under its existing retention rules.
+The archive lives in process memory. Chat deletion, including incognito close, drops its archive. Late requests for closed chat IDs use disposable archives for 30 minutes. Fusion worker IDs have a separate five-minute expiry. Skill reviews release their temporary archives at completion. Calls without a session use a fresh archive for each completion. The archive is excluded from logs, traces, transcripts, error reports, durable memory and prompt facts. Local conversation history still receives the restored text under its existing retention rules.
 
 The detector reads the fork's current [known credentials](../runtime/runtime-known-secrets.ts) and uses the shared credential masker to detect them. Existing tool-output and error-report scrubbing continue to run independently. Values already redacted from tool output remain redacted.
 
@@ -26,7 +26,7 @@ Completed sessions release their archives after pending side calls settle. A Fus
 
 The direct HTTP skills-eval judge uses the global setting and address classification. For a local-looking judge gateway forwarding to the cloud, configure it as a provider and use that provider as the judge.
 
-Separate image and audio descriptions bypass the shield. Web search and remote MCP or Composio tools receive the original arguments so they can perform the requested action. Tool schemas, including MCP schemas, are sent as supplied.
+Separate image and audio descriptions, embeddings sent to a non-loopback endpoint, and MCP sampling bypass the shield. Web search and remote MCP or Composio tools receive the original arguments so they can perform the requested action. Tool schemas, including MCP schemas, are sent as supplied.
 
 A value learned later can invalidate the provider's cached prefix once. If the detector could not recognize that value when it first occurred in the prefix, that earlier request may already have sent it verbatim. Later requests use the learned reference at every matching occurrence. Enable protection and configure known secrets before sending sensitive context.
 

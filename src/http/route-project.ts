@@ -4,7 +4,7 @@ import { parseProjectDecision } from "../session/project-decision-parse.js";
 import { parseBacklogDecision } from "../session/project-backlog.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
-import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
+import { sessionUnavailableToCaller, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld } from "./serve-egress.js";
 
 /**
  * The fusion project gate over HTTP (issue #39): `GET /api/project?session=<id>`
@@ -54,6 +54,9 @@ export function createGetProjectHandler(): HttpHandler {
       sendError(res, 400, openaiError("?session=<id> is required"));
       return;
     }
+    if (sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
+    }
     if (serveWithheld(ctx, sessionId)()) {
       sendWithheld(res);
       return;
@@ -91,6 +94,9 @@ export function createProjectDecisionHandler(): HttpHandler {
     if (typeof decision === "string") {
       sendError(res, 400, openaiError(decision));
       return;
+    }
+    if (sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
     }
     if (serveWithheld(ctx, sessionId)()) {
       sendWithheld(res);
@@ -146,6 +152,9 @@ export function createProjectBacklogHandler(): HttpHandler {
     if (typeof decision === "string") {
       sendError(res, 400, openaiError(decision));
       return;
+    }
+    if (sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
     }
     if (serveWithheld(ctx, sessionId)()) {
       sendWithheld(res);

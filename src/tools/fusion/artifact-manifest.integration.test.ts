@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, unlinkSync,
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { resetPrivacyVaults } from "../../privacy/index.js";
+import { resetPrivacyVaults, setPrivacyShieldEnabled } from "../../privacy/index.js";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import { createEmptySessionState } from "../../session/session-state.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -49,7 +49,7 @@ describe("artifact evidence through Fusion results and checkpoints", () => {
     expect(result.summary).toContain("manifest:");
   });
 
-  it.each([false, true])("protects run checkpoints and evidence (incognito=%s)", async (incognito) => {
+  it.each([[false, true], [true, true], [false, false]] as const)("protects run checkpoints and evidence (incognito=%s shield=%s)", async (incognito, enabled) => {
     const filename = "owner@example.test.txt";
     const runsDir = join(dir, "checkpoints");
     const d = deps();
@@ -71,6 +71,7 @@ describe("artifact evidence through Fusion results and checkpoints", () => {
       return { session, reason: "reply", stepCount: 1 };
     };
     resetPrivacyVaults();
+    setPrivacyShieldEnabled(enabled);
     try {
       const result = await buildFusionDelegateTool(d).run({
         tasks: [{ id: "core", instructions: "Write " + filename, files: [filename] }],
@@ -79,6 +80,11 @@ describe("artifact evidence through Fusion results and checkpoints", () => {
       if (incognito) {
         expect(snapshots).toEqual([]);
         expect(existsSync(runsDir)).toBe(false);
+      } else if (!enabled) {
+        const checkpoint = JSON.parse(snapshots[0]!);
+        expect(checkpoint.originalRequest).toContain("owner@example.test");
+        expect(checkpoint.args.tasks[0].instructions).toContain(filename);
+        expect(checkpoint).not.toHaveProperty("redactedArgs");
       } else {
         expect(JSON.parse(snapshots[0]!)).toMatchObject({ originalRequest: "[redacted]", redactedArgs: true });
         expect(snapshots.join(" ")).toContain("[redacted]");

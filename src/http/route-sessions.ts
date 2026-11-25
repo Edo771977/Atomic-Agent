@@ -1,4 +1,4 @@
-import { serveWithheld } from "./serve-egress.js";
+import { canReadSession, serveWithheld } from "./serve-egress.js";
 import { readGoalState } from "../agent/goal/index.js";
 import { MAX_PENDING_STEERS } from "../runtime/steering-inbox.js";
 import type { SessionState } from "../session/session-state.js";
@@ -60,7 +60,7 @@ export function createListSessionsHandler(): HttpHandler {
       ? ctx.runtime.sessionStore.listRecent(limit)
       : ctx.runtime.sessionStore.listByWorkingDir(workingDir, limit);
     sendJson(res, 200, {
-      sessions: sessions.map((s) => (serveWithheld(ctx, s)() ? withheldRow(s) : {
+      sessions: sessions.filter((session) => canReadSession(ctx, session)).map((s) => (serveWithheld(ctx, s)() ? withheldRow(s) : {
         id: s.id,
         workingDir: s.workingDir,
         // `running` while a turn is in flight on the session, in this

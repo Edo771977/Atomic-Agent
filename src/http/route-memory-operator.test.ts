@@ -118,7 +118,7 @@ describe("operator memory routes", () => {
   it("allows a backup again after deleting an incognito chat", async () => {
     const response = await send("/v1/chat/completions", {
       model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
-    });
+    }, "owner-test-token");
     expect(response.status).toBe(200);
     const { session_id: id } = await response.json() as { session_id: string };
     expect(id).toBeTruthy();
@@ -126,7 +126,7 @@ describe("operator memory routes", () => {
     expect(blocked.status).toBe(409);
     expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
     const deleted = await fetch(harness.baseUrl + `/api/sessions/${id}`, {
-      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+      method: "DELETE", headers: { authorization: "Bearer owner-test-token" },
     });
     expect(deleted.status).toBe(200);
     expect(await send("/api/memory/backup", {})).toHaveProperty("status", 200);
@@ -135,14 +135,14 @@ describe("operator memory routes", () => {
   it("keeps a deferred incognito deletion tracked until the row is gone", async () => {
     const response = await send("/v1/chat/completions", {
       model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
-    });
+    }, "owner-test-token");
     expect(response.status).toBe(200);
     const { session_id: id } = await response.json() as { session_id: string };
     // Exercise the HTTP tracking independently of the runtime's live-chat guard.
     vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(false);
     const discard = vi.spyOn(harness.runtime, "discardIncognitoSession").mockReturnValueOnce("deferred");
     const deleted = await fetch(harness.baseUrl + "/api/sessions/" + id, {
-      method: "DELETE", headers: { authorization: "Bearer admin-test-token" },
+      method: "DELETE", headers: { authorization: "Bearer owner-test-token" },
     });
     expect(deleted.status).toBe(200);
     expect(discard).toHaveBeenCalledWith(id);
@@ -205,9 +205,12 @@ describe("operator memory routes", () => {
     expect(JSON.stringify(logger.mock.calls)).not.toContain("private detail");
   });
 
-  it("allows an immediate retry after an HTTP backup fails before publishing", async () => {
+  it("backs off briefly after an HTTP backup fails before publishing", async () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(1000);
     vi.spyOn(backupService, "createMemoryBackup").mockRejectedValueOnce(new Error("disk failure"));
     expect((await send("/api/memory/backup", {})).status).toBe(500);
+    expect((await send("/api/memory/backup", {})).status).toBe(429);
+    now.mockReturnValue(6000);
     expect((await send("/api/memory/backup", {})).status).toBe(200);
   });
 

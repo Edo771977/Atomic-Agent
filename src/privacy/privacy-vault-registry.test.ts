@@ -158,3 +158,13 @@ it("restores only references delivered to the current worker", async () => {
     expect(vault.unmask(ownerReference)).toBe("owner@example.test");
   });
 });
+
+it("keeps recent deletion markers through bursts of transient worker closures", () => {
+  forgetPrivacyVault("old-closed-id");
+  for (let i = 0; i < 1024; i += 1) {
+    forgetPrivacyVault("closed-" + i);
+    forgetPrivacyVault("s-w-closed-" + i);
+  }
+  expect(privacyVaultFor("old-closed-id")).not.toBe(privacyVaultFor("old-closed-id"));
+  expect(privacyVaultFor("closed-1023")).not.toBe(privacyVaultFor("closed-1023"));
+});

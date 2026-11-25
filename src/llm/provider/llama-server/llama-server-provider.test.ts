@@ -4,7 +4,7 @@ import { getEventListeners } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LlamaServerClient } from "../../llama-server-client.js";
-import { PLAIN_INSTRUCT_PROFILE } from "../../model-profile.js";
+import { GEMMA4_THINK_PROFILE, PLAIN_INSTRUCT_PROFILE } from "../../model-profile.js";
 import type { ModelProfile } from "../../model-profile.js";
 import { LlamaServerProvider } from "./llama-server-provider.js";
 import { VisionUnsupportedError, type VisionResult } from "../llm-provider.js";
@@ -146,7 +146,7 @@ describe("LlamaServerProvider", () => {
   ] as const)("applies text Privacy Shield for %s in %s mode", async (url, shield, enabled, sent) => {
     setPrivacyShieldEnabled(enabled);
     const complete = vi.fn<LlamaServerClient["complete"]>().mockImplementation(async (request) => ({
-      content: request.prompt, reasoningContent: "", stop: true, truncated: false,
+      content: request.prompt.endsWith("[EMAIL_1]") ? "[EMAIL_1]" : request.prompt, reasoningContent: "", stop: true, truncated: false,
       timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
       cacheHitTokens: 0, slotId: -1, modelId: null,
     }));
@@ -163,8 +163,32 @@ describe("LlamaServerProvider", () => {
     });
     try {
       const result = await provider.complete({ prompt: "person@example.test", sessionId: "shield-llama" });
-      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent }));
+      expect(complete).toHaveBeenCalledWith(expect.objectContaining({ prompt: sent === "[EMAIL_1]" ? expect.stringMatching(/^Privacy Shield[\s\S]*\[EMAIL_1\]$/) : sent }));
       expect(result.content).toBe("person@example.test");
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
+  it("preserves a preformatted Gemma system turn at the start of the raw prompt", async () => {
+    const complete = vi.fn<LlamaServerClient["complete"]>().mockResolvedValue({
+      content: "", reasoningContent: "", stop: true, truncated: false,
+      timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+      cacheHitTokens: 0, slotId: -1, modelId: null,
+    });
+    const provider = new LlamaServerProvider(fakeClient(complete), {
+      privacyShield: "on", getProfile: () => GEMMA4_THINK_PROFILE, visionEnabledByConfig: false,
+      visionAutoDetect: false, maxImageBytes: 1024, maxImagesPerCall: 2, requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    try {
+      const opening = "<|turn>system\n<|think|>\n";
+      for (const tail of ["first", "second"]) {
+        await provider.complete({ sessionId: "formatted", prompt: opening + "Contact owner@example.test\n<turn|>" + tail });
+      }
+      const prompts = complete.mock.calls.map(([request]) => request.prompt);
+      expect(prompts[0]).toMatch(/^<\|turn>system\n<\|think\|>\nPrivacy Shield/);
+      expect(prompts[0]?.replace(/first$/, "")).toBe(prompts[1]?.replace(/second$/, ""));
+      expect(prompts[0]).toContain("Contact [EMAIL_1]");
     } finally {
       resetPrivacyVaults();
     }
@@ -201,9 +225,9 @@ describe("LlamaServerProvider", () => {
         next = await stream.next();
       }
       expect(applyTemplate).toHaveBeenCalledWith(expect.arrayContaining([
-        { role: "system", content: "Contact [EMAIL_1]" },
+        { role: "system", content: expect.stringMatching(/Privacy Shield[\s\S]*Contact \[EMAIL_1\]/) },
       ]), undefined);
-      expect(completeStream).toHaveBeenCalledWith(expect.objectContaining({ prompt: "Contact [EMAIL_1] | Continue" }));
+      expect(completeStream).toHaveBeenCalledWith(expect.objectContaining({ prompt: expect.stringMatching(/Privacy Shield[\s\S]*Contact \[EMAIL_1\] \| Continue$/) }));
       expect(chunks.at(-1)?.done).toBe(true);
       expect(chunks.map((chunk) => chunk.delta).join("")).toContain("person@example.test");
       expect(next.value.content).toContain("person@example.test");

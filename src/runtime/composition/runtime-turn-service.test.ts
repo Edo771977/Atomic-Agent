@@ -1,4 +1,4 @@
-import { forgetPrivacyVault, privacyVaultFor } from "../../privacy/index.js";
+import { forgetPrivacyVault, privacyShieldSessionStats, privacyVaultFor } from "../../privacy/index.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -667,6 +667,32 @@ describe("runtime turn ownership recipes", () => {
     } finally {
       gate.resolve();
       forgetPrivacyVault(id);
+    }
+  });
+
+  it("reopens a completed chat archive and shares it with a worker", async () => {
+    const id = "continued-privacy-chat";
+    const worker = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: id, taskId: "task" } });
+    fixture.loop.runTurn.mockImplementationOnce(async (state, options) => ({
+      ...result(state, options), session: { ...state, status: "completed" },
+    }));
+    try {
+      const service = fixture.service;
+      const first = await service.executeTurn(session(id), "finish");
+      fixture.loop.runTurn.mockImplementationOnce(async (state, options) => {
+        privacyVaultFor(id).mask("continued@example.test");
+        return result({ ...state, status: "pending" }, options);
+      });
+      await service.executeTurn(first.session, "continue");
+      expect(privacyShieldSessionStats(id).masked).toBe(1);
+      fixture.loop.runTurn.mockImplementationOnce(async (state, options) => {
+        expect(privacyVaultFor(worker.id)).toBe(privacyVaultFor(id));
+        return result(state, options);
+      });
+      await service.executeTurn(worker, "brief");
+    } finally {
+      forgetPrivacyVault(id);
+      forgetPrivacyVault(worker.id);
     }
   });
 

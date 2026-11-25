@@ -126,7 +126,7 @@ describe("PrivacyPanel", () => {
   it("names coverage exceptions and warns about subscription CLI seats while enabled", () => {
     const shield = { supported: true, enabled: true, masked: 0, sessionMasked: null, fusionUsesSubscriptionCli: true };
     const frame = renderFlat({ shield });
-    for (const exception of ["Claude and Codex CLI", "image and audio descriptions", "web search", "remote MCP"]) {
+    for (const exception of ["Claude and Codex CLI", "image and audio descriptions", "web search", "remote MCP", "non-loopback embeddings", "MCP sampling"]) {
       expect(frame).toContain(exception);
     }
     expect(frame).toContain("This Fusion team includes a subscription CLI member");
