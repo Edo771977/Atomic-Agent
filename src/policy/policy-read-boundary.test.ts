@@ -9,6 +9,7 @@ import { buildOsFsGlobTool } from "../tools/os/fs/fs-glob.js";
 import { buildOsFsGrepTool } from "../tools/os/fs/fs-grep.js";
 import { buildOsFsCodeMapTool } from "../tools/os/code-map/code-map-tool.js";
 import { regexOutlineBackend } from "../tools/os/code-map/regex-outline.js";
+import { policyFileReadFilter } from "./policy-paths.js";
 
 describe("policy file read boundary", () => {
   let root: string, file: string, policy: EffectivePolicy;
@@ -42,8 +43,21 @@ describe("policy file read boundary", () => {
     await buildOsFsGrepTool({ resolveRgPath: () => "fake-rg", runCommand }).run({ pattern: "Fixture", path: root }, ctx());
     expect(runCommand.mock.calls[0]?.[1]).toContain("!state/policy.ts");
   });
+  it("a direct grep of the exact protected file refuses before its fake child", async () => {
+    const runCommand = vi.fn<typeof import("../sandbox/command-runner.js").runCommand>(async () => ({ command: "rg", args: [], exitCode: 1, signal: null, stdout: "", stderr: "", durationMs: 0, timedOut: false, truncated: false, inputTruncated: false }));
+    await expect(buildOsFsGrepTool({ resolveRgPath: () => "fake-rg", runCommand }).run({ pattern: "ordinary", path: file }, ctx())).rejects.toThrow(/policy.*protected/);
+    expect(runCommand).not.toHaveBeenCalled();
+  });
   it("code-map excludes protected files before reading source", async () => {
     const result = await buildOsFsCodeMapTool({ backend: async () => regexOutlineBackend }).run({ path: root }, ctx());
     expect(result.summary).toContain("ordinaryFixture"); expect(result.summary).not.toContain("privatePolicyFixture");
+  });
+  it("a fake canonical root alias yields exact recursive-reader exclusions", () => {
+    const alias = join(tmpdir(), "policy-alias-fixture");
+    const real = join(tmpdir(), "policy-real-fixture");
+    const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "user", state: "missing", location: join(real, "State", "policy.json") }] };
+    const filter = policyFileReadFilter(policy, path => path.replace("policy-alias-fixture", "policy-real-fixture"));
+    expect(filter.allows(join(alias, "State", "policy.json"))).toBe(false);
+    expect(filter.exclusions(alias)).toContain("State/policy.json");
   });
 });

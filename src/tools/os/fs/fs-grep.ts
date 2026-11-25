@@ -16,7 +16,7 @@ import { formatGrepResult } from "./fs-grep-format.js";
 import { parseRipgrepJson } from "./fs-grep-ripgrep-json.js";
 import { withTimeoutNote } from "./fs-grep-timeout.js";
 import { isMissingPathError, missingPathResult } from "./fs-missing-path.js";
-import { relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { activePolicy } from "../../../policy/policy-active.js";
 import { policyFileReadFilter } from "../../../policy/policy-paths.js";
 
@@ -83,10 +83,8 @@ export function buildOsFsGrepTool(
 
       const rgArgs = buildRgArgs(args, target.searchTarget);
       const filter = policyFileReadFilter(activePolicy());
-      const exclusions = filter.files.flatMap(file => {
-        const path = relative(target.cwd, file).replace(/\\/g, "/");
-        return path === ".." || path.startsWith("../") ? [] : ["--glob", `!${path.replace(/[\[\]{}*?]/g, "\\$&")}`];
-      });
+      if (!filter.allows(args.path)) throw new Error("os.fs.grep: organization policy file is protected");
+      const exclusions = filter.exclusions(target.cwd).flatMap(path => ["--glob", `!${path.replace(/[\[\]{}*?]/g, "\\$&")}`]);
       rgArgs.unshift(...exclusions);
       // The runner only listens for an abort that happens after spawn.
       ctx.signal.throwIfAborted();

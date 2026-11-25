@@ -1,5 +1,5 @@
 import { realpathSync } from "node:fs";
-import { basename, dirname, join, resolve, posix, win32 } from "node:path";
+import { basename, dirname, join, resolve, relative, isAbsolute, posix, win32 } from "node:path";
 import { homedir } from "node:os";
 import type { EffectivePolicy } from "./policy-evaluator.js";
 
@@ -43,19 +43,21 @@ export function createEditPathNormalizer(workingDir = process.cwd(), platform: N
 }
 
 /** One read operation: canonicalize each path once, without retaining decisions across calls. */
-export function policyFileReadFilter(policy: EffectivePolicy) {
+export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = canonicalPolicyPath) {
   const canonical = new Map<string, string>();
-  const key = (path: string): string => {
+  const real = (path: string): string => {
     const absolute = resolve(path);
     let value = canonical.get(absolute);
     if (value === undefined) {
-      value = canonicalPolicyPath(absolute);
-      if (process.platform === "win32" || process.platform === "darwin") value = value.toLowerCase();
+      value = canonicalize(absolute);
       canonical.set(absolute, value);
     }
     return value;
   };
+  const key = (path: string) => process.platform === "win32" || process.platform === "darwin" ? real(path).toLowerCase() : real(path);
   const files = policyFilePaths(policy);
   const protectedKeys = new Set(files.map(key));
-  return { files, allows: (path: string) => !protectedKeys.has(key(path)) };
+  const exclusions = (root: string) => [...new Set(files.flatMap(file => [relative(resolve(root), resolve(file)), relative(real(root), real(file))])
+    .filter(path => !isAbsolute(path) && path !== ".." && !path.startsWith("../") && !path.startsWith("..\\")).map(path => path.replace(/\\/g, "/")))];
+  return { files, exclusions, allows: (path: string) => !protectedKeys.has(key(path)) };
 }
