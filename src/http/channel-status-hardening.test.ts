@@ -24,3 +24,13 @@ it("distinguishes Discord lock contention from a channel failure", async () => {
   expect(response.status).toBe(200);
   expect(await response.json()).toMatchObject({ lastError: "channel_locked", otherPoller: { where: "this_computer", pid: 424242 } });
 });
+
+it.each(["viewer", "member", "operator", "admin"] as const)("hides local poller PIDs from %s on both channels", async role => {
+  const get = await fixture(formatChannelLockHeld(424242), role);
+  for (const channel of ["discord", "telegram"]) {
+    const response = await get(channel, NAMED);
+    expect(response.status).toBe(200);
+    const body = await response.json() as { otherPoller: unknown };
+    expect(body.otherPoller).toEqual({ where: "this_computer" });
+  }
+});

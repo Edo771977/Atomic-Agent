@@ -4,6 +4,7 @@ import {
 } from "../channels/channel-lock-error.js";
 
 import { sendJson, type HttpHandler } from "./request-context.js";
+import { isNamedCaller } from "./serve-egress.js";
 
 /**
  * `GET /api/telegram/channel` — the Telegram channel's live state, and
@@ -28,11 +29,12 @@ export function createTelegramChannelHandler(): HttpHandler {
       return;
     }
     const lastError = channel.lastError();
+    const otherPoller = otherPollerOf(lastError);
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
       lastError,
-      otherPoller: otherPollerOf(lastError),
+      otherPoller: isNamedCaller(ctx) && otherPoller?.where === "this_computer" ? { where: "this_computer" } : otherPoller,
     });
   };
 }

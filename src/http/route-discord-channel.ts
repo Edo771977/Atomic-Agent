@@ -1,6 +1,7 @@
 import { isChannelLockConflict } from "../channels/channel-lock-error.js";
 
 import { otherPollerOf } from "./route-telegram-channel.js";
+import { isNamedCaller } from "./serve-egress.js";
 import { sendJson, type HttpHandler } from "./request-context.js";
 
 /**
@@ -27,12 +28,13 @@ export function createDiscordChannelHandler(): HttpHandler {
       return;
     }
     const lastError = channel.lastError();
+    const otherPoller = discordOtherPollerOf(lastError);
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
       lastError: isChannelLockConflict(lastError) ? "channel_locked" : lastError ? "channel_error" : null,
       hasToken: channel.hasToken(),
-      otherPoller: discordOtherPollerOf(lastError),
+      otherPoller: isNamedCaller(ctx) && otherPoller ? { where: "this_computer" } : otherPoller,
     });
   };
 }
