@@ -21,3 +21,26 @@ export function matchPolicyGlob(pattern: string, value: string): boolean | null 
 export function globMatches(pattern: string, value: string): boolean {
   return matchPolicyGlob(pattern, value) === true;
 }
+
+/** Whether some descendant can match; null is an exhausted comparison budget. */
+export function globMayMatchDescendant(pattern: string, directory: string): boolean | null {
+  const prefix = directory.replace(/\/$/, "") + "/";
+  if (prefix.length > MAX_POLICY_RESOURCE_LENGTH || pattern.length > MAX_PATTERN_LENGTH) return null;
+  let steps = 0;
+  const closure = (states: Set<number>) => {
+    for (const i of states) if (pattern[i] === "*") states.add(i + 1);
+    return states;
+  };
+  let states = closure(new Set([0]));
+  for (const char of prefix) {
+    const next = new Set<number>();
+    for (const i of states) {
+      if (++steps > MAX_MATCH_STEPS) return null;
+      if (pattern[i] === "*") next.add(i);
+      else if (pattern[i] === "?" || pattern[i] === char) next.add(i + 1);
+    }
+    states = closure(next);
+    if (states.size === 0) return false;
+  }
+  return states.size > 0;
+}

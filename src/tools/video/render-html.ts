@@ -1,3 +1,5 @@
+import { activePolicy } from "../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../policy/policy-mutations.js";
 import { existsSync, statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -114,6 +116,8 @@ export function buildRenderHtmlTool(options: RenderHtmlToolOptions): ToolDefinit
         return errorResult((err as Error).message);
       }
 
+      const mutation = checkPolicyMutation(activePolicy(), VIDEO_RENDER_HTML_TOOL, [outputPath], ctx.workingDir);
+      if (mutation.refusal !== null) throw new Error(mutation.refusal);
       const ffmpeg = options.ffmpegPath?.() ?? "ffmpeg";
       try {
         await probeFfmpeg(ffmpeg, options.spawn);
@@ -125,7 +129,7 @@ export function buildRenderHtmlTool(options: RenderHtmlToolOptions): ToolDefinit
         workingDir: ctx.workingDir,
         ...(options.trustConfigPaths ? { trustConfigPaths: options.trustConfigPaths() } : {}),
       });
-      await requireApproval(options, {
+      await requireApproval(mutation.ask ? { ...options, approvalRequired: true } : options, {
         sessionId: ctx.sessionId,
         tool: VIDEO_RENDER_HTML_TOOL,
         category,
@@ -133,7 +137,7 @@ export function buildRenderHtmlTool(options: RenderHtmlToolOptions): ToolDefinit
         affectedResources: [outputPath],
         targetPaths: [outputPath],
         workdir: ctx.workingDir,
-      }, ctx.signal);
+      }, ctx.signal, mutation.ask ? true : undefined);
 
       const launch = options.launchBrowser ?? defaultBrowserLauncher(options.browserConfig?.() ?? getConfig());
       const started = Date.now();

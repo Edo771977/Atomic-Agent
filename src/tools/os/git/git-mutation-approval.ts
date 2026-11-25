@@ -1,5 +1,5 @@
-import { realpath, stat } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative } from "node:path";
+import { realpath, stat, readFile } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ApprovalCategory } from "../../../approval/approval-level.js";
 import {
   requireFsApproval,
@@ -41,6 +41,8 @@ export interface GitMutationApprovalRequest {
    * a `trust_config` request, like the agent's own config inside it.
    */
   rewritesWorkTree?: boolean;
+  /** Worktree entries obtained from the read-only mutation plan. */
+  policyPaths?: readonly string[];
 }
 
 /**
@@ -77,6 +79,7 @@ export async function requireGitMutationApproval(
     options,
     {
       kind: "write",
+      policyPaths: [...(await metadataPaths(request.repoRoot)), ...(request.policyPaths ?? (request.rewritesWorkTree ? [request.repoRoot] : []))],
       paths: [request.repoRoot, ...trustInsideRepo, ...(request.rewritesWorkTree === true ? await projectStoresIn(request.repoRoot, request.workingDir) : [])],
       sessionId: request.sessionId,
       tool: request.tool,
@@ -160,3 +163,25 @@ async function projectStoresIn(repoRoot: string, workingDir: string): Promise<st
   return out;
 }
 
+
+/** Both private worktree metadata and shared refs/objects may be written by Git. */
+async function metadataPaths(repoRoot: string): Promise<string[]> {
+  let metadata = join(repoRoot, ".git");
+  try {
+    const info = await stat(metadata);
+    if (info.isFile()) {
+      if (info.size > 4096) throw new Error("Git metadata pointer is too large to inspect for policy");
+      const pointer = (await readFile(metadata, "utf8")).trim();
+      if (!pointer.startsWith("gitdir:")) throw new Error("Cannot inspect Git metadata for policy");
+      metadata = resolve(dirname(metadata), pointer.slice(7).trim());
+    }
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const paths = [metadata];
+  try {
+    const commonFile = join(metadata, "commondir");
+    const info = await stat(commonFile);
+    if (info.size > 4096) throw new Error("Git shared metadata pointer is too large to inspect for policy");
+    paths.push(resolve(metadata, (await readFile(commonFile, "utf8")).trim()));
+  } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  return paths;
+}

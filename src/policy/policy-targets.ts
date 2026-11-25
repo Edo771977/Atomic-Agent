@@ -66,6 +66,7 @@ export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | nu
   // including Office writers and archive extraction. Their approval category
   // remains unchanged; they still represent edits for organization policy.
   if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool) ||
+      (request.targetPaths?.length ?? 0) > 0 ||
       request.category === "other" && request.tool.startsWith("os.fs.")) {
     return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]) };
   }

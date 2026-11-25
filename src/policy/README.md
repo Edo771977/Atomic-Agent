@@ -69,6 +69,8 @@ MCP resource/prompt operations use the server selected by `args.server`: `<serve
 
 Web fetch and HTTP request check every redirect destination before the next transport call, independently of approval mode. Crawl uses the same raw-page checks for links, robots and sitemaps; cached pages and their final URLs are checked again before use.
 
+Mutation policy is checked on actual plans in `requireFsApproval`, before fanout grants or disabled ordinary approvals can settle the call. This covers Office, code rewrite and canvas without a tool-name list. Move/trash check both ends and possible descendants; a directory operation is conservative when its descendants can intersect a restrictive glob. Archives pass every listed entry separately, rather than treating the destination folder as every file it might contain. Git checkout obtains a complete read-only diff before approval; Git metadata (including shared worktree metadata) and staged paths are also checked. An uninspectable checkout plan is refused. Video render checks its resolved output before ffmpeg; generated video checks the actual copy destination (the remote job has its separate paid-generation approval). Fusion checks all changed original-project paths before copying any of them; an `ask` holds promotion for the operator rather than opening an invisible worker prompt.
+
 ## Entry points
 
 - [policy-schema.ts](policy-schema.ts): the file format and its parser.

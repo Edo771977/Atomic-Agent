@@ -1,3 +1,4 @@
+import { resolve } from "node:path";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
@@ -54,6 +55,7 @@ export function buildOsGitAddTool(
         {
           sessionId: ctx.sessionId,
           tool: TOOL,
+          policyPaths: args.all ? [toplevel.root] : args.paths.map(path => resolve(args.repo ?? ctx.workingDir, path)),
           repoRoot: toplevel.root,
           reason: `git ${args.unstage ? "unstage" : "add"} in ${toplevel.root}`,
           preview: formatGitCommandLine(gitArgs),

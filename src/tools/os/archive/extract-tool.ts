@@ -98,6 +98,8 @@ export function buildOsFsArchiveExtractTool(
         {
           kind: replacesRules ? "write" : "extract",
           paths: replacesRules ? [destDir, rulesPath] : [destDir],
+          policyPaths: entries.map(entry => resolvePath(destDir, entry.path)),
+          policyDirectories: entries.filter(entry => entry.kind === "directory").map(entry => resolvePath(destDir, entry.path)),
           sessionId: ctx.sessionId,
           tool: "os.fs.archive.extract",
           reason: `extract ${resolved.format} ${resolved.absolute} → ${destDir}`,

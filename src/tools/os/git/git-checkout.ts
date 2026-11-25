@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
@@ -52,6 +53,14 @@ export function buildOsGitCheckoutTool(
           `os.git.checkout: ${toplevel.message}`,
         );
 
+      let policyPaths: string[] = [];
+      if (!create || startPoint !== undefined) {
+        const plan = await runGit({ repo, workingDir: ctx.workingDir, signal: ctx.signal,
+          args: ["diff", "--name-only", "-z", "--no-renames", "HEAD", startPoint ?? branch, "--"] });
+        if (plan.exitCode !== 0 || plan.truncated || plan.timedOut) return buildGitErrorResult("os.git.checkout", "Cannot inspect the complete checkout mutation plan for organization policy: " + describeGitFailure(plan));
+        policyPaths = plan.stdout.split("\0").filter(Boolean).map(path => join(toplevel.root, path));
+      }
+
       // A checkout is a write to the whole repository — including, in a
       // repository that happens to hold the agent's own config, the
       // trust surface itself. The funnel categorises it against the
@@ -69,6 +78,7 @@ export function buildOsGitCheckoutTool(
           workingDir: ctx.workingDir,
           trustConfigPaths: options.trustConfigPaths,
           rewritesWorkTree: true,
+          policyPaths,
         },
         ctx.signal,
       );

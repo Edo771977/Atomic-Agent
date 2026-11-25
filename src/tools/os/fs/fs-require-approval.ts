@@ -13,6 +13,8 @@ import {
 import type { DeclaredInputsRegistry } from "./fs-declared-inputs.js";
 import type { FileRestoreStore } from "./fs-restore-store.js";
 import type { LspDiagnostics } from "./lsp/index.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../../policy/policy-mutations.js";
 
 /**
  * `DangerousToolOptions` plus the injected trust-config surface every
@@ -93,6 +95,10 @@ export interface FsApprovalRequest {
    * `trust_config` (see `categorizeFsMutation`).
    */
   paths: readonly string[];
+  /** Exact changed entries when the scope path is broader (archives and Git). */
+  policyPaths?: readonly string[];
+  /** Directory entries, including directories not created yet. */
+  policyDirectories?: readonly string[];
   sessionId: string;
   tool: string;
   reason: string;
@@ -183,6 +189,9 @@ export async function requireFsApproval(
   request: FsApprovalRequest,
   signal: AbortSignal,
 ): Promise<FsApprovalOutcome> {
+  const mutation = checkPolicyMutation(activePolicy(), request.tool, request.policyPaths ?? request.paths, request.workingDir,
+    request.policyDirectories ?? (request.kind === "extract" ? request.paths : []));
+  if (mutation.refusal !== null) throw new Error(mutation.refusal);
   // The project's saved rules live in the workspace, but editing them
   // changes what the agent may do next. An extract never matches by file
   // (its one path is the destination), so the extract tool passes the
@@ -215,6 +224,7 @@ export async function requireFsApproval(
   const targetPaths = request.targetPaths ?? [];
   if (
     category !== "trust_config" &&
+    !mutation.ask &&
     options.approvals.fanoutScopes.allows(request.sessionId, request.paths) &&
     !(
       options.approvals.hasDeclinedTarget?.({
@@ -238,7 +248,7 @@ export async function requireFsApproval(
     return { category };
   }
   const outcome = await requireApproval(
-    options,
+    mutation.ask ? { ...options, approvalRequired: true } : options,
     {
       sessionId: request.sessionId,
       tool: request.tool,
@@ -264,6 +274,7 @@ export async function requireFsApproval(
       targetPaths,
     },
     signal,
+    mutation.ask ? true : undefined,
   );
   return {
     category,
