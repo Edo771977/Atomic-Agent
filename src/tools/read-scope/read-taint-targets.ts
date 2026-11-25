@@ -1,6 +1,6 @@
 import { isAbsolute, join, resolve } from "node:path";
 import { resolveUserPath } from "../os/expand-home.js";
-import { READ_TOOL_TARGETS, SHELL_TOOL, URL_LIKE, VERIFY_TOOL, verifyRunShellCalls } from "./read-scope-targets.js";
+import { READ_TOOL_TARGETS, SHELL_TOOL, VERIFY_TOOL, isNonFileReadUrl, localFileOfUrl, readTargetPaths, verifyRunShellCalls } from "./read-scope-targets.js";
 import { shellTokens } from "./read-scope-shell.js";
 import { serverForPath } from "../os/fs/lsp/lsp-servers.js";
 
@@ -51,19 +51,14 @@ export function readTaintTargets(
     for (const token of shellTokens({ ...call, cwd: undefined })) {
       const value = token.replace(/^['"]|['"]$/g, "").replace(/^[^=]*=(?=[~/.]|[A-Za-z]:[\\/])/, "");
       if (/^(~[\\/]|\/(?!\/)|[A-Za-z]:[\\/])/.test(value)) raw.push(value);
-      else if (/(^|[\\/])\.\.([\\/]|$)/.test(value) && !URL_LIKE.test(value)) raw.push(resolve(cwd, value));
+      else {
+        const file = localFileOfUrl(value);
+        if (file !== null) raw.push(file);
+        else if (/(^|[\\/])\.\.([\\/]|$)/.test(value) && !isNonFileReadUrl(value)) raw.push(resolve(cwd, value));
+      }
     }
   }
-  const out: string[] = [];
-  for (const target of raw) {
-    if (URL_LIKE.test(target)) continue;
-    try {
-      out.push(resolve(resolveUserPath(target, workingDir)));
-    } catch {
-      // Unresolvable here is unresolvable in the tool too.
-    }
-  }
-  return [...new Set(out)];
+  return [...new Set(raw.flatMap(target => readTargetPaths(target, workingDir).map(path => resolve(path))))];
 }
 
 function str(value: unknown): string | undefined {

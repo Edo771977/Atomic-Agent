@@ -16,6 +16,7 @@ import { docxExtractor } from "../read-document/extractors/docx-extractor.js";
 import { appendToDocx } from "./docx-package.js";
 import { buildOsFsDocxTool, parseDocxArgs } from "./docx-tool.js";
 import { parseBlocks } from "./docx-xml.js";
+import { withDeclaredOfficePartSize } from "./office-zip-fixture.js";
 
 const FIXTURE = resolve(
   fileURLToPath(new URL("../test-fixtures/sample.docx", import.meta.url)),
@@ -73,6 +74,14 @@ async function textOf(path: string): Promise<string> {
 }
 
 describe("os.fs.docx", () => {
+  it.each(["append", "replace"] as const)("rejects an oversized existing package before Word %s approval", async op => {
+    await writeFile(join(dir, "large.docx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65 * 1024 * 1024));
+    await expect(tool().run({
+      path: "large.docx", op, blocks: ["fixture"], find: "all systems nominal", replaceWith: "fix",
+    }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
+    expect(prompts).toHaveLength(0);
+  });
+
   it("creates a document that reads back with headings, bullets and bold", async () => {
     const result = await tool().run(
       {
@@ -89,7 +98,8 @@ describe("os.fs.docx", () => {
     expect(text).toMatch(/^# Quarterly report/m);
     expect(text).toMatch(/^## Summary/m);
     expect(text).toContain("12%");
-    expect(text).toContain("• North");
+    // A real Word list now: mammoth reads it back as a Markdown list.
+    expect(text).toMatch(/^- North/m);
     const zip = await JSZip.loadAsync(await readFile(join(dir, "report.docx")));
     expect(Object.keys(zip.files)).toEqual(
       expect.arrayContaining(["[Content_Types].xml", "_rels/.rels", "word/document.xml", "word/styles.xml"]),
@@ -194,6 +204,69 @@ describe("os.fs.docx", () => {
       tool().run({ path: "fake.docx", op: "append", blocks: ["x"] }, ctx()),
     ).rejects.toThrow(/could not edit/);
     expect(prompts).toHaveLength(0);
+  });
+});
+
+describe("os.fs.docx tracked changes and pictures (ATO-541)", () => {
+  /** A real 1×1 PNG. */
+  const PNG_1X1 = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+    "base64",
+  );
+
+  it("writes a replace as tracked changes by Atomic Agent when track is set", async () => {
+    await copyFile(FIXTURE, join(dir, "doc.docx"));
+    const result = await tool().run(
+      { path: "doc.docx", op: "replace", find: "all systems nominal", replaceWith: "everything works", track: true },
+      ctx(),
+    );
+    expect(result.status).toBe("ok");
+    expect(result.details).toMatchObject({ replacements: 1, tracked: true });
+    expect(result.summary).toContain("tracked changes by Atomic Agent");
+    const zip = await JSZip.loadAsync(await readFile(join(dir, "doc.docx")));
+    const xml = await zip.file("word/document.xml")!.async("text");
+    expect(xml).toMatch(/<w:del w:id="\d+" w:author="Atomic Agent" w:date="[^"]+Z">/);
+    // Word may have split the sentence over runs: the deleted pieces read back in order.
+    const deleted = [...xml.matchAll(/<w:delText[^>]*>([^<]*)<\/w:delText>/g)].map((m) => m[1]).join("");
+    expect(deleted).toBe("all systems nominal");
+    expect(xml).toMatch(/<w:ins w:id="\d+" w:author="Atomic Agent" [^>]*><w:r\b[^>]*>(<w:rPr>.*?<\/w:rPr>)?<w:t xml:space="preserve">everything works<\/w:t>/);
+  });
+
+  it("refuses track on create, before asking", async () => {
+    await expect(tool().run({ path: "n.docx", op: "create", blocks: ["x"], track: true }, ctx())).rejects.toThrow(
+      /track applies to append and replace/,
+    );
+    expect(prompts).toHaveLength(0);
+  });
+
+  it("embeds a picture from disk and refuses a missing or non-picture file before asking", async () => {
+    await writeFile(join(dir, "dot.png"), PNG_1X1);
+    const ok = await tool().run({ path: "pic.docx", op: "create", blocks: ["# Logo", "![The dot](dot.png)"] }, ctx());
+    expect(ok.status).toBe("ok");
+    const zip = await JSZip.loadAsync(await readFile(join(dir, "pic.docx")));
+    expect(zip.file("word/media/image1.png")).not.toBeNull();
+    expect(await zip.file("word/document.xml")!.async("text")).toContain('descr="The dot"');
+
+    await expect(tool().run({ path: "b.docx", op: "create", blocks: ["![x](missing.png)"] }, ctx())).rejects.toThrow(
+      /no picture at missing\.png/,
+    );
+    await writeFile(join(dir, "notes.png"), "not really a png");
+    await expect(tool().run({ path: "b.docx", op: "create", blocks: ["![x](notes.png)"] }, ctx())).rejects.toThrow(
+      /not a PNG, JPEG or GIF/,
+    );
+    expect(prompts).toHaveLength(1);
+  });
+
+  it("lists every embedded image in the append approval even after a long block", async () => {
+    await copyFile(FIXTURE, join(dir, "notes.docx"));
+    await writeFile(join(dir, "one.png"), PNG_1X1);
+    await writeFile(join(dir, "two.png"), PNG_1X1);
+    await tool().run({
+      path: "notes.docx", op: "append", blocks: ["x".repeat(500), "![one](one.png)", "![two](two.png)"],
+    }, ctx());
+    expect(prompts[0]?.reason).toContain("3 paragraphs");
+    expect(prompts[0]?.preview).toContain("one.png");
+    expect(prompts[0]?.preview).toContain("two.png");
   });
 });
 

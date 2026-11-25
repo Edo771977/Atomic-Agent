@@ -91,7 +91,7 @@ export function checkpointTargetsWithMoves(
       break;
     case "os.fs.xlsx":
       // op read only shows a range.
-      if (args.op === "create" || args.op === "write") add(at(args.path));
+      if (args.op === "create" || args.op === "write" || args.op === "chart") add(at(args.path));
       break;
     case "os.fs.trash":
       if (Array.isArray(args.paths)) for (const path of args.paths) add(at(path));
