@@ -66,6 +66,11 @@ describe("fork organization policy boundaries", () => {
     expect(policyCallRefusal(p, "verify.run", { kind: "service", start: { cmd: "npm", args: ["publish"] } })).toContain("policy");
     expect(policyCallRefusal(p, "verify.run", { kind: "command", cmd: "bash", stdin: "npm publish" })).toContain("policy");
   });
+  it("verification pages and service probes cannot bypass web denies", () => {
+    const p = policy("webfetch", "evil.test");
+    expect(policyCallRefusal(p, "verify.run", { kind: "page", url: "https://evil.test/page" })).toContain("policy");
+    expect(policyCallRefusal(p, "verify.run", { kind: "service", ready: { url: "https://evil.test/ready" }, requests: [{ url: "https://evil.test/api" }] })).toContain("policy");
+  });
   it("a host cannot retarget an approved write into a policy-denied path on the same approval rung", async () => {
     const dir = mkdtempSync(join(tmpdir(), "policy-retarget-"));
     const destination = join(dir, "forbidden.txt"); installPolicy(policy("edit", "*forbidden.txt"));
@@ -91,6 +96,12 @@ describe("fork organization policy boundaries", () => {
     gate.setOrgPolicy(request => policyRuleMatch(p, request));
     const answer = await gate.request({ sessionId: "s", tool: "os.fs.write", category, reason: "fixture", affectedResources: [p.sources[0]!.location] });
     expect(answer.approved).toBe(false);
+  });
+  it("recognized shell reads and replacements of policy use the secret/state scanner even outside runtime dispatch", () => {
+    const p = loadLocalPolicy({ stateDir: process.cwd(), env: {}, readText: () => null });
+    const path = p.sources[0]!.location;
+    expect(policyCallRefusal(p, "os.shell.run", { cmd: "cat", args: [path] }, process.cwd())).toContain("protected");
+    expect(policyCallRefusal(p, "os.shell.run", { cmd: `echo '{}' > \"${path}\"` }, process.cwd())).toContain("protected");
   });
   it("Fusion contract checks refuse deny even when an embedder turns approvals off", async () => {
     installPolicy(policy("shell", "node forbidden*"));

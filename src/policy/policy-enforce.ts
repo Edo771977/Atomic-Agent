@@ -7,6 +7,7 @@ import type { ApprovalRule, RuleMatch } from "../approval/approval-rules.js";
 import { realpathSync } from "node:fs";
 import { dirname, basename, resolve, relative, isAbsolute, sep, join } from "node:path";
 import { READ_TOOL_TARGETS } from "../tools/read-scope/read-scope-targets.js";
+import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
 import {
   describePolicyRule,
   evaluatePolicy,
@@ -24,10 +25,14 @@ function canonicalPath(path: string): string {
   }
 }
 
+function policyFiles(policy: EffectivePolicy): string[] {
+  return policy.sources.filter(source => source.kind !== "url").flatMap(source =>
+    source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
+}
+
 /** Even an approval cannot authorize the agent to replace its own policy. */
 function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd()): boolean {
-  const protectedPaths = policy.sources.filter(source => source.kind !== "url").flatMap(source =>
-    source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
+  const protectedPaths = policyFiles(policy);
   return paths.some(path => protectedPaths.some(file => {
     const target = canonicalPath(resolve(workingDir, path));
     const protectedFile = canonicalPath(resolve(file));
@@ -72,9 +77,25 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
 /** The model-facing refusal for a tool call the policy denies, or null. */
 export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string): string | null {
   const target = toolCallTarget(tool, args);
-  const object = args !== null && typeof args === "object" && !Array.isArray(args) ? args as Record<string, unknown> : {};
+  const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+  const object = record(args);
+  if (tool === "verify.run") {
+    const ready = record(object.ready);
+    const urls = [object.url, ready.url, ...(Array.isArray(object.requests) ? object.requests.map(request => record(request).url) : [])];
+    if (typeof ready.port === "number") urls.push(`http://127.0.0.1:${ready.port}/`);
+    for (const url of urls) {
+      if (typeof url !== "string" || !/^https?:\/\//i.test(url)) continue;
+      const refusal = policyCallRefusal(policy, "os.web.fetch", { url }, workingDir);
+      if (refusal !== null) return refusal.replace("os.web.fetch", tool);
+    }
+  }
   const readPaths = READ_TOOL_TARGETS.get(tool)?.(object) ?? [];
-  if (touchesPolicy(policy, [...readPaths, ...(target?.action === "edit" ? target.resources : [])], workingDir)) {
+  const files = policyFiles(policy);
+  const shellCommands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? [object, record(object.start)] : [];
+  const shellTouchesPolicy = files.length > 0 && shellCommands.some(command => typeof command.cmd === "string" && findShellStateSecrets(command, { workingDir: workingDir ?? process.cwd() }, {
+    stateDir: dirname(policy.sources.find(source => source.kind === "user")?.location ?? files[0]!), files,
+  }).length > 0);
+  if (shellTouchesPolicy || touchesPolicy(policy, [...readPaths, ...(target?.action === "edit" ? target.resources : [])], workingDir)) {
     return `${tool} was not run: organization policy files are protected; only the operator may inspect or change them outside agent tools.`;
   }
   if (target?.action === "edit" && workingDir !== undefined) {
