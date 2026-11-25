@@ -3,6 +3,7 @@ import JSZip from "jszip";
 
 const MAX_OFFICE_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
 const MAX_OFFICE_PART_BYTES = 64 * 1024 * 1024;
+const MARKUP_PART = /\.(?:xml|rels|xhtml|html?|opf|ncx|vml)$/i;
 
 // JSZip's loaded CompressedObject. Public ZipObject methods only expose
 // sizes after inflation. Keep the dependency on its metadata here.
@@ -12,7 +13,10 @@ interface CompressedPart {
   compression: { magic: string };
 }
 
-type LoadedZipEntry = JSZip.JSZipObject & { _data?: CompressedPart | Promise<Buffer> | "" };
+type LoadedZipEntry = JSZip.JSZipObject & {
+  _data?: CompressedPart | Promise<Buffer> | "";
+  options: { compression: "STORE" | "DEFLATE" | null };
+};
 
 export async function loadBoundedOfficeZip(
   data: Buffer,
@@ -39,11 +43,19 @@ export async function loadBoundedOfficeZip(
       throw new Error(`Office package part ${JSON.stringify(entry.name)} exceeds the per-part size limit (${MAX_OFFICE_PART_BYTES} bytes)`);
     }
   }
-  // Central-directory sizes are claims. Count actual bytes as they arrive,
-  // and keep the verified chunks as each entry's content so reads reuse them.
+  // The sizes in the directory are claims. Validate every entry, but
+  // retain decoded bytes only for markup, which the readers will parse.
   for (const { entry, part } of parts) {
     try {
-      entry._data = Promise.resolve(await readBoundedPart(part));
+      const chunks: Buffer[] | undefined = MARKUP_PART.test(entry.name) ? [] : undefined;
+      await readBoundedPart(part, chunks);
+      if (chunks) {
+        entry._data = Promise.resolve(chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, part.uncompressedSize));
+      } else {
+        // JSZip can copy the validated stream verbatim when generating a ZIP for
+        // ExcelJS or Mammoth, including when the top-level default is STORE.
+        entry.options.compression = part.compression.magic === "\x00\x00" ? "STORE" : "DEFLATE";
+      }
     } catch {
       throw new Error(`Office package part ${JSON.stringify(entry.name)} exceeds or does not match its uncompressed size`);
     }
@@ -51,21 +63,20 @@ export async function loadBoundedOfficeZip(
   return zip;
 }
 
-async function readBoundedPart(part: CompressedPart): Promise<Buffer> {
+async function readBoundedPart(part: CompressedPart, chunks?: Buffer[]): Promise<void> {
   const { compressedContent, uncompressedSize } = part;
   if (part.compression.magic === "\x00\x00") {
     if (compressedContent.byteLength !== uncompressedSize) throw new Error("size mismatch");
-    return Buffer.from(compressedContent.buffer, compressedContent.byteOffset, compressedContent.byteLength);
+    chunks?.push(Buffer.from(compressedContent.buffer, compressedContent.byteOffset, compressedContent.byteLength));
+    return;
   }
   const inflater = createInflateRaw();
   inflater.end(compressedContent);
-  const chunks: Buffer[] = [];
   let bytes = 0;
   for await (const chunk of inflater as AsyncIterable<Buffer>) {
     bytes += chunk.length;
     if (bytes > uncompressedSize) throw new Error("size mismatch");
-    chunks.push(chunk);
+    chunks?.push(chunk);
   }
   if (bytes !== uncompressedSize) throw new Error("size mismatch");
-  return Buffer.concat(chunks, bytes);
 }
