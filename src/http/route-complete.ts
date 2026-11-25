@@ -1,5 +1,6 @@
 import { admitAuxiliaryCompletion } from "./auxiliary-concurrency.js";
 import { validatePlainCompleteInput } from "../runtime/plain-complete.js";
+import { isNamedCaller } from "./serve-egress.js";
 import { openaiError } from "./openai-errors.js";
 import {
   onClientGone,
@@ -70,7 +71,8 @@ export function createPlainCompleteHandler(): HttpHandler {
         return;
       }
       const status = result.kind === "invalid" ? 400 : result.kind === "timeout" ? 504 : 502;
-      sendError(res, status, openaiError(result.reason, status === 400 ? "invalid_request_error" : "server_error"));
+      const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
+      sendError(res, status, openaiError(message, status === 400 ? "invalid_request_error" : "server_error"));
     } finally { release(); }
   };
 }
