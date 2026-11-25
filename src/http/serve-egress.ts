@@ -63,6 +63,20 @@ export function canReadSession(ctx: HandlerContext, state: SessionState | null):
     || (!isIncognitoSession(state) && !serveWithheld(ctx, state)()));
 }
 
+export function isNamedCaller(ctx: HandlerContext): boolean {
+  return ctx.caller !== undefined && ctx.caller.role !== "owner";
+}
+
+export function sessionUnavailableToCaller(ctx: HandlerContext, id: string): boolean {
+  return isNamedCaller(ctx) && !canReadSession(ctx, ctx.runtime.sessionStore.load(id));
+}
+
+/** The persisted flag also protects old tasks whose chat row has disappeared. */
+export function taskUnavailableToCaller(ctx: HandlerContext, task: { sessionId: string | null; incognito?: boolean }): boolean {
+  return isNamedCaller(ctx) && (task.incognito === true
+    || (task.sessionId !== null && sessionUnavailableToCaller(ctx, task.sessionId)));
+}
+
 /** An approval prompt as a network server may show it: no details for a restricted session. */
 export function approvalForServe(
   ctx: HandlerContext,

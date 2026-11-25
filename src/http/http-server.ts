@@ -16,7 +16,7 @@ import { openaiError } from "./openai-errors.js";
 import { UndeliveredSteerStore } from "./undelivered-steers.js";
 import { AuthThrottle } from "./auth-throttle.js";
 import { enforceLoopbackGuard } from "./loopback-guard.js";
-import { canReadSession, isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
+import { canReadSession, isNamedCaller, taskUnavailableToCaller, isNetworkListenHost, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheld, serveWithheldRecord } from "./serve-egress.js";
 import { sessionIdError } from "../session/session-id.js";
 import { routeKey, scopeForRoute, type HttpScope } from "./http-scopes.js";
 import type { StoredHttpToken } from "./http-token-store.js";
@@ -330,24 +330,20 @@ async function dispatch(
     sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
     return;
   }
-  // Issue #74: a task's prompt, result and errors are its session's content.
-  if (url.pathname.startsWith("/api/tasks/") && matched.params.id !== undefined && taskWithheld(ctx, matched.params.id)) {
-    sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
-    return;
+  // Task data includes its session's prompt, result and errors.
+  const taskId = url.pathname.startsWith("/api/tasks/") ? matched.params.id : undefined;
+  if (taskId !== undefined && (isNamedCaller(ctx) || ctx.networkServe === true)) {
+    const task = ctx.runtime.taskStore.get(taskId);
+    if (isNamedCaller(ctx) && (task === null || taskUnavailableToCaller(ctx, task))) {
+      sendError(res, 404, openaiError("task not found"));
+      return;
+    }
+    if (task !== null && serveWithheldRecord(ctx, task.sessionId)) {
+      sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
+      return;
+    }
   }
   await matched.route.handler(req, res, ctx);
-}
-
-/** A known task whose session this network server may not show; unknown ids fall through to the route's 404. */
-function taskWithheld(ctx: HandlerContext, taskId: string): boolean {
-  if (ctx.networkServe !== true) return false;
-  let record: { sessionId: string | null } | null;
-  try {
-    record = ctx.runtime.taskStore.get(taskId);
-  } catch {
-    return false;
-  }
-  return record !== null && serveWithheldRecord(ctx, record.sessionId);
 }
 
 function parseRequestUrl(req: IncomingMessage): URL | null {

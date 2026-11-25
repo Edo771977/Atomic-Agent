@@ -6,7 +6,7 @@ import {
   type HttpHandler,
 } from "./request-context.js";
 import { checkWorkingDir } from "./session-working-dir.js";
-import { SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheldRecord } from "./serve-egress.js";
+import { sessionUnavailableToCaller, taskUnavailableToCaller, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheldRecord } from "./serve-egress.js";
 import {
   TaskStateError,
   TaskValidationError,
@@ -105,6 +105,10 @@ export function createCreateTaskHandler(): HttpHandler {
     let taskSessionId: string;
     let openedSessionId: string | null = null;
     if (typeof sessionId === "string") {
+      if (sessionUnavailableToCaller(ctx, sessionId)) {
+        sendError(res, 404, openaiError("session not found"));
+        return;
+      }
       // Issue #74: a network server runs no turn of a restricted session, task or chat.
       if (serveWithheldRecord(ctx, sessionId)) {
         sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "permission_error", null, SERVE_RESTRICTED_CODE));
@@ -196,7 +200,7 @@ export function createListTasksHandler(): HttpHandler {
       limit,
     });
     // Issue #74: a network server lists no task of a restricted session.
-    const visible = tasks.filter((task) => !serveWithheldRecord(ctx, task.sessionId));
+    const visible = tasks.filter((task) => !taskUnavailableToCaller(ctx, task) && !serveWithheldRecord(ctx, task.sessionId));
     sendJson(res, 200, { tasks: visible.map(recordToJson) });
   };
 }
@@ -309,6 +313,10 @@ export function createDrainTasksHandler(): HttpHandler {
     }
     const url = new URL(req.url ?? "/", "http://localhost");
     const sessionId = url.searchParams.get("session");
+    if (sessionId && sessionUnavailableToCaller(ctx, sessionId)) {
+      sendError(res, 404, openaiError("session not found"));
+      return;
+    }
     const outcome = await ctx.runtime.taskRunner.drainPending(
       sessionId ? { sessionId } : {},
     );
