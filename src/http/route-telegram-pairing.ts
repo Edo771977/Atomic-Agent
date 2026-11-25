@@ -214,7 +214,10 @@ export function createTelegramPairingHandlers(): TelegramPairingHandlers {
         notRunning(res, channel, ctx);
       } catch (err) {
         if (err instanceof OwnerAlreadyPairedError) ownerPaired(res);
-        else sendError(res, 500, openaiError(err instanceof Error ? err.message : String(err), "server_error"));
+        else {
+          ctx.runtime.logger.warn("telegram pairing failed", { error: err instanceof Error ? err.message : String(err) });
+          sendError(res, 500, openaiError("Telegram pairing failed", "server_error", null, "pairing_failed"));
+        }
       }
       return;
     }
@@ -227,10 +230,11 @@ export function createTelegramPairingHandlers(): TelegramPairingHandlers {
       (result) => settle(mine, result),
       (err: unknown) => {
         if (mine !== generation) return;
+        ctx.runtime.logger.warn("telegram pairing failed", { error: err instanceof Error ? err.message : String(err) });
         tracked = {
           ...IDLE,
           status: "failed",
-          error: err instanceof Error ? err.message : String(err),
+          error: "pairing_failed",
         };
       },
     );

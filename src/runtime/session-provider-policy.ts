@@ -137,7 +137,7 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const effectivePolicyForSession = (
     target: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ): ProviderPolicy | undefined => {
-    const id = typeof target === "string" && constraintsActive() ? resolveSession(target).id : typeof target === "string" ? target : target.id;
+    const id = typeof target === "string" ? resolveSession(target).id : target.id;
     const frame = currentProviderPolicyFrame();
     if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === id)) return frame.policy;
     // Every view of the session narrows: the caller's object (possibly a

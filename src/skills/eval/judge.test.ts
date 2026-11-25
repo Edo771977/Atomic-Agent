@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-test-helpers.js";
 
 import type { LlmProvider } from "../../llm/provider/llm-provider.js";
 import {
