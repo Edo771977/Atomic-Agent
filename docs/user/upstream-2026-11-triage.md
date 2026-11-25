@@ -264,7 +264,7 @@ Ondate:
 | [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
-| [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). |
+| [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Framing SSE del fork conservato. |
 | [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importare |
 | [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Importare |
 | [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importare |
@@ -362,8 +362,8 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 | `fix/ato-1703-openai-key-only-to-openai` | `70d4dca36fb1` | fix(tui): check a reconfigured provider's key against the new address (ATO-1703) | Importare per primo: evita di inviare la chiave di un provider a un indirizzo diverso. |
 | `fix/ato-1703-desktop-openai-key` | `69717680e29c` | fix(desktop): keep the codex billing warning and gate the smoke key names (ATO-1703) | Importare in `desktop-main` insieme al ramo core. |
 | `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Importare con #1562 e #1563. |
-| `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). |
-| `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). |
+| `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Conservato TOOL_RESULT_STATUS; test aggiunto sulla proiezione locale. |
+| `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Conservati service tier e proiezione del fork. |
 | `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importare dopo verifica della firma. |
 | `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importare. |
 | `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Importare. |
