@@ -66,7 +66,7 @@ Le [prove riproducibili](../../native/windows-sandbox-helper/README.md) hanno co
 
 ### Conclusione
 
-Lo sviluppo della sandbox nativa si ferma. Su Windows nativo Safe Mode continua a rifiutare i comandi quando richiesto. Le prove rimangono disponibili come valutazione manuale e non fanno parte della CI ordinaria. Per un ambiente protetto su Windows, eseguire CLI o TUI dentro WSL2 con Bubblewrap. Lo sviluppo del Desktop con agente in WSL2 prosegue nell’issue [#218](https://github.com/AtomicBot-ai/atomic-agent/issues/218).
+Lo sviluppo della sandbox nativa si ferma. Su Windows nativo Safe Mode continua a rifiutare i comandi quando richiesto. Le prove rimangono disponibili come valutazione manuale e non fanno parte della CI ordinaria. Per un ambiente protetto su Windows, eseguire CLI o TUI dentro WSL2 con Bubblewrap. Lo sviluppo del Desktop con agente in WSL2 prosegue nell’issue [#218](https://github.com/Edo771977/Atomic-Agent/issues/218).
 
 ## Riferimenti
 
