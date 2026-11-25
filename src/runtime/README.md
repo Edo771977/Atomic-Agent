@@ -57,3 +57,5 @@ Context compaction is owned by [context-compaction.ts](context-compaction.ts) an
 ## Memory and restricted project lessons
 
 When the director, plan reviewer or worker receives an active lesson from a provider-constrained project, runtime refuses memory writes and skips reflection for the rest of the turn. The stable tool prefix stays the same. Segmented reflection skips any window containing an exposed turn, including after its lesson has been retired. Compaction still saves its checkpoint, but skips the memory flush when the compacted span includes part or all of an exposed turn.
+
+Side questions use a separate btw: partition and do not mutate the owning chat or its stable prefix. Bootstrap releases that partition's temporary Privacy Shield archive when its last overlapping side call settles, including failure, cancellation and incognito calls. The main chat archive is unaffected.

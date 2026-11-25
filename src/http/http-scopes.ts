@@ -108,6 +108,7 @@ export const ROUTE_SCOPES: Readonly<Record<string, HttpScope>> = {
   "POST /api/privacy-shield": "admin",
   "PATCH /api/privacy-shield": "admin",
   "POST /api/context-preview": "chat",
+  "POST /api/btw": "chat",
   "POST /api/complete": "chat",
   "POST /api/local-model/recheck": "admin",
   "POST /api/llm/active": "admin",

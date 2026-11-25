@@ -62,6 +62,11 @@ Searching past chats (ATO-1149, [session-search.ts](../session/session-search.ts
 
 [Side question route](route-side-question.ts) (ATO-1152): `POST /api/btw` with `{ question, session_id? }` answers `{ text }` through `runtime.askSideQuestion`, the TUI's `/btw`: a digest of `session_id`'s conversation as read-only context (none for an unknown or absent id), no tools, its own `btw:` fallback partition, 2048 output tokens, a 90 s deadline. Nothing is written to the session, so the answer never reaches later turns; it may run while that chat's turn runs. `400` bad body, blank question or one over 4000 characters (`param` names the field), `501` no side question in this runtime, `502` model failure or empty answer, `504` deadline. A client that disconnects aborts the call. The desktop's `/btw` uses it.
 
+The B2 side-question route requires the serve key and chat scope. Named tokens get the identical 404 body for unknown, incognito and folder-withheld IDs, using the shared visibility helper; the owner retains the runtime's no-context behavior for unknown IDs. Session IDs are validated at ingress. The listener's folder egress policy is checked before the call and again before releasing the answer. Tests pin the stored history and stable prefix, including while the main turn is running. Side questions use the existing provider boundary for Privacy Shield and offline enforcement, with the same coverage limits documented in the privacy guide.
+
+The temporary btw: Privacy Shield archive is released after the last overlapping side call settles, including incognito requests; it is never retained as chat history or memory.
+
+
 `usage` on `/v1/chat/completions` (the body, the extensions-only `usage` frame) reports the tokens every LLM call of the turn reported, summed by the runtime's turn usage meter (`RunTurnResult.usage`; a local llama-server counts by its timings), and zeros when none did. A streaming request with `stream_options.include_usage: true` gets OpenAI's extra chunk before `data: [DONE]`: empty `choices` and the turn's `usage`; every chunk before it then carries `usage: null`, as OpenAI's do ([builders](openai-chunks.ts)).
 
 [Approval route](route-approval.ts): `POST /api/approval/resolve` with `{ approvalId, decision }` takes `allow-once`, `deny` (aliases `approve`, `reject`) and `allow-in-chat`. `allow-in-chat` approves and records the gate's shape grant for the request's own session: later shell calls of the same binary (`commandShape`, `git`) in that chat run unasked (only calls that run that binary alone: a compound line such as `git status && …`, a pathed `./git`, a shell or a wrapper such as `env` has no shape and still asks), other binaries and other chats still ask, and nothing persists. A request without a shape gets `400` and stays pending. `allow-always` (ATO-1142) approves and saves an allow rule in the approval rules file, built by the gate from the pending request and scoped to its project; the response adds `grant: "always"` and the saved `rule`, and a request where `canGrantAlways` is false gets `400` and stays pending. Each `approval_request` on `GET /api/events` carries `canAlways` and, when true, `alwaysLabel` (`Always allow "git status" in this project`), so a client draws the button only where it works. `GET /api/capabilities` lists the accepted decisions as `agent.approvalDecisions`; a client offers "allow in this chat" only when it is listed.
@@ -294,6 +299,7 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/privacy-shield` | Administration (admin) |
 | `PATCH /api/privacy-shield` | Administration (admin) |
 | `POST /api/context-preview` | Ordinary action (chat) |
+| `POST /api/btw` | Ordinary action (chat) |
 | `POST /api/complete` | Ordinary action (chat) |
 | `POST /api/local-model/recheck` | Administration (admin) |
 | `POST /api/llm/active` | Administration (admin) |

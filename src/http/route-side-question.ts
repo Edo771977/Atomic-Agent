@@ -1,4 +1,11 @@
 import { SIDE_QUESTION_MAX_INPUT_CHARS } from "../runtime/side-question.js";
+import { sessionIdError } from "../session/session-id.js";
+import {
+  sessionUnavailableToCaller,
+  serveWithheldRecord,
+  SERVE_RESTRICTED_NOTICE,
+  SERVE_RESTRICTED_CODE,
+} from "./serve-egress.js";
 import { openaiError } from "./openai-errors.js";
 import {
   onClientGone,
@@ -45,18 +52,31 @@ export function createSideQuestionHandler(): HttpHandler {
       sendError(res, 400, openaiError(invalid.message, "invalid_request_error", invalid.param));
       return;
     }
+    const sessionId = typeof body.session_id === "string" && body.session_id ? body.session_id : undefined;
+    if (sessionId && sessionUnavailableToCaller(ctx, sessionId)) {
+      sendError(res, 404, openaiError("session not found"));
+      return;
+    }
+    if (serveWithheldRecord(ctx, sessionId ?? null)) {
+      sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "invalid_request_error", null, SERVE_RESTRICTED_CODE));
+      return;
+    }
     if (!ctx.runtime.askSideQuestion) {
       sendError(res, 501, openaiError("side questions are not available in this runtime"));
       return;
     }
     const controller = new AbortController();
     onClientGone(res, () => controller.abort());
-    const sessionId = typeof body.session_id === "string" && body.session_id ? body.session_id : undefined;
     const result = await ctx.runtime.askSideQuestion((body.question as string).trim(), {
       ...(sessionId ? { sessionId } : {}),
       signal: controller.signal,
     });
     if (controller.signal.aborted || res.writableEnded) return;
+    // The owning turn can read restricted data while this side call runs.
+    if ((sessionId && sessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId ?? null)) {
+      sendError(res, 404, openaiError("session not found"));
+      return;
+    }
     if (result.ok) {
       sendJson(res, 200, { text: result.text });
       return;
@@ -82,6 +102,10 @@ export function sideQuestionBodyError(
   }
   if (body.session_id !== undefined && body.session_id !== null && typeof body.session_id !== "string") {
     return { message: "session_id must be a string", param: "session_id" };
+  }
+  if (typeof body.session_id === "string" && body.session_id.length > 0) {
+    const error = sessionIdError(body.session_id);
+    if (error) return { message: error, param: "session_id" };
   }
   return null;
 }

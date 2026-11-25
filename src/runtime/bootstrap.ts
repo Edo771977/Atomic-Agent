@@ -74,7 +74,7 @@ import { SwarmRegistry } from "../channels/swarm/index.js";
 import type { ChannelRegistry } from "../channels/channel-registry.js";
 
 import { installTransportDeadlines } from "../llm/transport-deadlines.js";
-import { setPrivacyKnownSecrets, setPrivacyShieldEnabled } from "../privacy/index.js";
+import { releasePrivacyVault, setPrivacyKnownSecrets, setPrivacyShieldEnabled } from "../privacy/index.js";
 import { runtimeKnownSecrets } from "./runtime-known-secrets.js";
 
 import { ApprovalGate } from "../approval/approval-gate.js";
@@ -1039,6 +1039,7 @@ export async function createAgentRuntime(
   const pendingPromptEnhances = new Set<AbortController>();
   // In-flight `/btw` side questions; shutdown aborts them the same way.
   const pendingSideQuestions = new Set<AbortController>();
+  const sideQuestionUsers = new Map<string, number>();
   const lifecycle = createRuntimeLifecycle({
     sessionStore, logger, steeringInbox, shellJobs, reflectionRunner, pendingSessionNamings, pendingPromptEnhances, pendingSideQuestions, turnsInFlight, compaction,
     browserBackend, mcpManager, profileStore, notesStore, lessonStore, procedureStore,
@@ -1379,7 +1380,7 @@ export async function createAgentRuntime(
           }),
       });
     },
-    askSideQuestion: (question: string, sideOptions?: { sessionId?: string; signal?: AbortSignal }) => {
+    askSideQuestion: async (question: string, sideOptions?: { sessionId?: string; signal?: AbortSignal }) => {
       if (lifecycle.isShutdown()) return Promise.resolve({ ok: false as const, reason: "shutting down" });
       const partition = sideQuestionPartition(sideOptions?.sessionId);
       // Read once, never written back: the side question leaves no trace
@@ -1392,20 +1393,30 @@ export async function createAgentRuntime(
           turns = [];
         }
       }
-      return askSideQuestion(question, {
-        complete: (params) => llmComplete(params),
-        slotId: () => slotManager.sideCallSlotId(),
-        turns,
-        toolTransport: resolveActiveLlmSlice(fallbackChain.standingOverrideFor(partition) ?? undefined).transport,
-        pending: pendingSideQuestions,
-        serverTemplate: getConfig().localModels.useServerTemplate !== "off",
-        ...(sideOptions?.sessionId ? { sessionId: sideOptions.sessionId } : {}),
-        ...(sideOptions?.signal ? { signal: sideOptions.signal } : {}),
-        onError: (err: unknown) =>
-          logger.debug("side question failed", {
-            error: err instanceof Error ? err.message : String(err),
-          }),
-      });
+      sideQuestionUsers.set(partition, (sideQuestionUsers.get(partition) ?? 0) + 1);
+      try {
+        return await askSideQuestion(question, {
+          complete: (params) => llmComplete(params),
+          slotId: () => slotManager.sideCallSlotId(),
+          turns,
+          toolTransport: resolveActiveLlmSlice(fallbackChain.standingOverrideFor(partition) ?? undefined).transport,
+          pending: pendingSideQuestions,
+          serverTemplate: getConfig().localModels.useServerTemplate !== "off",
+          ...(sideOptions?.sessionId ? { sessionId: sideOptions.sessionId } : {}),
+          ...(sideOptions?.signal ? { signal: sideOptions.signal } : {}),
+          onError: (err: unknown) =>
+            logger.debug("side question failed", {
+              error: err instanceof Error ? err.message : String(err),
+            }),
+        });
+      } finally {
+        const remaining = (sideQuestionUsers.get(partition) ?? 1) - 1;
+        if (remaining > 0) sideQuestionUsers.set(partition, remaining);
+        else {
+          sideQuestionUsers.delete(partition);
+          releasePrivacyVault(partition);
+        }
+      }
     },
     // ATO-875: `POST /api/complete`, routed like `/enhance` above.
     completePlain: (input: PlainCompleteInput) => {

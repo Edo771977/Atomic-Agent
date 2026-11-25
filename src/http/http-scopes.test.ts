@@ -45,6 +45,7 @@ describe("ROUTE_SCOPES", () => {
     expect(scopeForRoute("POST", "/api/skills/install")).toBe("admin");
     expect(scopeForRoute("POST", "/api/webhooks")).toBe("admin");
     expect(scopeForRoute("POST", "/v1/chat/completions")).toBe("chat");
+    expect(scopeForRoute("POST", "/api/btw")).toBe("chat");
     expect(scopeForRoute("GET", "/api/sessions")).toBe("read");
   });
 

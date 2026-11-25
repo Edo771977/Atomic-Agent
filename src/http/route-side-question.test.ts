@@ -60,6 +60,8 @@ describe("POST /api/btw (ATO-1152)", () => {
     };
     harness.runtime.sessionStore.save(state);
     const listed = harness.runtime.sessionStore.listRecent(100).length;
+    const storedBefore = harness.runtime.sessionStore.load(state.id);
+    const prefixBefore = harness.runtime.previewPrompt({ sessionId: state.id }).stablePrefix;
 
     const { status, json } = await post(harness.baseUrl, { question: " which port? ", session_id: "btw-1" });
 
@@ -71,7 +73,8 @@ describe("POST /api/btw (ATO-1152)", () => {
     expect(String(calls[0]?.prompt)).toContain("which port?");
     expect(String(calls[0]?.prompt)).toContain("port 8080");
     const after = harness.runtime.sessionStore.load("btw-1");
-    expect(after?.turns).toHaveLength(2);
+    expect(after).toEqual(storedBefore);
+    expect(harness.runtime.previewPrompt({ sessionId: state.id }).stablePrefix).toBe(prefixBefore);
     expect(harness.runtime.sessionStore.listRecent(100).length).toBe(listed);
   });
 
@@ -87,6 +90,29 @@ describe("POST /api/btw (ATO-1152)", () => {
     expect((await post(harness.baseUrl, { question: "hi", session_id: "nope" })).status).toBe(200);
     expect(calls[0]?.sessionId).toBe(sideQuestionPartition(undefined));
     expect(harness.runtime.sessionStore.load("nope")).toBeNull();
+  });
+
+  it("answers beside a live turn without changing its stored history or stable prefix", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const mainStarted = new Promise<void>(resolve => { started = resolve; });
+    const hold = new Promise<void>(resolve => { release = resolve; });
+    harness = await startTestHarness({ llamaComplete: async params => {
+      if (params.sessionId.startsWith("btw:")) return result("side answer");
+      started();
+      await hold;
+      return result(JSON.stringify({ tool: "reply", args: { text: "main answer" } }));
+    } });
+    const session = harness.runtime.createSession();
+    const turn = harness.runtime.runTurn(session, "main task", { maxSteps: 1 });
+    await mainStarted;
+    try {
+      const before = harness.runtime.sessionStore.load(session.id);
+      const prefix = harness.runtime.previewPrompt({ sessionId: session.id }).stablePrefix;
+      expect((await post(harness.baseUrl, { question: "side question", session_id: session.id })).json.text).toBe("side answer");
+      expect(harness.runtime.sessionStore.load(session.id)).toEqual(before);
+      expect(harness.runtime.previewPrompt({ sessionId: session.id }).stablePrefix).toBe(prefix);
+    } finally { release(); await turn; }
   });
 
   it("refuses a bad body before any model call", async () => {
