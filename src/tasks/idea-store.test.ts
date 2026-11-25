@@ -8,7 +8,7 @@ import { IdeaStore } from "./idea-store.js";
 import { IDEAS_PER_KIND_MAX, IdeaStateError, type IdeaCandidate } from "./idea-types.js";
 import { TaskStore } from "./task-store.js";
 
-function candidate(sourceKey: string, overrides: Partial<IdeaCandidate> = {}): IdeaCandidate {
+function candidateRecord(sourceKey: string, overrides: Partial<IdeaCandidate> = {}): IdeaCandidate {
   return {
     kind: "retry_task",
     sourceKey,
@@ -24,14 +24,32 @@ function candidate(sourceKey: string, overrides: Partial<IdeaCandidate> = {}): I
 describe("IdeaStore", () => {
   let tmp: string;
   let store: IdeaStore;
+  let tasks: TaskStore;
+  const taskIds = new Map<string, string>();
+
+  function candidate(sourceKey: string, overrides: Partial<IdeaCandidate> = {}): IdeaCandidate {
+    const record = candidateRecord(sourceKey, overrides);
+    if (record.kind === "retry_task") {
+      let taskId = taskIds.get(sourceKey);
+      if (taskId === undefined) {
+        taskId = tasks.create({ userMessage: record.prompt, origin: "cli", maxAttempts: 1 }).id;
+        taskIds.set(sourceKey, taskId);
+      }
+      record.evidence = { ...record.evidence, ref: taskId };
+    }
+    return record;
+  }
 
   beforeEach(() => {
     tmp = mkdtempSync(join(tmpdir(), "idea-store-"));
+    tasks = new TaskStore({ dbFile: join(tmp, "tasks.sqlite") });
     store = new IdeaStore({ dbFile: join(tmp, "tasks.sqlite") });
   });
 
   afterEach(() => {
     store.close();
+    tasks.close();
+    taskIds.clear();
     rmSync(tmp, { recursive: true, force: true });
   });
 
@@ -45,7 +63,7 @@ describe("IdeaStore", () => {
     expect(a).toMatchObject({
       status: "new",
       taskId: null,
-      evidence: { source: "task", ref: "task:a", excerpt: "boom", at: 1 },
+      evidence: { source: "task", ref: taskIds.get("task:a"), excerpt: "boom", at: 1 },
       createdAt: 10,
     });
   });
@@ -144,7 +162,7 @@ describe("IdeaStore", () => {
     const tasks = new TaskStore({ dbFile: file });
     try {
       const t = tasks.create({ userMessage: "hello", origin: "cli", maxAttempts: 1 });
-      store.sync([candidate(`task:${t.id}`)], 10);
+      store.sync([candidateRecord(`task:${t.id}`, { evidence: { source: "task", ref: t.id, excerpt: "boom", at: 1 } })], 10);
       expect(tasks.get(t.id)?.userMessage).toBe("hello");
       expect(store.list()).toHaveLength(1);
     } finally {

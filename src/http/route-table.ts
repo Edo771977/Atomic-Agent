@@ -105,7 +105,13 @@ import {
 import { createTelegramPairingHandlers } from "./route-telegram-pairing.js";
 import { createSetActiveLlmHandler } from "./route-llm-active.js";
 import { createLocalModelsTextHandler } from "./route-local-models.js";
-import { createPanelPageHandler, createPanelScriptHandler } from "./route-panel.js";
+import {
+  createPanelIconPngHandler,
+  createPanelIconSvgHandler,
+  createPanelManifestHandler,
+  createPanelPageHandler,
+  createPanelScriptHandler,
+} from "./route-panel.js";
 import { createSetSessionWorkingDirHandler } from "./session-working-dir.js";
 import { createRestoreFileHandler } from "./route-fs-restore.js";
 import { createMemoryBackupHandler, createMemoryStateHandler } from "./route-memory-operator.js";
@@ -125,6 +131,7 @@ import {
   createRestoreProfileVersionHandler,
 } from "./route-memory-history.js";
 import { createTelegramChannelHandler } from "./route-telegram-channel.js";
+import { createDiscordChannelHandler } from "./route-discord-channel.js";
 import { createMetricsHandler } from "./route-metrics.js";
 import type { PrometheusRegistry } from "../tracing/prometheus-registry.js";
 
@@ -170,6 +177,9 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     // ATO-1128: the phone panel's page; it holds no data and asks for the key (route-panel.ts).
     { method: "GET", path: "/panel", handler: createPanelPageHandler(), requiresAuth: false },
     { method: "GET", path: "/panel/app.js", handler: createPanelScriptHandler(), requiresAuth: false },
+    { method: "GET", path: "/panel/manifest.webmanifest", handler: createPanelManifestHandler(), requiresAuth: false },
+    { method: "GET", path: "/panel/icon.svg", handler: createPanelIconSvgHandler(), requiresAuth: false },
+    { method: "GET", path: "/panel/icon-180.png", handler: createPanelIconPngHandler(), requiresAuth: false },
     // ATO-646: Prometheus scrape target. Authenticated like every /api route.
     { method: "GET", path: "/metrics", handler: createMetricsHandler(options.metricsRegistry) },
     {
@@ -387,6 +397,8 @@ export function buildRouteTable(options: RouteTableOptions = {}): RouteDefinitio
     { method: "DELETE", path: "/api/telegram/pairing", handler: telegramPairing.cancel },
     // ATO-758: the channel's state, and another poller of the same bot when that is what holds it off.
     { method: "GET", path: "/api/telegram/channel", handler: createTelegramChannelHandler() },
+    // ATO-516: the Discord channel's live state, for the desktop's Discord tab.
+    { method: "GET", path: "/api/discord/channel", handler: createDiscordChannelHandler() },
     { method: "POST", path: "/api/tasks", handler: createCreateTaskHandler() },
     { method: "GET", path: "/api/tasks", handler: createListTasksHandler() },
     { method: "GET", path: "/api/tasks/{id}", handler: createGetTaskHandler() },
