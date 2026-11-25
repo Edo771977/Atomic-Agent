@@ -32,3 +32,21 @@ it("checks the actual deflate output against the claimed size", async () => {
   data.writeUInt32LE(32, offset + 24);
   await expect(loadBoundedOfficeZip(data, 64)).rejects.toThrow(/part.xml.*uncompressed size/i);
 });
+
+it("repackages verified XML as stored bytes while preserving compressed media", async () => {
+  const zip = new JSZip();
+  const xml = "<row>fixture</row>".repeat(50);
+  const media = Buffer.alloc(96 * 1024, 42);
+  zip.file("xl/worksheets/sheet1.xml", xml);
+  zip.file("xl/media/image1.bin", media);
+  const fixture = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
+  const bounded = await loadBoundedOfficeZip(fixture);
+  const repacked = await bounded.generateAsync({ type: "nodebuffer", compression: "STORE" });
+  // A repack should not write the 96 KiB of decoded media into its output.
+  expect(repacked.byteLength).toBeLessThan(4 * 1024);
+  const xmlOffset = repacked.lastIndexOf(Buffer.from("xl/worksheets/sheet1.xml")) - 46;
+  expect(repacked.readUInt16LE(xmlOffset + 10)).toBe(0); // ZIP STORE
+  const reopened = await JSZip.loadAsync(repacked);
+  expect(await reopened.file("xl/worksheets/sheet1.xml")!.async("text")).toBe(xml);
+  expect(await reopened.file("xl/media/image1.bin")!.async("nodebuffer")).toEqual(media);
+});
