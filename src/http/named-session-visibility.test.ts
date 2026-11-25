@@ -1,3 +1,4 @@
+import { IdeaStore } from "../tasks/idea-store.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { hashHttpToken } from "./http-token-store.js";
 import { startTestHarness, type Harness } from "./test-harness.js";
@@ -153,4 +154,27 @@ it.each([
   expect(h.approvalBus.snapshot()).toEqual([privatePending]);
   expect((await call("POST", path, { ...body, approvalId: privatePending.approvalId })).status).toBe(404);
   expect(h.approvalBus.snapshot()).toEqual([privatePending]);
+});
+
+
+it("never exposes or replays private Retry ideas after the owner closes the chat", async () => {
+  const { h, hidden, call } = await fixture("admin");
+  const task = h.runtime.taskStore.create({ sessionId: hidden.id, userMessage: "PRIVATE-TASK-SECRET", origin: "cli", maxAttempts: 1 });
+  h.runtime.taskStore.markRunning(task.id);
+  h.runtime.taskStore.markFailed(task.id, { category: "transport", message: "private error" });
+  const refresh = await fetch(h.baseUrl + "/api/ideas/refresh", {
+    method: "POST", headers: { authorization: "Bearer owner-fixture", "content-type": "application/json" }, body: "{}",
+  });
+  expect(await refresh.json()).toMatchObject({ ideas: [] });
+  const ideas = new IdeaStore({ dbFile: h.runtime.config.paths.tasksDbFile });
+  let id: string;
+  try {
+    id = ideas.sync([{ kind: "retry_task", sourceKey: "task:" + task.id, title: "private", reason: "fixture",
+      evidence: { source: "task", ref: task.id, excerpt: "private", at: null }, prompt: "PRIVATE-TASK-SECRET", sessionId: null }]).added[0]!.id;
+  } finally { ideas.close(); }
+  const deleted = await fetch(h.baseUrl + "/api/sessions/" + hidden.id, { method: "DELETE", headers: { authorization: "Bearer owner-fixture" } });
+  expect(deleted.status).toBe(200);
+  expect((await call("GET", "/api/ideas")).body).toMatchObject({ ideas: [] });
+  expect((await call("POST", "/api/ideas/" + id + "/accept", {})).status).toBe(404);
+  expect(h.runtime.taskStore.list()).toEqual([]);
 });

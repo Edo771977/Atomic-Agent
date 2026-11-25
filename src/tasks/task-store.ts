@@ -1,3 +1,4 @@
+import { removeSessionIdeas, removeUnsafeRetryIdeas } from "./idea-privacy.js";
 import type Database from "better-sqlite3";
 import { Database as DatabaseCtor } from "../native/load-better-sqlite3.js";
 import { mkdirSync } from "node:fs";
@@ -817,6 +818,7 @@ export class TaskStore {
   /** Remove a claimed incognito task whose session is missing, including its run log. */
   purgeMissingIncognitoTask(id: string, sessionId: string | null): void {
     this.db.transaction(() => {
+      if (sessionId !== null) removeSessionIdeas(this.db, sessionId);
       const removed = this.db.prepare(
         "DELETE FROM tasks WHERE id = ? AND session_id IS ? AND incognito = 1 AND status = 'running'",
       ).run(id, sessionId).changes;
@@ -868,7 +870,13 @@ export class TaskStore {
     return remove.immediate();
   }
 
+  /** Startup migration for retained Retry cards, including accepted and dismissed history. */
+  removeUnsafeIdeas(sessionPrivacy: (id: string) => boolean | null): number {
+    return this.db.transaction(() => removeUnsafeRetryIdeas(this.db, sessionPrivacy)).immediate();
+  }
+
   private purgeSessionTasks(sessionId: string): number {
+    removeSessionIdeas(this.db, sessionId);
     // Match the task ID too, for runs opened before a session was assigned.
     if (this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'task_runs'").get()) {
       this.db.prepare(

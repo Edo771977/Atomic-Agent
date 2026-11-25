@@ -70,7 +70,7 @@ function withIdeaStore(
 function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
   const task = idea.evidence.source === "goal" ? null : ctx.runtime.taskStore.get(idea.evidence.ref);
   if (task && taskUnavailableToCaller(ctx, task)) return true;
-  const sessionId = idea.evidence.source === "goal" ? idea.evidence.ref : task?.sessionId ?? idea.sessionId;
+  const sessionId = idea.evidence.source === "goal" ? idea.evidence.ref : task?.sessionId ?? idea.sourceSessionId ?? idea.sessionId;
   return (sessionId !== null && existingSessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId);
 }
 

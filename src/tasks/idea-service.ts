@@ -40,7 +40,7 @@ export interface IdeaRefreshDeps {
 
 export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
   const now = deps.now ?? Date.now();
-  const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN });
+  const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }).filter((task) => task.incognito !== true);
   const candidates = buildIdeaCandidates({
     tasks,
     goals: goalIdeaInputs(deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)),
