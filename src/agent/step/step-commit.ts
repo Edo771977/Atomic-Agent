@@ -352,6 +352,9 @@ export function readReplyAttachments(
  */
 export function appendBatchedTurns(params: AppendBatchedTurnsParams): SessionState {
   const { state, calls, results, reasoning, terminal, onEvent } = params;
+  // Gemini 3's signature of this step goes back on its first recorded
+  // call, whichever call of the batch it arrived on (ATO-1680).
+  const thoughtSignature = calls.find((call) => call.thoughtSignature)?.thoughtSignature;
 
   // `reply` collapses into `assistant_reply` regardless of batch
   // size. For a batched step the terminal is guaranteed to be at the
@@ -380,6 +383,7 @@ export function appendBatchedTurns(params: AppendBatchedTurnsParams): SessionSta
             tool: call.tool,
             args: call.args,
             ...(i === 0 && reasoning.length > 0 ? { reasoning } : {}),
+            ...(i === 0 && thoughtSignature ? { thoughtSignature } : {}),
           }),
         );
         next = recordTurn(
@@ -446,6 +450,7 @@ export function appendBatchedTurns(params: AppendBatchedTurnsParams): SessionSta
         tool: call.tool,
         args: call.args,
         ...(i === 0 && reasoning.length > 0 ? { reasoning } : {}),
+        ...(i === 0 && thoughtSignature ? { thoughtSignature } : {}),
       }),
     );
     next = recordTurn(
