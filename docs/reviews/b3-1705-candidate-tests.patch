@@ -1,0 +1,66 @@
+--- /dev/null
++++ b/src/http/b3-mcp-candidate.test.ts
+@@ -0,0 +1,63 @@
++import { afterEach, describe, expect, it } from "vitest";
++import { createMcpEndpointHandlers, MCP_HTTP_SESSION_IDLE_MS } from "./route-mcp-endpoint.js";
++import { createHttpServer, type HttpServerHandle } from "./http-server.js";
++import { hashHttpToken } from "./http-token-store.js";
++
++const owner = "fixture-owner-key";
++const member = "fixture-member-token";
++let server: HttpServerHandle | undefined;
++let endpoint: ReturnType<typeof createMcpEndpointHandlers> | undefined;
++afterEach(async () => { await endpoint?.closeAll(); await server?.close(); });
++
++async function fixture() {
++  let now = 1000;
++  endpoint = createMcpEndpointHandlers({ now: () => now });
++  server = await createHttpServer({
++    runtime: { capabilities: { workingDir: process.cwd() }, skillRegistry: { list: () => [] } } as never,
++    host: "127.0.0.1", port: 0, apiKey: owner,
++    namedTokens: () => [{ name: "member", role: "member", sha256: hashHttpToken(member), createdAt: "" }],
++    // Supply the intended read scope, so missing upstream scope entries cannot conceal lifecycle failures.
++    routes: [
++      { method: "POST", path: "/mcp", handler: endpoint.post, scope: "read" },
++      { method: "DELETE", path: "/mcp", handler: endpoint.delete, scope: "read" },
++    ],
++  });
++  const call = (token: string, body: object, id?: string) => fetch(`http://127.0.0.1:${server!.port}/mcp`, {
++    method: "POST", headers: {
++      authorization: `Bearer ${token}`, "content-type": "application/json", accept: "application/json, text/event-stream",
++      ...(id ? { "mcp-session-id": id, "mcp-protocol-version": "2025-03-26" } : {}),
++    }, body: JSON.stringify(body),
++  });
++  const initialize = async (token = owner) => {
++    const response = await call(token, { jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-03-26", capabilities: {}, clientInfo: { name: "fixture", version: "1" } } });
++    await response.text();
++    expect(response.status).toBe(200);
++    return response.headers.get("mcp-session-id")!;
++  };
++  return { call, initialize, advance: () => { now += MCP_HTTP_SESSION_IDLE_MS + 1; } };
++}
++
++describe("B3 MCP candidate boundary", () => {
++  it("control: the owner can list its own transport tools", async () => {
++    const f = await fixture();
++    const id = await f.initialize();
++    const response = await f.call(owner, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, id);
++    expect(response.status).toBe(200);
++    expect(await response.text()).toContain("skills_list");
++  });
++  it("does not let a member reuse an owner transport", async () => {
++    const f = await fixture();
++    const id = await f.initialize();
++    const response = await f.call(member, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, id);
++    await response.text();
++    expect(response.status).toBe(404);
++  });
++  it("expires a transport without another client initializing", async () => {
++    const f = await fixture();
++    const id = await f.initialize();
++    f.advance();
++    const response = await f.call(owner, { jsonrpc: "2.0", id: 2, method: "tools/list", params: {} }, id);
++    await response.text();
++    expect(response.status).toBe(404);
++  });
++});
