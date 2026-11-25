@@ -1,4 +1,4 @@
-import { globMatches } from "./policy-glob.js";
+import { globMatches, matchPolicyGlob, MAX_POLICY_RESOURCE_LENGTH } from "./policy-glob.js";
 import type { McpAllowlist, PolicyAction, PolicyEffect, PolicyRule } from "./policy-schema.js";
 
 /** Where a piece of the effective policy came from. No source can loosen another. */
@@ -67,7 +67,7 @@ export function evaluatePolicy(
   let best: PolicyVerdict | null = null;
   // A script no one can read could be the very command a deny or ask
   // names, so every such rule of the action matches it.
-  if (options.unreadable === true) {
+  if (options.unreadable === true || resources.some(resource => resource.length > MAX_POLICY_RESOURCE_LENGTH)) {
     for (const rule of policy.rules) {
       if (rule.action !== action || rule.effect === "allow") continue;
       const verdict: PolicyVerdict = { effect: rule.effect, rule, resource: resources[0] ?? "" };
@@ -103,7 +103,9 @@ function evaluateOne(
 ): PolicyVerdict | null {
   let last: SourcedPolicyRule | null = null;
   for (const rule of rules) {
-    if (rule.action !== action || !globMatches(rule.resource, resource)) continue;
+    if (rule.action !== action) continue;
+    const match = matchPolicyGlob(rule.resource, resource);
+    if (match === false || match === null && rule.effect === "allow") continue;
     if (rule.effect === "deny") return { effect: "deny", rule, resource };
     last = rule;
   }
