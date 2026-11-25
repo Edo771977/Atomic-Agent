@@ -3,7 +3,7 @@ import {
   type ApprovalGate,
   type ApprovalRequest,
 } from "../approval/approval-gate.js";
-import { approvalForServe, canReadSession, serveWithheld } from "./serve-egress.js";
+import { approvalForServe, isNamedCaller, sessionUnavailableToCaller, serveWithheld } from "./serve-egress.js";
 import type { ProjectGateEvent } from "./project-gate-bus.js";
 import { describeAlwaysRule } from "../approval/approval-rules.js";
 
@@ -115,6 +115,9 @@ export function createResolveApprovalHandler(): HttpHandler {
     }
     const { approved, grant } = parsed;
     const pending = ctx.runtime.approvals.pendingRequest(approvalId);
+    if (isNamedCaller(ctx) && (pending === null || sessionUnavailableToCaller(ctx, pending.sessionId))) {
+      return sendError(res, 404, openaiError("approvalId not pending"));
+    }
     const role = ctx.caller?.role;
     if (approved && role === "operator" && (grant === "always" || pending?.category === "trust_config")) {
       sendError(res, 403, openaiError(
@@ -235,8 +238,7 @@ export function createApprovalEventsHandler(): HttpHandler {
     // not leave over this server gets no frame.
     const writeGate = (event: ProjectGateEvent): void => {
       if (!authorized() || serveWithheld(ctx, event.sessionId)()) return;
-      if (ctx.caller !== undefined && ctx.caller.role !== "owner"
-        && !canReadSession(ctx, ctx.runtime.sessionStore.load(event.sessionId))) return;
+      if (sessionUnavailableToCaller(ctx, event.sessionId)) return;
       sse.writeEvent("project_gate", { session_id: event.sessionId, view: event.view });
     };
     for (const event of ctx.projectGateBus?.snapshot() ?? []) writeGate(event);

@@ -6,7 +6,7 @@ import {
   type HttpHandler,
 } from "./request-context.js";
 import { checkWorkingDir } from "./session-working-dir.js";
-import { sessionUnavailableToCaller, taskUnavailableToCaller, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheldRecord } from "./serve-egress.js";
+import { isNamedCaller, sessionUnavailableToCaller, taskUnavailableToCaller, SERVE_RESTRICTED_CODE, SERVE_RESTRICTED_NOTICE, serveWithheldRecord } from "./serve-egress.js";
 import {
   TaskStateError,
   TaskValidationError,
@@ -318,7 +318,11 @@ export function createDrainTasksHandler(): HttpHandler {
       return;
     }
     const outcome = await ctx.runtime.taskRunner.drainPending(
-      sessionId ? { sessionId } : {},
+      {
+        ...(sessionId ? { sessionId } : {}),
+        ...(isNamedCaller(ctx) ? { includeTask: (task: TaskRecord) => !taskUnavailableToCaller(ctx, task)
+          && !serveWithheldRecord(ctx, task.sessionId) } : {}),
+      },
     );
     sendJson(res, 200, outcome);
   };

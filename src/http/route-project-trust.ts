@@ -1,3 +1,4 @@
+import { canReadSession } from "./serve-egress.js";
 import { existsSync, statSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import {
@@ -31,7 +32,7 @@ interface AnswerBody {
 function resolveFolder(ctx: HandlerContext, workingDir: unknown, sessionId: unknown): { dir: string } | { status: number; message: string } {
   if (typeof sessionId === "string" && sessionId) {
     const session = ctx.runtime.sessionStore.load(sessionId);
-    if (!session) return { status: 404, message: "session not found" };
+    if (!canReadSession(ctx, session)) return { status: 404, message: "session not found" };
     return { dir: session.workingDir };
   }
   if (workingDir !== undefined && workingDir !== null && workingDir !== "") {

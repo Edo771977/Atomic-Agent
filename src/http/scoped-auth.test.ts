@@ -273,9 +273,10 @@ it("passes the named actor into both chat turns and accepted steers", async () =
 it("requires admin for persistent and trust-config approvals, without consuming them", async () => {
   const h = await startTestHarness({ apiKey: KEY, approvalLevel: 1, namedTokens: () => ALL });
   try {
+    const session = h.runtime.createSession();
     for (const [category, decision] of [["shell", "allow-always"], ["trust_config", "allow-once"]] as const) {
       const pending = h.runtime.approvals.request({
-        sessionId: "s-admin-approval", tool: "os.shell.run", category, reason: "test",
+        sessionId: session.id, tool: "os.shell.run", category, reason: "test",
         commandShape: "git", commandArgv: ["git", "status"], workdir: h.workingDir,
         approvalId: category,
       });

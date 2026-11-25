@@ -55,7 +55,7 @@ export function createCapabilitiesHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const { runtime } = ctx;
     let workspace;
-    try { workspace = requestWorkspace(req, runtime); }
+    try { workspace = requestWorkspace(req, ctx); }
     catch (err) {
       if (err instanceof SessionNotFoundError) { sendError(res, 404, openaiError("session not found")); return; }
       throw err;

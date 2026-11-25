@@ -82,8 +82,7 @@ export function approvalForServe(
   ctx: HandlerContext,
   request: ApprovalRequest,
 ): ApprovalRequest | undefined {
-  if (ctx.caller !== undefined && ctx.caller.role !== "owner"
-    && !canReadSession(ctx, ctx.runtime.sessionStore.load(request.sessionId))) return undefined;
+  if (sessionUnavailableToCaller(ctx, request.sessionId)) return undefined;
   return serveWithheld(ctx, request.sessionId)() ? withholdApprovalDetails(request) : request;
 }
 

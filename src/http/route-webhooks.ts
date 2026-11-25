@@ -1,3 +1,4 @@
+import { sessionUnavailableToCaller, serveWithheld } from "./serve-egress.js";
 import type { ServerResponse } from "node:http";
 
 import { openaiError } from "./openai-errors.js";
@@ -164,6 +165,11 @@ export function createWebhookHandler(
       delivery: hit.delivery,
     });
     const sessionId = resolveWebhookSessionId(webhook, name, ctx.runtime);
+    if (sessionId && (sessionUnavailableToCaller(ctx, sessionId)
+      || (options.requireSecret && (ctx.runtime.sessionStore.isIncognito(sessionId) || serveWithheld(ctx, sessionId)())))) {
+      reject(404, "session not found");
+      return;
+    }
     try {
       const created = ctx.runtime.taskRunner.create({
         ...(sessionId ? { sessionId } : {}),

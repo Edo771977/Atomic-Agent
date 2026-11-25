@@ -1,3 +1,4 @@
+import { sessionUnavailableToCaller } from "./serve-egress.js";
 import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
 
@@ -15,7 +16,7 @@ export function createCancelCompletionHandler(): HttpHandler {
       sendError(res, 400, openaiError("completion_id is required"));
       return;
     }
-    const cancelled = ctx.completionRegistry.cancel(completionId);
+    const cancelled = ctx.completionRegistry.cancel(completionId, (id) => !sessionUnavailableToCaller(ctx, id));
     if (!cancelled) {
       sendJson(res, 404, { status: "not_found" });
       return;

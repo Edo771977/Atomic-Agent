@@ -57,7 +57,7 @@ export function createListSkillsHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const { runtime } = ctx;
     let workspace;
-    try { workspace = requestWorkspace(req, runtime); }
+    try { workspace = requestWorkspace(req, ctx); }
     catch (err) {
       if (err instanceof SessionNotFoundError) { sendError(res, 404, openaiError("session not found")); return; }
       throw err;
@@ -111,7 +111,7 @@ export function createGetSkillHandler(): HttpHandler {
       return;
     }
     try {
-      const workspace = requestWorkspace(req, ctx.runtime);
+      const workspace = requestWorkspace(req, ctx);
       if (workspace) {
         const entry = workspace.skills.entries.find(e => e.record.manifest.name === name);
         if (!entry) throw new SkillNotFoundError(name);

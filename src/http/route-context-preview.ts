@@ -1,3 +1,4 @@
+import { sessionUnavailableToCaller } from "./serve-egress.js";
 import { getConfig } from "../config/index.js";
 import { contextUsageFromPrompt } from "../session/context-usage.js";
 import type { BuiltPrompt } from "../prompt/build-prompt-types.js";
@@ -51,6 +52,9 @@ export function createContextPreviewHandler(): HttpHandler {
       return;
     }
     const sessionId = body.session_id && body.session_id.length > 0 ? body.session_id : null;
+    if (sessionId && sessionUnavailableToCaller(ctx, sessionId)) {
+      return sendError(res, 404, openaiError("session not found"));
+    }
     let prompt: BuiltPrompt;
     try {
       prompt = ctx.runtime.previewPrompt({
