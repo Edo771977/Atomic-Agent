@@ -161,7 +161,6 @@ The reserved names `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, `OPENROUTER_API_KEY` a
 
 ## Keys from a newer build
 
-
 The desktop app and the terminal agent share one `config.json`, so an older build often saves a file a newer build wrote. The parse keeps unknown top-level blocks and drops unknown keys inside known blocks; `writeUserConfigFileSync` then reads the file on disk and puts back the keys it does not know inside fixed blocks, while known keys always come from the data being written, even when absent. Dictionaries (`webhooks`, `fileTriggers`, `channels`, `projects.constraints`, `mcp.servers`, `llm.providers`, `tracing.otel.headers`), arrays and everything inside list entries are whole values from that data, so a removed server or provider stays removed. [config-shape.ts](../config-shape.ts) lists which blocks are fixed and which are dictionaries, plus known keys outside the defaults (`llm` with its fixed blocks `llm.fallback`, `llm.runMode` and `llm.runMode.fusion`, and the retired `telemetry`, `agent.approvalRequired` and `discord.ownerUserId`); its test fails when a new block in the defaults is in neither list, and the `llm` key lists are typed against their config types, so a new field there does not compile until it is listed. Other nodes inside `llm` (`openrouter`, `fusion.roles`, `fusion.taskTree`, `fusion.team`) are whole values and follow the parse.
 
 ## Sources and tests
