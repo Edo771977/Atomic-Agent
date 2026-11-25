@@ -19,6 +19,7 @@ import {
   TaskValidationError,
   acceptIdea,
   ideaRetryFallbackDir,
+  ideaRetryIsUnsafe,
   ideaToJson,
   refreshIdeas,
   type IdeaRecord,
@@ -84,7 +85,8 @@ function ideaRetrySeed(ctx: HandlerContext, source: RetrySource, workingDir: str
 }
 
 function visibleIdeas(ctx: HandlerContext, list: IdeaRecord[]): IdeaRecord[] {
-  return list.filter((idea) => !ideaWithheld(ctx, idea));
+  const source = { tasks: ctx.runtime.taskStore, sessions: ctx.runtime.sessionStore };
+  return list.filter((idea) => !ideaRetryIsUnsafe(idea, source) && !ideaWithheld(ctx, idea));
 }
 
 function tasksDisabled(ctx: HandlerContext): boolean {
@@ -163,7 +165,9 @@ export function createAcceptIdeaHandler(): HttpHandler {
     const prompt = typeof body.prompt === "string" ? body.prompt : undefined;
     withIdeaStore(ctx, (ideas) => {
       const known = ideas.get(id);
-      if (known !== null && ideaWithheld(ctx, known)) {
+      const source = { tasks: ctx.runtime.taskStore, sessions: ctx.runtime.sessionStore };
+      // Private retries must also be erased by the common acceptance path.
+      if (known !== null && ideaWithheld(ctx, known) && !ideaRetryIsUnsafe(known, source)) {
         sendError(res, 404, openaiError(`idea not found: ${id}`));
         return;
       }
@@ -214,7 +218,7 @@ export function createAcceptIdeaHandler(): HttpHandler {
           id,
           {
             ...(prompt === undefined ? {} : { prompt }),
-            carryFrom: { tasks: ctx.runtime.taskStore, sessions: ctx.runtime.sessionStore },
+            carryFrom: source,
           },
         );
         if (accepted === null) {
@@ -249,7 +253,7 @@ export function createDismissIdeaHandler(): HttpHandler {
     }
     withIdeaStore(ctx, (ideas) => {
       const known = ideas.get(id);
-      if (known !== null && ideaWithheld(ctx, known)) {
+      if (known !== null && visibleIdeas(ctx, [known]).length === 0) {
         sendError(res, 404, openaiError(`idea not found: ${id}`));
         return;
       }

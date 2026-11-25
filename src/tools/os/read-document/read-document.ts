@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 import { extname } from "node:path";
 
 import { compressToolResult } from "../../../compressor/result-compressor.js";
@@ -13,6 +13,7 @@ import type {
 
 const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_PAGES = 50;
+const MAX_MSG_INPUT_BYTES = 32 * 1024 * 1024;
 
 export interface ReadDocumentOptions {
   /**
@@ -20,6 +21,8 @@ export interface ReadDocumentOptions {
    * dispatcher in isolation, without the heavy PDF/OOXML libraries.
    */
   extractors?: Partial<Record<DocumentFormat, Extractor>>;
+  /** Lower the input cap for Outlook messages. */
+  maxMsgInputBytes?: number;
 }
 
 interface ReadArgs {
@@ -41,13 +44,15 @@ export function buildOsFsReadDocumentTool(
   return {
     name: "os.fs.read_document",
     description:
-      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. Read-only, no approval required.",
+      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox, Outlook .msg) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. Read-only, no approval required.",
     readonly: true,
     async run(rawArgs, ctx) {
       const args = await parseArgs(rawArgs, ctx.workingDir);
       const extractor = await resolveExtractor(args.format, options);
 
-      const data = await readFile(args.absolute);
+      const data = args.format === "msg" || extname(args.absolute).toLowerCase() === ".msg"
+        ? await readBoundedMsg(args.absolute, Math.min(options.maxMsgInputBytes ?? MAX_MSG_INPUT_BYTES, MAX_MSG_INPUT_BYTES))
+        : await readFile(args.absolute);
       const input: ExtractorInput = {
         data,
         sourcePath: args.absolute,
@@ -88,6 +93,29 @@ export function buildOsFsReadDocumentTool(
       );
     },
   };
+}
+
+async function readBoundedMsg(path: string, maxBytes: number): Promise<Buffer> {
+  const file = await open(path, "r");
+  try {
+    const info = await file.stat();
+    if (!info.isFile()) throw new Error(`os.fs.read_document: ${path} is not a regular file`);
+    const tooLarge = () => new Error(`os.fs.read_document: Outlook .msg input exceeds ${maxBytes} bytes`);
+    if (info.size > maxBytes) throw tooLarge();
+    // Leave one byte to detect growth on the same open handle. Never
+    // allocate more than the allowed size and that sentinel.
+    const data = Buffer.alloc(info.size + 1);
+    let offset = 0;
+    while (offset < data.length) {
+      const { bytesRead } = await file.read(data, offset, data.length - offset, offset);
+      if (bytesRead === 0) return data.subarray(0, offset);
+      offset += bytesRead;
+    }
+    if (offset > maxBytes) throw tooLarge();
+    throw new Error("os.fs.read_document: Outlook .msg changed during the read; try again");
+  } finally {
+    await file.close();
+  }
 }
 
 async function parseArgs(
@@ -321,11 +349,7 @@ function detectFormat(absolute: string, override: unknown): DocumentFormat {
     case "mbox":
       return "mbox";
     case "msg":
-      // Outlook's .msg is a binary OLE2 container, not MIME text; reading
-      // it as plain would hand the model binary noise.
-      throw new Error(
-        'os.fs.read_document: Outlook ".msg" files are not supported — save the message as .eml (File > Save As in Outlook, or drag it out of a webmail client) and read that',
-      );
+      return "msg";
     case "":
     case "txt":
     case "md":
@@ -394,6 +418,8 @@ async function resolveExtractor(
       return (await import("./extractors/email-extractor.js")).emlExtractor;
     case "mbox":
       return (await import("./extractors/email-extractor.js")).mboxExtractor;
+    case "msg":
+      return (await import("./extractors/msg-extractor.js")).msgExtractor;
     case "plain":
       return (await import("./extractors/plain-text-extractor.js"))
         .plainTextExtractor;

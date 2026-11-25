@@ -11,7 +11,7 @@ import {
 import { LlamaServerProvider } from "../llama-server/llama-server-provider.js";
 import { OpenAiProvider } from "../openai/openai-provider.js";
 import { createKeyPool, orderedUniqueKeys } from "../../fallback/key-pool.js";
-import { resolveExtraApiKeys } from "../../../config/resolve-llm-api-key.js";
+import { resolveExtraApiKeys, resolveLlmProviderApiKey } from "../../../config/resolve-llm-api-key.js";
 import type { StructuredLogger } from "../../../tracing/index.js";
 import { isExternalEngineEntry } from "../openai/json-schema-tool-mode.js";
 import { sharedApiKeyCommandSource } from "../openai/api-key-command.js";
@@ -48,12 +48,17 @@ let registered = false;
 function keyOptions(
   entry: LlmProviderConfigEntry,
   logger: StructuredLogger,
+  apiKey = entry.apiKey,
 ): { apiKey: string; keyPool?: NonNullable<ReturnType<typeof createKeyPool>> } {
   const extras = resolveExtraApiKeys(entry);
-  if (extras.length === 0) return { apiKey: entry.apiKey ?? "" };
-  const keys = orderedUniqueKeys([entry.apiKey, ...extras]);
+  if (extras.length === 0) return { apiKey: apiKey ?? "" };
+  const keys = orderedUniqueKeys([apiKey, ...extras]);
   const keyPool = createKeyPool({ providerId: entry.id, keys, logger });
   return { apiKey: keys[0] ?? "", ...(keyPool ? { keyPool } : {}) };
+}
+
+function nativeKeyOptions(entry: LlmProviderConfigEntry, logger: StructuredLogger) {
+  return keyOptions(entry, logger, resolveLlmProviderApiKey(entry) ?? "");
 }
 
 /**
@@ -147,7 +152,7 @@ function buildAnthropicProvider(
     ...(entry.baseUrl ? { baseUrl: entry.baseUrl } : {}),
     // Extra keys rotate here too (ATO-471): the native client sends
     // through the same transport as the compat kinds.
-    ...keyOptions(entry, logger),
+    ...nativeKeyOptions(entry, logger),
     defaultChatModel: chatModel,
     headers: entry.headers,
     apiKeyHeader: entry.apiKeyHeader,
@@ -301,7 +306,7 @@ export function registerBuiltInProviderKinds(): void {
       privacy: entry.privacy,
       providerKind: "openrouter",
       baseUrl: entry.baseUrl,
-      ...keyOptions(entry, ctx.logger),
+      ...nativeKeyOptions(entry, ctx.logger),
       defaultChatModel: model,
       headers: entry.headers,
       ...modelVisionOptions(entry, model),
@@ -362,7 +367,7 @@ export function registerBuiltInProviderKinds(): void {
       privacy: entry.privacy,
       providerKind: "gemini",
       baseUrl: entry.baseUrl,
-      ...keyOptions(entry, ctx.logger),
+      ...nativeKeyOptions(entry, ctx.logger),
       defaultChatModel: model,
       extraBody: entry.extraBody,
       maxOutputTokens: entry.maxOutputTokens,

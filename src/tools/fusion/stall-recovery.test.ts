@@ -7,7 +7,9 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { captureError } from "../../error-reporting/error-reporter.js";
+import type { SentryClient } from "../../error-reporting/sentry-client.js";
 
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import type { RunTurnResult } from "../../agent/agent-loop.js";
@@ -82,6 +84,7 @@ describe("a stalled program whose file is good is kept as done; its dependents r
       try {
         const started: string[] = [];
         let programEvents = 0;
+        let stop: unknown;
         const prompts: string[] = [];
         const program = "module.exports = (rows) => rows.length;\n";
         const runTurn: FusionDelegateDeps["runTurn"] = async (session, message, options) => {
@@ -100,7 +103,10 @@ describe("a stalled program whose file is good is kept as done; its dependents r
           for (const e of write("sales.cjs", program, i++)) hook(e);
           for (const e of verify("node --test sales.test.cjs sales.cjs", i++)) hook(e);
           for (let n = 0; n < 12; n += 1) {
-            if (options.signal?.aborted === true) return done();
+            if (options.signal?.aborted === true) {
+              stop = options.signal.reason;
+              return done();
+            }
             programEvents += 1;
             const events = variant === "identical writes" ? write("sales.cjs", program, i++) : verify("node --test sales.test.cjs sales.cjs", i++);
             for (const e of events) hook(e);
@@ -123,6 +129,10 @@ describe("a stalled program whose file is good is kept as done; its dependents r
         const prog = rows.find((r) => r.id === "program")!;
         // Stopped early, but kept as done with its artifact.
         expect(programEvents).toBeLessThan(12);
+        const capture = vi.fn();
+        captureError({ capture } as unknown as SentryClient, new Error("fixture wrapper", { cause: stop }), { source: "llm_failure" });
+        expect(capture).not.toHaveBeenCalled();
+        expect(stop).toMatchObject({ reason: variant === "identical writes" ? "repeated-writes" : "passed-and-current" });
         expect(prog.status).toBe("ok");
         expect(prog.failure).toBeUndefined();
         expect(prog.notes?.join(" ")).toMatch(variant === "identical writes" ? /stalled: repeated identical writes.*kept as done/ : /passed and current/);

@@ -41,6 +41,8 @@ export interface WorkspaceSkills {
 export interface WorkspaceSkillsOptions {
   globalDir: string;
   projectDirName: string;
+  /** Original folder whose project-skill decisions apply to a candidate copy. */
+  projectTrustDir?: string;
   configFile: string;
   defaults: RuntimeSkillsConfig;
   learnedScope?: { stateDir: string; folder: string };
@@ -127,7 +129,7 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
   const policy = compatibility ? config.cloudWorkspaces?.find(p => p.workingDir === root) : undefined;
   const enabled = policy?.projectSkillsEnabled ?? true;
   // Project skills are untrusted until the operator answers for this folder (ATO-298).
-  const trust = findProjectTrust(config.projectTrust, root);
+  const trust = findProjectTrust(config.projectTrust, options.projectTrustDir ?? root);
   let globalRoot = resolve(options.globalDir);
   try { globalRoot = realpathSync(globalRoot); } catch { /* Missing/error diagnostics are handled below. */ }
   // Skills installed "for all agents" are user-level, like global ones, but every

@@ -16,6 +16,7 @@ import {
 import { FusionTurnBudget } from "./turn-budget.js";
 import { FusionRunStore } from "./run-checkpoint.js";
 import { TurnBudgetExhaustedError, findTurnBudgetExhaustedError } from "../../llm/reliability/turn-budget-error.js";
+import { FusionBudgetStopError } from "./fusion-stop-errors.js";
 import { fanoutSpend, WorkerRunCollector } from "./worker-result.js";
 
 const logger = new StructuredLogger({ level: "error", sinks: [] });
@@ -998,5 +999,34 @@ describe("a resume imports only what the turn has not counted for its run (issue
       await tool.run({ resume: runId }, ctx());
       expect(counted(budget)).toBeCloseTo(0.4);
     } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+});
+
+describe("a cap's abort reason (ATO-1677)", () => {
+  it("aborts the workers with a FusionBudgetStopError, not a plain Error", async () => {
+    const budget = new FusionTurnBudget();
+    budget.begin("s-parent");
+    const signals: AbortSignal[] = [];
+    const d = deps({
+      resolveRunMode: () => mode({ turnBudgetUsd: 1.5 }),
+      turnBudget: budget,
+    });
+    const runTurn = d.runTurn;
+    d.runTurn = async (s, m, options) => {
+      if (options.signal !== undefined) signals.push(options.signal);
+      return runTurn(s, m, options);
+    };
+    const result = await buildFusionDelegateTool(d).run({ tasks: THREE }, ctx());
+    expect(result.summary).toContain("Stopped: the spend cap for this turn is reached");
+    const reasons = signals
+      .filter((s) => s.aborted)
+      .map((s) => s.reason as unknown);
+    expect(reasons.length).toBeGreaterThan(0);
+    for (const reason of reasons) {
+      expect(reason).toBeInstanceOf(FusionBudgetStopError);
+      expect((reason as FusionBudgetStopError).name).toBe("FusionBudgetStopError");
+      expect((reason as FusionBudgetStopError).kind).toBe("usd");
+      expect((reason as Error).message).toMatch(/spend cap for this turn is reached/);
+    }
   });
 });

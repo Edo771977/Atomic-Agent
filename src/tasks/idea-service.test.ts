@@ -52,6 +52,37 @@ describe("idea service", () => {
     expect(ideas.list()).toEqual([]);
   });
 
+  it("does not offer a legacy task from an incognito chat", () => {
+    const t = tasks.create({ sessionId: "private-chat", userMessage: "synthetic-private", origin: "cli", maxAttempts: 1 });
+    tasks.markRunning(t.id);
+    tasks.markFailed(t.id, { category: "transport", message: "fixture" });
+    expect(refreshIdeas({ ideas, tasks, sessions: { ...noSessions, isIncognito: id => id === "private-chat" } }).added).toEqual([]);
+    expect(ideas.list()).toEqual([]);
+  });
+
+  it.each(["task marked private", "ordinary recorded origin"] as const)(
+    "uses startup privacy rules at acceptance: %s",
+    variant => {
+      const task = variant === "task marked private" ? failedTask("fixture", Date.now() - 1_000) : null;
+      const id = task?.id ?? "expired-task";
+      const [card] = ideas.sync([{
+        kind: "retry_task", title: "Fixture", reason: "fixture", prompt: "synthetic prompt",
+        sourceKey: `task:${id}`, sessionId: null, sourceSessionId: "ordinary-chat",
+        evidence: { source: "task", ref: id, excerpt: "", at: null },
+      }]).added;
+      const result = acceptIdea(ideas, createTask, card!.id, { carryFrom: {
+        tasks: { get: () => task ? { ...task, incognito: true } : null },
+        sessions: { load: () => ({ workingDir: tmp }) },
+      } });
+      if (task) {
+        expect(result).toBeNull();
+        expect(ideas.get(card!.id)).toBeNull();
+      } else {
+        expect(result?.idea.status).toBe("accepted");
+      }
+    },
+  );
+
   it("refresh turns a failed task into one idea with evidence, and does not repeat it", () => {
     const now = Date.now();
     const t = failedTask("tidy the inbox", now - 10_000);
@@ -90,10 +121,11 @@ describe("idea service", () => {
     const now = Date.now();
     failedTask("tidy the inbox", now - 10_000);
     const [idea] = refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added;
-    const accepted = acceptIdea(ideas, createTask, idea!.id, { prompt: "  tidy the inbox, skip spam  " });
+    const carryFrom = { tasks, sessions: { load: () => null } };
+    const accepted = acceptIdea(ideas, createTask, idea!.id, { prompt: "  tidy the inbox, skip spam  ", carryFrom });
     expect(accepted?.task.userMessage).toBe("tidy the inbox, skip spam");
     expect(accepted?.idea).toMatchObject({ status: "accepted", taskId: accepted?.task.id });
-    expect(() => acceptIdea(ideas, createTask, idea!.id)).toThrow(IdeaStateError);
+    expect(() => acceptIdea(ideas, createTask, idea!.id, { carryFrom })).toThrow(IdeaStateError);
     expect(tasks.list({ status: "pending" })).toHaveLength(1);
     // The idea is decided, so its source is never offered again.
     expect(refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added).toEqual([]);
@@ -104,7 +136,9 @@ describe("idea service", () => {
     failedTask("tidy the inbox", now - 10_000);
     const [idea] = refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added;
     expect(() =>
-      acceptIdea(ideas, () => { throw new Error("queue closed"); }, idea!.id, { prompt: "other" }),
+      acceptIdea(ideas, () => { throw new Error("queue closed"); }, idea!.id, {
+        prompt: "other", carryFrom: { tasks, sessions: { load: () => null } },
+      }),
     ).toThrow("queue closed");
     expect(ideas.get(idea!.id)).toMatchObject({ status: "new", prompt: "tidy the inbox", taskId: null });
   });
@@ -113,7 +147,9 @@ describe("idea service", () => {
     const now = Date.now();
     failedTask("tidy the inbox", now - 10_000);
     const [idea] = refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added;
-    expect(() => acceptIdea(ideas, createTask, idea!.id, { prompt: "   " })).toThrow(TaskValidationError);
+    expect(() => acceptIdea(ideas, createTask, idea!.id, {
+      prompt: "   ", carryFrom: { tasks, sessions: { load: () => null } },
+    })).toThrow(TaskValidationError);
     expect(ideas.get(idea!.id)?.status).toBe("new");
   });
 

@@ -175,6 +175,11 @@ export class IdeaStore {
     return row ? rowToRecord(row) : null;
   }
 
+  /** Remove a private Retry and its retained prompt, including decided history. */
+  discardPrivateRetry(id: string): void {
+    this.db.prepare("DELETE FROM ideas WHERE id = ? AND kind = 'retry_task'").run(id);
+  }
+
   /** Newest first. */
   list(options: IdeaListOptions = {}): IdeaRecord[] {
     const statuses = options.status === undefined
