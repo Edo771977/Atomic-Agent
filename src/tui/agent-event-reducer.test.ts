@@ -3043,3 +3043,122 @@ describe("a refused API key offers the key field", () => {
     expect(next.messages[0]?.fixKeyProviderId).toBeUndefined();
   });
 });
+
+describe("prompt reading progress (ATO-1001)", () => {
+  const progress = (processed: number, total: number, stepIndex = 0): TuiAction => ({
+    type: "agent_event",
+    event: {
+      type: "llm_event",
+      event: { type: "prompt_progress", stepIndex, processed, total, cached: 0, elapsedMs: 100 },
+    },
+  });
+  const firstToken: TuiAction = {
+    type: "agent_event",
+    event: { type: "llm_event", event: { type: "first_token", stepIndex: 0 } },
+  };
+
+  it("keeps the latest reading until the first token", () => {
+    const reading = apply(createInitialTuiState(fakeSession()), [
+      { type: "agent_event", event: { type: "turn_started", turnIndex: 0 } },
+      { type: "agent_event", event: { type: "step_started", stepIndex: 0 } },
+      progress(2_048, 8_000),
+      progress(4_096, 8_000),
+    ]);
+    expect(reading.promptProgress).toEqual({ processed: 4_096, total: 8_000 });
+    expect(apply(reading, [firstToken]).promptProgress).toBeNull();
+  });
+
+  it("clears at the next step and the next turn", () => {
+    const reading = apply(createInitialTuiState(fakeSession()), [progress(10, 100)]);
+    expect(
+      apply(reading, [{ type: "agent_event", event: { type: "step_started", stepIndex: 1 } }]).promptProgress,
+    ).toBeNull();
+    expect(
+      apply(reading, [{ type: "agent_event", event: { type: "turn_started", turnIndex: 1 } }]).promptProgress,
+    ).toBeNull();
+  });
+
+  it("ignores a reading with no total", () => {
+    const state = createInitialTuiState(fakeSession());
+    expect(apply(state, [progress(0, 0)])).toBe(state);
+  });
+});
+
+describe("reduceTuiState per-step spend for /why (ATO-34)", () => {
+  const usage = (costUsd: number, counts: Partial<{ priced: number; unpriced: number; local: number }> = {}) => ({
+    costUsd,
+    pricedCalls: counts.priced ?? 0,
+    unpricedCalls: counts.unpriced ?? 0,
+    localCalls: counts.local ?? 0,
+    planCalls: 0,
+    costSources: [],
+    unpricedModels: [],
+    limits: [],
+    updatedAt: 1,
+  });
+  const read = (stepIndex: number): TuiAction[] => [
+    {
+      type: "agent_event",
+      event: {
+        type: "llm_event",
+        event: { type: "tool_call_parsed", call: { tool: "os.fs.read", args: { path: "a.ts" } }, batchIndex: 0, batchSize: 1 },
+      },
+    },
+    {
+      type: "agent_event",
+      event: {
+        type: "llm_event",
+        event: {
+          type: "tool_call_executed",
+          result: { tool: "os.fs.read", status: "ok", summary: `step ${stepIndex}`, details: {}, truncated: false },
+          batchIndex: 0,
+          batchSize: 1,
+        },
+      },
+    },
+  ];
+
+  it("puts each priced call on the running step and stamps it on that step's card", () => {
+    const state = apply(createInitialTuiState(fakeSession({ sessionId: "s1" })), [
+      { type: "agent_event", event: { type: "turn_started", turnIndex: 0 } },
+      { type: "agent_event", event: { type: "step_started", stepIndex: 0 } },
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "s1", usage: usage(0.01, { priced: 1 }) } },
+      ...read(0),
+      { type: "agent_event", event: { type: "step_started", stepIndex: 1 } },
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "s1", usage: usage(0.035, { priced: 2 }) } },
+      ...read(1),
+    ]);
+    expect(state.stepSpend[0]?.usd).toBeCloseTo(0.01);
+    expect(state.stepSpend[1]?.usd).toBeCloseTo(0.025);
+    expect(state.streamingToolCards.map((c) => c.stepCostUsd)).toEqual([
+      expect.closeTo(0.01),
+      expect.closeTo(0.025),
+    ]);
+  });
+
+  it("stamps nothing on a local step and ignores another session's spend", () => {
+    const state = apply(createInitialTuiState(fakeSession({ sessionId: "s1" })), [
+      { type: "agent_event", event: { type: "turn_started", turnIndex: 0 } },
+      { type: "agent_event", event: { type: "step_started", stepIndex: 0 } },
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "other", usage: usage(5, { priced: 1 }) } },
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "s1", usage: usage(0, { local: 1 }) } },
+      ...read(0),
+    ]);
+    expect(state.stepSpend[0]).toEqual({ usd: 0, pricedCalls: 0, unpricedCalls: 0, localCalls: 1, planCalls: 0 });
+    expect(state.streamingToolCards[0]?.stepCostUsd).toBeUndefined();
+  });
+
+  it("attributes nothing outside a turn and starts each turn from zero", () => {
+    const idle = apply(createInitialTuiState(fakeSession({ sessionId: "s1" })), [
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "s1", usage: usage(0.02, { priced: 1 }) } },
+    ]);
+    expect(idle.stepSpend).toEqual({});
+    const second = apply(idle, [
+      { type: "agent_event", event: { type: "turn_started", turnIndex: 0 } },
+      { type: "agent_event", event: { type: "step_started", stepIndex: 0 } },
+      { type: "agent_event", event: { type: "usage_updated", sessionId: "s1", usage: usage(0.05, { priced: 2 }) } },
+      { type: "agent_event", event: { type: "turn_started", turnIndex: 1 } },
+    ]);
+    expect(second.stepSpend).toEqual({});
+  });
+});
