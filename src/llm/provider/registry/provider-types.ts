@@ -29,6 +29,7 @@ export type LlmProviderConfigEntry = {
   modelModes?: Readonly<Record<string, ModelMode>>;
   url?: string;
   apiKey?: string;
+  apiKeyEnvVar?: string;
   model?: string;
   baseUrl?: string;
   defaultChatModel?: string;

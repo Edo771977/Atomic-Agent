@@ -21,19 +21,21 @@ export interface LlmApiKeyResolution {
   readonly ignored?: { readonly source: LlmApiKeySource; readonly length: number; readonly reason: string };
 }
 
+type LlmApiKeyEntry = Pick<UserLlmProviderEntry, "id" | "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">;
+
 /**
  * Resolve API keys for provider registry entries. File-stored `apiKey`
  * wins; otherwise well-known env vars are consulted.
  */
 export function resolveLlmProviderApiKey(
-  entry: UserLlmProviderEntry,
+  entry: LlmApiKeyEntry,
 ): string | undefined {
   return resolveLlmProviderApiKeyWithSource(entry).key?.value;
 }
 
 /** `resolveLlmProviderApiKey` with the key's source (doctor names it). */
 export function resolveLlmProviderApiKeyWithSource(
-  entry: UserLlmProviderEntry,
+  entry: LlmApiKeyEntry,
 ): LlmApiKeyResolution {
   let ignored: LlmApiKeyResolution["ignored"];
   const take = (value: string | undefined, source: LlmApiKeySource): LlmApiKeyResolution | null => {
@@ -65,10 +67,9 @@ export function resolveLlmProviderApiKeyWithSource(
     if (!mayUseKeyVariable(entry, entry.apiKeyEnvVar)) return done();
     return fromEnv(entry.apiKeyEnvVar);
   }
-  if (entry.kind === "openrouter") return fromEnv("OPENROUTER_API_KEY");
   if (entry.kind === "aimlapi") return fromEnv("AIMLAPI_API_KEY");
-  if (entry.kind === "gemini") return fromEnv("GEMINI_API_KEY");
-  if (entry.kind === "anthropic") return fromEnv("ANTHROPIC_API_KEY");
+  const native = NATIVE_KEY_DEFAULTS.get(entry.kind);
+  if (native) return mayReceiveDefaultKey(entry.baseUrl, native.origin) ? fromEnv(native.name) : done();
   if (
     entry.kind === "openai-compatible" ||
     entry.kind === "qwen-openai-compatible"
@@ -126,6 +127,12 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
 
 const OPENAI_ORIGIN = "https://api.openai.com";
 
+const NATIVE_KEY_DEFAULTS = new Map([
+  ["anthropic", { origin: "https://api.anthropic.com", name: "ANTHROPIC_API_KEY" }],
+  ["gemini", { origin: "https://generativelanguage.googleapis.com", name: "GEMINI_API_KEY" }],
+  ["openrouter", { origin: "https://openrouter.ai", name: "OPENROUTER_API_KEY" }],
+]);
+
 /** The variables that usually hold the operator's real OpenAI key (ATO-1703). */
 export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
   "OPENAI_API_KEY",
@@ -142,6 +149,10 @@ export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
  * Anything unparsable gets nothing.
  */
 export function mayReceiveOpenAiKey(baseUrl: string | undefined): boolean {
+  return mayReceiveDefaultKey(baseUrl, OPENAI_ORIGIN);
+}
+
+function mayReceiveDefaultKey(baseUrl: string | undefined, officialOrigin: string): boolean {
   if (baseUrl === undefined || baseUrl.length === 0) return true;
   let url: URL;
   try {
@@ -149,8 +160,8 @@ export function mayReceiveOpenAiKey(baseUrl: string | undefined): boolean {
   } catch {
     return false;
   }
-  if (url.origin === OPENAI_ORIGIN) return true;
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+  if (url.origin === officialOrigin) return true;
   const host = url.hostname.toLowerCase();
   return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
 }
