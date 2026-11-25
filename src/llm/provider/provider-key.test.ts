@@ -43,6 +43,12 @@ const LMSTUDIO: ProviderKeySubject = {
 };
 
 describe("providerKeyStatus", () => {
+  it.each(["ANTHROPIC_API_KEY", undefined])("names a withheld native key with apiKeyEnvVar %s", (apiKeyEnvVar) => {
+    vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-vendor-key");
+    const status = providerKeyStatus({ id: "gateway", kind: "anthropic", baseUrl: "https://gateway.example.test", apiKeyEnvVar });
+    expect(status).toMatchObject({ state: "missing", sharedKeyNotSent: "ANTHROPIC_API_KEY" });
+    expect(describeSharedKeyNotSent(status)).toMatch(/ANTHROPIC_API_KEY.*api\.anthropic\.com.*loopback.*apiKeyEnvVar/i);
+  });
   it("is present when a key resolves, from the entry or its env var", () => {
     expect(providerKeyStatus({ ...GROQ, apiKey: "gsk-x" }).state).toBe("present");
     vi.stubEnv("GROQ_API_KEY", "gsk-env");

@@ -87,25 +87,43 @@ export function resolveLlmProviderApiKeyWithSource(
 }
 
 /**
- * The shared variable that holds a key this entry would use if the shared
- * key were sent to its endpoint, when it is not (`maySendSharedOpenAiKey`):
- * an `openai-compatible` entry with no `apiKey` and no `apiKeyEnvVar` of
- * its own, aimed at plain http:// off this machine or at another computer
- * on the network. `undefined` otherwise. Readiness checks use it to say why
- * a set OPENAI_API_KEY does not count for that entry.
+ * The OpenAI or shared compatible variable withheld from this destination.
  */
 export function sharedOpenAiKeyNotSent(
-  entry: Pick<UserLlmProviderEntry, "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">,
+  entry: Pick<LlmApiKeyEntry, "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">,
 ): string | undefined {
   if (entry.apiKey && describeMalformedApiKey(entry.apiKey) === null) return undefined;
   if (entry.apiKeyEnvVar) {
-    return !mayUseKeyVariable(entry, entry.apiKeyEnvVar) && process.env[entry.apiKeyEnvVar]
+    return OPENAI_KEY_VARIABLES.has(entry.apiKeyEnvVar.toUpperCase()) &&
+      !mayUseKeyVariable(entry, entry.apiKeyEnvVar) && process.env[entry.apiKeyEnvVar]
       ? entry.apiKeyEnvVar : undefined;
   }
   if (entry.kind !== "openai-compatible" && entry.kind !== "qwen-openai-compatible") return undefined;
   const shared = sharedOpenAiKey();
   if (shared === undefined || (maySendSharedOpenAiKey(entry.baseUrl) && (shared.name === "OPENAI_COMPAT_API_KEY" || mayReceiveOpenAiKey(entry.baseUrl)))) return undefined;
   return shared.name;
+}
+
+/** The primary native variable reserved for a different destination. */
+export function blockedNativeKeyVariable(
+  entry: Pick<LlmApiKeyEntry, "kind" | "baseUrl" | "apiKeyEnvVar">,
+): string | undefined {
+  const name = entry.apiKeyEnvVar || NATIVE_KEY_DEFAULTS.get(entry.kind)?.name;
+  if (name && NATIVE_KEY_DESTINATIONS.has(name.toUpperCase()) && !mayUseKeyVariable(entry, name)) {
+    return name;
+  }
+  return undefined;
+}
+
+/** The name of the configured or default primary key withheld by the origin guard. */
+export function nativeKeyNotSent(entry: Omit<LlmApiKeyEntry, "id">): string | undefined {
+  if (entry.apiKey && describeMalformedApiKey(entry.apiKey) === null) return undefined;
+  const native = blockedNativeKeyVariable(entry);
+  return native && process.env[native] ? native : undefined;
+}
+
+export function providerKeyNotSent(entry: Omit<LlmApiKeyEntry, "id">): string | undefined {
+  return sharedOpenAiKeyNotSent(entry) ?? nativeKeyNotSent(entry);
 }
 
 /** The shared per-kind variables, in the order they are read. */
@@ -149,11 +167,14 @@ export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
   "ATOMIC_AGENT_OPENAI_API_KEY",
 ]);
 
-/** Why the destination-bound OpenAI key was withheld, without its value. */
-export function describeOpenAiKeyDestination(name: string): string | null {
-  return OPENAI_KEY_VARIABLES.has(name.toUpperCase())
-    ? `${name} is not sent to this server. OpenAI keys go only to api.openai.com or loopback.`
-    : null;
+/** Why a reserved variable was withheld, without its value. */
+export function describeProviderKeyDestination(name: string): string | null {
+  const canonical = name.toUpperCase();
+  if (OPENAI_KEY_VARIABLES.has(canonical)) {
+    return `${name} is not sent to this server. OpenAI keys go only to api.openai.com or loopback.`;
+  }
+  const native = NATIVE_KEY_DESTINATIONS.get(canonical);
+  return native ? `${name} is not sent to this server. ${name} is reserved for ${native.origin} or loopback.` : null;
 }
 
 /**
