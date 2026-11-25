@@ -1463,6 +1463,11 @@ export function buildFusionDelegateTool(
         resumedFrom?.originalRequest ??
         deps.resolveOriginalRequest?.(ctx.sessionId);
       const originalRequest = request === undefined || candidate === undefined ? request : rebaseText(request, [candidateOriginalDir, candidateOriginalDir.replace(/\\/g, "/")], candidate.dir);
+      const inheritWorkspace = workerInheritsWorkspace({
+        modelMode: ctx.modelMode,
+        sessionDir: candidateOriginalDir,
+        startupDir: deps.workingDir,
+      }) || candidate !== undefined;
       // The approved project brief (issue #39): every worker's brief says
       // what is built and its success criteria, and every reviewer's
       // judge brief the criteria. A resumed run reads the same project.
@@ -1692,7 +1697,7 @@ export function buildFusionDelegateTool(
         ...(heldRunChecks === undefined ? {} : { runChecks: heldRunChecks }),
         recordCheckRun,
         ...(deps.knownSecrets === undefined ? {} : { knownSecrets: () => collectKnownSecrets() ?? [] }),
-        ...(candidate === undefined ? {} : { ruleWorkdir: candidateOriginalDir }),
+        ...(candidate === undefined ? {} : { ruleWorkdir: candidateOriginalDir, workspaceTrustDir: candidateOriginalDir }),
         ...(deps.resolveRoutingIdentity === undefined ? {} : { runTurn: (session, message, options) => {
           const taskId = readFusionWorkerMeta(session.metadata)?.taskId;
           const provider = options.providerId;
@@ -2570,7 +2575,7 @@ export function buildFusionDelegateTool(
           // Workers run in the parent's folder in every model mode, so a
           // live folder switch reaches them too (#1121). Only cloud
           // workers inherit the parent's workspace.
-          { ...workerDeps, workingDir: ctx.workingDir, ...(workerInheritsWorkspace({ modelMode: ctx.modelMode, sessionDir: ctx.workingDir, startupDir: deps.workingDir }) ? { inheritWorkspace: true } : {}) },
+          { ...workerDeps, workingDir: ctx.workingDir, ...(inheritWorkspace ? { inheritWorkspace: true } : {}) },
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),
@@ -2641,7 +2646,7 @@ export function buildFusionDelegateTool(
         );
         const onlyRole = roles.size === 1 ? [...roles][0] : "-";
         return runWorkerTasks(
-          { ...workerDeps, workingDir: ctx.workingDir, ...(workerInheritsWorkspace({ modelMode: ctx.modelMode, sessionDir: ctx.workingDir, startupDir: deps.workingDir }) ? { inheritWorkspace: true } : {}) },
+          { ...workerDeps, workingDir: ctx.workingDir, ...(inheritWorkspace ? { inheritWorkspace: true } : {}) },
           {
             ...(originalRequest === undefined ? {} : { originalRequest }),
             ...(contract === undefined ? {} : { contract }),

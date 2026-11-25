@@ -547,6 +547,7 @@ export interface WorkerRunnerDeps {
   /** `runtime.createEphemeralSession` — in-memory, never persisted. */
   createEphemeralSession: (meta: FusionWorkerMeta, workingDir?: string, inheritWorkspace?: boolean) => SessionState;
   inheritWorkspace?: boolean;
+  workspaceTrustDir?: string;
   approvals: Pick<ApprovalGate, "setSessionPolicy" | "clearSessionPolicy"> &
     Partial<
       Pick<
@@ -975,6 +976,7 @@ async function runOneTask(
     parentSessionId: options.parentSessionId,
     taskId: task.id,
   }, workingDir, inheritWorkspace);
+  if (deps.workspaceTrustDir !== undefined) session.workspaceTrustDir = deps.workspaceTrustDir;
   // A worker that queued on the parent id would wait behind the
   // orchestrator's own turn — which is the turn calling this — and the
   // fan-out would deadlock rather than run. `createEphemeralSession`
@@ -2289,6 +2291,7 @@ async function runOneTask(
       workingDir,
       inheritWorkspace,
     );
+    if (deps.workspaceTrustDir !== undefined) replaceSession.workspaceTrustDir = deps.workspaceTrustDir;
     armWorkerSession(replaceSession.id);
     const replaceCollector = new WorkerRunCollector({ workingDir, pricing });
     const capAbort = new AbortController();
