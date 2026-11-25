@@ -341,3 +341,6 @@ Durable tasks, webhook bindings and retry ideas may outlive an ordinary chat. Na
 
 
 `POST /v1/responses` and `POST /v1/messages` reject `incognito` requests with `400` before opening a chat or starting a turn, including for the owner. Use `POST /v1/chat/completions` for incognito chats. These compatibility endpoints accept `incognito: false` for ordinary chats.
+
+
+The generic `409 turn-running` memory conflict does not conceal whether the server has active turns: `/health` exposes the aggregate `busyTurns` count without authentication to loopback callers (remote callers do not receive it), and an authorized metrics caller can read `atomic_agent_turns_running` from `/metrics`. Comparing those counts with a conflict can reveal that a turn is running, including during incognito use, but the counts identify no chat. A zero active-turn count together with this memory conflict can also suggest an open idle incognito chat, since that condition blocks memory operations too. Named callers receive no incognito-specific error code, but the generic error is not a guarantee that private activity cannot be inferred from aggregate status.
