@@ -270,7 +270,7 @@ Ondate:
 | [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Importare |
 | [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importare |
 | [#1660](https://github.com/AtomicBot-ai/atomic-agent/pull/1660) | 2 | TUI: offer /runmode on the start page (ATO-1640) | Importare |
-| [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Importare |
+| [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Gia equivalente su main: tutte le 71 chiavi completate da upstream hanno gia una descrizione non vuota nella tabella generata del fork; preservate le formulazioni del fork. |
 | [#1667](https://github.com/AtomicBot-ai/atomic-agent/pull/1667) | 1 | TUI: show how far a local model has read the prompt (ATO-1001) | Importare |
 | [#1678](https://github.com/AtomicBot-ai/atomic-agent/pull/1678) | 1 | TUI: /think sets the reasoning level of the next turns (ATO-490) | Importare |
 | [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importare |
