@@ -1,3 +1,4 @@
+import { seedLegacyRetry } from "../tasks/idea-legacy-fixture.js";
 import { IdeaStore } from "../tasks/idea-store.js";
 import { afterEach, expect, it, vi } from "vitest";
 import { hashHttpToken } from "./http-token-store.js";
@@ -169,8 +170,8 @@ it("never exposes or replays private Retry ideas after the owner closes the chat
   const ideas = new IdeaStore({ dbFile: h.runtime.config.paths.tasksDbFile });
   let id: string;
   try {
-    id = ideas.sync([{ kind: "retry_task", sourceKey: "task:" + task.id, title: "private", reason: "fixture",
-      evidence: { source: "task", ref: task.id, excerpt: "private", at: null }, prompt: "PRIVATE-TASK-SECRET", sessionId: null }]).added[0]!.id;
+    id = seedLegacyRetry(h.runtime.config.paths.tasksDbFile, { kind: "retry_task", sourceKey: "task:" + task.id, title: "private", reason: "fixture",
+      evidence: { source: "task", ref: task.id, excerpt: "private", at: null }, prompt: "PRIVATE-TASK-SECRET", sessionId: null });
   } finally { ideas.close(); }
   const deleted = await fetch(h.baseUrl + "/api/sessions/" + hidden.id, { method: "DELETE", headers: { authorization: "Bearer owner-fixture" } });
   expect(deleted.status).toBe(200);

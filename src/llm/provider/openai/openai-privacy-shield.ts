@@ -3,7 +3,7 @@ import type { CompletionResult, OpenAiToolCall, StreamChunk } from "../completio
 import {
   createStreamUnmasker,
   isPrivacyShieldEnabledForRequest,
-  privacyVaultFor,
+  privacyVaultForRequest,
   rebuildPrivacyVault,
   PrivacyArchiveLimitError,
   type PrivacyVault,
@@ -33,7 +33,9 @@ export function shieldVaultFor(
   mode: "on" | "off" | "auto" | undefined,
 ): PrivacyVault | null {
   if (mode === "off" || (mode !== "on" && (local || !isPrivacyShieldEnabledForRequest(sessionId)))) return null;
-  return privacyVaultFor(sessionId);
+  // Complete/stream acquire this object once, then use it for both the
+  // outgoing mask and every restored response fragment. Routing IDs remain unchanged.
+  return privacyVaultForRequest(sessionId);
 }
 
 /**

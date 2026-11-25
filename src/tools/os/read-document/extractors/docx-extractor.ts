@@ -1,4 +1,5 @@
 import type { ExtractorInput, ExtractResult } from "./extractor-types.js";
+import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
 
 type DocxOptions = {
   includeEmbeddedStyleMap?: boolean;
@@ -16,6 +17,7 @@ type DocxOptions = {
  * hints.
  */
 export async function docxExtractor(input: ExtractorInput, options?: DocxOptions): Promise<ExtractResult> {
+  await loadBoundedOfficeZip(input.data);
   const mammoth = await loadMammoth();
   const warnings: string[] = [];
 

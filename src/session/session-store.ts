@@ -1278,6 +1278,28 @@ export class SessionStore {
     return storedSessionIsIncognito(this.db, id);
   }
 
+  /** The stored chat's privacy, or null if the row is absent or unreadable. */
+  getSessionPrivacy(id: string): boolean | null {
+    const row = this.db.prepare(`
+      SELECT json_type(payload, '$.incognito') IN ('object', 'array') AS incognito
+      FROM sessions WHERE id = ? AND CASE WHEN json_valid(payload) THEN json_type(payload) = 'object' ELSE 0 END
+    `).get(id) as { incognito: number | null } | undefined;
+    return row === undefined ? null : row.incognito === 1;
+  }
+
+  /** The saved fields needed for egress and provider policy, without the transcript. */
+  loadPolicySubject(id: string): { workingDir: string; metadata?: Record<string, unknown> } | null {
+    const row = this.db.prepare(`
+      SELECT json_extract(payload, '$.workingDir') AS workingDir,
+        CASE WHEN json_type(payload, '$.metadata') = 'object' THEN json_extract(payload, '$.metadata') END AS metadata
+      FROM sessions WHERE id = ? AND CASE WHEN json_valid(payload) THEN json_type(payload) = 'object' ELSE 0 END
+    `).get(id) as { workingDir: unknown; metadata: string | null } | undefined;
+    if (typeof row?.workingDir !== "string") return null;
+    return row.metadata === null
+      ? { workingDir: row.workingDir }
+      : { workingDir: row.workingDir, metadata: JSON.parse(row.metadata) as Record<string, unknown> };
+  }
+
   /** Runtime task guard, including chats whose owner died since boot. */
   isOrphanIncognito(id: string): boolean {
     return storedIncognitoOwnerGone(this.db, id, this.turnOwnerProbe, this.dbIdentity, this.ownedIncognitoMarks.get(id));

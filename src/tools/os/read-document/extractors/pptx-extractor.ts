@@ -1,7 +1,7 @@
+import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
 import type { Extractor } from "./extractor-types.js";
 import {
   joinExtracted,
-  openZip,
   parseXml,
   readZipText,
 } from "./zip-xml-helpers.js";
@@ -16,7 +16,7 @@ import {
  */
 export const pptxExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
-  const zip = await openZip(input.data);
+  const zip = await loadBoundedOfficeZip(input.data);
   const slidePaths = listSlides(zip);
   if (slidePaths.length === 0) {
     return {
@@ -63,7 +63,7 @@ export const pptxExtractor: Extractor = async (input) => {
   };
 };
 
-function listSlides(zip: Awaited<ReturnType<typeof openZip>>): string[] {
+function listSlides(zip: Awaited<ReturnType<typeof loadBoundedOfficeZip>>): string[] {
   const paths: string[] = [];
   zip.forEach((relativePath) => {
     if (/^ppt\/slides\/slide\d+\.xml$/.test(relativePath)) {

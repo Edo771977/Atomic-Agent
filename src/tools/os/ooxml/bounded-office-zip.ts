@@ -2,7 +2,7 @@ import { promisify } from "node:util";
 import { inflateRaw } from "node:zlib";
 import JSZip from "jszip";
 
-const MAX_OFFICE_UNCOMPRESSED_BYTES = 64 * 1024 * 1024;
+const MAX_OFFICE_UNCOMPRESSED_BYTES = 256 * 1024 * 1024;
 const inflate = promisify(inflateRaw);
 
 // JSZip's loaded CompressedObject. Public ZipObject methods only expose
@@ -19,6 +19,7 @@ export async function loadBoundedOfficeZip(
 ): Promise<JSZip> {
   const zip = await JSZip.loadAsync(data);
   const parts: Array<{ name: string; part: CompressedPart }> = [];
+  const limit = Math.min(maxBytes, MAX_OFFICE_UNCOMPRESSED_BYTES);
   let bytes = 0;
   for (const entry of Object.values(zip.files)) {
     if (entry.dir) continue;
@@ -29,7 +30,7 @@ export async function loadBoundedOfficeZip(
       throw new Error("Office package has invalid ZIP size information");
     }
     bytes += part.uncompressedSize;
-    if (bytes > maxBytes) throw new Error("Office package exceeds the uncompressed size limit (" + maxBytes + " bytes)");
+    if (bytes > limit) throw new Error("Office package exceeds the uncompressed size limit (" + limit + " bytes)");
     parts.push({ name: entry.name, part });
   }
   // Central-directory sizes are claims, not limits. Verify with native

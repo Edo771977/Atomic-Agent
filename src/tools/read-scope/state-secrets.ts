@@ -14,7 +14,7 @@ import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
 import { canonical } from "./read-scope.js";
 import { shellCommandLine, type ShellScopeEnv } from "./read-scope-shell.js";
-import { READ_TOOL_TARGETS, isNonFileReadUrl, localFileOfUrl, readTargetPaths } from "./read-scope-targets.js";
+import { READ_TOOL_TARGETS, isShellHttpUrl, localFileOfUrl, readTargetPaths } from "./read-scope-targets.js";
 
 /**
  * The agent's own secret files, guarded on the way OUT (ATO-877).
@@ -329,7 +329,7 @@ function pathOfToken(token: string, cwd: string, home: string): string | null {
   const eq = t.indexOf("=");
   if (eq >= 0) t = t.slice(eq + 1);
   t = t.replace(/^@/, "");
-  if (t.length === 0 || isNonFileReadUrl(t)) return null;
+  if (t.length === 0 || isShellHttpUrl(t)) return null;
   const file = localFileOfUrl(t);
   if (file !== null) return file;
   if (t === "~") return home;

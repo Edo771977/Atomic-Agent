@@ -5,12 +5,12 @@ import type { ToolContext, ToolDefinition } from "../../tool-registry.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
 import { CHART_TYPES, type ChartType } from "../ooxml/ooxml-chart.js";
-import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 import { OS_FS_XLSX_CONTRACT } from "./office-contracts.js";
 import { addChartToXlsx, chartDataFromSheet, hasCharts, validateChartRange, type ChartPlacement } from "./xlsx-chart.js";
 import { commitOfficeFile, given, optionalString, readExisting } from "./office-write.js";
 import {
   openWorkbook,
+  openWorkbookPackage,
   parseCellRef,
   pickSheet,
   readRange,
@@ -125,7 +125,10 @@ export function parseXlsxArgs(raw: Record<string, unknown>): XlsxArgs {
 const CHARTS_WOULD_BE_LOST =
   "it has charts, and writing cells here would drop them (the cell writer cannot keep charts). Save a copy first, or write to another workbook";
 
-export function buildOsFsXlsxTool(options: FsDangerousToolOptions): ToolDefinition {
+export function buildOsFsXlsxTool(
+  options: FsDangerousToolOptions,
+  archiveLimits: { maxUncompressedBytes?: number } = {},
+): ToolDefinition {
   return {
     name: TOOL,
     description: OS_FS_XLSX_CONTRACT.description,
@@ -137,7 +140,7 @@ export function buildOsFsXlsxTool(options: FsDangerousToolOptions): ToolDefiniti
 
       if (args.op === "read") {
         if (existing === null) throw new Error(`${TOOL}: ${absolute} does not exist`);
-        const workbook = await wrapXlsxError(() => openWorkbook(existing), absolute);
+        const workbook = await wrapXlsxError(() => openWorkbook(existing, archiveLimits), absolute);
         const { sheet } = pickSheet(workbook, args.sheet, false);
         const shown = readRange(sheet, args.range);
         const names = workbook.worksheets.map((ws) => ws.name);
@@ -154,11 +157,7 @@ export function buildOsFsXlsxTool(options: FsDangerousToolOptions): ToolDefiniti
         );
       }
 
-      if (args.op === "chart") return chartOp(options, ctx, args, absolute, existing);
-
-      if (args.op === "write" && existing !== null && (await hasChartsSafe(existing))) {
-        throw new Error(`${TOOL}: not writing to ${absolute}: ${CHARTS_WOULD_BE_LOST}`);
-      }
+      if (args.op === "chart") return chartOp(options, ctx, args, absolute, existing, archiveLimits);
       if (args.op === "create" && existing !== null && !args.overwrite) {
         throw new Error(
           `${TOOL}: ${absolute} already exists; use op write to change it, or overwrite: true to replace it`,
@@ -174,11 +173,13 @@ export function buildOsFsXlsxTool(options: FsDangerousToolOptions): ToolDefiniti
         if (args.op === "write" && current === null) {
           throw new Error(`${TOOL}: ${absolute} does not exist; use op create to make it`);
         }
-        if (args.op === "write" && current !== null && (await hasChartsSafe(current))) {
-          throw new Error(`${TOOL}: ${CHARTS_WOULD_BE_LOST}`);
-        }
         const workbook = await wrapXlsxError(
-          () => openWorkbook(args.op === "write" && current !== null ? current : undefined),
+          () => openWorkbook(args.op === "write" && current !== null ? current : undefined, {
+            ...archiveLimits,
+            checkArchive: zip => {
+              if (hasCharts(zip)) throw new Error(`${TOOL}: not writing to ${absolute}: ${CHARTS_WOULD_BE_LOST}`);
+            },
+          }),
           absolute,
         );
         const { sheet, created } = pickSheet(workbook, args.sheet, true);
@@ -239,15 +240,6 @@ export function buildOsFsXlsxTool(options: FsDangerousToolOptions): ToolDefiniti
   };
 }
 
-async function hasChartsSafe(data: Buffer): Promise<boolean> {
-  try {
-    return await hasCharts(data);
-  } catch {
-    // Not a zip: exceljs reports that more usefully.
-    return false;
-  }
-}
-
 /** op chart: a native chart over a data block, the workbook otherwise untouched. */
 async function chartOp(
   options: FsDangerousToolOptions,
@@ -255,14 +247,14 @@ async function chartOp(
   args: XlsxArgs,
   absolute: string,
   existing: Buffer | null,
+  archiveLimits: { maxUncompressedBytes?: number },
 ) {
   if (existing === null) throw new Error(`${TOOL}: ${absolute} does not exist; create it and write the data first`);
   const chart = args.chart ?? { type: "column" as const };
   const range = args.range ?? "";
   const build = async (current: Buffer | null): Promise<{ data: Buffer; placement: ChartPlacement }> => {
     if (current === null) throw new Error(`${absolute} was removed`);
-    const zip = await loadBoundedOfficeZip(current);
-    const workbook = await wrapXlsxError(() => openWorkbook(current), absolute);
+    const { workbook, zip } = await wrapXlsxError(() => openWorkbookPackage(current, archiveLimits), absolute);
     const { sheet } = pickSheet(workbook, args.sheet, false);
     const spec = chartDataFromSheet(sheet, { ...chart, range });
     return addChartToXlsx(zip, spec, {
