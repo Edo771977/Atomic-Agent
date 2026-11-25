@@ -64,7 +64,7 @@ A run that timed out or crashed fails without running its checks.
 
 The judge is always one of the person's own models; there is no built-in paid default. The first that applies:
 
-1. `--judge-url <url>` or `ATOMIC_AGENT_JUDGE_URL`, with `--judge-model <id>` or `ATOMIC_AGENT_JUDGE_MODEL` (required with a URL): an OpenAI-compatible endpoint, the same knobs as the eval harness judge (`eval/harness/judge-client.ts`). Key from `ATOMIC_AGENT_JUDGE_API_KEY` or `OPENROUTER_API_KEY` (the agent's `.env` is read first); a localhost URL needs none.
+1. `--judge-url <url>` or `ATOMIC_AGENT_JUDGE_URL`, with `--judge-model <id>` or `ATOMIC_AGENT_JUDGE_MODEL` (required with a URL): an OpenAI-compatible endpoint, the same knobs as the eval harness judge (`eval/harness/judge-client.ts`). Use `ATOMIC_AGENT_JUDGE_API_KEY` for a hosted judge. The `OPENROUTER_API_KEY` fallback is available at `https://openrouter.ai` and loopback only. A localhost URL needs no key.
 2. `skills.eval.judgeProvider` in config.json: an id from `llm.providers`. The judge calls that provider with its own configured model.
 3. The active text provider, when it is a cloud provider. Then the model under test also grades; set `skills.eval.judgeProvider` to another provider for an independent judge.
 

@@ -1,5 +1,6 @@
 import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { PrivacyVault } from "../../privacy/index.js";
+import { maySendApiKeyVariableToUrl } from "../../config/resolve-llm-api-key.js";
 import type { KnownSecret } from "../../error-reporting/secret-detector.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
 import { addPrivacyInstructions, maskOpenAiBody } from "../../llm/provider/openai/openai-privacy-shield.js";
@@ -19,7 +20,7 @@ import type { ResolvedLlmConfig } from "../../llm/provider/registry/provider-typ
  *    `ATOMIC_AGENT_JUDGE_MODEL` (or `--judge-model`): an OpenAI-compatible
  *    endpoint the person names, the same knobs as the eval harness judge
  *    (`eval/harness/judge-client.ts`). Key from `ATOMIC_AGENT_JUDGE_API_KEY`
- *    or `OPENROUTER_API_KEY`; a localhost URL needs none.
+ *    or `OPENROUTER_API_KEY` at OpenRouter or loopback; localhost needs no key.
  * 2. `skills.eval.judgeProvider`: a configured provider id.
  * 3. The active text provider, when it is a cloud one.
  *
@@ -110,9 +111,10 @@ export function resolveJudgeConfig(
     const baseUrl = url.replace(/\/+$/, "");
     const model = (flags.model ?? env.ATOMIC_AGENT_JUDGE_MODEL)?.trim();
     if (!model) return { error: `the judge at ${baseUrl} needs a model: set ATOMIC_AGENT_JUDGE_MODEL or pass --judge-model` };
-    const apiKey = env.ATOMIC_AGENT_JUDGE_API_KEY ?? env.OPENROUTER_API_KEY ?? null;
+    const openRouterAllowed = maySendApiKeyVariableToUrl("OPENROUTER_API_KEY", baseUrl);
+    const apiKey = env.ATOMIC_AGENT_JUDGE_API_KEY ?? (openRouterAllowed ? env.OPENROUTER_API_KEY : undefined) ?? null;
     if (requiresApiKey(baseUrl) && !apiKey) {
-      return { error: `the judge at ${baseUrl} needs an API key: set ATOMIC_AGENT_JUDGE_API_KEY (or OPENROUTER_API_KEY)` };
+      return { error: `the judge at ${baseUrl} needs an API key: set ATOMIC_AGENT_JUDGE_API_KEY${openRouterAllowed ? " (or OPENROUTER_API_KEY)" : ""}` };
     }
     return { kind: "http", baseUrl, model, apiKey, timeoutMs };
   }

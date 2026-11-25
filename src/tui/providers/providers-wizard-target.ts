@@ -10,10 +10,11 @@
  */
 
 import {
-  describeOpenAiKeyDestination,
+  blockedNativeKeyVariable,
+  describeProviderKeyDestination,
   maySendSharedOpenAiKey,
   resolveLlmProviderApiKey,
-  sharedOpenAiKeyNotSent,
+  providerKeyNotSent,
 } from "../../config/resolve-llm-api-key.js";
 import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import { DEFAULT_AIMLAPI_BASE } from "../../llm/provider/aimlapi/aimlapi-provider.js";
@@ -146,8 +147,14 @@ export function envHintForWizard(wizard: ProvidersWizardState): string {
   const preset = wizard.presetId
     ? findProviderPreset(wizard.presetId)
     : undefined;
+  const stored = storedEntryForWizard(wizard);
+  if (blockedNativeKeyVariable(stored ?? keyLookupEntryForWizard(wizard))) {
+    return wizard.providerId
+      ? networkComputerKeyEnvVar(wizard.providerId)
+      : "ATOMIC_AGENT_KEY_<connection id>";
+  }
   if (preset) {
-    return ownPresetKeyEnvVar(preset, storedEntryForWizard(wizard)) ?? preset.envVar;
+    return ownPresetKeyEnvVar(preset, stored) ?? preset.envVar;
   }
   // ATO-1066: a key for an endpoint the shared variables are never sent
   // to (another computer on the network, plain http:// off this machine)
@@ -227,11 +234,11 @@ export function isSharedCompatKeyVar(name: string): boolean {
 export function sharedKeyNotSentNote(wizard: ProvidersWizardState): string | null {
   if (apiKeyForWizard(wizard)) return null;
   const stored = storedEntryForWizard(wizard);
-  const set = sharedOpenAiKeyNotSent(stored ?? keyLookupEntryForWizard(wizard));
+  const set = providerKeyNotSent(stored ?? keyLookupEntryForWizard(wizard));
   if (!set) return null;
-  const openAi = describeOpenAiKeyDestination(set);
-  if (openAi !== null) {
-    return `${openAi} If this server needs a key, type the server's key here, or name its variable with apiKeyEnvVar in config.json.`;
+  const destination = describeProviderKeyDestination(set);
+  if (destination !== null) {
+    return `${destination} If this server needs a key, type the server's key here, or name its variable with apiKeyEnvVar in config.json.`;
   }
   if (!getsOwnKeyVariable(wizard)) return null;
   const where = targetsOtherComputer(wizard)

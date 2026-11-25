@@ -1,7 +1,8 @@
 import type { UserSubscriptionCliOptions } from "../../config/llm-config.js";
 import { usesExternalCliAuth } from "../../config/provider-auth-mode.js";
 import {
-  describeOpenAiKeyDestination,
+  describeProviderKeyDestination,
+  nativeKeyNotSent,
   resolveExtraApiKeys,
   resolveLlmProviderApiKey,
   sharedOpenAiKeyNotSent,
@@ -73,8 +74,8 @@ interface SharedKeyNotSent {
 /** One line for a readiness hint, or `null` when nothing was withheld. */
 export function describeSharedKeyNotSent(status: ProviderKeyStatus): string | null {
   if (!("sharedKeyNotSent" in status) || !status.sharedKeyNotSent) return null;
-  const openAi = describeOpenAiKeyDestination(status.sharedKeyNotSent);
-  if (openAi !== null) return `${openAi} If this server needs a key, set its own apiKey or apiKeyEnvVar.`;
+  const destination = describeProviderKeyDestination(status.sharedKeyNotSent);
+  if (destination !== null) return `${destination} If this server needs a key, set its own apiKey or apiKeyEnvVar.`;
   return (
     `${status.sharedKeyNotSent} is not sent to this server (plain http:// off this machine, ` +
     "or another computer on your network); if it needs a key, set the provider's own apiKey or apiKeyEnvVar"
@@ -142,7 +143,7 @@ export function providerKeyStatus(
   }
   if (usesExternalCliAuth(entry)) return { state: "not-needed" };
   const preset = presetForEntryId(entry.id);
-  const withheld = sharedOpenAiKeyNotSent(entry);
+  const withheld = sharedOpenAiKeyNotSent(entry) ?? nativeKeyNotSent(entry);
   const note = withheld !== undefined ? { sharedKeyNotSent: withheld } : {};
   if (preset?.local || isLocalProviderUrl(entry.baseUrl)) {
     return { state: "not-needed", ...note };

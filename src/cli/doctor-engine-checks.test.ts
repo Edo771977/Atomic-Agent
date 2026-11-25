@@ -127,6 +127,21 @@ describe("doctor engine checks (ATO-577)", () => {
     }
   });
 
+  it("explains a withheld implicit native key without probing the gateway", async () => {
+    const before = process.env.GEMINI_API_KEY;
+    process.env.GEMINI_API_KEY = "synthetic-gemini-key";
+    try {
+      const provider = { id: "gateway", kind: "gemini", baseUrl: "https://gateway.example.test" };
+      const findings = await runEngineChecks(cfg({ active: provider.id, providers: [provider] }), probes({
+        verifyKey: async () => { throw new Error("the gateway must not be probed"); },
+      }));
+      expect(by(findings, "key")?.message).toMatch(/GEMINI_API_KEY.*generativelanguage\.googleapis\.com.*loopback.*apiKeyEnvVar/i);
+    } finally {
+      if (before === undefined) delete process.env.GEMINI_API_KEY;
+      else process.env.GEMINI_API_KEY = before;
+    }
+  });
+
   it("an own (custom) model is not called on disk", async () => {
     const fs = await runEngineChecks(cfg({ modelId: "my-hf-model" }), probes({ modelDownloaded: () => null }));
     expect(by(fs, "model")?.status).toBe("warn");

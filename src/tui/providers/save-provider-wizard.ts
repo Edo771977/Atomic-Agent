@@ -1,6 +1,7 @@
 import { getConfig } from "../../config/index.js";
 import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import {
+  blockedNativeKeyVariable,
   maySendSharedOpenAiKey,
   resolveLlmProviderApiKey,
 } from "../../config/resolve-llm-api-key.js";
@@ -167,6 +168,10 @@ export function saveProviderWizardToConfig(
   // (not `existing`, whose values the environment may have filled).
   if (storedFile) entry = withStoredRequestShaping(entry, storedFile);
   if (wizard.apiKeyBuffer.trim().length > 0) {
+    const configuredEnv = entry.apiKeyEnvVar ?? stored?.apiKeyEnvVar;
+    const gatewayEnv = blockedNativeKeyVariable({ ...entry, apiKeyEnvVar: configuredEnv })
+      ? networkComputerKeyEnvVar(entry.id)
+      : networkKeyEnvVar;
     // Validate the value that is actually persisted: the dotenv writer
     // trims, and `trim()` strips U+00A0/U+FEFF paste artifacts that are
     // non-ASCII themselves. Checking the raw buffer here would refuse a
@@ -182,9 +187,9 @@ export function saveProviderWizardToConfig(
     writeProviderApiKeyToDotenv(
       kind,
       wizard.apiKeyBuffer,
-      ownKeyEnvVar ?? preset?.envVar ?? networkKeyEnvVar,
+      gatewayEnv ?? ownKeyEnvVar ?? preset?.envVar,
     );
-    if (networkKeyEnvVar) entry = { ...entry, apiKeyEnvVar: networkKeyEnvVar };
+    if (gatewayEnv) entry = { ...entry, apiKeyEnvVar: gatewayEnv };
   } else if (stored?.apiKey) {
     entry = { ...entry, apiKey: stored.apiKey };
   } else if (

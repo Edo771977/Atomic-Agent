@@ -1,4 +1,5 @@
 import { buildJudgeMessages } from "./build-judge-prompt.js";
+import { maySendApiKeyVariableToUrl } from "../../src/config/resolve-llm-api-key.js";
 import type {
   JudgeClient,
   JudgeConfig,
@@ -18,8 +19,8 @@ const DEFAULT_APP_TITLE = "atomic-agent eval";
  *
  * Defaults target OpenRouter (`https://openrouter.ai/api/v1`,
  * `openai/gpt-4o-mini`). A key is required for hosted providers:
- * `OPENROUTER_API_KEY` is checked first, then the legacy
- * `ATOMIC_AGENT_JUDGE_API_KEY`.
+ * `OPENROUTER_API_KEY` is preferred at OpenRouter and literal loopback.
+ * Other hosted endpoints use `ATOMIC_AGENT_JUDGE_API_KEY`.
  *
  * Behaviour matrix:
  * - `ATOMIC_AGENT_JUDGE_DISABLED=1`      → `null`, silent (CI escape hatch).
@@ -40,14 +41,15 @@ export function loadJudgeConfigFromEnv(): JudgeConfig | null {
   const baseUrl = normaliseBaseUrl(
     process.env.ATOMIC_AGENT_JUDGE_URL ?? DEFAULT_BASE_URL,
   );
+  const openRouterAllowed = maySendApiKeyVariableToUrl("OPENROUTER_API_KEY", baseUrl);
   const apiKey =
-    process.env.OPENROUTER_API_KEY ??
+    (openRouterAllowed ? process.env.OPENROUTER_API_KEY : undefined) ??
     process.env.ATOMIC_AGENT_JUDGE_API_KEY ??
     null;
   if (requiresApiKey(baseUrl) && !apiKey) {
     process.stderr.write(
       `[eval] judge disabled: ${baseUrl} requires an API key. ` +
-        "Set OPENROUTER_API_KEY (preferred) or ATOMIC_AGENT_JUDGE_API_KEY, " +
+        (openRouterAllowed ? "Set OPENROUTER_API_KEY or ATOMIC_AGENT_JUDGE_API_KEY, " : "Set ATOMIC_AGENT_JUDGE_API_KEY, ") +
         "or point ATOMIC_AGENT_JUDGE_URL at a local llama-server.\n",
     );
     return null;

@@ -1,7 +1,38 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { resolveExtraApiKeys, resolveLlmProviderApiKey } from "./resolve-llm-api-key.js";
+import { findProviderPreset, presetEntryFields } from "../llm/provider/presets/provider-presets.js";
 
 afterEach(() => vi.unstubAllEnvs());
+
+it.each([
+  ["http://localhost.:8000", false],
+  ["http://localhost:8000", true],
+  ["http://[::ffff:127.0.0.2]:8000", true],
+  ["http://0.0.0.0:8000", false],
+  ["http://[::]:8000", false],
+  ["http://example.localhost:8000", false],
+  ["http://[::ffff:192.168.1.20]:8000", false],
+])("applies the reserved-key loopback policy to %s", (baseUrl, allowed) => {
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-native");
+  vi.stubEnv("OPENAI_API_KEY", "fixture-openai");
+  const entry = { id: "fixture", kind: "openrouter", baseUrl, extraApiKeyEnvVars: ["OPENAI_API_KEY"] };
+  expect(resolveLlmProviderApiKey(entry)).toBe(allowed ? "fixture-native" : undefined);
+  expect(resolveExtraApiKeys(entry)).toEqual(allowed ? ["fixture-openai"] : []);
+});
+
+it("withholds native and OpenAI credentials from the dotted localhost name", () => {
+  vi.stubEnv("ANTHROPIC_API_KEY", "fixture-anthropic");
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-openrouter");
+  vi.stubEnv("OPENAI_API_KEY", "fixture-openai");
+  vi.stubEnv("OPENAI_COMPAT_API_KEY", undefined);
+  const baseUrl = "http://localhost.:4000";
+  expect([
+    resolveLlmProviderApiKey({ id: "fixture", kind: "anthropic", baseUrl }),
+    resolveLlmProviderApiKey({ id: "fixture", kind: "openai-compatible", baseUrl, apiKeyEnvVar: "OPENAI_API_KEY" }),
+    resolveLlmProviderApiKey({ id: "fixture", kind: "openai-compatible", baseUrl }),
+    resolveExtraApiKeys({ baseUrl, extraApiKeyEnvVars: ["ANTHROPIC_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY"] }),
+  ]).toEqual([undefined, undefined, undefined, []]);
+});
 
 it.each(["openai_api_key", "AtOmIc_AgEnT_OpenAI_API_Key"])(
   "scopes the OpenAI alias %s in a case-insensitive environment",
@@ -30,6 +61,7 @@ it.each([
   ["anthropic", "ANTHROPIC_API_KEY", "https://api.anthropic.com/v1"],
   ["gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta"],
   ["openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"],
+  ["aimlapi", "AIMLAPI_API_KEY", "https://api.aimlapi.com/v1"],
 ])("scopes implicit %s credentials to the official origin or loopback", (kind, name, official) => {
   vi.stubEnv(name, "synthetic-vendor-key");
   vi.stubEnv("OPENAI_API_KEY", "synthetic-openai-key");
@@ -41,6 +73,33 @@ it.each([
   expect(resolveLlmProviderApiKey({ ...entry, baseUrl: official.replace("https:", "http:") })).toBeUndefined();
   expect(resolveLlmProviderApiKey(alternate)).toBeUndefined();
   expect(resolveLlmProviderApiKey({ ...alternate, apiKey: "synthetic-gateway-key" })).toBe("synthetic-gateway-key");
-  expect(resolveLlmProviderApiKey({ ...alternate, apiKeyEnvVar: name })).toBe("synthetic-vendor-key");
+  expect(resolveLlmProviderApiKey({ ...alternate, apiKeyEnvVar: name })).toBeUndefined();
   expect(resolveLlmProviderApiKey({ ...alternate, apiKeyEnvVar: "OPENAI_API_KEY" })).toBeUndefined();
+});
+
+it("scopes the key variable saved by the Anthropic preset to the actual origin", () => {
+  vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-vendor-key");
+  const preset = findProviderPreset("anthropic")!;
+  expect(resolveLlmProviderApiKey({ id: "preset", ...presetEntryFields(preset) })).toBe("synthetic-vendor-key");
+  expect(resolveLlmProviderApiKey({ id: "preset", ...presetEntryFields(preset, "https://gateway.example.test") })).toBeUndefined();
+});
+
+it.each([
+  ["aNtHrOpIc_ApI_kEy", "https://api.anthropic.com/v1"],
+  ["gemini_api_key", "https://generativelanguage.googleapis.com/v1beta"],
+  ["oPeNrOuTeR_aPi_KeY", "https://openrouter.ai/api"],
+  ["aimlapi_api_key", "https://api.aimlapi.com/v1"],
+])("binds the named and extra key %s to its own origin", (name, official) => {
+  vi.stubEnv(name, "synthetic-vendor-key");
+  vi.stubEnv("FIXTURE_GATEWAY_KEY", "synthetic-gateway-key");
+  const entry = { id: "fixture", kind: "openai-compatible", apiKeyEnvVar: name,
+    extraApiKeyEnvVars: [name, "FIXTURE_GATEWAY_KEY"] };
+  const gateway = { ...entry, baseUrl: "https://gateway.example.test" };
+  expect(resolveLlmProviderApiKey(gateway)).toBeUndefined();
+  expect(resolveExtraApiKeys(gateway)).toEqual(["synthetic-gateway-key"]);
+  expect(resolveLlmProviderApiKey({ ...gateway, apiKeyEnvVar: "FIXTURE_GATEWAY_KEY" })).toBe("synthetic-gateway-key");
+  for (const baseUrl of [official, "http://127.0.0.1:1234"]) {
+    expect(resolveLlmProviderApiKey({ ...entry, baseUrl })).toBe("synthetic-vendor-key");
+    expect(resolveExtraApiKeys({ ...entry, baseUrl })).toEqual(["synthetic-vendor-key", "synthetic-gateway-key"]);
+  }
 });
