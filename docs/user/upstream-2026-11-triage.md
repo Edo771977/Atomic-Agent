@@ -297,7 +297,7 @@ Ondate:
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
 | [#1579](https://github.com/AtomicBot-ai/atomic-agent/pull/1579) | 2 | ATO-1454: atag login chatgpt and logout chatgpt (experimental) | Importare con revisione approfondita |
 | [#1618](https://github.com/AtomicBot-ai/atomic-agent/pull/1618) | 1 | Phone panel can be added to the home screen as an app (ATO-1130) | Importare con revisione approfondita |
-| [#1624](https://github.com/AtomicBot-ai/atomic-agent/pull/1624) | 2 | feat(approval): add an approval rule by hand through the API (ATO-1011) | Importare con revisione approfondita |
+| [#1624](https://github.com/AtomicBot-ai/atomic-agent/pull/1624) | 2 | feat(approval): add an approval rule by hand through the API (ATO-1011) | Rinviata in PR_B2_1624: prova avversariale sul secondo genitore dei merge originali e gate fixes: un figlio ATOMIC_AGENT_TOOL_CHILD con chiave ereditata salva una regola (201). Il bearer non attesta la provenienza umana; serve un controllo non falsificabile prima di esporre la scrittura persistente. B1 #1686 non e ancora in main a70dd3f32. |
 | [#1633](https://github.com/AtomicBot-ai/atomic-agent/pull/1633) | 1 | HTTP: POST /api/btw for the side question (ATO-1152) | Importare con revisione approfondita |
 | [#1638](https://github.com/AtomicBot-ai/atomic-agent/pull/1638) | 3 | Serve: A2A agent card and task endpoint behind --a2a (ATO-693) | Importare con revisione approfondita |
 | [#1639](https://github.com/AtomicBot-ai/atomic-agent/pull/1639) | 2 | Bridge trusted Hermes Python plugins as local MCP servers (ATO-953) | Importare con revisione approfondita |
