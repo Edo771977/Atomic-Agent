@@ -7,7 +7,8 @@ import { goalIdeaInputs } from "./idea-goal-source.js";
 import { unsafeRetrySource } from "./idea-privacy.js";
 import { buildIdeaCandidates } from "./idea-rules.js";
 import type { IdeaStore, IdeaSyncResult } from "./idea-store.js";
-import type { IdeaRecord } from "./idea-types.js";
+import { ideaSourceTaskId, type IdeaRecord } from "./idea-types.js";
+export { ideaSourceTaskId } from "./idea-types.js";
 import type { TaskStore } from "./task-store.js";
 import {
   TASK_USER_MESSAGE_MAX_LENGTH,
@@ -145,13 +146,6 @@ export interface AcceptIdeaOptions {
   /** Lets a Retry card carry over the original task's limits and folder. */
   carryFrom?: IdeaCarrySource;
   now?: number;
-}
-
-/** The task a `retry_task` idea was built from, or `null` for other kinds. */
-export function ideaSourceTaskId(idea: Pick<IdeaRecord, "kind" | "sourceKey" | "evidence">): string | null {
-  if (idea.kind !== "retry_task") return null;
-  if (idea.evidence.source === "task" && idea.evidence.ref) return idea.evidence.ref;
-  return idea.sourceKey.startsWith("task:") ? idea.sourceKey.slice("task:".length) : null;
 }
 
 /** What a Retry card carries over, or `null` when the original task is gone. */

@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { acceptIdea, ideaTaskCarry, refreshIdeas, type IdeaTaskCarry } from "./idea-service.js";
 import { IdeaStore } from "./idea-store.js";
+import { seedLegacyRetry } from "./idea-legacy-fixture.js";
 import { IDEAS_PER_KIND_MAX, IdeaStateError } from "./idea-types.js";
 import { TaskStore } from "./task-store.js";
 import { TaskValidationError } from "./task-types.js";
@@ -60,23 +61,41 @@ describe("idea service", () => {
     expect(ideas.list()).toEqual([]);
   });
 
+  it("cannot insert a Retry after the source session closes between scan and sync", () => {
+    const sessionId = "closed-during-refresh";
+    const task = tasks.create({ sessionId, userMessage: "synthetic private prompt", origin: "cli", maxAttempts: 1 });
+    tasks.markRunning(task.id);
+    tasks.markFailed(task.id, { category: "transport", message: "fixture" });
+    const result = refreshIdeas({
+      ideas,
+      tasks: { list: () => {
+        const snapshot = tasks.list();
+        expect(tasks.removeForSession(sessionId)).toBe(1);
+        return snapshot;
+      } },
+      sessions: noSessions,
+    });
+    expect(result.added).toEqual([]);
+    expect(ideas.list()).toEqual([]);
+  });
+
   it.each(["task marked private", "ordinary recorded origin"] as const)(
     "uses startup privacy rules at acceptance: %s",
     variant => {
       const task = variant === "task marked private" ? failedTask("fixture", Date.now() - 1_000) : null;
       const id = task?.id ?? "expired-task";
-      const [card] = ideas.sync([{
+      const cardId = seedLegacyRetry(join(tmp, "tasks.sqlite"), {
         kind: "retry_task", title: "Fixture", reason: "fixture", prompt: "synthetic prompt",
         sourceKey: `task:${id}`, sessionId: null, sourceSessionId: "ordinary-chat",
         evidence: { source: "task", ref: id, excerpt: "", at: null },
-      }]).added;
-      const result = acceptIdea(ideas, createTask, card!.id, { carryFrom: {
+      });
+      const result = acceptIdea(ideas, createTask, cardId, { carryFrom: {
         tasks: { get: () => task ? { ...task, incognito: true } : null },
         sessions: { load: () => ({ workingDir: tmp }) },
       } });
       if (task) {
         expect(result).toBeNull();
-        expect(ideas.get(card!.id)).toBeNull();
+        expect(ideas.get(cardId)).toBeNull();
       } else {
         expect(result?.idea.status).toBe("accepted");
       }
