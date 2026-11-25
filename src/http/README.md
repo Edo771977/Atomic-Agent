@@ -123,9 +123,12 @@ Serve permits one HTTP backup at a time (`409 backup-running`) and publishes at 
 
 [Local models text](route-local-models.ts) (ATO-1127): `GET /api/local-models/list`, `/api/local-models/status` and `/api/local-models/list-embeddings` return `{ ok, text }` with the corresponding CLI output for the host running the server. These routes read the current config from disk without writing it or changing the process-wide cache.
 
+[Discord channel route](route-discord-channel.ts) (ATO-516): GET /api/discord/channel requires read scope and returns only { available, state, lastError, hasToken, otherPoller }. lastError is null or the fixed channel_error, never provider error text. No token, bot identity, user ID or message content is returned. otherPoller contains only a local process ID for a lock conflict. Responses use no-store.
+
+
 Auth on the network (ATO-1126): the bearer token is compared in constant time ([secret-equal.ts](secret-equal.ts)); an address that sends 10 wrong or missing tokens within a minute gets `429 auth_throttled` with `retry-after` for a minute ([auth-throttle.ts](auth-throttle.ts)); loopback callers are never throttled. `serve` refuses a network host without a key (ATO-760) or with a key shorter than 16 characters, and on `0.0.0.0` / `::` prints the LAN addresses other devices reach it at. On a network address, sessions of a constrained folder without `serve` in `allowedEgress` are refused ([serve egress](serve-egress.ts), [policy](../llm/docs/provider-policy.md#egress-allowedegress)).
 
-The main listener authenticates every `/api/*` and `/v1/*` route, including model discovery, webhooks and both reads and writes of project choices. A missing or invalid key returns `401` on any host. Non-loopback callers can receive `429 auth_throttled` after repeated failures. The only public routes on this listener are `GET /health` for liveness and `GET /panel` plus `GET /panel/app.js` for the static panel. The separate tunnel listener authenticates provider deliveries at `POST /webhooks/{name}` using the binding's secret or signature. The explicit `unauthenticated: true` server option is used by the test harness.
+The main listener authenticates every `/api/*` and `/v1/*` route, including model discovery, webhooks and both reads and writes of project choices. A missing or invalid key returns `401` on any host. Non-loopback callers can receive `429 auth_throttled` after repeated failures. The public allowlist on this listener is GET /health, GET /panel, GET /panel/app.js, GET /panel/manifest.webmanifest, GET /panel/icon.svg and GET /panel/icon-180.png. Panel resources contain only compiled static bytes with no-store, nosniff, no-referrer and a restrictive CSP. The separate tunnel listener authenticates provider deliveries at `POST /webhooks/{name}` using the binding's secret or signature. The explicit `unauthenticated: true` server option is used by the test harness.
 
 Loopback `serve` generates and reuses `<stateDir>/serve-api.key` with mode `0600` on POSIX and the shared credential ACL routine on Windows. Serve refuses to use the generated key file if it cannot restrict access. Read the file from your own account. To rotate the generated key, stop the servers using that state directory, remove that file, restart, and give the new key to clients. Send it in `Authorization: Bearer <key>` or `x-api-key`.
 
@@ -140,6 +143,9 @@ The legacy environment entry still works, and Linux retains it in the process's 
 If you forward webhook requests through your own reverse proxy (for example ngrok or nginx), keep the main listener path `POST /api/webhooks/{name}`. Forward a named credential with the chat scope or the owner key in `Authorization: Bearer <key>` or `x-api-key` alongside the binding secret or signature. A Host header rewrite cannot supply authentication. If the sender cannot include an API credential, use the dedicated Cloudflare gateway and its `/webhooks/{name}` URL. A proxy that adds an API credential must limit this to the exact configured webhook path and method and preserve signed request bodies.
 
 [Phone panel](route-panel.ts) (ATO-1128): `GET /panel` (and `/panel/app.js`) serves a small page for a phone or another computer: the chats, a chat's turns as they land, a message box, and approval requests with Allow once / Deny. The page holds no data and is served without auth; it asks for the API key, keeps it in the browser, and calls the authenticated routes (`/api/sessions`, `/v1/chat/completions`, `/api/events`, `/api/approval/resolve`). Reach it with `atag serve --host 0.0.0.0 --api-key-file <path>` (ATO-1126). It also takes the key from a `#key=…` fragment, provided by a client. The fragment never reaches the server and the page drops it from the address bar. Over plain `http://` the key crosses the network in clear: use it on a network you trust, or behind TLS (a reverse proxy, Tailscale).
+
+Home-screen installation (ATO-1130): the manifest fixes id, start_url and scope to /panel without query or fragment. Icons are compiled constants; request paths and parameters never choose a filesystem asset. No host, port, chat data or key is embedded. No service worker is registered, so this import adds no offline response cache and cannot capture authenticated responses or Authorization headers. All resources are served by this listener, without a CDN, including while the runtime offline switch is enabled. The local server must still be reachable; installing the icon does not make a disconnected browser work without it. The existing panel key entry and authenticated data calls are unchanged. Public read entries in ROUTE_SCOPES document the exact allowlist; only requiresAuth:false opens a route. The four named roles retain read access to Discord status.
+
 
 Per-chat folders (ATO-731, [session-working-dir.ts](session-working-dir.ts)): every tool step reads its session's `workingDir`, so `POST /v1/chat/completions` takes `working_dir` (absolute, existing) for a NEW session, `POST /api/sessions/{id}/working-dir` `{ workingDir }` moves one chat (`409 turn_in_progress` only while that chat runs a turn; a restricted chat keeps its restriction, and the answer `{ id, workingDir, restriction, restrictionKept }` says so, `501 restriction_unavailable` when the runtime cannot carry it while constraints exist, [provider policy](../llm/docs/provider-policy.md#read-taint)), and `GET /api/sessions?scope=all` lists chats from every folder. None of it restarts `serve`.
 
@@ -217,10 +223,13 @@ The table records the per-route authorization policy. The owner key retains full
 
 | Method and path | Authorization class |
 | --- | --- |
-| `GET /health` | Public read |
+| GET /health | Public read (public-read) |
+| GET /panel | Public read (public-read) |
+| GET /panel/app.js | Public read (public-read) |
+| GET /panel/manifest.webmanifest | Public read (public-read) |
+| GET /panel/icon.svg | Public read (public-read) |
+| GET /panel/icon-180.png | Public read (public-read) |
 | `GET /v1/models` | Read (read) |
-| `GET /panel` | Public read |
-| `GET /panel/app.js` | Public read |
 | `GET /metrics` | Administration (admin) |
 | `POST /v1/chat/completions` | Ordinary action (chat) |
 | `POST /v1/chat/completions/{completion_id}/cancel` | Ordinary action (chat) |
@@ -319,6 +328,7 @@ The table records the per-route authorization policy. The owner key retains full
 | `GET /api/telegram/pairing` | Administration (admin) |
 | `DELETE /api/telegram/pairing` | Administration (admin) |
 | `GET /api/telegram/channel` | Read (read) |
+| GET /api/discord/channel | Read (read) |
 | `POST /api/tasks` | Administration (admin) |
 | `GET /api/tasks` | Read (read) |
 | `GET /api/tasks/{id}` | Read (read) |

@@ -27,12 +27,19 @@ export function routeKey(method: string, path: string): string {
 }
 
 /**
- * The scope each authenticated route of `buildRouteTable` needs. Pinned by
- * `http-scopes.test.ts`: a new authenticated route without an entry here,
+ * The scope each route of `buildRouteTable` needs. `public-read` documents
+ * the fixed public allowlist; requiresAuth:false is still required. Pinned by
+ * `http-scopes.test.ts`: a new route without an entry here,
  * or an entry for a route that is gone, fails that test. A route that is
  * missing at runtime anyway (a test server's own routes) needs the owner key.
  */
-export const ROUTE_SCOPES: Readonly<Record<string, HttpScope>> = {
+export const ROUTE_SCOPES: Readonly<Record<string, HttpScope | "public-read">> = {
+  "GET /health": "public-read",
+  "GET /panel": "public-read",
+  "GET /panel/app.js": "public-read",
+  "GET /panel/manifest.webmanifest": "public-read",
+  "GET /panel/icon.svg": "public-read",
+  "GET /panel/icon-180.png": "public-read",
   "GET /v1/models": "read",
   "GET /metrics": "admin",
   "POST /v1/chat/completions": "chat",
@@ -132,6 +139,7 @@ export const ROUTE_SCOPES: Readonly<Record<string, HttpScope>> = {
   "GET /api/telegram/pairing": "admin",
   "DELETE /api/telegram/pairing": "admin",
   "GET /api/telegram/channel": "read",
+  "GET /api/discord/channel": "read",
   "POST /api/tasks": "admin",
   "GET /api/tasks": "read",
   "GET /api/tasks/{id}": "read",
@@ -154,5 +162,7 @@ export const ROUTE_SCOPES: Readonly<Record<string, HttpScope>> = {
 
 /** The scope a route needs; owner key for one the table does not know. */
 export function scopeForRoute(method: string, path: string): HttpScope {
-  return ROUTE_SCOPES[routeKey(method, path)] ?? "owner";
+  const scope = ROUTE_SCOPES[routeKey(method, path)];
+  // Public status is declared by requiresAuth:false, never by the scope.
+  return scope === "public-read" ? "read" : scope ?? "owner";
 }
