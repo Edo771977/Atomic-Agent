@@ -17,7 +17,7 @@ describe("policy targets", () => {
   });
 
   it("splits a command line into each command it runs", () => {
-    expect(shellResources("cd /x && rm -rf  y; echo hi | sh")).toEqual([
+    expect(shellResources("cd /x && rm -rf  y; echo hi | sh", [], "posix")).toEqual([
       "cd /x && rm -rf y; echo hi | sh", "cd /x", "rm -rf y", "echo hi", "sh",
     ]);
   });

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   shellCommandArgv,
-  shellRuleSegments,
+  shellRuleSegments as nativeSegments,
   shellRunsUnreadableScript,
 } from "./shell-command-argv.js";
 import { shellGrantShape } from "./shell-interpretation.js";
@@ -30,6 +30,8 @@ describe("shellCommandArgv", () => {
     expect(shellCommandArgv("cat ~/.ssh/id_rsa", [], true, "cat")).toBeUndefined();
   });
 });
+
+const shellRuleSegments = (cmd: string, args: readonly string[], useShell: boolean) => nativeSegments(cmd, args, useShell, "posix");
 
 describe("shellRuleSegments", () => {
   it("keeps a direct exec's argv as one command", () => {

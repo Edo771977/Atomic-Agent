@@ -1,10 +1,10 @@
+import { shellSyntax } from "./shell-rule-syntax.js";
+import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
-  invocationsOf,
   NESTED_SHELL_PROGRAMS,
   PREFIX_COMMANDS,
   programName,
   scanNestedShellOptions,
-  splitCommandSegments,
 } from "../shell-command-guard/command-segments.js";
 
 /**
@@ -45,8 +45,15 @@ const ENV_ASSIGNMENT_RE = /^[A-Za-z_][A-Za-z0-9_]*=/;
 function prefixCommandFlags(name: string): readonly string[] | undefined {
   return Object.prototype.hasOwnProperty.call(PREFIX_COMMANDS, name)
     ? PREFIX_COMMANDS[name]
-    : undefined;
+    : RULE_WRAPPERS[name];
 }
+
+const RULE_WRAPPERS: Readonly<Record<string, readonly string[]>> = {
+  setsid: [], ionice: ["-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"],
+  chroot: ["--userspec", "--groups"], strace: ["-o", "-e", "-p", "-P", "-u", "-I", "-b", "-s", "--output", "--trace", "--attach"],
+  unshare: ["--root", "--wd", "--map-user", "--map-group", "--setuid", "--setgid"],
+  flock: ["-w", "-E", "--wait", "--conflict-exit-code"], parallel: ["-j", "-P", "-S", "--jobs", "--sshlogin"], busybox: [], call: [], start: ["/d", "/node", "/affinity"],
+};
 
 /**
  * `FOO=1 env -u X sudo -u root nice -n 5 timeout 10 npm publish` →
@@ -64,6 +71,7 @@ function withoutWrappers(input: readonly string[]): string[] {
       continue;
     }
     const name = programName(word);
+    const wrapperStart = i;
     const valueFlags = prefixCommandFlags(name);
     if (valueFlags === undefined) break;
     i += 1;
@@ -85,6 +93,12 @@ function withoutWrappers(input: readonly string[]): string[] {
       }
       if (!next.startsWith("-")) break;
       i += valueFlags.includes(next) ? 2 : 1;
+    }
+    if (name === "flock" && words.slice(wrapperStart + 1).some(word => word === "-c" || word === "--command")) return words.slice(wrapperStart);
+    if (name === "chroot" || name === "flock") i += 1;
+    if (name === "start" && words[i] === "") i++;
+    while (name === "start" && /^\//.test(words[i] ?? "")) {
+      const flag = words[i]!.toLowerCase(); i += valueFlags.includes(flag) ? 2 : 1;
     }
     // `timeout 5 cmd`: the duration comes first.
     if ((name === "timeout" || name === "gtimeout") && /^\d/.test(words[i] ?? "")) i += 1;
@@ -108,31 +122,30 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  * `eval` runs and what `find -exec` runs are split the same way and
  * listed after the command itself (ATO-1332).
  */
-export function shellRuleSegments(
-  cmd: string,
-  execArgs: readonly string[],
-  useShell: boolean,
-): string[][] {
-  const segments = useShell
-    ? splitCommandSegments([cmd, ...execArgs].join(" "))
-    : [[cmd, ...execArgs]];
-  return segments.flatMap((words) => expandSegment(words, 0));
+export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix"): { segments: string[][]; unreadable: boolean } {
+  const syntax = useShell ? shellSyntax([cmd, ...execArgs].join(" "), dialect) : { segments: [[cmd, ...execArgs]], unreadable: false };
+  const state = { unreadable: syntax.unreadable, remaining: 2048 };
+  const segments = syntax.segments.flatMap(words => expandSegment(words, 0, state));
+  return { segments, unreadable: state.unreadable };
 }
 
-function expandSegment(words: string[], depth: number): string[][] {
+export function shellRuleSegments(cmd: string, execArgs: readonly string[], useShell: boolean, dialect?: ShellDialect): string[][] {
+  return analyzeShellRules(cmd, execArgs, useShell, dialect).segments;
+}
+
+function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number }): string[][] {
+  if (--state.remaining < 0) { state.unreadable = true; return []; }
   const inner = withoutWrappers(words);
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
-  if (depth >= MAX_NESTED_SHELL_DEPTH) return listed;
-  const lines = nestedShellScripts(words);
-  // `eval rm -rf x`: eval joins its words and runs them as a line.
-  if (inner.length > 1 && programName(inner[0]!) === "eval") {
-    lines.push(inner.slice(1).join(" "));
-  }
-  const nested = lines.flatMap((line) =>
-    splitCommandSegments(line).flatMap((w) => expandSegment(w, depth + 1)),
-  );
-  const executed = findExecCommands(inner).flatMap((w) => expandSegment(w, depth + 1));
+  if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
+  const lines = nestedShellScripts(words, state);
+  if (inner.length > 1 && programName(inner[0]!) === "eval") lines.push({ line: inner.slice(1).join(" "), dialect: "posix" });
+  const nested = lines.flatMap(({ line, dialect }) => {
+    const syntax = shellSyntax(line, dialect); state.unreadable ||= syntax.unreadable;
+    return syntax.segments.flatMap(w => expandSegment(w, depth + 1, state));
+  });
+  const executed = findExecCommands(inner).flatMap(w => expandSegment(w, depth + 1, state));
   return [...listed, ...nested, ...executed];
 }
 
@@ -142,14 +155,27 @@ function expandSegment(words: string[], depth: number): string[][] {
  * `xargs sh -c` are read too, the way the guard's dangerous layer finds
  * them.
  */
-function nestedShellScripts(words: readonly string[]): string[] {
-  const scripts: string[] = [];
-  for (const program of NESTED_SHELL_PROGRAMS) {
-    for (const args of invocationsOf([words], program)) {
-      for (const script of scanNestedShellOptions(args, program).scripts) {
-        if (script.trim() !== "") scripts.push(script);
-      }
-    }
+function nestedShellScripts(words: readonly string[], state: { unreadable: boolean }): Array<{ line: string; dialect: ShellDialect }> {
+  const scripts: Array<{ line: string; dialect: ShellDialect }> = [];
+  const inner = withoutWrappers(words), name = programName(inner[0] ?? "");
+  if (NESTED_SHELL_PROGRAMS.includes(name)) {
+    for (const line of scanNestedShellOptions(inner.slice(1), name).scripts) if (line.trim() !== "") scripts.push({ line, dialect: "posix" });
+  }
+  if (name === "cmd") {
+    const index = inner.findIndex((word, i) => i > 0 && /^\/[ck]$/i.test(word));
+    if (index !== -1) scripts.push({ line: inner.slice(index + 1).join(" "), dialect: "cmd" });
+    else state.unreadable = true;
+  }
+  if (/^(?:pwsh|powershell)$/.test(name)) {
+    if (!inner.some(word => /^-(?:noprofile|nop)$/i.test(word))) state.unreadable = true;
+    const index = inner.findIndex((word, i) => i > 0 && /^-(?:c|command)$/i.test(word));
+    if (index !== -1 && inner[index + 1] !== "-") scripts.push({ line: inner.slice(index + 1).join(" "), dialect: "powershell" });
+    else state.unreadable = true;
+  }
+  if (name === "script" || name === "su" || name === "flock") {
+    const index = inner.findIndex((word, i) => i > 0 && /^(?:-c|--command)$/.test(word));
+    if (index !== -1 && inner[index + 1] !== undefined) scripts.push({ line: inner[index + 1]!, dialect: "posix" });
+    else if (name === "su" || name === "script") state.unreadable = true;
   }
   return scripts;
 }
@@ -222,6 +248,7 @@ export function shellRunsUnreadableScript(
   execArgs: readonly string[],
   useShell: boolean,
 ): boolean {
+  if (analyzeShellRules(cmd, execArgs, useShell).unreadable) return true;
   if (!useShell) return false;
   if (!/[|<]/.test([cmd, ...execArgs].join(" "))) return false;
   return shellRuleSegments(cmd, execArgs, useShell).some(readsScriptFromStdin);

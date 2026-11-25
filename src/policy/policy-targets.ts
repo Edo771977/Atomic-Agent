@@ -7,6 +7,7 @@ import { programName } from "../tools/os/shell-command-guard/command-segments.js
 import { shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/shell-command-argv.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import type { PolicyAction } from "./policy-schema.js";
+import type { ShellDialect } from "../tools/os/shell-command-guard/shell-line-lexer.js";
 
 export interface PolicyTarget {
   action: PolicyAction;
@@ -104,10 +105,10 @@ function argvResources(argv: readonly string[]): string[] {
  * wrappers like `sudo` and `env`, inside `bash -c`, `eval` and
  * `find -exec`), each also with its program reduced to its name.
  */
-export function shellResources(cmd: string, args: readonly string[] = []): string[] {
+export function shellResources(cmd: string, args: readonly string[] = [], dialect?: ShellDialect): string[] {
   const line = [cmd, ...args].join(" ").trim().replace(/\s+/g, " ");
   const useShell = needsShellInterpretation(cmd, args);
-  const segments = shellRuleSegments(cmd, args, useShell);
+  const segments = shellRuleSegments(cmd, args, useShell, dialect);
   return nonEmpty([line, ...segments.flatMap(argvResources)]);
 }
 

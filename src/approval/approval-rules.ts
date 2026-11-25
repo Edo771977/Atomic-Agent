@@ -9,6 +9,7 @@ import {
   type ApprovalCategory,
 } from "./approval-level.js";
 import { isInside } from "./fanout-scope.js";
+import { programName } from "../tools/os/shell-command-guard/command-segments.js";
 
 /**
  * Saved approval rules (ATO-1141 / ATO-33): standing answers the operator
@@ -383,21 +384,22 @@ function commandMatches(
   prefix: readonly string[],
   request: MatchableRequest,
 ): boolean {
-  if (argvHasPrefix(request.commandArgv, prefix)) return true;
+  if (argvHasPrefix(request.commandArgv, prefix, rule.decision !== "allow")) return true;
   if (rule.decision === "allow") return false;
   // A script piped into `sh` could be the very command the rule names.
   if (request.commandUnreadable === true) return true;
-  return (request.commandSegments ?? []).some((words) => argvHasPrefix(words, prefix));
+  return (request.commandSegments ?? []).some((words) => argvHasPrefix(words, prefix, true));
 }
 
 function argvHasPrefix(
   argv: readonly string[] | undefined,
   prefix: readonly string[],
+  restrictive = false,
 ): boolean {
   if (argv === undefined || argv.length < prefix.length) return false;
   return prefix.every((token, i) =>
     i === 0
-      ? commandName(argv[0]!) === commandName(token)
+      ? (restrictive ? programName(argv[0]!) === programName(token) : commandName(argv[0]!) === commandName(token))
       : argv[i] === token,
   );
 }
