@@ -135,6 +135,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - the transcript was cleared;
   - the send failed.
 
+## A2A protocol
+
 A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candidate's task projection does not enforce the fork's chat visibility and disconnecting a blocking caller leaves its task running. The flag and both routes remain unavailable, with no new public exception or role permission. [HTTP review](../../src/http/README.md)
 
 ## Chat rollback (rewind)
