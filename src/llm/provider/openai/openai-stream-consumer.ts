@@ -42,6 +42,7 @@ type MutableToolCall = {
     name: string;
     arguments: string;
   };
+  thoughtSignature?: string;
 };
 
 /**
@@ -378,6 +379,7 @@ function applyToolCallDeltas(
       accumulator.keyById.set(delta.id, key);
     }
     if (delta.type) current.type = delta.type;
+    if (delta.thoughtSignature) current.thoughtSignature = delta.thoughtSignature;
     if (delta.function?.name) {
       current.function.name = mergeToolName(
         current.function.name,
@@ -503,6 +505,7 @@ function toOpenAiToolCall(call: MutableToolCall): OpenAiToolCall | null {
       name: call.function.name,
       arguments: call.function.arguments,
     },
+    ...(call.thoughtSignature ? { thoughtSignature: call.thoughtSignature } : {}),
   };
 }
 
