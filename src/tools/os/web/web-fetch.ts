@@ -44,6 +44,7 @@ import {
   type UrlSendSites,
 } from "./url-data-guard.js";
 import { maskUrlSecrets } from "./http-request-preview.js";
+import { assertPolicyWebUrl } from "../../../policy/policy-web.js";
 import {
   describeReadVia,
   readPastWall,
@@ -245,6 +246,7 @@ export function buildOsWebFetchTool(
             hooks: {
               authorizeRedirect: async (url) => {
                 const target = url.toString();
+                assertPolicyWebUrl(target, ctx.workingDir);
                 const refused = offlineRefusal(target, TOOL_NAME);
                 if (refused) throw refused;
                 await requireUrlSendApproval(gate, {
@@ -548,6 +550,7 @@ async function fetchWithGuard(
   let currentUrl = parseHttpUrl(rawUrl);
   const chain: string[] = [];
   for (let hop = 0; ; hop++) {
+    assertPolicyWebUrl(currentUrl.href, opts.cwd);
     const res = await fetchHopWithRetry(currentUrl, opts);
     chain.push(currentUrl.toString());
     if (REDIRECT_STATUSES.has(res.status) && res.redirectUrl.length > 0) {
@@ -557,6 +560,7 @@ async function fetchWithGuard(
         );
       }
       const nextUrl = parseHttpUrl(res.redirectUrl);
+      assertPolicyWebUrl(nextUrl.href, opts.cwd);
       if (opts.hooks?.allowRedirect?.(nextUrl) === false) {
         return {
           finalUrl: currentUrl.toString(),

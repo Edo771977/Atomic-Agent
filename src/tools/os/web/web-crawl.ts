@@ -29,6 +29,7 @@ import {
   type CrawlReport,
 } from "./web-crawl-args.js";
 import { runCrawl } from "./web-crawl-run.js";
+import { assertPolicyWebUrl } from "../../../policy/policy-web.js";
 
 export interface OsWebCrawlOptions {
   runCommand?: typeof defaultRunCommand;
@@ -77,6 +78,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
     untrustedOutput: "web pages",
     async run(rawArgs, ctx) {
       const args = parseCrawlArgs(rawArgs, crawlCfg);
+      assertPolicyWebUrl(args.url, ctx.workingDir);
       // ATO-1084: like os.web.fetch, nothing is resolved or fetched while
       // offline (the SSRF guard below would otherwise look the host up).
       const offline = offlineRefusal(args.url, CRAWL_TOOL_NAME);
@@ -162,8 +164,12 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
         now,
         deadline: now() + CRAWL_TIME_BUDGET_MS,
         fetchPage: async (url) => {
+          assertPolicyWebUrl(url, ctx.workingDir);
           const cached = pageCache.get(url);
-          if (cached !== undefined) return cached;
+          if (cached !== undefined) {
+            assertPolicyWebUrl(cached.finalUrl, ctx.workingDir);
+            return cached;
+          }
           // A same-site redirect hop is checked against robots.txt before it
           // is requested; off-site hops are left to runCrawl's origin check.
           const res = await fetchPage(

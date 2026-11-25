@@ -67,6 +67,8 @@ Point reads compare the exact canonical file. Listing or searching an ancestor (
 
 MCP resource/prompt operations use the server selected by `args.server`: `<server>/resource.list`, `resource.read`, `prompt.list` or `prompt.get`. Dynamic tool and server names are case-sensitive, as their catalog identities are. Server names are assigned by the operator; a policy name is not an attestation of a server's executable or URL.
 
+Web fetch and HTTP request check every redirect destination before the next transport call, independently of approval mode. Crawl uses the same raw-page checks for links, robots and sitemaps; cached pages and their final URLs are checked again before use.
+
 ## Entry points
 
 - [policy-schema.ts](policy-schema.ts): the file format and its parser.
