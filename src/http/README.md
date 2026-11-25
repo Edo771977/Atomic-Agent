@@ -20,7 +20,7 @@ This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) b
 
 `POST /api/complete` owns a fresh Privacy Shield archive for every request, independently of its `complete:api` routing partition. Sequential and overlapping owner/member requests cannot resolve another request's placeholders. No completion archive is stored as a session.
 
-`POST /api/complete` and `POST /api/btw` share listener-owned admission limits: two in-flight requests per token (including the owner key), four in total. Excess requests receive `429 completion_concurrency_limit` and `Retry-After: 1`. Slots remain held until inference settles, including cancellation and failure; rejected requests are never queued.
+Auxiliary inference admission belongs to the listener: at most two calls per token, four named-token calls in total, and a separate allowance of two for the owner. Named callers cannot occupy the owner's allowance. Excess calls receive `429 completion_concurrency_limit` and `Retry-After: 1`; admission is released when inference settles. `POST /api/btw` shares the same service. Named callers receive a fixed message for plain-completion provider failures (`502`). Successful rollback and rewind release the chat's Privacy Shield archive after saving the changed history, so the next turn masks only current content.
 
 The HTTP server owns request handling and connection cancellation; route modules translate transport payloads into runtime operations. Session routes use the existing turn/steering contract, and webhook routes materialize durable tasks; the persistent-webhook session map moves a corrupt file aside to `.corrupt-<time>` instead of silently overwriting it. Runtime owns session execution, task storage and approval policy; routes must retain authentication and error mapping. MCP routes use [shared server-config commands](../config/mcp-server-commands.ts) and manager operations, independently of TUI.
 
@@ -70,7 +70,7 @@ The B2 side-question route requires the serve key and chat scope. Named tokens g
 
 The visibility equality tests compare status, body, all response headers and content length. A restriction introduced during inference keeps the owner's `403 folder_restricted`; named callers receive `404` only when they supplied a session ID. Named callers receive a fixed provider failure message at `502`. Each side question, including `btw:draft` and concurrent calls on one chat, has a fresh Privacy Shield archive; the `btw:` partition still selects fallback and policy, including the live turn's unsaved read taint. Tool-result summaries in the digest are framed as untrusted external data.
 
-The temporary btw: Privacy Shield archive is released after the last overlapping side call settles, including incognito requests; it is never retained as chat history or memory.
+Each btw: request owns a fresh Privacy Shield archive, including incognito and overlapping same-chat calls. No temporary archive is retained in the session registry, chat history or memory.
 
 
 `usage` on `/v1/chat/completions` (the body, the extensions-only `usage` frame) reports the tokens every LLM call of the turn reported, summed by the runtime's turn usage meter (`RunTurnResult.usage`; a local llama-server counts by its timings), and zeros when none did. A streaming request with `stream_options.include_usage: true` gets OpenAI's extra chunk before `data: [DONE]`: empty `choices` and the turn's `usage`; every chunk before it then carries `usage: null`, as OpenAI's do ([builders](openai-chunks.ts)).
