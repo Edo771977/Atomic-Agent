@@ -164,7 +164,7 @@ function mayUseKeyVariable(
   entry: { readonly kind?: string; readonly baseUrl?: string },
   name: string,
 ): boolean {
-  if (!OPENAI_KEY_VARIABLES.has(name)) return true;
+  if (!OPENAI_KEY_VARIABLES.has(name.toUpperCase())) return true;
   if (entry.baseUrl !== undefined && entry.baseUrl.length > 0) {
     return mayReceiveOpenAiKey(entry.baseUrl);
   }
