@@ -68,6 +68,8 @@ Searching past chats (ATO-1149, [session-search.ts](../session/session-search.ts
 
 The B2 side-question route requires the serve key and chat scope. Named tokens get the identical 404 body for unknown, incognito and folder-withheld IDs, using the shared visibility helper; the owner retains the runtime's no-context behavior for unknown IDs. Session IDs are validated at ingress. The listener's folder egress policy is checked before the call and again before releasing the answer. Tests pin the stored history and stable prefix, including while the main turn is running. Side questions use the existing provider boundary for Privacy Shield and offline enforcement, with the same coverage limits documented in the privacy guide.
 
+The visibility equality tests compare status, body, all response headers and content length. A restriction introduced during inference keeps the owner's `403 folder_restricted`; named callers receive `404` only when they supplied a session ID. Named callers receive a fixed provider failure message at `502`. Each side question, including `btw:draft` and concurrent calls on one chat, has a fresh Privacy Shield archive; the `btw:` partition still selects fallback and policy, including the live turn's unsaved read taint. Tool-result summaries in the digest are framed as untrusted external data.
+
 The temporary btw: Privacy Shield archive is released after the last overlapping side call settles, including incognito requests; it is never retained as chat history or memory.
 
 

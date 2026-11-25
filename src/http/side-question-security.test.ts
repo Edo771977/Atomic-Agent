@@ -10,12 +10,21 @@ let h: Harness | undefined;
 afterEach(async () => { await h?.cleanup(); h = undefined; setOfflineNetwork(false); resetPrivacyVaults(); vi.restoreAllMocks(); });
 const owner = "btw-owner-fixture";
 const named = "btw-named-fixture";
+const datedServers = new WeakSet<object>();
 const post = async (token: string | undefined, body: unknown) => {
+  // Pin the protocol clock, so every header can be compared across requests.
+  if (!datedServers.has(h!.handle.server)) {
+    h!.handle.server.prependListener("request", (_req, res) => res.setHeader("date", "Wed, 25 Nov 2026 00:00:00 GMT"));
+    datedServers.add(h!.handle.server);
+  }
   const response = await fetch(h!.baseUrl + "/api/btw", {
     method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: `Bearer ${token}` } : {}) },
     body: JSON.stringify(body),
   });
-  return { status: response.status, text: await response.text() };
+  const text = await response.text();
+  const contentLength = response.headers.get("content-length");
+  expect(contentLength).toBe(String(Buffer.byteLength(text)));
+  return { status: response.status, text, headers: Object.fromEntries([...response.headers].sort()), contentLength };
 };
 
 it.each(["viewer", "member", "operator", "admin"] as const)("enforces the chat scope and key on btw for %s", async role => {
@@ -33,6 +42,8 @@ it.each(["member", "operator", "admin"] as const)("makes incognito and unknown s
   const ask = vi.spyOn(h.runtime, "askSideQuestion").mockResolvedValue({ ok: true, text: "private" });
   const unknown = await post(named, { question: "hello", session_id: "unknown-session" });
   expect(unknown.status).toBe(404);
+  expect(unknown).toHaveProperty("headers");
+  expect(unknown).toHaveProperty("contentLength");
   expect(await post(named, { question: "hello", session_id: session.id })).toEqual(unknown);
   expect(ask).not.toHaveBeenCalled();
   expect((await post(owner, { question: "hello", session_id: session.id })).status).toBe(200);

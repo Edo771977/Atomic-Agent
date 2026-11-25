@@ -20,7 +20,7 @@ This area owns runtime assembly and ownership. Read [AGENTS.md](AGENTS.md) befor
 
 ## Ownership and dependencies
 
-Plain completions and prompt enhancement run each logical call in a fresh Privacy Shield archive. Their policy/fallback partitions remain stable, and concurrent callers cannot restore each other's placeholders. Session-title generation uses the same request scope; ordinary chat turns retain their session archives. See [Privacy Shield](../privacy/README.md).
+Plain completions, side questions and prompt enhancement run each logical call in a fresh Privacy Shield archive. Their policy/fallback partitions remain stable, and concurrent callers cannot restore each other's placeholders. Session-title generation uses the same request scope; ordinary chat turns retain their session archives. See [Privacy Shield](../privacy/README.md).
 
 Bootstrap orders construction phases, assembles AgentLoop dependencies and returns the public runtime. Internal composition components hold catalog, trace, telemetry and turn state; they receive named dependencies and callbacks. They cannot import bootstrap, and consumers outside bootstrap cannot import them. TurnController owns per-session FIFO scheduling; SteeringInbox owns pending corrections. The runtime supplies live getters to consumers so a provider or tool change can take effect without rebuilding every frontend. [Lifecycle](docs/lifecycle.md) documents resource ownership, shutdown order and existing failed-start limits.
 
