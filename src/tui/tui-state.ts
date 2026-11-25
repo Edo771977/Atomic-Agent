@@ -5,11 +5,13 @@ import {
   type ApprovalLevel,
 } from "../approval/approval-level.js";
 import type { CodingMode } from "./coding-mode/coding-mode.js";
+import type { ReasoningLevel } from "../llm/reasoning-levels.js";
 import type { ProviderWaitCause } from "../llm/reliability/provider-wait-cause.js";
 import { EMPTY_CONTEXT_USAGE } from "./context-usage-from-prompt.js";
 import type { ContextUsageState } from "../session/context-usage.js";
 import type { PlanSnapshot } from "../agent/plan/plan-snapshot.js";
 import type { SessionUsageState } from "../session/usage-meter.js";
+import type { StepSpendByStep } from "./step-spend.js";
 import type { StepSpeed } from "../llm/step-speed.js";
 import type { ComposerSwitchState, ComposerTeamState } from "./composer-switch/composer-switch-state.js";
 import type { ContextMenuState } from "./context-menu/context-menu-state.js";
@@ -236,6 +238,13 @@ export interface ToolCardEntry {
   details?: Record<string, unknown>;
   startedAt: number;
   finishedAt: number | null;
+  /**
+   * What this card's step cost in dollars (ATO-34, `/why`), stamped when
+   * the card finishes and only when every model call of the step was
+   * priced. Absent for a local or plan-billed step, an unpriced model, or
+   * a card rebuilt from a saved session.
+   */
+  stepCostUsd?: number;
 }
 
 /**
@@ -281,6 +290,12 @@ export interface FeedEntry {
   /** Ink `color` prop — controls the left gutter glyph colouring. */
   color: "green" | "red" | "yellow" | "blue" | "gray" | "magenta" | "white";
   timestamp: number;
+  /**
+   * The model a fusion leg's line is about, when the runtime named one.
+   * The feed draws its brand badge in front of the line (ATO-1635); the
+   * line text itself is unchanged.
+   */
+  brandModel?: string;
 }
 
 export interface RollingMetrics {
@@ -419,6 +434,13 @@ export interface TuiState {
   stepStartedAt: number | null;
   /** Timestamp of the running loop start, used to compute a live duration. */
   runStartedAt: number | null;
+  /**
+   * How far a local model has read the current step's prompt before its
+   * first token (ATO-1001), from llama-server's `prompt_progress`. Null
+   * once output starts, at every step start, and on a server that does
+   * not report progress (cloud, external).
+   */
+  promptProgress?: { processed: number; total: number } | null;
   /**
    * Legs of the fusion fan-out running right now, for the chat's own
    * readout. Empty off fusion and between turns. See
@@ -682,9 +704,17 @@ export interface TuiState {
   /**
    * Verbose steps (ATO-34): every finished tool card carries one plain
    * line under its header: step number, the call with its args, and what
-   * came back. Flipped with `/verbose`; lives for this TUI run only.
+   * came back. Seeded from `tui.verboseSteps` and flipped with
+   * `/verbose` (persisted).
    */
   verboseSteps: boolean;
+  /**
+   * Spend of each step of the running turn (ATO-34, `/why`), keyed by
+   * step index, from the `usage_updated` readings that arrive while it
+   * runs. Reset when a turn starts and when the session on screen
+   * changes. See `step-spend.ts`.
+   */
+  stepSpend: StepSpendByStep;
   /**
    * Vim keys in the composer (ATO-662). Seeded from `tui.vimMode` and
    * flipped with `/vim on|off` (persisted). The NORMAL / INSERT mode
@@ -931,6 +961,12 @@ export interface TuiState {
    */
   codingModeMenu: { readonly cursor: number } | null;
   /**
+   * `/think` (ATO-490): the reasoning level the next turns ask for.
+   * Session state like `codingMode`, never persisted; `auto` sends
+   * nothing. Optional so states built by tests need not carry it.
+   */
+  reasoningLevel?: ReasoningLevel;
+  /**
    * `/rewind` (ATO-1057): the chat's earlier questions, newest first,
    * or `null`/absent when the picker is closed. Enter takes the chat
    * back to just before the highlighted one.
@@ -990,6 +1026,8 @@ export interface InitialTuiLayoutOptions {
   showSteps?: boolean;
   /** Seeds {@link TuiState.vimMode} from `tui.vimMode`. */
   vimMode?: boolean;
+  /** Seeds {@link TuiState.verboseSteps} from `tui.verboseSteps`. */
+  verboseSteps?: boolean;
   /**
    * Seeds the local-models slice's config-derived facts (mode + chosen
    * model), so the composer's route controls are right on the home
@@ -1017,6 +1055,7 @@ export function createInitialTuiState(
     currentStep: 0,
     stepStartedAt: null,
     runStartedAt: null,
+    promptProgress: null,
     fusionLiveWorkers: [],
     feed: [],
     messages: [],
@@ -1083,7 +1122,8 @@ export function createInitialTuiState(
     toolsExpandedById: {},
     turnsExpandedById: {},
     showSteps: layout?.showSteps ?? false,
-    verboseSteps: false,
+    verboseSteps: layout?.verboseSteps ?? false,
+    stepSpend: {},
     vimMode: layout?.vimMode ?? false,
     sessionPickerOpen: false,
     sessionPickerList: [],
@@ -1136,6 +1176,7 @@ export function createInitialTuiState(
     abortArmed: false,
     codingMode: "default",
     codingModeMenu: null,
+    reasoningLevel: "auto",
     rewindPicker: null,
     planHandoff: false,
     // `session` is optional in practice: several reducer tests build a

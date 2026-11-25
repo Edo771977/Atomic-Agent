@@ -269,6 +269,7 @@ Checked snapshot of primitive USER_CONFIG_DEFAULTS values for config version 80.
 - `tui.mouse` (default `true`).
 - `tui.nextStepSuggestions` (default `false`).
 - `tui.vimMode` (default `false`).
+- `tui.verboseSteps` (default `false`).
 - `tui.notify.enabled` (default `true`).
 - `tui.notify.minDurationMs` (default `30000`).
 - `tui.onboarding.completedAt` (default `null`).

@@ -869,7 +869,8 @@ export interface UserConfigFile {
    * on: clicking panels, list rows, the nav bar and the prompt, plus
    * wheel scrolling. Turning it off restores the terminal's own
    * drag-to-select, which mouse reporting takes over — see `/mouse` and
-   * `--no-mouse`. Older files are upgraded with `mouse: true`.
+   * `--no-mouse`. Older files are upgraded with `mouse: true`. On the classic
+   * Windows console reporting starts off; `--mouse` or `/mouse on` turns it on.
    *
    * `sessionRail` (config v52) remembers the operator's own ordering of
    * the rail's Sessions list, and (v53) which threads are pinned to its
