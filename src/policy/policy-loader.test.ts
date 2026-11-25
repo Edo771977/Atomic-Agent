@@ -90,7 +90,7 @@ describe("loadPolicy with ATOMIC_POLICY_URL", () => {
     expect(fetchText).toHaveBeenCalledWith(URL_, 3_000);
     expect(policy.rules.map((r) => r.source)).toEqual(["system", "url"]);
     expect(policy.sources.at(-1)).toEqual({
-      kind: "url", location: "https://policy.example.com/org.json?…", namedBy: "env", state: "loaded", fetchedAt: "2026-11-18T10:00:00.000Z",
+      kind: "url", location: "https://policy.example.com/…", namedBy: "env", state: "loaded", fetchedAt: "2026-11-18T10:00:00.000Z",
     });
     expect(JSON.parse(written[CACHE]!)).toMatchObject({ url: URL_, fetchedAt: "2026-11-18T10:00:00.000Z" });
   });
@@ -102,7 +102,7 @@ describe("loadPolicy with ATOMIC_POLICY_URL", () => {
     const fetchText = vi.fn(async () => { throw new Error("getaddrinfo ENOTFOUND"); });
     const policy = await loadPolicy({ stateDir: STATE, platform: "linux", env: { ATOMIC_POLICY_URL: URL_ }, fetchText, ...deps });
     expect(policy.rules).toHaveLength(1);
-    expect(policy.sources.at(-1)).toMatchObject({ state: "cached", error: "getaddrinfo ENOTFOUND" });
+    expect(policy.sources.at(-1)).toMatchObject({ state: "cached", error: "Organization policy download or document unavailable" });
   });
 
   it("falls back to the cache when the server sends a bad policy", async () => {
@@ -122,7 +122,7 @@ describe("loadPolicy with ATOMIC_POLICY_URL", () => {
     const fetchText = vi.fn(async () => { throw new Error("timeout"); });
     const policy = await loadPolicy({ stateDir: STATE, platform: "linux", env: { ATOMIC_POLICY_URL: URL_ }, fetchText, ...deps });
     expect(policy.rules).toEqual([]);
-    expect(policy.sources.at(-1)).toMatchObject({ kind: "url", state: "unreachable", error: "timeout" });
+    expect(policy.sources.at(-1)).toMatchObject({ kind: "url", state: "unreachable", error: "Organization policy download or document unavailable" });
   });
 
   it("still loads when the cache cannot be written", async () => {
@@ -225,8 +225,8 @@ describe("sources the user controls can only tighten", () => {
 
 describe("redactPolicyUrl", () => {
   it("drops the query, which may carry a token", () => {
-    expect(redactPolicyUrl("https://a.example/p.json?key=s3cret")).toBe("https://a.example/p.json?…");
-    expect(redactPolicyUrl("https://a.example/p.json")).toBe("https://a.example/p.json");
+    expect(redactPolicyUrl("https://a.example/p.json?key=s3cret")).toBe("https://a.example/…");
+    expect(redactPolicyUrl("https://a.example/p.json")).toBe("https://a.example/…");
     expect(redactPolicyUrl("not a url")).toBe("(invalid URL)");
   });
 });

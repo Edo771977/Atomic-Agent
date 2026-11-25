@@ -97,6 +97,15 @@ function parseAllowlist(value: unknown): McpAllowlist {
   return { servers: [...servers] as string[], warnOnly };
 }
 
+/** Policy delivery credentials never go in user-info; query values stay operator-only. */
+export function validatePolicyUrl(value: string): string {
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { throw new PolicyFormatError("Organization policy URL must use HTTPS"); }
+  if (url.protocol !== "https:") throw new PolicyFormatError("Organization policy URL must use HTTPS");
+  if (url.username || url.password) throw new PolicyFormatError("Organization policy URL must not contain user-info credentials");
+  return url.href;
+}
+
 /** Validate a parsed policy document. Throws `PolicyFormatError` with the first problem. */
 export function parsePolicyFile(value: unknown): PolicyFile {
   if (!isRecord(value)) throw new PolicyFormatError("policy must be a JSON object");
@@ -111,7 +120,7 @@ export function parsePolicyFile(value: unknown): PolicyFile {
     if (typeof value.url !== "string" || !/^https?:\/\/\S+$/i.test(value.url.trim())) {
       throw new PolicyFormatError("url must be an http(s) URL");
     }
-    file.url = value.url.trim();
+    file.url = validatePolicyUrl(value.url);
   }
   return file;
 }

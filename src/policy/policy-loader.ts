@@ -10,7 +10,7 @@ import type {
   PolicySourceStatus,
   SourcedPolicyRule,
 } from "./policy-evaluator.js";
-import { parsePolicyFile, parsePolicyText, PolicyFormatError, type PolicyFile } from "./policy-schema.js";
+import { parsePolicyFile, parsePolicyText, PolicyFormatError, validatePolicyUrl, type PolicyFile } from "./policy-schema.js";
 
 export { systemPolicyPath };
 
@@ -40,7 +40,7 @@ export function userPolicyPath(stateDir: string): string {
 export function redactPolicyUrl(url: string): string {
   try {
     const u = new URL(url);
-    return `${u.origin}${u.pathname}${u.search ? "?…" : ""}`;
+    return `${u.origin}/…`;
   } catch {
     return "(invalid URL)";
   }
@@ -61,7 +61,7 @@ function defaultWriteText(path: string, text: string): void {
 }
 
 async function defaultFetchText(url: string, timeoutMs: number): Promise<string> {
-  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), headers: { accept: "application/json" } });
+  const res = await fetch(url, { signal: AbortSignal.timeout(timeoutMs), redirect: "error", headers: { accept: "application/json" } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.text();
 }
@@ -163,9 +163,9 @@ function localSources(d: ReturnType<typeof withDefaults>): LoadedPolicySource[] 
  */
 function policyUrl(env: NodeJS.ProcessEnv, local: readonly LoadedPolicySource[]): PolicyUrl | undefined {
   const fromSystem = local.find((l) => l.status.kind === "system")?.file?.url;
-  if (fromSystem) return { url: fromSystem, namedBy: "system" };
+  if (fromSystem) return { url: validatePolicyUrl(fromSystem), namedBy: "system" };
   const fromEnv = env[POLICY_URL_ENV]?.trim();
-  return fromEnv ? { url: fromEnv, namedBy: "env" } : undefined;
+  return fromEnv ? { url: validatePolicyUrl(fromEnv), namedBy: "env" } : undefined;
 }
 
 /**
@@ -205,7 +205,7 @@ async function fetchSource(d: ReturnType<typeof withDefaults>, target: PolicyUrl
     const raw: unknown = JSON.parse(await fetchText(url, d.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS));
     fetched = { raw, file: parsePolicyFile(raw) };
   } catch (err) {
-    return fromCache(d, target, errorText(err));
+    return fromCache(d, target, "Organization policy download or document unavailable");
   }
   const { raw, file } = fetched;
   const fetchedAt = (d.now?.() ?? new Date()).toISOString();

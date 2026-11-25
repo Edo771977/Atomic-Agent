@@ -17,6 +17,8 @@ A missing optional local file is no policy. A malformed or unreadable local file
 
 The upstream URL availability exception is retained explicitly: a failed fetch, invalid remote document or unusable cache falls back to the validated cached document for the same URL; without one, the source is reported as `unreachable`. Local file restrictions remain in force. Offline mode checks the destination before invoking the transport. Put mandatory restrictions in the machine-wide file rather than relying solely on a remote policy being reachable.
 
+Policy delivery accepts HTTPS only, rejects user-info credentials and refuses redirects. A source report shows only the service origin; path/query/fragment and raw transport errors never enter `status.error` or `policy show`. The protected owner-only cache retains the exact URL solely to bind the cached policy to its source. Short-lived `skill install` and `policy show` use `loadLocalPolicy` and the validated cache; they do not refresh the network source. This is upstream's availability model, not a fresh remote-policy check: keep mandatory skill restrictions in the system file or start the operator runtime to fetch a new copy first.
+
 ## Format
 
 ```json
