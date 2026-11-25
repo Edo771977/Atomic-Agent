@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-test-helpers.js";
 import { createCompactionDefaults } from "../config/agent/compaction-config.js";
 import { PLAIN_INSTRUCT_PROFILE } from "../llm/model-profile.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
