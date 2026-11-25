@@ -304,7 +304,7 @@ Ondate:
 | [#1646](https://github.com/AtomicBot-ai/atomic-agent/pull/1646) | 2 | Add an ACP server: use Atomic Agent from Zed, JetBrains and Neovim (ATO-543 | Importare con revisione approfondita |
 | [#1671](https://github.com/AtomicBot-ai/atomic-agent/pull/1671) | 2 | ATO-1639: save one key at a time through the agent (config secrets set/get/ | Importare con revisione approfondita |
 | [#1672](https://github.com/AtomicBot-ai/atomic-agent/pull/1672) | 1 | WhatsApp channel through WhatsApp Web pairing (ATO-502) | Importare con revisione approfondita |
-| [#1686](https://github.com/AtomicBot-ai/atomic-agent/pull/1686) | 5 | feat(policy): organization policy file for shell, edits, web, skills and MC | Importare con revisione approfondita |
+| [#1686](https://github.com/AtomicBot-ai/atomic-agent/pull/1686) | 5 | feat(policy): organization policy file for shell, edits, web, skills and MC | Importato con cherry-pick -x nella PR B1; rifiuto su errori locali, file protetti, guard registry/Fusion/verify/workspace e retarget del fork. |
 | [#1687](https://github.com/AtomicBot-ai/atomic-agent/pull/1687) | 1 | Composio accounts: CLI to add, remove and pick the default, plus a prompt l | Importare con revisione approfondita |
 | [#1688](https://github.com/AtomicBot-ai/atomic-agent/pull/1688) | 2 | TUI Integrations: add, remove and pick the default Composio account (ATO-14 | Importare con revisione approfondita |
 | [#1702](https://github.com/AtomicBot-ai/atomic-agent/pull/1702) | 1 | Mail tasks start by themselves only from your own addresses (ATO-601) | Importare con revisione approfondita |

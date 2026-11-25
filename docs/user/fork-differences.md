@@ -187,6 +187,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 
 ## Security and reliability
 
+Organization policy (upstream #1686 / ATO-587) is imported with additional fork boundaries. Invalid local files and unknown keys refuse startup; evaluator failures refuse calls. User policy, cache and the administrator's system file share the configuration/serve-key protections, and agent tool children cannot inspect or replace them. Direct registry calls, Fusion verification and workspace skills also enforce policy; approved file retargets are rechecked. Existing approval levels, URL-data checks, folder egress, offline, Privacy Shield, incognito, learned-skill confirmation, HTTP roles and private-chat visibility remain independent restrictions. The upstream remote-policy availability fallback and its documented ask limitations are retained. See [organization policy](../../src/policy/README.md) for administration and limits.
+
 Child process environment filtering depends on the launcher. The shell builder normally filters provider credentials and supports explicit `tools.shell.envPassthrough`. A command job given a prepared environment uses that environment with the serve key removed. Browser launches using the tool-child marker also remove the serve key while retaining other inherited variables. Coverage and compatibility for a common provider-credential filter are tracked in the [triage](upstream-2026-11-triage.md).
 
 - **Dispatch-time bypasses closed.** The shell guard, approvals, read scope and memory ([#2](https://github.com/Edo771977/atomic-agent/pull/2)).
