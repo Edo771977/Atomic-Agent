@@ -6,10 +6,9 @@ import {
   type CompressedToolResult,
 } from "../../compressor/result-compressor.js";
 import { isFusionWorkerSessionId } from "../../session/fusion-worker-session.js";
-import { resolveUserPath } from "../os/expand-home.js";
 import { toolOutputDir } from "../tool-output-spill.js";
 import type { ToolContext } from "../tool-registry.js";
-import { READ_TOOL_TARGETS, URL_LIKE } from "./read-scope-targets.js";
+import { READ_TOOL_TARGETS, readTargetPaths } from "./read-scope-targets.js";
 import { canonical, isUnderAny, scratchDirs } from "./scratch-paths.js";
 import { isForeignTempCopy, isOwnSpillPath } from "./temp-copy-sources.js";
 
@@ -195,18 +194,11 @@ function firstTargetOutside(
   // path to read instead of re-running the command.
   const ownOutputs = toolOutputDir(ctx.sessionId);
   for (const raw of targetsOf(args)) {
-    if (URL_LIKE.test(raw)) continue;
-    let absolute: string;
-    try {
-      absolute = resolveUserPath(raw, ctx.workingDir);
-    } catch {
-      // Unresolvable here means unresolvable in the tool too; its own
-      // error is the better message.
-      continue;
+    for (const absolute of readTargetPaths(raw, ctx.workingDir)) {
+      if (scratchInScope && isScratchPath(absolute) && !isForeignTempCopy(absolute, ctx.sessionId)) continue;
+      if (isOwnToolOutput(absolute, ownOutputs, ctx.sessionId)) continue;
+      if (isOutsideReadRoots(absolute, roots)) return absolute;
     }
-    if (scratchInScope && isScratchPath(absolute) && !isForeignTempCopy(absolute, ctx.sessionId)) continue;
-    if (isOwnToolOutput(absolute, ownOutputs, ctx.sessionId)) continue;
-    if (isOutsideReadRoots(absolute, roots)) return absolute;
   }
   return null;
 }
