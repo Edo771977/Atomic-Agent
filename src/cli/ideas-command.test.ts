@@ -66,6 +66,22 @@ describe("ideasCommand", () => {
     expect(out.join("")).toMatch(/atomic-agent ideas/);
   });
 
+  it("hides and discards a retained Retry whose task and origin cannot be verified", async () => {
+    const ideas = new IdeaStore({ dbFile: getConfig().paths.tasksDbFile });
+    try {
+      const [card] = ideas.sync([{
+        kind: "retry_task", title: "Legacy fixture", reason: "fixture", prompt: "synthetic-private-prompt",
+        sourceKey: "task:expired", sessionId: null, evidence: { source: "task", ref: "expired", excerpt: "", at: null },
+      }]).added;
+      expect(await ideasCommand(["list"])).toBe(0);
+      expect(out.some(line => line.includes("Legacy fixture"))).toBe(false);
+      expect(await ideasCommand(["accept", card!.id])).toBe(1);
+      expect(ideas.get(card!.id)).toBeNull();
+    } finally {
+      ideas.close();
+    }
+  });
+
   it("refresh lists a failed task as an idea with its evidence", async () => {
     failedTask("summarise the notes");
     expect(await ideasCommand(["refresh"])).toBe(0);
