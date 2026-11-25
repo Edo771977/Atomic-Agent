@@ -23,6 +23,10 @@ Read [tool instructions](../AGENTS.md), [contracts](../docs/contracts.md), [OS r
 
 Root index intentionally composes and exports registrations in the previous order. Clipboard/email/notify/window platform tools and expand-home remain root operations/shared path support; they do not acquire filesystem/shell/web state. Tool names, descriptors, schemas and agent resource classes are unchanged.
 
+### Outlook document reads
+
+`os.fs.read_document` reads Outlook `.msg` files up to 32 MiB (33,554,432 bytes). Larger files fail with `Outlook .msg input exceeds 33554432 bytes` before extraction. The `maxBytes` argument limits returned text and does not raise the input limit. A plain or HTML body can occupy up to 8 MiB within the compound file's shared work budget. A compressed RTF-only body produces a warning.
+
 ## Screen control (macOS)
 
 [`screen/`](screen/index.ts) owns `os.screen.capture`, `os.screen.click`, `os.screen.type` and `os.screen.key` (ATO-525). They are opt-in: registered, and kept in the prompt, only when `tools.screen.enabled` is `true` (default `false`, read at start) and the host is macOS; Windows and Linux are ATO-527. No new dependency: `screencapture` and `sips` make the picture, one constant JXA program (`osascript -l JavaScript`) posts CoreGraphics mouse and keyboard events. What it acts on travels as JSON in `ATOMIC_SCREEN_PAYLOAD`, never spliced into script source, and the child gets an allow-listed environment.

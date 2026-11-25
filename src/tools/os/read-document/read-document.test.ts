@@ -332,6 +332,11 @@ describe("os.fs.read_document dispatcher", () => {
     expect(calls).toBe(0);
   });
 
+  it("states the standard Outlook input limit in the tool description", () => {
+    const description = buildOsFsReadDocumentTool().description;
+    expect(description).toMatch(/Outlook.*32 MiB/);
+  });
+
   it("rejects unknown format overrides", async () => {
     const tool = buildOsFsReadDocumentTool({});
     const path = join(dir, "any.txt");

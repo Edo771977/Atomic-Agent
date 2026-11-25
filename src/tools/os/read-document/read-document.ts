@@ -44,7 +44,7 @@ export function buildOsFsReadDocumentTool(
   return {
     name: "os.fs.read_document",
     description:
-      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox, Outlook .msg) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. Read-only, no approval required.",
+      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox, Outlook .msg up to 32 MiB) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. Read-only, no approval required.",
     readonly: true,
     async run(rawArgs, ctx) {
       const args = await parseArgs(rawArgs, ctx.workingDir);
