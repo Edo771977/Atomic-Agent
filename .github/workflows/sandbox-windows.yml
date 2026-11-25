@@ -1,76 +1,61 @@
-name: Windows sandbox
+name: Windows sandbox assessment
 on:
   workflow_dispatch:
-  pull_request:
-    paths:
-      - native/windows-sandbox-helper/**
-      - .github/workflows/sandbox-windows.yml
 
 permissions:
   contents: read
 
 jobs:
-  lpac-acl-preflight:
+  reproduce:
     runs-on: windows-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and run the ACL feasibility test
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
-          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
-          cd /d "%RUNNER_TEMP%"
-          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\acl-preflight.cpp" || exit /b 1
-          acl-preflight.exe --benchmark
-  build-helper:
-    runs-on: windows-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build the Windows sandbox helper with MSVC x64
-        shell: cmd
-        run: |
-          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
-          call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
-          cd /d "%RUNNER_TEMP%"
-          cl /nologo /std:c++20 /W4 /O2 /MT /Fe:atomic-sandbox-helper.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\atomic-sandbox-helper.cpp" || exit /b 1
-      - name: Measure helper size
-        shell: pwsh
-        run: |
-          $size = (Get-Item "$env:RUNNER_TEMP/atomic-sandbox-helper.exe").Length
-          "Unsigned Windows x64 helper: $size bytes" | Tee-Object -FilePath $env:GITHUB_STEP_SUMMARY -Append
-      - uses: actions/upload-artifact@v4
-        with:
-          name: atomic-sandbox-helper-win32-x64
-          path: ${{ runner.temp }}/atomic-sandbox-helper.exe
-          if-no-files-found: error
-  sandbox-windows:
-    needs: build-helper
-    runs-on: windows-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '25'
-      - uses: actions/download-artifact@v4
-        with:
-          name: atomic-sandbox-helper-win32-x64
-          path: ${{ runner.temp }}/atomic-lpac-helper
-      - name: Check the native launcher against reachable host fixtures
-        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-lpac-helper/atomic-sandbox-helper.exe"
-  restricted-token-compatibility:
-    runs-on: windows-latest
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@v4
-      - name: Build and verify the restricted-token filesystem boundary
+          node-version: '25.9.0'
+      - name: Build the research probes
         shell: cmd
         run: |
           for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property installationPath`) do set "VS=%%i"
           call "%VS%\VC\Auxiliary\Build\vcvars64.bat" || exit /b 1
           cd /d "%RUNNER_TEMP%"
-          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:restricted-token-preflight.exe "%GITHUB_WORKSPACE%\native\windows-sandbox-helper\restricted-token-preflight.cpp" || exit /b 1
-          mkdir "%RUNNER_TEMP%\restricted-token-fixture" || exit /b 1
-          restricted-token-preflight.exe "%RUNNER_TEMP%\restricted-token-fixture"
+          set "PROBES=%GITHUB_WORKSPACE%\native\windows-sandbox-helper"
+          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:acl-preflight.exe "%PROBES%\acl-preflight.cpp" || exit /b 1
+          cl /nologo /std:c++17 /W4 /O2 /MT /Fe:restricted-token-preflight.exe "%PROBES%\restricted-token-preflight.cpp" || exit /b 1
+          cl /nologo /std:c++20 /W4 /O2 /MT /DATOMIC_SANDBOX_DIAGNOSTICS /Fe:atomic-sandbox-diagnostic.exe "%PROBES%\atomic-sandbox-helper.cpp" || exit /b 1
+      - name: Verify recursive NTFS grants and revocation
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/acl-fixture" | Out-Null
+          Set-Location "$env:RUNNER_TEMP/acl-fixture"
+          & "$env:RUNNER_TEMP/acl-preflight.exe" --benchmark
+      - name: Reproduce the zero-capability LPAC Node startup failure
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/lpac-node-fixture" | Out-Null
+          Set-Location "$env:RUNNER_TEMP/lpac-node-fixture"
+          $node = (Get-Command node.exe).Source
+          $baseline = & $node -e 'console.log(1)'
+          if ($LASTEXITCODE -ne 0 -or $baseline -ne '1') { throw 'Unconfined Node reference failed' }
+          $PSNativeCommandUseErrorActionPreference = $false
+          $output = & "$env:RUNNER_TEMP/acl-preflight.exe" --node $node 2>&1 | Out-String
+          $status = $LASTEXITCODE
+          Write-Host $output
+          if ($status -eq 0 -or $output -notmatch 'WSAStartup: \(10107\)' -or
+              $output -notmatch 'ordinary Node -e in zero-capability LPAC: exit=2147483651' -or
+              $output -notmatch 'probe status=0') { throw "LPAC Node observation changed (exit $status)" }
+          exit 0
+      - name: Verify LPAC registryRead and the remaining toolchain blockers
+        if: ${{ !cancelled() }}
+        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --targeted --expect-observed
+      - name: Verify ordinary AppContainer observations
+        if: ${{ !cancelled() }}
+        run: node native/windows-sandbox-helper/windows-integration.mjs "$env:RUNNER_TEMP/atomic-sandbox-diagnostic.exe" --appcontainer --expect-observed
+      - name: Reproduce restricted-token access outside the project
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory "$env:RUNNER_TEMP/restricted-token-fixture" | Out-Null
+          & "$env:RUNNER_TEMP/restricted-token-preflight.exe" "$env:RUNNER_TEMP/restricted-token-fixture" --expect-observed

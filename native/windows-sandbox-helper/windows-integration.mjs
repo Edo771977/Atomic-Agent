@@ -9,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { randomBytes } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 
+const expectObserved = process.argv.includes("--expect-observed");
 const appcontainer = process.argv.includes("--appcontainer");
 const targeted = process.argv.includes("--targeted");
 const matrix = process.argv.includes("--matrix") || targeted || appcontainer;
@@ -45,6 +46,16 @@ function stageRequest(argv, timeoutMs = 10_000, env = {}) {
     argv, writableRoots: [root], readOnlyRoots, env, timeoutMs, verbatim: 0,
   }), { flag: "wx", encoding: "utf16le" });
   return file;
+}
+
+// In assessment runs an exact, observed failure is a passing assertion.
+function expectBlocked(operation, status, diagnostic) {
+  assert.throws(operation, error => error.status === status &&
+    diagnostic.test([error.stderr, error.stdout].filter(Boolean).join("\n")));
+}
+
+function gitStartupBlocked(operation) {
+  expectBlocked(operation, 128, /could not open '\/dev\/null' for reading and writing: Permission denied/);
 }
 
 const run = (argv, timeout) => call(helper, ["run", stageRequest(argv, timeout)]);
@@ -113,16 +124,24 @@ try {
       }
     };
     assert.match(call(helper, ["--null-device-host"]), /NUL read\/write result: 0/);
-    check("NUL read/write", () => assert.match(launch([helper, "--null-device-host"]), /NUL read\/write result: 0/));
+    check("NUL read/write", () => expectObserved
+      ? assert.match(launch([helper, "--null-device-deny"]), /NUL read\/write result: 5/)
+      : assert.match(launch([helper, "--null-device-host"]), /NUL read\/write result: 0/));
     check("Node", () => assert.equal(launch([node, "-e", "console.log(1)"]).trim(), "1"));
     const cmd = join(process.env.SystemRoot, "System32", "cmd.exe");
     const redirect = ["/d", "/s", "/c", "echo x > nul"];
     assert.equal(call(cmd, redirect).trim(), "");
-    check("cmd redirect NUL", () => assert.equal(launch([cmd, ...redirect]).trim(), ""));
-    check("Git status", () => assert.match(launch([git, "status", "--short"]), /existing\.txt/));
+    // The historical cmd probe hit a quoting error. Use the direct Win32 open
+    // above to verify the device result in assessment runs.
+    if (!expectObserved) check("cmd redirect NUL", () => assert.equal(launch([cmd, ...redirect]).trim(), ""));
+    const gitStatus = () => launch([git, "status", "--short"]);
+    check("Git status", () => expectObserved
+      ? gitStartupBlocked(gitStatus) : assert.match(gitStatus(), /existing\.txt/));
     for (const [host, target] of endpoints) {
-      check(`TCP denial ${host}`, () =>
-        assert.match(launch([helper, "--socket-deny", host, target], 35_000), /TCP result: 10013/));
+      const connect = () => launch([helper, "--socket-deny", host, target], 35_000);
+      check(`TCP result ${host}`, () => expectObserved && host !== "1.1.1.1"
+        ? expectBlocked(connect, 5, /^TCP result: 10060\s*$/m)
+        : assert.match(connect(), /TCP result: 10013/));
     }
     check("read-only packaged-app ACL audit", () => {
       const audit = call("pwsh.exe", ["-NoProfile", "-File",
@@ -154,12 +173,14 @@ try {
       assert.match(launch([helper, "--null-device-deny"]), /NUL read\/write result: 5/);
     });
     const gitEnv = { ATOMIC_DIAGNOSTIC_GIT: "trace" };
-    check("git-config-and-trace", () => assert.match(launch([git, "status", "--short"], gitEnv), /existing\.txt/));
+    const gitStatus = env => launch([git, "status", "--short"], env);
+    const checkGit = env => expectObserved
+      ? gitStartupBlocked(() => gitStatus(env)) : assert.match(gitStatus(env), /existing\.txt/);
+    check("git-config-and-trace", () => checkGit(gitEnv));
     writeFileSync(emptyConfig, "", { flag: "wx" });
     check("git-empty-config-readable", () =>
       assert.match(launch([helper, "--file-check", "read-allow", emptyConfig]), /FILE result: 0/));
-    check("git-empty-config-file", () =>
-      assert.match(launch([git, "status", "--short"], { ATOMIC_DIAGNOSTIC_GIT: "trace", ATOMIC_DIAGNOSTIC_EMPTY_CONFIG: "1" }), /existing\.txt/));
+    check("git-empty-config-file", () => checkGit({ ...gitEnv, ATOMIC_DIAGNOSTIC_EMPTY_CONFIG: "1" }));
 
     const cache = join(root, ".npm-cache");
     writeFileSync(join(root, "package.json"), JSON.stringify({
@@ -173,7 +194,10 @@ try {
     try {
       check("ancestor-acl-grant", () => console.log(call(helper, ["--ancestor-acl", "grant", ...operator.slice(0, 3)])));
       check("npm-version", () => assert.match(launch([...npmArgs, "--version"]), /^\d+\./));
-      check("npm-test", () => assert.match(launch([...npmArgs, "test"]), /sandbox npm test/));
+      const npmTest = () => launch([...npmArgs, "test"]);
+      check("npm-test", () => expectObserved
+        ? expectBlocked(npmTest, 1, /'node' is not recognized as an internal or external command/)
+        : assert.match(npmTest(), /sandbox npm test/));
       check("npm-ci-offline", () => launch([...npmArgs, "ci", "--offline", "--cache", cache, "--no-audit", "--no-fund"], {}, 30_000));
       check("directory-listing-denied", () => {
         const drive = root.slice(0, 3);

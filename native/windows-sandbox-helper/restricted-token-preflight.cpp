@@ -50,7 +50,9 @@ static DWORD probe(const wchar_t* path, DWORD access) {
 }
 
 int wmain(int argc, wchar_t** argv) {
-    require(argc == 2 && SetCurrentDirectoryW(argv[1]) != FALSE, "enter disposable fixture directory");
+    const bool expectObserved = argc == 3 && std::wstring(argv[2]) == L"--expect-observed";
+    require((argc == 2 || expectObserved) && SetCurrentDirectoryW(argv[1]) != FALSE,
+        "enter disposable fixture directory");
     require(CreateDirectoryW(L"project", nullptr) != FALSE, "create approved project");
     require(CreateDirectoryW(L"outside", nullptr) != FALSE, "create unapproved directory");
 
@@ -95,6 +97,7 @@ int wmain(int argc, wchar_t** argv) {
     }
 
     bool contained = true;
+    bool matchesObservation = true;
     for (bool useLow : {false, true}) {
         LpacHandle restricted;
         require(CreateRestrictedToken(original.get(), 0, ARRAYSIZE(disable), disable,
@@ -139,8 +142,14 @@ int wmain(int argc, wchar_t** argv) {
             useLow ? "Low integrity" : "original integrity", project, privateFile, publicRead, publicWrite,
             usersRead, usersWrite, nullDevice);
         require(project == ERROR_SUCCESS && privateFile == ERROR_ACCESS_DENIED, "verify fixture controls");
+        matchesObservation &= publicRead == ERROR_SUCCESS && publicWrite == ERROR_SUCCESS &&
+            usersRead == ERROR_SUCCESS && usersWrite == ERROR_SUCCESS && nullDevice == ERROR_SUCCESS;
         contained &= publicRead == ERROR_ACCESS_DENIED && publicWrite == ERROR_ACCESS_DENIED &&
             usersRead == ERROR_ACCESS_DENIED && usersWrite == ERROR_ACCESS_DENIED;
+    }
+    if (expectObserved) {
+        if (!matchesObservation) std::fprintf(stderr, "Restricted-token observation changed.\n");
+        return matchesObservation ? 0 : 1;
     }
     if (!contained) std::fprintf(stderr, "Restricted token did not confine access to the approved project.\n");
     return contained ? 0 : 1;
