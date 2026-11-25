@@ -96,6 +96,7 @@ export interface IdeaCarrySource {
   sessions: {
     load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata" | "incognito">>) | null;
     isIncognito?(id: string): boolean;
+    getSessionPrivacy?(id: string): boolean | null;
   };
 }
 
@@ -105,6 +106,7 @@ export function ideaRetryIsUnsafe(idea: IdeaRecord, source?: IdeaCarrySource): b
   const taskId = ideaSourceTaskId(idea);
   const task = taskId === null ? null : source.tasks.get(taskId);
   return unsafeRetrySource(task, idea.sourceSessionId ?? idea.sessionId, id => {
+    if (source.sessions.getSessionPrivacy) return source.sessions.getSessionPrivacy(id);
     if (source.sessions.isIncognito?.(id)) return true;
     const session = source.sessions.load(id);
     return session === null ? null : isIncognitoSession(session);
