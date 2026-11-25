@@ -33,6 +33,12 @@ it("checks the original HTTP path independently of its query and fragment", () =
   expect(isShellHttpUrl("https://")).toBe(false);
 });
 
+it("distinguishes an HTTP URL's normalized spelling from the original shell operand", () => {
+  const operand = "https://example.test/a/../report";
+  expect(isShellHttpUrl(operand)).toBe(false);
+  expect(isShellHttpUrl(new URL(operand).href)).toBe(true);
+});
+
 describe("readTaintTargets", () => {
   it("reads verify.run commands like the shell: cwd and absolute paths", () => {
     expect(readTaintTargets("verify.run", { kind: "test", cmd: "cat", args: [plan] }, wd)).toContain(plan);
