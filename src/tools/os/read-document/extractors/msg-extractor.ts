@@ -149,6 +149,10 @@ function hex4(n: number): string {
 function readStream(ctx: MessageCtx, name: string): Buffer | undefined {
   const entry = ctx.cfb.child(ctx.storage, name);
   if (!entry || entry.type !== "stream") return undefined;
+  if (entry.size > MAX_PROPERTY_BYTES) {
+    ctx.warnings.push(`skipped unreadable property ${name}: too large (max ${MAX_PROPERTY_BYTES} bytes)`);
+    return undefined;
+  }
   try {
     return ctx.cfb.read(entry);
   } catch (err) {
@@ -181,6 +185,10 @@ function readFixedProps(
   const props = new Map<number, Buffer>();
   const entry = cfb.child(storage, "__properties_version1.0");
   if (!entry || entry.type !== "stream") return props;
+  if (entry.size > MAX_PROPERTY_BYTES) {
+    warnings.push(`skipped property table: too large (max ${MAX_PROPERTY_BYTES} bytes)`);
+    return props;
+  }
   let buf: Buffer;
   try {
     buf = cfb.read(entry);
@@ -231,12 +239,22 @@ function smtpOnly(value: string | undefined): string | undefined {
   return value && value.includes("@") ? value : undefined;
 }
 
-function childStorages(ctx: MessageCtx, prefix: string): CfbEntry[] {
-  return [...ctx.storage.children.entries()]
-    .filter(([name]) => name.startsWith(prefix))
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, idx]) => ctx.cfb.entry(idx))
-    .filter((e) => e.type === "storage");
+const MAX_PROPERTY_BYTES = 1024 * 1024;
+const MAX_CHILD_STORAGES = 1000;
+
+function childStorages(ctx: MessageCtx, prefix: string, label: string): CfbEntry[] {
+  const children: Array<[string, CfbEntry]> = [];
+  for (const [name, index] of ctx.storage.children) {
+    if (!name.startsWith(prefix)) continue;
+    const entry = ctx.cfb.entry(index);
+    if (entry.type !== "storage") continue;
+    if (children.length === MAX_CHILD_STORAGES) {
+      ctx.warnings.push(`${label} limited to ${MAX_CHILD_STORAGES} entries`);
+      break;
+    }
+    children.push([name, entry]);
+  }
+  return children.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, entry]) => entry);
 }
 
 function subCtx(ctx: MessageCtx, storage: CfbEntry, headerSize: number): MessageCtx {
@@ -250,7 +268,7 @@ function subCtx(ctx: MessageCtx, storage: CfbEntry, headerSize: number): Message
 function readRecipients(ctx: MessageCtx): { to: string[]; cc: string[] } {
   const to: string[] = [];
   const cc: string[] = [];
-  for (const storage of childStorages(ctx, "__RECIP_VERSION1.0_#")) {
+  for (const storage of childStorages(ctx, "__RECIP_VERSION1.0_#", "recipients")) {
     const r = subCtx(ctx, storage, HEADER_CHILD);
     const address = formatAddress(
       readString(r, PR_DISPLAY_NAME),
@@ -299,7 +317,7 @@ function readAttachments(
   attachments: string[],
   nested: string[],
 ): void {
-  for (const storage of childStorages(ctx, "__ATTACH_VERSION1.0_#")) {
+  for (const storage of childStorages(ctx, "__ATTACH_VERSION1.0_#", "attachments")) {
     const a = subCtx(ctx, storage, HEADER_CHILD);
     const method = getLong(a.props, PR_ATTACH_METHOD);
     const embedded = ctx.cfb.child(storage, substgName(PR_ATTACH_DATA, PT_OBJECT));

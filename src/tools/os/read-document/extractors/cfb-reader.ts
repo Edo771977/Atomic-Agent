@@ -47,6 +47,7 @@ const NOSTREAM = 0xffffffff;
 const HEADER_DIFAT_ENTRIES = 109;
 const DIR_ENTRY_SIZE = 128;
 const MINI_SECTOR_SIZE = 64;
+const MAX_CFB_WORK_BYTES = 64 * 1024 * 1024;
 
 export function isCfb(data: Uint8Array): boolean {
   return data.length >= 8 && SIGNATURE.every((b, i) => data[i] === b);
@@ -73,6 +74,13 @@ export function openCfb(data: Buffer): CfbFile {
   const sectorCount =
     data.length > sectorSize ? Math.ceil((data.length - sectorSize) / sectorSize) : 0;
   const miniCutoff = data.readUInt32LE(0x38);
+  // Charge whole sectors before reading or allocating, across every chain
+  // and stream opened from this file (even aliases of the same stream).
+  let workLeft = Math.min(2 * data.length, MAX_CFB_WORK_BYTES);
+  const charge = (bytes: number) => {
+    if (bytes > workLeft) throw new CfbError("compound file work budget exceeded");
+    workLeft -= bytes;
+  };
 
   const sector = (id: number): Buffer => {
     if (id > MAXREGSECT || id >= sectorCount) {
@@ -94,9 +102,11 @@ export function openCfb(data: Buffer): CfbFile {
     fatIds.push(id);
   }
   let difat = data.readUInt32LE(0x44);
-  let difatSteps = 0;
+  const difatSeen = new Set<number>();
   while (fatIds.length < fatSectorCount && difat <= MAXREGSECT) {
-    if (++difatSteps > sectorCount) throw new CfbError("DIFAT chain loops");
+    if (difatSeen.has(difat)) throw new CfbError("DIFAT chain has a cycle");
+    difatSeen.add(difat);
+    charge(sectorSize);
     const bytes = sector(difat);
     const perSector = sectorSize / 4 - 1;
     for (let i = 0; i < perSector && fatIds.length < fatSectorCount; i++) {
@@ -109,6 +119,7 @@ export function openCfb(data: Buffer): CfbFile {
   if (fatIds.length === 0) throw new CfbError("file has no FAT");
 
   const perFatSector = sectorSize / 4;
+  charge(fatIds.length * sectorSize);
   const fat = new Uint32Array(fatIds.length * perFatSector).fill(FREESECT);
   fatIds.forEach((id, n) => {
     const bytes = sector(id);
@@ -126,10 +137,12 @@ export function openCfb(data: Buffer): CfbFile {
     start: number,
     table: Uint32Array,
     limit: number,
+    bytesPerSector: number,
     what: string,
     count?: number,
   ): number[] => {
     const ids: number[] = [];
+    const seen = new Set<number>();
     let cur = start;
     while (count === undefined ? cur !== ENDOFCHAIN : ids.length < count) {
       if (cur === ENDOFCHAIN || cur === FREESECT) {
@@ -138,21 +151,23 @@ export function openCfb(data: Buffer): CfbFile {
       if (cur > MAXREGSECT || cur >= table.length || cur >= limit) {
         throw new CfbError(`${what} points outside the file`);
       }
-      if (ids.length >= limit) {
-        throw new CfbError(`${what} loops or is longer than the file`);
-      }
+      if (seen.has(cur)) throw new CfbError(`${what} loops (repeated sector ${cur})`);
+      charge(bytesPerSector);
+      seen.add(cur);
       ids.push(cur);
       cur = table[cur]!;
     }
+    if (seen.has(cur)) throw new CfbError(`${what} loops (repeated sector ${cur})`);
     return ids;
   };
 
   const readFat = (start: number, size: number, what: string): Buffer => {
     const need = Math.ceil(size / sectorSize);
     if (need > sectorCount) throw new CfbError(`${what} is larger than the file`);
+    const ids = walk(start, fat, sectorCount, sectorSize, what, need);
     const out = Buffer.alloc(size);
     let pos = 0;
-    for (const id of walk(start, fat, sectorCount, what, need)) {
+    for (const id of ids) {
       const bytes = sector(id);
       const take = Math.min(bytes.length, size - pos);
       bytes.copy(out, pos, 0, take);
@@ -164,7 +179,7 @@ export function openCfb(data: Buffer): CfbFile {
 
   const readChain = (start: number, what: string): Buffer => {
     if (start === ENDOFCHAIN || start === FREESECT) return Buffer.alloc(0);
-    const ids = walk(start, fat, sectorCount, what);
+    const ids = walk(start, fat, sectorCount, sectorSize, what);
     return Buffer.concat(ids.map(sector));
   };
 
@@ -237,9 +252,10 @@ export function openCfb(data: Buffer): CfbFile {
     const miniCount = Math.ceil(stream.length / MINI_SECTOR_SIZE);
     const need = Math.ceil(size / MINI_SECTOR_SIZE);
     if (need > miniCount) throw new CfbError(`${what} is larger than the mini stream`);
+    const ids = walk(start, table, miniCount, MINI_SECTOR_SIZE, what, need);
     const out = Buffer.alloc(size);
     let pos = 0;
-    for (const id of walk(start, table, miniCount, what, need)) {
+    for (const id of ids) {
       const from = id * MINI_SECTOR_SIZE;
       const take = Math.min(MINI_SECTOR_SIZE, size - pos, stream.length - from);
       stream.copy(out, pos, from, from + take);

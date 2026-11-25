@@ -233,6 +233,26 @@ async function extract(data: Buffer) {
 }
 
 describe("cfb reader", () => {
+  it("rejects a repeated sector before a fixed-size stream can copy it twice", () => {
+    const { buffer, dirStart } = buildCfb([{ name: "fixture", data: Buffer.alloc(CUTOFF) }]);
+    const start = buffer.readUInt32LE((dirStart + 1) * SECTOR + 128 + 0x74);
+    buffer.writeUInt32LE(start, SECTOR + start * 4);
+    const cfb = openCfb(buffer);
+    expect(() => cfb.read(cfb.entry(1))).toThrow(/cycle|repeated sector/i);
+  }, 1000);
+
+  it("shares a work budget between directory entries pointing to the same stream", () => {
+    const { buffer, dirStart } = buildCfb([
+      { name: "one", data: Buffer.alloc(CUTOFF) }, { name: "two", data: Buffer.alloc(0) },
+      { name: "three", data: Buffer.alloc(0) },
+    ]);
+    const first = (dirStart + 1) * SECTOR + 128;
+    for (const offset of [128, 256]) buffer.copy(buffer, first + offset + 0x74, first + 0x74, first + 0x7c);
+    const cfb = openCfb(buffer);
+    expect(cfb.read(cfb.entry(1))).toHaveLength(CUTOFF);
+    expect(() => { cfb.read(cfb.entry(2)); cfb.read(cfb.entry(3)); }).toThrow(/work budget/i);
+  }, 1000);
+
   it("reads streams from both the mini stream and regular sectors", () => {
     const small = Buffer.from("tiny");
     const large = Buffer.alloc(9000, 0x41);
@@ -285,6 +305,19 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("skips oversized string properties and caps recipient and attachment traversal", async () => {
+    const subject = { name: "__substg1.0_0037001F", data: Buffer.alloc(1024 * 1024 + 2, 0x41) };
+    const { buffer } = buildCfb([subject, ...Array.from({ length: 1001 }, (_, i) => [
+      { name: `__recip_version1.0_#${i.toString(16).padStart(8, "0")}`, children: [] },
+      { name: `__attach_version1.0_#${i.toString(16).padStart(8, "0")}`, children: [] },
+    ]).flat()]);
+    const result = await msgExtractor({ data: buffer, sourcePath: "fixture.msg" });
+    expect(result.text.includes("Subject:")).toBe(false);
+    expect(result.warnings.join("\n")).toMatch(/property.*too large/i);
+    expect(result.warnings.join("\n")).toMatch(/recipients.*1000/i);
+    expect(result.warnings.join("\n")).toMatch(/attachments.*1000/i);
+  }, 1000);
+
   it("renders headers, a long plain body and attachments like the .eml reader", async () => {
     const body = "Hi Bob,\r\n\r\n" + "Numbers attached. ".repeat(200).trim() + "\r\n\r\nAnn";
     const result = await extract(buildCfb(sampleMessage(body)).buffer);
