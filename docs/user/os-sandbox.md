@@ -64,4 +64,4 @@ The directories must exist on the host. Add a separate library or package direct
 
 ## Windows
 
-Su Windows nativo Safe Mode non è disponibile e rifiuta i comandi. Per l'ambiente protetto usa CLI o TUI dentro WSL2. Il supporto del Desktop con WSL2 è seguito nell'issue [#218](https://github.com/AtomicBot-ai/atomic-agent/issues/218).
+Su Windows nativo Safe Mode non è disponibile e rifiuta i comandi. Per l'ambiente protetto usa CLI o TUI dentro WSL2. Il supporto del Desktop con WSL2 è seguito nell'issue [#218](https://github.com/Edo771977/Atomic-Agent/issues/218).
