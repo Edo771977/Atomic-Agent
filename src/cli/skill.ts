@@ -469,7 +469,8 @@ async function handleList(args: string[] = []): Promise<number> {
     process.stdout.write(`${name}\t-\t[missing]\tdisabled\t(not installed)\n`);
   }
   if (untrusted > 0) {
-    process.stdout.write(`untrusted: ${untrusted} project skill${untrusted === 1 ? "" : "s"} in this folder ${untrusted === 1 ? "is" : "are"} not loaded until the folder is trusted. ${PROJECT_TRUST_OPERATOR_HINT}\n`);
+    // Keep machine-readable rows on stdout and the fork's operator-only advice.
+    process.stderr.write(`untrusted: ${untrusted} project skill${untrusted === 1 ? "" : "s"} in this folder ${untrusted === 1 ? "is" : "are"} not loaded until the folder is trusted. ${PROJECT_TRUST_OPERATOR_HINT}\n`);
   }
   for (const e of errors) {
     process.stderr.write(`WARN: ${e.path}: ${e.error}\n`);
