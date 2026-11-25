@@ -54,10 +54,8 @@ export async function openWorkbookPackage(data: Buffer, options: WorkbookOpenOpt
   options.checkArchive?.(zip);
   const { Workbook } = await loadExcelJs();
   const workbook = new Workbook();
-  // A standalone ArrayBuffer: a Node Buffer may be a view into a shared pool.
-  const copy = new Uint8Array(data.byteLength);
-  copy.set(data);
-  await workbook.xlsx.load(copy.buffer);
+  // ExcelJS opens its own ZIP. Pass the verified bytes as stored entries.
+  await workbook.xlsx.load(await zip.generateAsync({ type: "arraybuffer", compression: "STORE", streamFiles: true }));
   return { workbook, zip };
 }
 
