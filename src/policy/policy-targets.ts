@@ -8,6 +8,7 @@ import { shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import type { PolicyAction } from "./policy-schema.js";
 import type { ShellDialect } from "../tools/os/shell-command-guard/shell-line-lexer.js";
+import { createEditPathNormalizer } from "./policy-paths.js";
 
 export interface PolicyTarget {
   action: PolicyAction;
@@ -30,6 +31,7 @@ export interface PolicyGateRequest {
   targetPaths?: string[];
   affectedResources?: string[];
   grantKey?: string;
+  workdir?: string;
 }
 
 const SHELL_CATEGORIES = new Set(["shell", "shell_dangerous"]);
@@ -69,7 +71,8 @@ export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | nu
   if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool) ||
       (request.targetPaths?.length ?? 0) > 0 ||
       request.category === "other" && request.tool.startsWith("os.fs.")) {
-    return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]) };
+    const normalize = createEditPathNormalizer(request.workdir);
+    return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]).map(normalize.path) };
   }
   if (FETCH_CATEGORIES.has(request.category)) {
     return { action: "webfetch", resources: nonEmpty(urlResources([...(request.affectedResources ?? []), request.grantKey])) };

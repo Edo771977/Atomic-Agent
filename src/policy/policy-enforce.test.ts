@@ -1,3 +1,4 @@
+import { parse, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { mcpServerPolicy, policyCallRefusal, policyRuleMatch, skillPolicyRefusal } from "./policy-enforce.js";
@@ -38,7 +39,7 @@ describe("policy targets", () => {
     expect(gateRequestTarget({ tool: "os.shell.run", category: "shell", commandSegments: [["cd", "x"], ["rm", "-rf", "y"]] }))
       .toEqual({ action: "shell", resources: ["cd x", "rm -rf y"] });
     expect(gateRequestTarget({ tool: "os.fs.write", category: "fs_write_home", targetPaths: ["/h/a"], affectedResources: ["/h/a"] }))
-      .toEqual({ action: "edit", resources: ["/h/a"] });
+      .toEqual({ action: "edit", resources: [join(parse(process.cwd()).root, "h", "a").replace(/\\/g, "/").toLowerCase()] });
     expect(gateRequestTarget({ tool: "os.http.request", category: "http_write", affectedResources: ["https://x.test/a"], grantKey: "https://x.test" }))
       .toEqual({ action: "webfetch", resources: ["https://x.test/a", "https://x.test", "x.test", "https://x.test/"] });
     expect(gateRequestTarget({ tool: "mcp.gh.delete_repo", category: "other" })).toEqual({ action: "mcp", resources: ["gh/delete_repo"] });

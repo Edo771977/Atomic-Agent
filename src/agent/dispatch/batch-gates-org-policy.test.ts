@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import { mergePolicySources } from "../../policy/policy-loader.js";
 import { EMPTY_POLICY } from "../../policy/policy-evaluator.js";
@@ -17,6 +19,12 @@ const policy = mergePolicySources([{
 }]);
 
 describe("refuseByOrgPolicy (ATO-587)", () => {
+  it("resolves relative paths against the batch working directory", () => {
+    const workingDir = join(tmpdir(), "policy-batch-fixture");
+    const policy = mergePolicySources([{ status: { kind: "url", location: "https://fixture.test", state: "loaded" },
+      file: parsePolicyFile({ rules: [{ action: "edit", resource: join(workingDir, "src", "blocked.txt"), effect: "deny" }] }) }]);
+    expect(refuseByOrgPolicy({ tool: "os.fs.write", args: { path: "src/blocked.txt" } }, policy, workingDir)?.status).toBe("error");
+  });
   it("refuses a denied call of a tool that never asks the approval gate", () => {
     const result = refuseByOrgPolicy({ tool: "os.web.search", args: { query: "x" } }, policy);
     expect(result?.status).toBe("error");

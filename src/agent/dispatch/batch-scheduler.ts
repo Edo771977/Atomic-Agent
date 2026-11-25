@@ -361,7 +361,7 @@ export async function executeBatch(
       input.resourceClass === "terminal"
         ? null
         : refuseBeforeDispatch(input.call) ??
-          refuseByOrgPolicy(input.call, activePolicy()) ??
+          refuseByOrgPolicy(input.call, activePolicy(), ctx.workingDir) ??
           registry.refusalBeforeDispatch(input.call.tool, input.call.args, {
             sessionId: ctx.sessionId,
             workingDir: ctx.workingDir,

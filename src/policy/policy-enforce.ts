@@ -5,7 +5,7 @@
  */
 import type { ApprovalRule, RuleMatch } from "../approval/approval-rules.js";
 import { dirname, resolve, relative, isAbsolute, sep } from "node:path";
-import { canonicalPolicyPath as canonicalPath, policyFilePaths as policyFiles } from "./policy-paths.js";
+import { canonicalPolicyPath as canonicalPath, policyFilePaths as policyFiles, createEditPathNormalizer } from "./policy-paths.js";
 import { READ_TOOL_TARGETS, verifyRunShellCalls } from "../tools/read-scope/read-scope-targets.js";
 import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-clients.js";
 import { shellRuleSegments } from "../tools/os/shell/shell-command-argv.js";
@@ -27,7 +27,7 @@ function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workin
   return paths.some(path => protectedPaths.some(file => {
     const target = canonicalPath(resolve(workingDir, path));
     const protectedFile = canonicalPath(resolve(file));
-    const normalize = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
+    const normalize = (value: string) => process.platform === "win32" || process.platform === "darwin" ? value.toLowerCase() : value;
     const offset = relative(normalize(target), normalize(protectedFile));
     return offset === "" || ancestors && !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
   }));
@@ -37,8 +37,13 @@ function protectedPolicyMatch(tool: string): RuleMatch {
   return { decision: "deny", rule: { id: "org-policy:protected-file", decision: "deny", tool, createdAt: "", source: "user", note: "Only the operator may inspect or change organization policy files outside agent tools" } };
 }
 
-function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null): PolicyVerdict | null {
+function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workingDir?: string): PolicyVerdict | null {
   if (target === null || policy.rules.length === 0) return null;
+  if (target.action === "edit") {
+    const normalize = createEditPathNormalizer(workingDir);
+    const normalized = { ...policy, rules: policy.rules.map(rule => rule.action === "edit" ? { ...rule, resource: normalize.pattern(rule.resource) } : rule) };
+    return evaluatePolicy(normalized, "edit", target.resources.map(normalize.path), { unreadable: target.unreadable === true });
+  }
   return evaluatePolicy(policy, target.action, target.resources, { unreadable: target.unreadable === true });
 }
 
@@ -51,8 +56,8 @@ function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null): Polic
  */
 export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequest): RuleMatch | null {
   if ((request.category === "trust_config" || request.category === "state_secret") &&
-      touchesPolicy(policy, [...(request.targetPaths ?? []), ...(request.affectedResources ?? [])], undefined, request.category === "trust_config")) return protectedPolicyMatch(request.tool);
-  const verdict = verdictFor(policy, gateRequestTarget(request));
+      touchesPolicy(policy, [...(request.targetPaths ?? []), ...(request.affectedResources ?? [])], request.workdir, request.category === "trust_config")) return protectedPolicyMatch(request.tool);
+  const verdict = verdictFor(policy, gateRequestTarget(request), request.workdir);
   if (verdict === null || verdict.effect === "allow") return null;
   const rule: ApprovalRule = {
     id: `org-policy:${verdict.rule.source}:${verdict.rule.index + 1}`,
@@ -107,13 +112,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
       touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true)) {
     return `${tool} was not run: organization policy files are protected; only the operator may inspect or change them outside agent tools.`;
   }
-  if (target?.action === "edit" && workingDir !== undefined) {
-    target.resources = [...new Set(target.resources.flatMap(path => {
-      const absolute = resolve(workingDir, path);
-      return [path, absolute, canonicalPath(absolute)].flatMap(value => [value, value.replace(/\\/g, "/")]);
-    }))];
-  }
-  const verdict = verdictFor(policy, target);
+  const verdict = verdictFor(policy, target, workingDir);
   if (verdict?.effect !== "deny") return null;
   return (
     `${tool} was not run: blocked by your organization's policy (${describePolicyRule(verdict.rule)}).\n` +

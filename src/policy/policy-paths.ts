@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, join, resolve, posix, win32 } from "node:path";
+import { homedir } from "node:os";
 import type { EffectivePolicy } from "./policy-evaluator.js";
 
 export function canonicalPolicyPath(path: string): string {
@@ -12,6 +13,33 @@ export function canonicalPolicyPath(path: string): string {
 export function policyFilePaths(policy: EffectivePolicy): string[] {
   return policy.sources.filter(source => source.kind !== "url").flatMap(source =>
     source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
+}
+
+/** Patterns and resources share one identity; caches last only for this evaluation. */
+export function createEditPathNormalizer(workingDir = process.cwd(), platform: NodeJS.Platform = process.platform,
+  canonicalize: (path: string) => string = platform === process.platform ? canonicalPolicyPath : path => path) {
+  const api = platform === "win32" ? win32 : posix;
+  const cache = new Map<string, string>();
+  const fold = (value: string) => {
+    const path = value.replace(/\\/g, "/");
+    return platform === "win32" || platform === "darwin" ? path.toLowerCase() : path;
+  };
+  const path = (value: string): string => {
+    const expanded = value.replace(/^~(?=$|[\\/])/, homedir());
+    const absolute = api.resolve(workingDir, expanded.replace(/\\/g, "/"));
+    let canonical = cache.get(absolute);
+    if (canonical === undefined) { canonical = fold(canonicalize(absolute)); cache.set(absolute, canonical); }
+    return canonical;
+  };
+  const pattern = (value: string): string => {
+    const normalized = fold(value), star = normalized.search(/[?*]/);
+    if (star === -1) return path(normalized);
+    if (star === 0) return normalized;
+    const slash = normalized.lastIndexOf("/", star);
+    const prefix = slash === -1 ? "." : normalized.slice(0, slash + 1);
+    return `${path(prefix).replace(/\/$/, "")}/${normalized.slice(slash + 1)}`;
+  };
+  return { path, pattern };
 }
 
 /** One read operation: canonicalize each path once, without retaining decisions across calls. */

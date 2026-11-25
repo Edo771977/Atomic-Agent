@@ -72,8 +72,9 @@ export function refuseBeforeDispatch(
 export function refuseByOrgPolicy(
   call: ToolCallPayload,
   policy: EffectivePolicy,
+  workingDir?: string,
 ): CompressedToolResult | null {
-  const reason = policyCallRefusal(policy, call.tool, call.args);
+  const reason = policyCallRefusal(policy, call.tool, call.args, workingDir);
   if (reason === null) return null;
   return compressToolResult({
     tool: call.tool,
