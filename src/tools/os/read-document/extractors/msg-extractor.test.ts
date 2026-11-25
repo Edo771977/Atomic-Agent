@@ -305,6 +305,14 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("preserves the end of a two MiB UTF-16 message body", async () => {
+    const body = "a".repeat(1024 * 1024 - 12) + "\nfixture-end";
+    const result = await extract(buildCfb([str(0x1000, body)]).buffer);
+    expect(result.text.length).toBe(body.length);
+    expect(result.text.endsWith("fixture-end")).toBe(true);
+    expect(result.warnings.some(warning => warning.includes("too large"))).toBe(false);
+  });
+
   it("omits attachment sizes larger than the compound file", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const offset = buffer.indexOf(Buffer.from(b(0x3701) + "\0", "utf16le"));
