@@ -12,3 +12,9 @@ it.each([
   const data = await withDeclaredOfficePartSize(await readFile(source), 257 * 1024 * 1024);
   await expect(extract({ data, sourcePath: `fixture.${format}` })).rejects.toThrow(/uncompressed size limit/);
 });
+
+it("declines a single 200 MiB workbook part before handing the package to ExcelJS", async () => {
+  const source = new URL("../../test-fixtures/sample.xlsx", import.meta.url);
+  const data = await withDeclaredOfficePartSize(await readFile(source), 200 * 1024 * 1024);
+  await expect(xlsxExtractor({ data, sourcePath: "fixture.xlsx" })).rejects.toThrow(/per-part size limit.*67108864/);
+});

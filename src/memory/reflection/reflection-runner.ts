@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -385,7 +386,7 @@ export function createReflectionRunner(
       });
       const completion =
         deps.toolTransport === "native_tools"
-          ? await deps.llmComplete({
+          ? await withFreshPrivacyVault(() => deps.llmComplete({
               ...buildCloudSubcallRequest({
                 prompt,
                 emitFunctionName: "emit_reflection",
@@ -397,15 +398,15 @@ export function createReflectionRunner(
               sessionId: `reflection:${input.sessionId}`,
               ...(input.modelModePolicy ? { modelModePolicy: input.modelModePolicy } : {}),
               signal: controller.signal,
-            })
-          : await deps.llmComplete({
+            }))
+          : await withFreshPrivacyVault(() => deps.llmComplete({
               prompt,
               grammar: REFLECTION_GRAMMAR,
               slotId: resolveSlotId(deps.reflectionSlotId),
               sessionId: `reflection:${input.sessionId}`,
               ...(input.modelModePolicy ? { modelModePolicy: input.modelModePolicy } : {}),
               signal: controller.signal,
-            });
+            }));
       if (controller.signal.aborted) {
         finish(timedOut ? "timeout" : "aborted", {
           sessionId: input.sessionId,

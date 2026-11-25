@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { SessionStore } from "../session/session-store.js";
+import { createEmptySessionState } from "../session/session-state.js";
 import { acceptIdea, ideaTaskCarry, refreshIdeas, type IdeaTaskCarry } from "./idea-service.js";
 import { IdeaStore } from "./idea-store.js";
 import { seedLegacyRetry } from "./idea-legacy-fixture.js";
@@ -149,6 +151,40 @@ describe("idea service", () => {
     // The idea is decided, so its source is never offered again.
     expect(refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added).toEqual([]);
   });
+
+  it.each(["marked", "legacy lookup", "closed after snapshot"] as const)(
+    "never persists a goal idea from a %s chat",
+    (scenario) => {
+      const sessions = new SessionStore({ dbFile: join(tmp, "sessions.sqlite") });
+      try {
+        const session = createEmptySessionState({
+          id: "goal-session", workingDir: tmp,
+          ...(scenario !== "closed after snapshot" ? { incognito: sessions.newIncognitoMark() } : {}),
+          metadata: { goal: { version: 1, status: "paused", criteria: [{ text: "fixture checklist", mark: "pending" }],
+            checks: [], maxRounds: 10, roundsUsed: 1, judgeFailures: 0, createdAt: 1, updatedAt: 2 } },
+        });
+        sessions.save(session);
+        const lookup = {
+          listRecent: () => [scenario === "marked" ? session : { id: session.id, metadata: session.metadata }],
+          isIncognito: (id: string) => scenario !== "marked" && sessions.isIncognito(id),
+          getSessionPrivacy: (id: string) => sessions.getSessionPrivacy(id),
+        };
+        const target = {
+          sync: (...args: Parameters<IdeaStore["sync"]>) => {
+            if (scenario === "closed after snapshot") {
+              tasks.removeForSession(session.id);
+              sessions.delete(session.id);
+            }
+            return ideas.sync(...args);
+          },
+        };
+        expect(refreshIdeas({ ideas: target, tasks, sessions: lookup, now: 3 }).added).toEqual([]);
+        expect(ideas.list()).toEqual([]);
+      } finally {
+        sessions.close();
+      }
+    },
+  );
 
   it("leaves an ordinary Retry intact when acceptance has no source lookup", () => {
     failedTask("synthetic ordinary task", Date.now() - 1_000);

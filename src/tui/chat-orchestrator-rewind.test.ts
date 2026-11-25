@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { privacyVaultFor, resetPrivacyVaults } from "../privacy/index.js";
 
 import type { ConversationTurn } from "../session/conversation-turn.js";
 import type { TuiAction } from "./tui-action.js";
@@ -144,7 +145,11 @@ describe("ChatOrchestrator /rewind", () => {
   it("cuts back to before the picked question, saves, rebuilds and refills the composer", async () => {
     const h = makeHarness();
     h.actions.length = 0;
+    resetPrivacyVaults();
+    privacyVaultFor("s-a").mask("old@example.test");
     h.orchestrator.rewindTo(0, "first question");
+    expect(privacyVaultFor("s-a").unmask("[EMAIL_1]")).toBe("[EMAIL_1]");
+    resetPrivacyVaults();
     expect(h.cancelSessionCompaction).toHaveBeenCalledWith("s-a");
     expect(h.clearTurnProgress).toHaveBeenCalledWith("s-a");
     expect(h.stored.get("s-a")!.turns).toEqual([]);

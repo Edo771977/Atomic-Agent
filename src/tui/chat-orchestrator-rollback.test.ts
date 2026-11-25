@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { privacyVaultFor, resetPrivacyVaults } from "../privacy/index.js";
 
 import type { ConversationTurn } from "../session/conversation-turn.js";
 import {
@@ -111,7 +112,11 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 describe("ChatOrchestrator.rollbackLastTurn", () => {
   it("cuts the last question and answer from the store and the next turn", async () => {
     const h = makeHarness();
+    resetPrivacyVaults();
+    privacyVaultFor("s-a").mask("old@example.test");
     const outcome = h.orchestrator.rollbackLastTurn();
+    expect(privacyVaultFor("s-a").unmask("[EMAIL_1]")).toBe("[EMAIL_1]");
+    resetPrivacyVaults();
     expect(outcome).toEqual({ ok: true, text: "second question" });
     expect(h.cancelSessionCompaction).toHaveBeenCalledWith("s-a");
     expect(h.clearTurnProgress).toHaveBeenCalledWith("s-a");

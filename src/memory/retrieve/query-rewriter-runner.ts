@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import { resolveSlotId, type SlotIdSource } from "../../llm/slot-manager.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
@@ -180,7 +181,7 @@ export function createQueryRewriterRunner(
 
       try {
         const completion = await Promise.race([
-          deps.llmComplete({
+          withFreshPrivacyVault(() => deps.llmComplete({
             prompt,
             grammar: QUERY_REWRITER_GRAMMAR,
             responseFormat: QUERY_REWRITER_RESPONSE_FORMAT,
@@ -196,7 +197,7 @@ export function createQueryRewriterRunner(
             sessionId: `rewriter:${input.sessionId}`,
             budgetOwnerSessionId: input.sessionId,
             signal: ac.signal,
-          }),
+          })),
           timeoutPromise,
         ]);
         const rewritten = parseRewriterOutput(completion.content);

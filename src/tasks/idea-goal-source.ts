@@ -1,5 +1,6 @@
 import { readGoalState } from "../agent/goal/goal-state.js";
 import type { SessionState } from "../session/index.js";
+import { isIncognitoSession } from "../session/incognito.js";
 
 import type { GoalIdeaInput } from "./idea-rules.js";
 
@@ -10,10 +11,11 @@ import type { GoalIdeaInput } from "./idea-rules.js";
  * nothing.
  */
 export function goalIdeaInputs(
-  sessions: readonly Pick<SessionState, "id" | "metadata">[],
+  sessions: readonly Pick<SessionState, "id" | "metadata" | "incognito">[],
 ): GoalIdeaInput[] {
   const out: GoalIdeaInput[] = [];
   for (const s of sessions) {
+    if (isIncognitoSession(s)) continue;
     const goal = readGoalState(s.metadata);
     if (goal === null) continue;
     out.push({

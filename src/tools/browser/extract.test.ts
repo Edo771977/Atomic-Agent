@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { GATE_CTX, GateBackend } from "./browser-gate-test-helpers.js";
 import { UserSiteApprovals } from "./user-profile-sites.js";
 import type { BrowserDomainPolicy } from "./browser-domain-policy.js";
@@ -39,6 +40,7 @@ function scriptedModel(
   const calls: BrowserExtractCompletionParams[] = [];
   const model: BrowserExtractModel = {
     async complete(params) {
+      assertAuxiliaryArchive(params.sessionId);
       calls.push(params);
       if (answer instanceof Error) throw answer;
       return {

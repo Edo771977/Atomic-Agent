@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import { assertSupportedJsonSchema } from "../../llm/provider/openai/json-schema-support.js";
 import { validateJsonSchemaValue } from "../../llm/provider/openai/coerce-json-schema-value.js";
@@ -168,7 +169,7 @@ export function buildBrowserExtractTool(
 
       let completion: Awaited<ReturnType<typeof extractor.complete>>;
       try {
-        completion = await extractor.complete(built.request);
+        completion = await withFreshPrivacyVault(() => extractor.complete(built.request));
       } catch (err) {
         if (ctx.signal.aborted) throw err;
         return errorResult(`the extraction call failed: ${err instanceof Error ? err.message : String(err)}`, {

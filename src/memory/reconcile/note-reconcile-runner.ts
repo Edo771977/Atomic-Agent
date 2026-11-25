@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ResponseFormatJsonSchema } from "../../llm/provider/completion-types.js";
 import { resolveSlotId, type SlotIdSource } from "../../llm/slot-manager.js";
@@ -195,7 +196,7 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
     }, deps.timeoutMs);
     (timer as { unref?: () => void }).unref?.();
     try {
-      const completion = await deps.llmComplete({
+      const completion = await withFreshPrivacyVault(() => deps.llmComplete({
         prompt: buildNoteReconcilePrompt({
           newNote: target.note.content,
           candidates: target.candidates.map((c) => ({ id: c.id, body: c.content })),
@@ -205,7 +206,7 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
         slotId: resolveSlotId(deps.reflectionSlotId),
         sessionId: `note-reconcile:${input.sessionId}`,
         signal: controller.signal,
-      });
+      }));
       if (controller.signal.aborted) {
         return finish(input.sessionId, startedAt, timedOut ? "timeout" : "aborted");
       }

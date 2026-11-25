@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,9 +67,9 @@ function fixture(overrides: Partial<CompactionConfig>, flushReply: () => Promise
   const state = session;
   let stored = state;
   const config: CompactionConfig = { ...createCompactionDefaults(), summaryMaxTokens: 250, ...overrides };
-  const complete = vi.fn(async (params: LlmStreamParams) => isFlush(params)
+  const complete = vi.fn(async (params: LlmStreamParams) => { assertAuxiliaryArchive(params.sessionId); return isFlush(params)
     ? flushReply()
-    : completion("Goal: finish the task. Constraints: keep the original requirements. Completed: the recorded reads succeeded. Next: continue the unfinished work."));
+    : completion("Goal: finish the task. Constraints: keep the original requirements. Completed: the recorded reads succeeded. Next: continue the unfinished work."); });
   const store = vi.fn((_note: MemoryStoreInput) => ({}));
   const log = vi.fn();
   const persist = vi.fn((next: SessionState) => { stored = next; });

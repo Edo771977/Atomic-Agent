@@ -9,6 +9,7 @@ import {
   type TelegramChannel,
 } from "../channels/telegram/index.js";
 import { openaiError } from "./openai-errors.js";
+import { isNamedCaller } from "./serve-egress.js";
 import {
   readJsonBody,
   sendError,
@@ -83,13 +84,14 @@ function unavailable(res: Parameters<HttpHandler>[1]): void {
 function notRunning(
   res: Parameters<HttpHandler>[1],
   channel: TelegramChannel,
+  ctx: HandlerContext,
 ): void {
   const lastError = channel.lastError();
   sendError(
     res,
     409,
     openaiError(
-      `Telegram is not running (state: ${channel.state()}${lastError ? `, ${lastError}` : ""}). Add a bot token, turn Telegram on and restart the agent, then pair.`,
+      isNamedCaller(ctx) ? "Telegram is not running" : `Telegram is not running (state: ${channel.state()}${lastError ? `, ${lastError}` : ""}). Add a bot token, turn Telegram on and restart the agent, then pair.`,
       "invalid_request_error",
       null,
       "telegram_not_running",
@@ -187,7 +189,7 @@ export function createTelegramPairingHandlers(): TelegramPairingHandlers {
     }
     const replaceOwner = body.replaceOwner === true;
     if (channel.state() !== "up") {
-      notRunning(res, channel);
+      notRunning(res, channel, ctx);
       return;
     }
     if (channel.getOwnerUserId() !== null && !replaceOwner) {
@@ -209,7 +211,7 @@ export function createTelegramPairingHandlers(): TelegramPairingHandlers {
     if (!openedWindow) {
       try {
         await outcome;
-        notRunning(res, channel);
+        notRunning(res, channel, ctx);
       } catch (err) {
         if (err instanceof OwnerAlreadyPairedError) ownerPaired(res);
         else sendError(res, 500, openaiError(err instanceof Error ? err.message : String(err), "server_error"));

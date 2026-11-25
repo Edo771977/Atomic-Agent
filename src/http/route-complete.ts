@@ -1,4 +1,6 @@
+import { admitAuxiliaryCompletion } from "./auxiliary-concurrency.js";
 import { validatePlainCompleteInput } from "../runtime/plain-complete.js";
+import { isNamedCaller } from "./serve-egress.js";
 import { openaiError } from "./openai-errors.js";
 import {
   onClientGone,
@@ -52,20 +54,25 @@ export function createPlainCompleteHandler(): HttpHandler {
       sendError(res, 501, openaiError("plain completion is not available in this runtime"));
       return;
     }
-    const controller = new AbortController();
-    onClientGone(res, () => controller.abort());
-    const result = await ctx.runtime.completePlain({
-      prompt: body.prompt as string,
-      ...(typeof body.system === "string" ? { system: body.system } : {}),
-      ...(typeof body.max_tokens === "number" ? { maxTokens: body.max_tokens } : {}),
-      signal: controller.signal,
-    });
-    if (controller.signal.aborted || res.writableEnded) return;
-    if (result.ok) {
-      sendJson(res, 200, { text: result.text });
-      return;
-    }
-    const status = result.kind === "invalid" ? 400 : result.kind === "timeout" ? 504 : 502;
-    sendError(res, status, openaiError(result.reason, status === 400 ? "invalid_request_error" : "server_error"));
+    const release = admitAuxiliaryCompletion(ctx, res);
+    if (release === null) return;
+    try {
+      const controller = new AbortController();
+      onClientGone(res, () => controller.abort());
+      const result = await ctx.runtime.completePlain({
+        prompt: body.prompt as string,
+        ...(typeof body.system === "string" ? { system: body.system } : {}),
+        ...(typeof body.max_tokens === "number" ? { maxTokens: body.max_tokens } : {}),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || res.writableEnded) return;
+      if (result.ok) {
+        sendJson(res, 200, { text: result.text });
+        return;
+      }
+      const status = result.kind === "invalid" ? 400 : result.kind === "timeout" ? 504 : 502;
+      const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
+      sendError(res, status, openaiError(message, status === 400 ? "invalid_request_error" : "server_error"));
+    } finally { release(); }
   };
 }

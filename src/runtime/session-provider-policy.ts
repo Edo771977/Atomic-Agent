@@ -105,8 +105,7 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     }
     return forWorkingDir(session.workingDir);
   };
-  const forSessionId = (sessionId: string): ProviderPolicy | undefined => {
-    if (!constraintsActive()) return undefined;
+  const resolveSession = (sessionId: string) => {
     // Side calls partition the chain as `<kind>:<session id>`
     // (`reflection:`, `compaction:`, `rewriter:`, ...): the session is
     // the part after the prefix.
@@ -116,6 +115,11 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
       id = id.slice(id.indexOf(":") + 1);
       session = deps.loadSession(id);
     }
+    return { id, session };
+  };
+  const forSessionId = (sessionId: string): ProviderPolicy | undefined => {
+    if (!constraintsActive()) return undefined;
+    const { id, session } = resolveSession(sessionId);
     if (session === null) return refuseAllPolicy(`(unknown session ${sessionId})`);
     return forSession({ id, ...session });
   };
@@ -133,7 +137,7 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const effectivePolicyForSession = (
     target: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ): ProviderPolicy | undefined => {
-    const id = typeof target === "string" ? target : target.id;
+    const id = typeof target === "string" && constraintsActive() ? resolveSession(target).id : typeof target === "string" ? target : target.id;
     const frame = currentProviderPolicyFrame();
     if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === id)) return frame.policy;
     // Every view of the session narrows: the caller's object (possibly a

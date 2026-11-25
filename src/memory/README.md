@@ -16,6 +16,8 @@ This area owns durable cross-session memory. Read [AGENTS.md](AGENTS.md) before 
 
 MemoryStore and specialized profile/link/lesson/procedure/vote stores own persistence. The context provider retrieves bounded prompt material; reflection and its runners form or curate durable data; consolidator owns scheduled distillation. Runtime supplies provider/slot posture and shutdown; prompt owns placement and budgets. Read retrieval and formation independently.
 
+Each model completion in these runners uses a fresh Privacy Shield archive. Each distilled cluster owns its archive even though all clusters retain the `consolidator` routing partition. Reflection, rewriting, links, votes and reconciliation likewise keep routing identity separate from the per-call archive; concurrent clusters or calls cannot restore another call's private placeholders.
+
 No durable store holds a credential: profile, note, lesson and procedure writes go through [memory-secret-guard.ts](memory-secret-guard.ts) (the shared [credential detector](../error-reporting/secret-detector.ts), the agent's own `.env` values, and labelled phrases such as "password: X", "the wifi password is X" or "API key: <hex>" that only memory refuses) and are refused with the store's validation error, which never echoes the value. Profile keys that name a credential (`*_api_key`, `*_token`, `*_password`) are refused too (`*_pat` only after a service such as `github_pat`), and a key and value are also read together (`pin` = `4821`); `remove`/`history` still accept them so a legacy row can be cleaned up.
 
 ## Backup and entry state

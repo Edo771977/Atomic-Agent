@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -118,7 +119,7 @@ describe("createReflectionRunner", () => {
     let calls = 0;
     const runner = createReflectionRunner({
       toolTransport, profileStore: h.store, reflectionSlotId: 7, timeoutMs: 5000, maxFactsPerCall: 3,
-      llmComplete: async params => {
+      llmComplete: async (params) => { assertAuxiliaryArchive(params.sessionId);
         calls++;
         expect(params.modelModePolicy).toBe(policy);
         return completion(toolTransport === "grammar" ? "SKIP" : '{"facts":[],"notes":[]}');

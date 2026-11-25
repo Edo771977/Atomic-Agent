@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { PrivacyVault } from "../../privacy/index.js";
 import type { KnownSecret } from "../../error-reporting/secret-detector.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
@@ -232,11 +233,11 @@ export function createSkillEvalJudge(config: SkillEvalJudgeConfig, deps: SkillEv
           sessionId: "skill-eval-judge",
           maxTokens: JUDGE_MAX_TOKENS,
         });
-        const result = await provider.complete({
+        const result = await withFreshPrivacyVault(() => provider.complete({
           ...request,
           temperature: 0,
           signal: AbortSignal.timeout(config.timeoutMs),
-        });
+        }));
         record(result.usage, result.modelId ?? provider.chatModelId ?? config.model);
         const args = result.toolCalls?.[0]?.function?.arguments;
         return parseJudgeVerdict(typeof args === "string" && args.length > 0 ? args : result.content);
