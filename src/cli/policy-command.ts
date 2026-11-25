@@ -1,4 +1,5 @@
 import { resolveStateDir } from "../config/index.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import { formatPolicy, loadPolicy, type EffectivePolicy } from "../policy/index.js";
 
 /**
@@ -24,6 +25,10 @@ export interface PolicyCommandDeps {
 export async function policyCommand(args: string[], deps: PolicyCommandDeps = {}): Promise<number> {
   const write = deps.write ?? ((t: string) => { process.stdout.write(t); });
   const writeErr = deps.writeErr ?? ((t: string) => { process.stderr.write(t); });
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    writeErr("Only the operator can inspect organization policy.\n");
+    return 1;
+  }
   const [sub, ...rest] = args;
   if (sub === undefined || sub === "-h" || sub === "--help") {
     write(`${HELP}\n`);
@@ -38,7 +43,12 @@ export async function policyCommand(args: string[], deps: PolicyCommandDeps = {}
     writeErr(`unknown option ${unknown}\n\n${HELP}\n`);
     return 2;
   }
-  const policy = await (deps.load ?? (() => loadPolicy({ stateDir: resolveStateDir() })))();
-  write(rest.includes("--json") ? `${JSON.stringify(policy, null, 2)}\n` : formatPolicy(policy));
-  return 0;
+  try {
+    const policy = await (deps.load ?? (() => loadPolicy({ stateDir: resolveStateDir() })))();
+    write(rest.includes("--json") ? `${JSON.stringify(policy, null, 2)}\n` : formatPolicy(policy));
+    return 0;
+  } catch (error) {
+    writeErr(`${error instanceof Error ? error.message : "Organization policy could not be loaded"}\n`);
+    return 1;
+  }
 }

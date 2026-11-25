@@ -18,6 +18,8 @@ import { EgressNotAllowedError, isNetworkedResearch } from "./tool-egress.js";
 import type { ToolRole } from "./tool-roles.js";
 import type { FileReadVersions } from "./os/fs/fs-read-freshness.js";
 import { fileStem, type ToolOutputSpill } from "./tool-output-spill.js";
+import { activePolicy } from "../policy/policy-active.js";
+import { policyCallRefusal } from "../policy/policy-enforce.js";
 
 export interface ToolContext {
   workspaceSkills?: import("../skills/workspace-skills.js").WorkspaceSkills;
@@ -240,7 +242,8 @@ export class ToolRegistry {
     args: Record<string, unknown>,
     ctx: Pick<ToolContext, "sessionId" | "workingDir">,
   ): Error | null {
-    return this.dispatchGuard?.(name, args, ctx) ?? null;
+    const policy = policyCallRefusal(activePolicy(), name, args, ctx.workingDir);
+    return policy === null ? this.dispatchGuard?.(name, args, ctx) ?? null : new Error(policy);
   }
 
   /**
@@ -295,6 +298,8 @@ export class ToolRegistry {
       // before dispatch; anything that cannot be coerced is passed
       // through untouched so the tool reports its own error.
       const runArgs = coerceToolArgs(name, aliased?.args ?? args);
+      const policy = policyCallRefusal(activePolicy(), name, runArgs, ctx.workingDir);
+      if (policy !== null) throw new Error(policy);
       // Read taint first (a read inside a constrained folder narrows the
       // session's policy), then the egress guard against that narrowed
       // policy: the backstop for callers that did not ask

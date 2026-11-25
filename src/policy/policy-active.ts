@@ -1,5 +1,5 @@
 import { resolveStateDir } from "../config/load-config.js";
-import { EMPTY_POLICY, type EffectivePolicy } from "./policy-evaluator.js";
+import type { EffectivePolicy } from "./policy-evaluator.js";
 import { loadLocalPolicy } from "./policy-loader.js";
 
 let active: EffectivePolicy | null = null;
@@ -16,15 +16,11 @@ export function installPolicy(policy: EffectivePolicy | null): void {
 
 /**
  * The installed policy, or (in a short-lived command that never booted a
- * runtime) the local files plus the cached URL copy, read once. Never
- * throws: a policy that cannot be read is no policy.
+ * runtime) the local files plus the cached URL copy, read once.
+ * A broken local policy refuses startup or the call; it is never empty policy.
  */
 export function activePolicy(): EffectivePolicy {
   if (active !== null) return active;
-  try {
-    active = loadLocalPolicy({ stateDir: resolveStateDir() });
-  } catch {
-    active = EMPTY_POLICY;
-  }
+  active = loadLocalPolicy({ stateDir: resolveStateDir() });
   return active;
 }

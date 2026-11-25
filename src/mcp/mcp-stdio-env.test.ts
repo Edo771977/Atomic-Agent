@@ -14,9 +14,16 @@ const AGENT_ENV: NodeJS.ProcessEnv = {
 };
 
 describe("buildMcpStdioEnv (ATO-346)", () => {
+  it("marks stdio servers as tool children and strips owner keys even from configured env", () => {
+    const env = buildMcpStdioEnv({ atomic_agent_tool_child: "0", ATOMIC_AGENT_API_KEY: "owner", ATOMIC_AGENT_TOOL_CHILD: "0" }, AGENT_ENV);
+    expect(env.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
+    expect(env).not.toHaveProperty("atomic_agent_tool_child");
+    expect(env).not.toHaveProperty("ATOMIC_AGENT_API_KEY");
+  });
   it("passes service variables and never provider keys or bot tokens", () => {
     const env = buildMcpStdioEnv(undefined, AGENT_ENV);
     expect(env).toEqual({
+      ATOMIC_AGENT_TOOL_CHILD: "1",
       PATH: "/usr/bin:/bin",
       HOME: "/home/op",
       LANG: "en_US.UTF-8",
@@ -55,6 +62,7 @@ describe("buildMcpStdioEnv (ATO-346)", () => {
       OpenAI_Api_Key: "leak",
     });
     expect(env).toEqual({
+      ATOMIC_AGENT_TOOL_CHILD: "1",
       Path: "C:\\Windows\\system32",
       SystemRoot: "C:\\Windows",
       ComSpec: "C:\\Windows\\system32\\cmd.exe",
@@ -72,7 +80,7 @@ describe("buildMcpStdioEnv (ATO-346)", () => {
       SHELL: "() { evil; }",
       HOME: undefined,
     });
-    expect(env).toEqual({ PATH: "/bin" });
+    expect(env).toEqual({ PATH: "/bin", ATOMIC_AGENT_TOOL_CHILD: "1" });
   });
 
   it("passes the display, SSH agent socket and Docker host", () => {
@@ -84,6 +92,7 @@ describe("buildMcpStdioEnv (ATO-346)", () => {
       GITHUB_TOKEN: "leak",
     });
     expect(env).toEqual({
+      ATOMIC_AGENT_TOOL_CHILD: "1",
       DISPLAY: ":0",
       SSH_AUTH_SOCK: "/tmp/ssh-agent.sock",
       DOCKER_HOST: "unix:///run/colima.sock",

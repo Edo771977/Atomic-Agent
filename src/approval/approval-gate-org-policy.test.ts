@@ -104,11 +104,24 @@ describe("ApprovalGate with an organization policy (ATO-587)", () => {
     expect(g.wouldPrompt("s", "shell", { tool: "os.shell.run", commandArgv: ["npm", "i"], commandSegments: [["npm", "i"]] })).toBe(true);
   });
 
-  it("a policy check that throws never blocks a request", async () => {
+  it("Fusion candidate paths retain denies from the original project", async () => {
+    const original = join(stateDir, "project"); const candidate = join(stateDir, "candidate");
+    const p = mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" },
+      file: parsePolicyFile({ rules: [{ action: "edit", resource: join(original, "secret.txt"), effect: "deny" }] }) }]);
+    const g = new ApprovalGate({ emit: r => emitted.push(r), level: 5 });
+    g.setOrgPolicy(request => policyRuleMatch(p, request));
+    g.setSessionPolicy("worker", { onPrompt: "refuse", reason: "worker cannot approve", ruleWorkdir: original, rulePathRoot: candidate });
+    const request = { sessionId: "worker", tool: "os.fs.write", category: "fs_write_workspace" as const, reason: "fixture", targetPaths: [join(candidate, "secret.txt")] };
+    expect(g.ruleDecisionFor(request)).toBe("deny");
+    expect((await g.request(request)).approved).toBe(false);
+    expect(emitted).toEqual([]);
+  });
+
+  it("a policy check that throws refuses a request", async () => {
     const g = new ApprovalGate({ emit: (r) => emitted.push(r), level: 5 });
     g.setOrgPolicy(() => {
       throw new Error("boom");
     });
-    expect((await g.request(shell(["rm", "x"]))).approved).toBe(true);
+    expect((await g.request(shell(["rm", "x"]))).approved).toBe(false);
   });
 });

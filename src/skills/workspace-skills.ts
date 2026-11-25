@@ -14,6 +14,8 @@ import { parseSkillFile } from "./skill-manifest.js";
 import { findProjectTrust, skillTrust, untrustedSkillReason } from "./project-trust.js";
 import { readWorkspaceFile, isWithinWorkspace, statSnapshot, type StatSnapshot } from "./workspace-files.js";
 import { sharedAgentSkillsDir } from "./shared-skills-dir.js";
+import { activePolicy } from "../policy/policy-active.js";
+import { skillPolicyRefusal } from "../policy/policy-enforce.js";
 
 export interface WorkspaceSkill {
   record: SkillRecord;
@@ -98,6 +100,8 @@ function withLiveCheck(scan: SkillScan, options: WorkspaceSkillsOptions, compati
   };
   return { workingDir: scan.workingDir, projectSkillsEnabled: scan.projectSkillsEnabled, entries: scan.entries, diagnostics: scan.diagnostics, projectTrust: scan.projectTrust,
     assertAvailable(name: string) {
+      const refusal = skillPolicyRefusal(activePolicy(), name);
+      if (refusal !== null) throw new Error(refusal);
       const original = scan.entries.find(e => e.record.manifest.name === name);
       const now = current()?.entries.find(e => e.record.manifest.name === name);
       if (!now || now.disabledReasons.length) throw new Error(`Skill ${name} unavailable: ${now?.disabledReasons.join(", ") ?? "not installed"}`);
@@ -275,7 +279,8 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
     const chosen = copies.find(e => e.record.source === "global" && !e.shared) ?? copies.find(e => !e.shared) ?? copies[0]!;
     const sources = copies.flatMap(e => e.sources);
     if (copies.some(e => e.fingerprint !== chosen.fingerprint)) diagnostics.push(`Skill ${chosen.record.manifest.name}: using ${chosen.record.manifestPath}; shadowed ${sources.filter(p => p !== chosen.record.manifestPath).join(", ")}`);
-    return { ...chosen, sources };
+    const refusal = skillPolicyRefusal(activePolicy(), chosen.record.manifest.name);
+    return { ...chosen, sources, disabledReasons: [...chosen.disabledReasons, ...(refusal === null ? [] : [refusal])] };
   }).sort((a, b) => a.record.manifest.name.localeCompare(b.record.manifest.name));
   return { workingDir: root, projectSkillsEnabled: enabled, entries, diagnostics, projectTrust: trust, watched, pluginKey, startedAt };
 }

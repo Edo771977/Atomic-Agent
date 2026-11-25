@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,8 +13,8 @@ import { evaluatePolicy, mcpServerVerdict } from "./policy-evaluator.js";
 
 const STATE = "/state";
 const SYSTEM = "/etc/atomic-agent/policy.json";
-const USER = "/state/policy.json";
-const CACHE = `/state/${POLICY_CACHE_FILE}`;
+const USER = join(STATE, "policy.json");
+const CACHE = join(STATE, POLICY_CACHE_FILE);
 const URL_ = "https://policy.example.com/org.json?token=abc";
 
 function fakeFs(files: Record<string, string>) {
@@ -54,13 +55,9 @@ describe("loadLocalPolicy", () => {
     expect(policy.sources.map((s) => [s.kind, s.state])).toEqual([["user", "loaded"], ["system", "loaded"]]);
   });
 
-  it("ignores a broken file and reports it as invalid", () => {
-    const { deps } = fakeFs({ [SYSTEM]: "{ not json", [USER]: JSON.stringify({ rules: [rule("rm *", "deny")] }) });
-    const policy = loadLocalPolicy({ stateDir: STATE, platform: "linux", env: {}, ...deps });
-    expect(policy.rules).toHaveLength(1);
-    const system = policy.sources.find((s) => s.kind === "system");
-    expect(system?.state).toBe("invalid");
-    expect(system?.error).toMatch(/not valid JSON/);
+  it("refuses a broken local file with its source and reason", () => {
+    const { deps } = fakeFs({ [SYSTEM]: "{ not json" });
+    expect(() => loadLocalPolicy({ stateDir: STATE, platform: "linux", env: {}, ...deps })).toThrow(/Organization policy system.*not valid JSON/);
   });
 
   it("reports missing files and uses no rules", () => {

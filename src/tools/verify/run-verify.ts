@@ -11,6 +11,8 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal } from "../../policy/policy-enforce.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
 import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
@@ -171,6 +173,8 @@ interface ServiceVerification {
 
 async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolean, ctx: VerifyRunContext, started: number, detector?: ApprovedImpeccable, approveResearch?: ResearchApproval, service?: ServiceVerification): Promise<VerifyRunResult> {
   const cwd = resolveVerifyCwd(dir, args.cwd, true);
+  const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", args, cwd);
+  if (policyRefusal !== null) throw new Error(policyRefusal);
   // The actual rebased argv, environment and cwd are guarded again immediately
   // before every executor. A copy is not a process sandbox.
   const guard = guardVerifyRun(args, cwd, ctx.shellPolicy);

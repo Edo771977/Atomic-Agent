@@ -15,6 +15,7 @@ import {
 import { writeOwnerOnlyFileAtomicSync } from "./owner-only-file.js";
 import { sharedAgentSkillsDir } from "./shared-skills-dir.js";
 import { SECRETS_STORE_FILE } from "./secret-store.js";
+import { orgPolicyPaths } from "./org-policy-paths.js";
 
 /** Resolve the absolute path to the user config file inside a state dir. */
 export function getUserConfigPath(stateDir: string): string {
@@ -72,6 +73,7 @@ export function getTrustConfigPaths(paths: {
     join(paths.localModelsDataDir, "llama-server.key"),
     join(paths.stateDir, "serve-api.key"),
     join(paths.stateDir, "http-tokens.json"),
+    ...orgPolicyPaths(paths.stateDir),
     getDotenvPath(paths.stateDir),
     // Opt-in OS keychain switch and the names it holds (ATO-474).
     join(paths.stateDir, SECRETS_STORE_FILE),

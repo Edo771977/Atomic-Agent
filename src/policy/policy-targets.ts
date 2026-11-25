@@ -4,7 +4,7 @@
  * about to decide) and the dispatcher (a tool call about to run).
  */
 import { programName } from "../tools/os/shell-command-guard/command-segments.js";
-import { shellRuleSegments, shellRunsUnreadableScript } from "../tools/os/shell/shell-command-argv.js";
+import { shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/shell-command-argv.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import type { PolicyAction } from "./policy-schema.js";
 
@@ -32,7 +32,7 @@ export interface PolicyGateRequest {
 }
 
 const SHELL_CATEGORIES = new Set(["shell", "shell_dangerous"]);
-const EDIT_CATEGORIES = new Set(["fs_write_workspace", "fs_write_home", "fs_trash"]);
+const EDIT_CATEGORIES = new Set(["fs_write_workspace", "fs_write_home", "fs_trash", "trust_config"]);
 const FETCH_CATEGORIES = new Set(["http", "http_write", "browser_offsite"]);
 const EDIT_TOOLS = new Set(["os.fs.write", "os.fs.edit", "os.fs.patch", "os.fs.trash", "os.fs.move", "os.fs.restore"]);
 const FETCH_TOOLS = new Set(["os.web.fetch", "os.web.crawl", "os.http.request"]);
@@ -62,7 +62,7 @@ export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | nu
       ...(request.commandUnreadable === true ? { unreadable: true } : {}),
     };
   }
-  if (EDIT_CATEGORIES.has(request.category)) {
+  if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool)) {
     return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]) };
   }
   if (FETCH_CATEGORIES.has(request.category)) {
@@ -139,6 +139,19 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
   const a = record(args);
   const mcp = mcpResource(tool);
   if (mcp !== null) return { action: "mcp", resources: [mcp] };
+  if (tool === "verify.run") {
+    const command = str(a.cmd) ?? str(a.command);
+    const start = record(a.start);
+    const cmd = command ?? str(start.cmd) ?? str(start.command);
+    if (cmd !== undefined) {
+      const rest = coerceShellArgs(command === undefined ? start.args : a.args) ?? [];
+      const target = toolCallTarget("os.shell.run", { cmd, args: rest })!;
+      const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin));
+      target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line)) ?? [])])];
+      if (script?.unreadable) target.unreadable = true;
+      return target;
+    }
+  }
   if (tool === "os.shell.run") {
     const cmd = str(a.cmd);
     if (cmd === undefined) return null; // wait / kill / jobs run nothing new
@@ -148,7 +161,8 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
   }
   if (EDIT_TOOLS.has(tool)) {
     const paths = Array.isArray(a.paths) ? a.paths.map(str) : [];
-    return { action: "edit", resources: nonEmpty([str(a.path), str(a.from), str(a.to), str(a.destination), ...paths]) };
+    const moves = Array.isArray(a.moves) ? a.moves.flatMap(item => { const move = record(item); return [str(move.from), str(move.to)]; }) : [];
+    return { action: "edit", resources: nonEmpty([str(a.path), str(a.from), str(a.to), str(a.destination), ...paths, ...moves]) };
   }
   if (FETCH_TOOLS.has(tool)) return { action: "webfetch", resources: nonEmpty(urlResources([str(a.url)])) };
   if (tool === "os.web.search") return { action: "websearch", resources: nonEmpty([str(a.query)]) };

@@ -152,6 +152,14 @@ describe("mcp-server under an organization policy (ATO-587)", () => {
     expect(existsSync(target)).toBe(false);
   });
 
+  it("refuses a node command before any process or detached job can start on every platform", async () => {
+    const c = await connect(systemPolicy([{ action: "shell", resource: "*", effect: "deny" }]), 5);
+    const target = join(tmp, "node-denied");
+    const result = await c.callTool({ name: "os_shell_run", arguments: { cmd: process.execPath, args: ["-e", "require('node:fs').writeFileSync(process.argv[1], 'ran')", target] } });
+    expect(result.isError).toBe(true); expect(text(result)).toContain("organization's policy");
+    expect(existsSync(target)).toBe(false);
+  });
+
   it.skipIf(process.platform === "win32")("refuses a command the policy says to ask about, since nobody can answer", async () => {
     const c = await connect(systemPolicy([{ action: "shell", resource: "touch *", effect: "ask" }]), 5);
     const target = join(tmp, "asked");

@@ -1145,9 +1145,10 @@ export class ApprovalGate {
     const own = this.matchSavedRule(request);
     if (own?.decision === "deny" || this.orgPolicy === undefined) return own;
     try {
-      return this.orgPolicy(request) ?? own;
+      const map = (paths: readonly string[] | undefined): string[] | undefined => paths?.flatMap(path => [path, this.originalCandidatePath(request.sessionId, path)]);
+      return this.orgPolicy({ ...request, targetPaths: map(request.targetPaths), affectedResources: map(request.affectedResources) }) ?? own;
     } catch {
-      return own;
+      return { decision: "deny", rule: { id: "org-policy:unavailable", decision: "deny", tool: request.tool, createdAt: "", source: "user", note: "Organization policy could not be evaluated" } };
     }
   }
 

@@ -1,12 +1,18 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname, join, posix, win32 } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { systemPolicyPath } from "../config/org-policy-paths.js";
+import { writeOwnerOnlyFileAtomicSync } from "../config/owner-only-file.js";
+import { offlineRefusal } from "../llm/offline-network.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 import type {
   EffectivePolicy,
   PolicySourceKind,
   PolicySourceStatus,
   SourcedPolicyRule,
 } from "./policy-evaluator.js";
-import { parsePolicyFile, parsePolicyText, type PolicyFile } from "./policy-schema.js";
+import { parsePolicyFile, parsePolicyText, PolicyFormatError, type PolicyFile } from "./policy-schema.js";
+
+export { systemPolicyPath };
 
 /** Env var naming a policy to fetch at start (like Goose's `GOOSE_ALLOWLIST`). */
 export const POLICY_URL_ENV = "ATOMIC_POLICY_URL";
@@ -24,13 +30,6 @@ export interface PolicyLoaderDeps {
   fetchText?: (url: string, timeoutMs: number) => Promise<string>;
   now?: () => Date;
   timeoutMs?: number;
-}
-
-/** The machine-wide file an administrator (MDM, Ansible, GPO) puts in place. */
-export function systemPolicyPath(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): string {
-  if (platform === "darwin") return "/Library/Application Support/AtomicAgent/policy.json";
-  if (platform === "win32") return win32.join(env.ProgramData ?? "C:\\ProgramData", "AtomicAgent", "policy.json");
-  return posix.join("/etc", "atomic-agent", "policy.json");
 }
 
 export function userPolicyPath(stateDir: string): string {
@@ -58,9 +57,7 @@ function defaultReadText(path: string): string | null {
 
 function defaultWriteText(path: string, text: string): void {
   mkdirSync(dirname(path), { recursive: true });
-  const tmp = `${path}.${process.pid}.tmp`;
-  writeFileSync(tmp, text, { mode: 0o600 });
-  renameSync(tmp, path);
+  writeOwnerOnlyFileAtomicSync(path, text);
 }
 
 async function defaultFetchText(url: string, timeoutMs: number): Promise<string> {
@@ -84,7 +81,7 @@ function readFileSource(kind: PolicySourceKind, path: string, readText: (p: stri
     if (text === null) return { status: { kind, location: path, state: "missing" } };
     return { status: { kind, location: path, state: "loaded" }, file: parsePolicyText(text) };
   } catch (err) {
-    return { status: { kind, location: path, state: "invalid", error: errorText(err) } };
+    throw new PolicyFormatError(`Organization policy ${kind} file ${path} could not be loaded: ${errorText(err)}`);
   }
 }
 
@@ -142,6 +139,9 @@ export function mergePolicySources(loaded: readonly LoadedPolicySource[]): Effec
 }
 
 function withDefaults(deps: PolicyLoaderDeps) {
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || deps.env?.[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    throw new PolicyFormatError("Only the operator may load organization policy; an agent tool child cannot start a separate policy context");
+  }
   return {
     ...deps,
     platform: deps.platform ?? process.platform,
@@ -184,8 +184,8 @@ export function loadLocalPolicy(deps: PolicyLoaderDeps): EffectivePolicy {
 /**
  * The policy at start: both files, then the policy URL (the machine-wide
  * file's `url`, else `ATOMIC_POLICY_URL`) fetched with a short timeout. A good copy is cached; when the fetch fails (offline, a
- * 500, bad JSON) the cached copy is used. Never throws, never waits longer
- * than the timeout: a policy server that is down must not stop the agent.
+ * 500, bad JSON) the cached copy is used. Local file errors throw; remote fetches never wait longer
+ * than the timeout: the upstream remote availability fallback is retained.
  */
 export async function loadPolicy(deps: PolicyLoaderDeps): Promise<EffectivePolicy> {
   const d = withDefaults(deps);
@@ -200,6 +200,8 @@ async function fetchSource(d: ReturnType<typeof withDefaults>, target: PolicyUrl
   const fetchText = d.fetchText ?? defaultFetchText;
   let fetched: { raw: unknown; file: PolicyFile };
   try {
+    const refused = offlineRefusal(url, "organization policy");
+    if (refused !== null) throw refused;
     const raw: unknown = JSON.parse(await fetchText(url, d.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS));
     fetched = { raw, file: parsePolicyFile(raw) };
   } catch (err) {

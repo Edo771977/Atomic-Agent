@@ -264,7 +264,7 @@ export async function createAgentRuntime(
   }));
   // Admin policy (ATO-587): `<stateDir>/policy.json`, the machine-wide
   // file and `ATOMIC_POLICY_URL` (short timeout, last good copy when
-  // offline; never blocks the start). Its deny / ask reach the gate as
+  // offline; invalid local files refuse startup). Its deny / ask reach the gate as
   // rules; the dispatcher, the MCP manager and the skill registry read it too.
   const orgPolicy = await loadPolicy({ stateDir: config.paths.stateDir });
   installPolicy(orgPolicy);

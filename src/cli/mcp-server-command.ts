@@ -29,6 +29,7 @@ import {
   installPolicy,
   loadPolicy,
   policyRuleMatch,
+  skillPolicyRefusal,
   type EffectivePolicy,
 } from "../policy/index.js";
 import {
@@ -91,6 +92,14 @@ export async function mcpServerCommand(args: string[]): Promise<number> {
   };
   const closers: Array<() => void> = [];
   try {
+    // Load before opening stores or exposing any skills; invalid files refuse startup.
+    const orgPolicy = await loadPolicy({ stateDir: config.paths.stateDir });
+    installPolicy(orgPolicy);
+    for (const source of orgPolicy.sources) {
+      if (source.state === "unreachable" || source.state === "cached") {
+        warn(`policy: ${source.kind} source ${source.location} is ${source.state}${source.error ? ` (${source.error})` : ""}`);
+      }
+    }
     const mem = config.memory;
     const notesStore = mem.notes.enabled
       ? remember(closers, new MemoryStore({ dbFile: config.paths.memoryDbFile, maxEntries: mem.notes.maxEntries }))
@@ -116,18 +125,9 @@ export async function mcpServerCommand(args: string[]): Promise<number> {
       },
       config.skills.disabled,
       createProjectSkillTrustGate(config.paths.userConfigFile, config.skills.projectTrust, workingDir),
+      (name) => skillPolicyRefusal(activePolicy(), name) !== null,
     );
     await skillRegistry.refresh();
-
-    // Same admin policy as the runtime (ATO-587): files plus
-    // ATOMIC_POLICY_URL, short timeout, never blocks the start.
-    const orgPolicy = await loadPolicy({ stateDir: config.paths.stateDir });
-    installPolicy(orgPolicy);
-    for (const source of orgPolicy.sources) {
-      if (source.state === "invalid" || source.state === "unreachable" || source.state === "cached") {
-        warn(`policy: ${source.kind} source ${source.location} is ${source.state}${source.error ? ` (${source.error})` : ""}`);
-      }
-    }
 
     const approvals = buildMcpServeApprovals(config, warn);
     const jobs = new ShellJobRegistry({

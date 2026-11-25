@@ -14,6 +14,8 @@
  * simply is not copied. Names match without regard to case, because
  * Windows environment names are case-insensitive (`Path`, `ComSpec`).
  */
+import { markAgentToolChild } from "../sandbox/command-env.js";
+
 export const MCP_INHERITED_ENV_VARS: readonly string[] = [
   // POSIX: identity, shell, locale, temp dir.
   "HOME",
@@ -115,5 +117,5 @@ export function buildMcpStdioEnv(
     if (INHERITED.has(key.toUpperCase())) env[key] = value;
   }
   if (serverEnv) Object.assign(env, serverEnv);
-  return env;
+  return Object.fromEntries(Object.entries(markAgentToolChild(env)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }

@@ -1,6 +1,6 @@
 # Organization policy
 
-Status: draft
+Status: current
 Owner: src/policy/
 
 Rules an administrator sets for every agent on a machine (ATO-587): which shell commands, file writes, web requests, skills and MCP servers are allowed, need a person's yes, or are blocked. The user cannot loosen them from the agent.
@@ -13,7 +13,9 @@ Read at start. No source can loosen another: each one is evaluated on its own an
 2. The machine-wide file: macOS `/Library/Application Support/AtomicAgent/policy.json`, Linux `/etc/atomic-agent/policy.json`, Windows `%ProgramData%\AtomicAgent\policy.json`.
 3. A policy URL, fetched once at start with a 3 s timeout: the machine-wide file's `"url"` field if it has one (the user cannot unset it), else `ATOMIC_POLICY_URL`. A `url` in the user's own file is ignored. A good copy is cached in `<stateDir>/policy-cache.json`; when the fetch fails the cached copy for the same URL is used. A policy server that is down never stops the agent.
 
-A missing file is no policy. A broken file is ignored with a warning in the log and shown as `invalid` by `atag policy show`.
+A missing optional local file is no policy. A malformed or unreadable local file refuses startup (and short-lived commands) with its source and reason. Unknown keys at the document, rule and allowlist levels are errors. An evaluator failure refuses the call. This fork tightens upstream's warning-only treatment of broken local files.
+
+The upstream URL availability exception is retained explicitly: a failed fetch, invalid remote document or unusable cache falls back to the validated cached document for the same URL; without one, the source is reported as `unreachable`. Local file restrictions remain in force. Offline mode checks the destination before invoking the transport. Put mandatory restrictions in the machine-wide file rather than relying solely on a remote policy being reachable.
 
 ## Format
 
@@ -40,11 +42,20 @@ A missing file is no policy. A broken file is ignored with a warning in the log 
 
 ## Where it is enforced
 
-- Dispatch (`agent/dispatch/batch-gates.ts`, `refuseByOrgPolicy`): a denied call of any tool is refused before it runs.
+- Dispatch (`agent/dispatch/batch-gates.ts`, `refuseByOrgPolicy`) and direct registry invocation: a denied call is refused before hooks or tool execution. The registry retains the fork's independent egress and read boundaries.
 - Approval gate (`ApprovalGate.setOrgPolicy`): a policy `deny` or `ask` acts like a saved rule of the user's, above them; `ask` prompts whatever the approval level or session grants say.
 - MCP (`McpManagerDeps.serverPolicy`): the allowlist, checked before every connect.
 - `atag mcp-server` (`cli/mcp-server-command.ts`, `cli/mcp-server-bridge.ts`): loads and installs the policy itself, gives its gate `setOrgPolicy`, and refuses a denied call before it runs; a policy `ask` is refused there, since an MCP client cannot answer a prompt.
-- Skills: `prepareSkillInstall` refuses a denied skill (`policy_denied`, HTTP 403); the registry does not load one.
+- Skills: `prepareSkillInstall` refuses a denied skill (`policy_denied`, HTTP 403); the registry and workspace discovery exclude it, and a previously selected workspace skill is checked again before use. A policy allow never activates an unconfirmed learned draft.
+- Fusion and verification: workers share the dispatch/gate policy; worker candidate paths are also matched against the original project. Contract authorization and the actual rebased executor check shell denies, including stdin scripts. Detached shell jobs pass the same launch checks before becoming jobs. Fixed verification executors (including UI detectors) also check the command actually spawned. A host-retargeted file write is checked at its approved destination.
+
+## Who manages the files
+
+The operator edits the user policy outside agent tools. The system policy remains in the administrator-owned system location, separate from relocated user state. Its restrictions intersect with the user policy and URL/cache restrictions; moving user state cannot loosen the system file. Keep the system directory and file writable only by administrators.
+
+The user policy, cache and system file are included in `getTrustConfigPaths` and `getStateSecretPaths`, alongside configuration and `serve-api.key`. They reach the same read-scope, shell secret scan and sandbox protection. Policy-file reads, replacement and deletion through agent tools are refused even at full trust; an approval card cannot override this refusal. The cache uses the configuration's owner-only atomic writer. `ATOMIC_AGENT_TOOL_CHILD` children (including MCP stdio servers) cannot inspect policy through `policy show` or load another policy context with a substituted state directory. There are no HTTP policy-management routes or config keys that disable policy; changing saved approval rules cannot cancel it.
+
+These are application checks plus the existing optional OS sandbox, not isolation from arbitrary code running under the operator's OS account. Recognized shell paths receive the secret/state guard; computed paths have the same best-effort classifier limits as configuration and the serve key. Windows has no native command sandbox; requested Safe Mode refuses execution there. See [OS sandbox](../../docs/user/os-sandbox.md).
 
 ## Not done yet
 

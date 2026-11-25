@@ -1,4 +1,6 @@
 import { verifyPageFolderKey } from "../../approval/verify-page-folder.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal } from "../../policy/policy-enforce.js";
 import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
@@ -187,6 +189,8 @@ export async function authorizeVerifyBatch(
     }
     const policySpec = spec.cmd === undefined && kind === "command" && typeof spec.command === "string" ? { ...spec, kind, cmd: spec.command } : { ...spec, kind };
     const actual = parseVerifyRunArgs(policySpec);
+    const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", policySpec, project);
+    if (policyRefusal !== null) throw new Error(policyRefusal);
     const actualCwd = resolveVerifyCwd(ctx.workingDir, actual.cwd, true);
     const guard = guardVerifyRun(actual, actualCwd, options.shellPolicy);
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);

@@ -55,6 +55,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+function rejectUnknown(value: Record<string, unknown>, keys: readonly string[], where: string): void {
+  const unknown = Object.keys(value).find(key => !keys.includes(key));
+  if (unknown !== undefined) throw new PolicyFormatError(`${where}: unknown key ${unknown}`);
+}
+
 function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: string): T {
   if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return value as T;
   throw new PolicyFormatError(`${where} must be one of ${allowed.join(", ")}`);
@@ -63,6 +68,7 @@ function oneOf<T extends string>(value: unknown, allowed: readonly T[], where: s
 function parseRule(entry: unknown, index: number): PolicyRule {
   const where = `rules[${index}]`;
   if (!isRecord(entry)) throw new PolicyFormatError(`${where} must be an object`);
+  rejectUnknown(entry, ["action", "resource", "effect", "note"], where);
   const action = oneOf(entry.action, POLICY_ACTIONS, `${where}.action`);
   const effect = oneOf(entry.effect, POLICY_EFFECTS, `${where}.effect`);
   const resource = entry.resource ?? "*";
@@ -81,6 +87,7 @@ function parseAllowlist(value: unknown): McpAllowlist {
   // A bare array is accepted as the list of servers.
   const raw = Array.isArray(value) ? { servers: value } : value;
   if (!isRecord(raw)) throw new PolicyFormatError("mcpAllowlist must be an object or an array");
+  rejectUnknown(raw, ["servers", "warnOnly"], "mcpAllowlist");
   const servers = raw.servers;
   if (!Array.isArray(servers) || !servers.every((s) => typeof s === "string" && s.length > 0)) {
     throw new PolicyFormatError("mcpAllowlist.servers must be an array of non-empty strings");
@@ -93,6 +100,7 @@ function parseAllowlist(value: unknown): McpAllowlist {
 /** Validate a parsed policy document. Throws `PolicyFormatError` with the first problem. */
 export function parsePolicyFile(value: unknown): PolicyFile {
   if (!isRecord(value)) throw new PolicyFormatError("policy must be a JSON object");
+  rejectUnknown(value, ["version", "rules", "mcpAllowlist", "url"], "policy");
   const version = value.version ?? 1;
   if (version !== 1) throw new PolicyFormatError(`unsupported policy version ${String(version)} (expected 1)`);
   const rules = value.rules ?? [];
