@@ -1,4 +1,6 @@
 import { join } from "node:path";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../../policy/policy-mutations.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
@@ -53,8 +55,13 @@ export function buildOsGitCheckoutTool(
           `os.git.checkout: ${toplevel.message}`,
         );
 
-      let policyPaths: string[] = [];
-      if (!create || startPoint !== undefined) {
+      const scope = checkPolicyMutation(activePolicy(), "os.git.checkout", [toplevel.root], ctx.workingDir, [toplevel.root]);
+      const needsPlan = scope.refusal !== null || scope.ask;
+      // Preserve Git's ordinary errors when no edit restriction or protected
+      // policy file can intersect this tree. Relevant policies still need a
+      // complete plan before any checkout may run.
+      let policyPaths: string[] | undefined = needsPlan ? [] : undefined;
+      if (needsPlan && (!create || startPoint !== undefined)) {
         const plan = await runGit({ repo, workingDir: ctx.workingDir, signal: ctx.signal,
           args: ["diff", "--name-only", "-z", "--no-renames", "HEAD", startPoint ?? branch, "--"] });
         if (plan.exitCode !== 0 || plan.truncated || plan.timedOut) return buildGitErrorResult("os.git.checkout", "Cannot inspect the complete checkout mutation plan for organization policy: " + describeGitFailure(plan));
