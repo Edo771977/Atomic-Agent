@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IdeaStore, TaskStore } from "../tasks/index.js";
 
 import { startTestHarness, type Harness } from "./test-harness.js";
@@ -87,6 +87,25 @@ describe("/api/ideas", () => {
     const listRes = await fetch(`${harness.baseUrl}/api/ideas?status=new`);
     const list = (await listRes.json()) as { ideas: IdeaJson[] };
     expect(list.ideas.map((i) => i.id)).toEqual([body.ideas[0]!.id]);
+  });
+
+  it("lists and refreshes Retry cards without loading their source transcript", async () => {
+    const runtime = harness.runtime;
+    const session = runtime.createSession({ persist: true });
+    const task = runtime.taskStore.create({ sessionId: session.id, userMessage: "ordinary fixture", origin: "cli", maxAttempts: 1 });
+    runtime.taskStore.markRunning(task.id);
+    runtime.taskStore.markFailed(task.id, { category: "transport", message: "fixture" });
+    const load = vi.spyOn(runtime.sessionStore, "load");
+    try {
+      const refresh = await post("/api/ideas/refresh");
+      expect(refresh.status).toBe(200);
+      expect(await refresh.json()).toMatchObject({ ideas: [{ sourceTaskId: task.id }] });
+      const list = await fetch(`${harness.baseUrl}/api/ideas`);
+      expect(await list.json()).toMatchObject({ ideas: [{ sourceTaskId: task.id }] });
+      expect(load.mock.calls.map(([id]) => id)).not.toContain(session.id);
+    } finally {
+      load.mockRestore();
+    }
   });
 
   it("accept files a task with the edited prompt; a second accept is 409", async () => {

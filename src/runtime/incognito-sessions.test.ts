@@ -1,3 +1,4 @@
+import { seedLegacyRetry } from "../tasks/idea-legacy-fixture.js";
 import { IdeaStore } from "../tasks/idea-store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -89,9 +90,9 @@ describe("incognito sessions in the runtime", () => {
     const tasks = new TaskStore({ dbFile });
     const ideas = new IdeaStore({ dbFile });
     try {
-      ideas.sync(["missing", "known"].map((id) => ({ kind: "retry_task" as const, sourceKey: "task:" + id,
+      for (const id of ["missing", "known"]) seedLegacyRetry(dbFile, { kind: "retry_task", sourceKey: "task:" + id,
         title: "fixture", reason: "fixture", evidence: { source: "task" as const, ref: id, excerpt: "fixture", at: null },
-        prompt: "PRIVATE-TASK-SECRET", sessionId: id === "known" ? "ordinary" : null })));
+        prompt: "PRIVATE-TASK-SECRET", sessionId: id === "known" ? "ordinary" : null });
       await sweepOrphanIncognitoSessions(store, tracesDir, logger, dbFile);
       expect(ideas.list().map((i) => i.sourceKey)).toEqual(["task:known"]);
     } finally { ideas.close(); tasks.close(); }
