@@ -274,7 +274,7 @@ describe("/api/telegram/pairing", () => {
     expect((await status(harness)).status).toBe("waiting");
   });
 
-  it("a claim that fails to persist reads as failed with the reason", async () => {
+  it("a claim that fails to persist reads as failed with a fixed code", async () => {
     harness = await startTestHarness();
     const stub = stubChannel(harness);
     expect((await req(harness, "POST")).status).toBe(200);
@@ -282,7 +282,7 @@ describe("/api/telegram/pairing", () => {
     await flush();
     const after = await status(harness);
     expect(after.status).toBe("failed");
-    expect(after.error).toBe("could not write config");
+    expect(after.error).toBe("pairing_failed");
   });
 
   it("POST gives no link while the bot's @username is unknown (ATO-516)", async () => {

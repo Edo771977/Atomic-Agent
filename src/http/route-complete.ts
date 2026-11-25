@@ -23,7 +23,8 @@ import {
  * orchestrator runs on. `max_tokens` is clamped to the cap in
  * `plain-complete.ts`, and a default applies when it is absent.
  *
- * `400` for a bad body, `501` when the runtime offers no plain call,
+ * `400` for a bad body, `409 completion_cancelled` for runtime cancellation,
+ * `501` when the runtime offers no plain call,
  * `502` when the model failed or answered nothing, `504` on the deadline.
  * A client that disconnects aborts the call.
  */
@@ -70,8 +71,12 @@ export function createPlainCompleteHandler(): HttpHandler {
         sendJson(res, 200, { text: result.text });
         return;
       }
+      if (result.kind === "cancelled") {
+        sendError(res, 409, openaiError("The completion was cancelled", "invalid_request_error", null, "completion_cancelled"));
+        return;
+      }
       const status = result.kind === "invalid" ? 400 : result.kind === "timeout" ? 504 : 502;
-      const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
+      const message = status === 502 && isNamedCaller(ctx) ? "The model could not complete the request" : result.reason;
       sendError(res, status, openaiError(message, status === 400 ? "invalid_request_error" : "server_error"));
     } finally { release(); }
   };

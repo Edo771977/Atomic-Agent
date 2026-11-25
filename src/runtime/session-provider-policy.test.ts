@@ -75,6 +75,14 @@ describe("session provider policy (issue #33)", () => {
   });
 
   describe("effectivePolicyForSession (the one read the egress guard makes)", () => {
+    it("resolves an auxiliary partition's originating frame without configured constraints", () => {
+      const policy = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: id => id === "codex:chat" ? { workingDir: "/fixture" } : null });
+      const frame = makeProviderPolicy({ key: "carried", allowedProviders: ["local"], allowedEgress: [], matchedDir: "/fixture" });
+      for (const prefix of ["btw", "title", "enhance", "compaction", "risk", "reflection", "learn"]) {
+        expect(runWithProviderPolicy(frame, () => policy.effectivePolicyForSession(`${prefix}:codex:chat`), { sessionId: "codex:chat" }), prefix).toBe(frame);
+      }
+      expect(runWithProviderPolicy(frame, () => policy.effectivePolicyForSession("other"), { sessionId: "codex:chat" })).toBeUndefined();
+    });
     it("is the frame's policy while a turn runs, constrained or not", () => {
       const { policy } = setup();
       const turn = makeProviderPolicy({ key: "/x", allowedProviders: [], allowedEgress: ["web"], matchedDir: "/x" });
