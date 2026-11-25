@@ -16,6 +16,8 @@ The archive lives in process memory. Chat deletion, including incognito close, d
 
 Outside `withFreshPrivacyVault`, calls to `privacyVaultForRequest("consolidator")` share the registry archive. The fixed partition alone does not provide per-call isolation; callers must enter the fresh scope before invoking the provider.
 
+Skill reviews release their temporary archives at completion. The self-learning review still uses the registry archive `learn:<id>`, pinned for the review's lifetime and released by `runtime-experience-review.ts` after it settles.
+
 The detector reads the fork's current [known credentials](../runtime/runtime-known-secrets.ts) and uses the shared credential masker to detect them. Existing tool-output and error-report scrubbing continue to run independently. Values already redacted from tool output remain redacted.
 
 Checks: `npx vitest run src/privacy`; `npm run lint`; `npm run docs:check`.
