@@ -35,7 +35,7 @@ const SHELL_CATEGORIES = new Set(["shell", "shell_dangerous"]);
 const EDIT_CATEGORIES = new Set(["fs_write_workspace", "fs_write_home", "fs_trash", "trust_config"]);
 const FETCH_CATEGORIES = new Set(["http", "http_write", "browser_offsite"]);
 const EDIT_TOOLS = new Set(["os.fs.write", "os.fs.edit", "os.fs.patch", "os.fs.trash", "os.fs.move", "os.fs.restore"]);
-const FETCH_TOOLS = new Set(["os.web.fetch", "os.web.crawl", "os.http.request"]);
+const FETCH_TOOLS = new Set(["os.web.fetch", "os.web.crawl", "os.http.request", "browser.navigate"]);
 
 /** `mcp.<server>.<tool>` as `<server>/<tool>`; null for any other tool. */
 export function mcpResource(tool: string): string | null {
@@ -172,8 +172,9 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
     const moves = Array.isArray(a.moves) ? a.moves.flatMap(item => { const move = record(item); return [str(move.from), str(move.to)]; }) : [];
     return { action: "edit", resources: nonEmpty([str(a.path), str(a.from), str(a.to), str(a.destination), ...paths, ...moves]) };
   }
+  if (tool === "browser.tabs" && a.action === "new") return { action: "webfetch", resources: nonEmpty(urlResources([str(a.url)])) };
   if (FETCH_TOOLS.has(tool)) return { action: "webfetch", resources: nonEmpty(urlResources([str(a.url)])) };
-  if (tool === "os.web.search") return { action: "websearch", resources: nonEmpty([str(a.query)]) };
+  if (tool === "os.web.search" || tool === "browser.search") return { action: "websearch", resources: nonEmpty([str(a.query)]) };
   if (tool === "skill.view") return { action: "skill", resources: nonEmpty([str(a.name)]) };
   if (tool === "skill.run_script") return { action: "skill", resources: nonEmpty([str(a.skill)]) };
   return null;

@@ -1,3 +1,4 @@
+import { assertPolicyWebUrl } from "../../policy/policy-web.js";
 import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
 import { invalidLocalFileUrlReason, localFileOfUrl } from "../read-scope/read-scope-targets.js";
 import {
@@ -89,6 +90,7 @@ export async function gatePageRead(
   ask?: PageReadAsk,
   local?: LocalPageRead,
 ): Promise<PageReadVerdict> {
+  for (const url of [page.url, ...(page.frameUrls ?? [])]) assertPolicyWebUrl(url);
   const blocked = blockedHostOfPage(page.url, page.frameUrls, policy);
   if (blocked !== null) return { kind: "blocked", host: blocked };
   const localFile = localPageRefusal(

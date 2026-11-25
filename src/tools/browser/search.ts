@@ -1,9 +1,11 @@
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallAsks, policyCallRefusal } from "../../policy/policy-enforce.js";
 import { compressToolResult } from "../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../tool-registry.js";
 import type { BrowserBackend, SearchInput } from "./browser-backend.js";
 import { captureWorldSnapshot } from "./capture-world-snapshot.js";
 import type { AriaSnapshotStore } from "./aria-view.js";
-import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
+import { requireApproval, type DangerousToolOptions } from "../../approval/dangerous-tool.js";
 import {
   EMPTY_DOMAIN_POLICY,
   type BrowserDomainPolicy,
@@ -30,6 +32,11 @@ export function buildBrowserSearchTool(
       const query = rawArgs.query;
       if (typeof query !== "string" || query.length === 0) {
         throw new Error("browser.search: `query` must be a non-empty string");
+      }
+      const org = policyCallRefusal(activePolicy(), "os.web.search", { query }, ctx.workingDir);
+      if (org !== null) return compressToolResult({ tool: "browser.search", status: "error", output: org, details: { reason: "organization_policy" } });
+      if (policyCallAsks(activePolicy(), "os.web.search", { query })) {
+        await requireApproval({ ...dangerous, approvalRequired: true }, { sessionId: ctx.sessionId, tool: "browser.search", category: "http", reason: "Organization policy requires a decision for this search", affectedResources: [query] }, ctx.signal, true);
       }
       const engine = parseEngine(rawArgs.engine);
       const refused = await gateBrowserUrl(

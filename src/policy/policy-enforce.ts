@@ -63,6 +63,11 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
 }
 
 /** The model-facing refusal for a tool call the policy denies, or null. */
+export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unknown): boolean {
+  return verdictFor(policy, toolCallTarget(tool, args))?.effect === "ask";
+}
+
+/** The model-facing refusal for a tool call the policy denies, or null. */
 export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string): string | null {
   const target = toolCallTarget(tool, args);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

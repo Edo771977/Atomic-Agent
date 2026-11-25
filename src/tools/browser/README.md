@@ -20,6 +20,8 @@ Owner: src/tools/browser/
 
 ## Domain lists
 
+Organization policy is checked independently of these lists, including when `allowedDomains` is empty. Navigate/new tab and full click/redirect/final URLs use `webfetch`; a browser search also checks its query as `websearch`. Policy `ask` on explicit navigation/search requires a fresh decision, even for a direct embedder with ordinary approvals disabled. Denied final pages are cleared before content is returned; snapshots and frames are checked before reads.
+
 `browser.blockedDomains` and `browser.allowedDomains` in config.json (`browser-domain-policy.ts`). An entry matches its host and every subdomain.
 
 - Blocked hosts are refused as a tool error (`blocked_domain`) at every approval level:
