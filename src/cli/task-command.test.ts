@@ -1,7 +1,7 @@
 import { SessionStore } from "../session/session-store.js";
 import { createEmptySessionState } from "../session/session-state.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -53,6 +53,33 @@ describe("taskCommand", () => {
   function stderr(): string {
     return stderrChunks.join("");
   }
+
+  it("does not create a sessions database just to classify a new CLI task", async () => {
+    const file = getConfig().paths.sessionsDbFile;
+    expect(existsSync(file)).toBe(false);
+    expect(await taskCommand(["create", "--session", "not-created", "--message", "ordinary fixture"])).toBe(0);
+    expect(existsSync(file)).toBe(false);
+  });
+
+  it("reuses one lazy session store across privacy lookups and closes it at command end", async () => {
+    const seed = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+    seed.save(createEmptySessionState({ id: "private-cli", workingDir: stateDir, incognito: seed.newIncognitoMark() }));
+    seed.close();
+    const close = vi.spyOn(SessionStore.prototype, "close");
+    const lookup = vi.spyOn(SessionStore.prototype, "isIncognito");
+    const create = TaskStore.prototype.create;
+    const closedWhileCreating: number[] = [];
+    // Exercise repeated privacy checks through the same command-owned task store.
+    vi.spyOn(TaskStore.prototype, "create").mockImplementation(function (this: TaskStore, input, now) {
+      create.call(this, input, now);
+      closedWhileCreating.push(close.mock.calls.length);
+      return create.call(this, input, now);
+    });
+    expect(await taskCommand(["create", "--session", "private-cli", "--message", "fixture"])).toBe(0);
+    expect(lookup).toHaveBeenCalledTimes(2);
+    expect(closedWhileCreating).toEqual([0]);
+    expect(close).toHaveBeenCalledTimes(1);
+  });
 
   it("persists the incognito flag for a CLI task after the bound chat is deleted", async () => {
     const sessions = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });

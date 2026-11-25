@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { SessionStore } from "../session/session-store.js";
 import { getConfig } from "../config/index.js";
 import {
@@ -85,22 +86,31 @@ export async function taskCommand(args: string[]): Promise<number> {
     process.stdout.write(HELP);
     return 0;
   }
+  const resources: { sessions: SessionStore | null } = { sessions: null };
+  const openStore = () => openTaskStore((id) => {
+    const file = getConfig().paths.sessionsDbFile;
+    if (resources.sessions === null) {
+      if (!existsSync(file)) return false;
+      resources.sessions = new SessionStore({ dbFile: file });
+    }
+    return resources.sessions.isIncognito(id);
+  });
   try {
     switch (sub) {
       case "list":
-        return handleList(args.slice(1));
+        return handleList(args.slice(1), openStore);
       case "show":
-        return handleShow(args.slice(1));
+        return handleShow(args.slice(1), openStore);
       case "create":
-        return await handleCreate(args.slice(1));
+        return await handleCreate(args.slice(1), openStore);
       case "cancel":
-        return handleCancel(args.slice(1));
+        return handleCancel(args.slice(1), openStore);
       case "pause":
-        return handlePause(args.slice(1), openTaskStore);
+        return handlePause(args.slice(1), openStore);
       case "resume":
-        return handleResume(args.slice(1), openTaskStore);
+        return handleResume(args.slice(1), openStore);
       case "runs":
-        return handleRuns(args.slice(1), openTaskStore);
+        return handleRuns(args.slice(1), openStore);
       case "run":
         return await handleRun(args.slice(1));
       case "tick":
@@ -116,10 +126,12 @@ export async function taskCommand(args: string[]): Promise<number> {
     const message = err instanceof Error ? err.message : String(err);
     process.stderr.write(`task ${sub} failed: ${message}\n`);
     return 1;
+  } finally {
+    resources.sessions?.close();
   }
 }
 
-function handleList(args: string[]): number {
+function handleList(args: string[], openStore: () => TaskStore): number {
   const sessionId = readOption(args, "--session");
   const statusRaw = readOption(args, "--status");
   const limitRaw = readOption(args, "--limit");
@@ -133,7 +145,7 @@ function handleList(args: string[]): number {
     process.stderr.write(`unknown task status: ${statusRaw}\n`);
     return 1;
   }
-  const store = openTaskStore();
+  const store = openStore();
   try {
     const tasks = store.list({
       ...(sessionId ? { sessionId } : {}),
@@ -147,13 +159,13 @@ function handleList(args: string[]): number {
   }
 }
 
-function handleShow(args: string[]): number {
+function handleShow(args: string[], openStore: () => TaskStore): number {
   const id = args[0];
   if (!id) {
     process.stderr.write("usage: atomic-agent task show <id>\n");
     return 1;
   }
-  const store = openTaskStore();
+  const store = openStore();
   try {
     const record = store.get(id);
     if (!record) {
@@ -173,7 +185,7 @@ function handleShow(args: string[]): number {
  * persistent session for the task. One-shot creates still use the
  * bare `TaskStore` to avoid paying the llama bootstrap cost.
  */
-async function handleCreate(args: string[]): Promise<number> {
+async function handleCreate(args: string[], openStore: () => TaskStore): Promise<number> {
   const sessionId = readOption(args, "--session");
   const message = readOption(args, "--message");
   const maxAttemptsRaw = readOption(args, "--max-attempts");
@@ -314,7 +326,7 @@ async function handleCreate(args: string[]): Promise<number> {
     }
   }
 
-  const store = openTaskStore();
+  const store = openStore();
   try {
     const created = store.create(
       {
@@ -382,13 +394,13 @@ function parseAtTime(raw: string): number | null {
   return Number.isFinite(at) ? at : null;
 }
 
-function handleCancel(args: string[]): number {
+function handleCancel(args: string[], openStore: () => TaskStore): number {
   const id = args[0];
   if (!id) {
     process.stderr.write("usage: atomic-agent task cancel <id>\n");
     return 1;
   }
-  const store = openTaskStore();
+  const store = openStore();
   try {
     const cancelled = store.cancel(id);
     if (!cancelled) {
@@ -505,16 +517,8 @@ async function handleTick(args: string[]): Promise<number> {
   }
 }
 
-function openTaskStore(): TaskStore {
-  const config = getConfig();
-  return new TaskStore({
-    dbFile: config.paths.tasksDbFile,
-    isIncognitoSession: (id) => {
-      const sessions = new SessionStore({ dbFile: config.paths.sessionsDbFile });
-      try { return sessions.isIncognito(id); }
-      finally { sessions.close(); }
-    },
-  });
+function openTaskStore(isIncognitoSession: (id: string) => boolean): TaskStore {
+  return new TaskStore({ dbFile: getConfig().paths.tasksDbFile, isIncognitoSession });
 }
 
 function readOption(args: string[], name: string): string | undefined {
