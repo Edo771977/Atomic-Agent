@@ -1,3 +1,5 @@
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
+import { resolveGitToplevel } from "./git-repo-probe.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import {
@@ -72,6 +74,9 @@ export function buildOsGitPushTool(options: OsGitPushOptions): ToolDefinition {
       );
       if (refused) return refused;
 
+      const mutationRoot = await resolveGitToplevel({ repo, workingDir: ctx.workingDir, signal: ctx.signal });
+      if (!mutationRoot.ok) throw new Error("Cannot inspect Git metadata for organization policy");
+      await authorizeGitPolicyMutation(options, "os.git.push", mutationRoot.root, [], ctx);
       const remoteUrl = await readRemoteUrl(repo, ctx, remote);
       const invocation = buildPushInvocation({
         remote,

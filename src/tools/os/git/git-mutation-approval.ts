@@ -1,3 +1,6 @@
+import { activePolicy } from "../../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../../policy/policy-mutations.js";
+import { requireApproval } from "../../../approval/dangerous-tool.js";
 import { realpath, stat, readFile } from "node:fs/promises";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import type { ApprovalCategory } from "../../../approval/approval-level.js";
@@ -184,4 +187,15 @@ async function metadataPaths(repoRoot: string): Promise<string[]> {
     paths.push(resolve(metadata, (await readFile(commonFile, "utf8")).trim()));
   } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
   return paths;
+}
+
+/** Remote Git commands mutate local metadata too; the ordinary git_remote gate stays separate. */
+export async function authorizeGitPolicyMutation(options: FsDangerousToolOptions, tool: string, repoRoot: string, paths: readonly string[], ctx: { workingDir: string; sessionId?: string; signal: AbortSignal }): Promise<void> {
+  const metadata = await metadataPaths(repoRoot);
+  const mutation = checkPolicyMutation(activePolicy(), tool, [...metadata, ...paths], ctx.workingDir, [...metadata, ...paths]);
+  if (mutation.refusal !== null) throw new Error(mutation.refusal);
+  if (mutation.ask) {
+    if (ctx.sessionId === undefined) throw new Error("Organization policy requires a session for a Git mutation decision");
+    await requireApproval({ ...options, approvalRequired: true }, { sessionId: ctx.sessionId, tool, category: "git_remote", reason: "Organization policy requires a decision for Git's local writes", affectedResources: [...metadata, ...paths] }, ctx.signal, true);
+  }
 }

@@ -1,3 +1,5 @@
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
+import { resolveUserPath } from "../expand-home.js";
 import { activePolicy } from "../../../policy/policy-active.js";
 import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
 import { compressToolResult, type CompressedToolResult } from "../../../compressor/result-compressor.js";
@@ -103,6 +105,11 @@ export async function runGitRemote(
   options: GitRemoteToolOptions,
   run: Omit<GitRunOptions, "env"> & { sessionId?: string },
 ): Promise<GitRunResult> {
+  const verb = run.args[0];
+  if (verb === "clone" || verb === "fetch" || verb === "pull") {
+    const root = resolveUserPath(verb === "clone" ? run.args.at(-1)! : run.repo ?? run.workingDir, run.workingDir);
+    await authorizeGitPolicyMutation(options, `os.git.${verb}`, root, verb === "clone" || verb === "pull" ? [root] : [], run);
+  }
   if (activePolicy().rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {
     const urls = await remotePolicyUrls(run);
     for (const url of urls.filter(value => /^https?:\/\//i.test(value))) {
