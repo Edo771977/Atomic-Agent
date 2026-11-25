@@ -3,6 +3,15 @@ import { describe, expect, it, vi } from "vitest";
 import { callOnce, parseFitTestArgs, runRestoringOnStop } from "./models-fit-test-command.js";
 
 describe("parseFitTestArgs", () => {
+  it("rejects a reserved key name for a third-party judge before changing models", () => {
+    const args = ["--tasks", "t.json", "--models", "a"];
+    expect(parseFitTestArgs([...args, "--judge-url", "https://judge.example.test", "--judge-key-env", "oPeNrOuTeR_API_KEY"]))
+      .toMatchObject({ error: expect.stringContaining("reserved") });
+    expect(parseFitTestArgs([...args, "--judge-url", "https://openrouter.ai/api/v1", "--judge-key-env", "OPENROUTER_API_KEY"]))
+      .toMatchObject({ judgeKeyEnv: "OPENROUTER_API_KEY" });
+    expect(parseFitTestArgs([...args, "--judge-url", "https://judge.example.test", "--judge-key-env", "FIXTURE_JUDGE_KEY"]))
+      .toMatchObject({ judgeKeyEnv: "FIXTURE_JUDGE_KEY" });
+  });
   it("reads the flags", () => {
     const parsed = parseFitTestArgs([
       "--tasks", "t.json", "--models", "a, b,a", "--judge-url", "http://127.0.0.1:8080",

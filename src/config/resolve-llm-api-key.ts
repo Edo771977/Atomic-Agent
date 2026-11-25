@@ -233,6 +233,11 @@ function mayUseKeyVariable(
   );
 }
 
+/** Whether an explicitly selected environment key may be sent to an HTTP endpoint. */
+export function maySendApiKeyVariableToUrl(name: string, baseUrl: string): boolean {
+  return mayUseKeyVariable({ baseUrl }, name);
+}
+
 /**
  * Whether the shared OPENAI_* key may go to `baseUrl`. Those variables
  * usually hold the operator's real OpenAI key, so it goes only where it
