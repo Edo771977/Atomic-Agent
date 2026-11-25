@@ -4,6 +4,21 @@ import { findProviderPreset, presetEntryFields } from "../llm/provider/presets/p
 
 afterEach(() => vi.unstubAllEnvs());
 
+it.each([
+  ["http://localhost.:8000", true],
+  ["http://[::ffff:127.0.0.2]:8000", true],
+  ["http://0.0.0.0:8000", false],
+  ["http://[::]:8000", false],
+  ["http://example.localhost:8000", false],
+  ["http://[::ffff:192.168.1.20]:8000", false],
+])("applies the reserved-key loopback policy to %s", (baseUrl, allowed) => {
+  vi.stubEnv("OPENROUTER_API_KEY", "fixture-native");
+  vi.stubEnv("OPENAI_API_KEY", "fixture-openai");
+  const entry = { id: "fixture", kind: "openrouter", baseUrl, extraApiKeyEnvVars: ["OPENAI_API_KEY"] };
+  expect(resolveLlmProviderApiKey(entry)).toBe(allowed ? "fixture-native" : undefined);
+  expect(resolveExtraApiKeys(entry)).toEqual(allowed ? ["fixture-openai"] : []);
+});
+
 it.each(["openai_api_key", "AtOmIc_AgEnT_OpenAI_API_Key"])(
   "scopes the OpenAI alias %s in a case-insensitive environment",
   (name) => {
