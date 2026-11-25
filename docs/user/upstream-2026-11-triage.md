@@ -262,7 +262,7 @@ Ondate:
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
 | [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importato con cherry-pick -x in [#229](https://github.com/Edo771977/Atomic-Agent/pull/229). |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
-| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
+| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); gate URL del fork conservati. |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
@@ -278,8 +278,6 @@ Ondate:
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
 | [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
-| [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Importare |
-| [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
 | [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
 | [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
 | [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Importare |
@@ -291,6 +289,8 @@ Ondate:
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
 | [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Rinviata in ondata B: estende il restore HTTP a eviction, merge, lesson e procedure; gli snapshot aggiunti vanno adattati a constraintKey e stato disabilitato del fork prima di riattivare memoria. |
+| [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Rinviata in ondata B: Il nuovo /export TUI scrive anche chat incognito, non passa runtimeKnownSecrets per le chiavi di config e sovrascrive i percorsi espliciti: adattare prima le garanzie del fork su privacy, credenziali e --force insieme al writer PDF. |
+| [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Rinviata in ondata B: cambia i redirect del crawl e aggiunge rendering JavaScript nel browser; richiede revisione dei gate URL per ogni hop, policy egress e consenso del fork. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
