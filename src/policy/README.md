@@ -44,6 +44,7 @@ The upstream URL availability exception is retained explicitly: a failed fetch, 
 
 - Dispatch (`agent/dispatch/batch-gates.ts`, `refuseByOrgPolicy`) and direct registry invocation: a denied call is refused before hooks or tool execution. The registry retains the fork's independent egress and read boundaries.
 - Approval gate (`ApprovalGate.setOrgPolicy`): a policy `deny` or `ask` acts like a saved rule of the user's, above them; `ask` prompts whatever the approval level or session grants say.
+- Filesystem mutations outside home/workspace keep the fork's `other` approval category and still match `edit` policy, including Office writers and archive extraction.
 - MCP (`McpManagerDeps.serverPolicy`): the allowlist, checked before every connect.
 - `atag mcp-server` (`cli/mcp-server-command.ts`, `cli/mcp-server-bridge.ts`): loads and installs the policy itself, gives its gate `setOrgPolicy`, and refuses a denied call before it runs; a policy `ask` is refused there, since an MCP client cannot answer a prompt.
 - Skills: `prepareSkillInstall` refuses a denied skill (`policy_denied`, HTTP 403); the registry and workspace discovery exclude it, and a previously selected workspace skill is checked again before use. A policy allow never activates an unconfirmed learned draft.

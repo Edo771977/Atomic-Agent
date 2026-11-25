@@ -62,7 +62,11 @@ export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | nu
       ...(request.commandUnreadable === true ? { unreadable: true } : {}),
     };
   }
-  if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool)) {
+  // The fork keeps filesystem writes outside home/workspace under `other`,
+  // including Office writers and archive extraction. Their approval category
+  // remains unchanged; they still represent edits for organization policy.
+  if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool) ||
+      request.category === "other" && request.tool.startsWith("os.fs.")) {
     return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]) };
   }
   if (FETCH_CATEGORIES.has(request.category)) {
