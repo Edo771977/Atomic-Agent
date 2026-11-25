@@ -16,6 +16,7 @@ import { readWorkspaceFile, isWithinWorkspace, statSnapshot, type StatSnapshot }
 import { sharedAgentSkillsDir } from "./shared-skills-dir.js";
 import { activePolicy } from "../policy/policy-active.js";
 import { skillPolicyRefusal } from "../policy/policy-enforce.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 
 export interface WorkspaceSkill {
   record: SkillRecord;
@@ -279,8 +280,12 @@ function scanSkills(workingDir: string, options: WorkspaceSkillsOptions, compati
     const chosen = copies.find(e => e.record.source === "global" && !e.shared) ?? copies.find(e => !e.shared) ?? copies[0]!;
     const sources = copies.flatMap(e => e.sources);
     if (copies.some(e => e.fingerprint !== chosen.fingerprint)) diagnostics.push(`Skill ${chosen.record.manifest.name}: using ${chosen.record.manifestPath}; shadowed ${sources.filter(p => p !== chosen.record.manifestPath).join(", ")}`);
-    const refusal = skillPolicyRefusal(activePolicy(), chosen.record.manifest.name);
-    return { ...chosen, sources, disabledReasons: [...chosen.disabledReasons, ...(refusal === null ? [] : [refusal])] };
+    // A tool child may inspect trust counts, but cannot load a policy context.
+    // Keep that inventory inert: no body and no executable availability.
+    const metadataOnly = process.env[AGENT_TOOL_CHILD_ENV] !== undefined;
+    const refusal = metadataOnly ? "organization policy must be checked by the operator before loading"
+      : skillPolicyRefusal(activePolicy(), chosen.record.manifest.name);
+    return { ...chosen, sources, ...(metadataOnly ? { body: "" } : {}), disabledReasons: [...chosen.disabledReasons, ...(refusal === null ? [] : [refusal])] };
   }).sort((a, b) => a.record.manifest.name.localeCompare(b.record.manifest.name));
   return { workingDir: root, projectSkillsEnabled: enabled, entries, diagnostics, projectTrust: trust, watched, pluginKey, startedAt };
 }

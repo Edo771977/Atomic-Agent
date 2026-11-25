@@ -44,6 +44,16 @@ describe("session workspace skills and live policy", () => {
   const shared = () => join(home, ".agents/skills");
 
   const org = (effect: "allow" | "deny") => installPolicy(mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" }, file: parsePolicyFile({ rules: [{ action: "skill", resource: "*", effect }] }) }]));
+  it("tool-child trust inventory keeps metadata without exposing policy or skill bodies", () => {
+    const config = getConfig();
+    put(join(a, config.paths.projectSkillsDirName), "pending-example", "Private skill instructions.");
+    installPolicy(null); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    const inventory = load();
+    expect(inventory.entries.map(entry => entry.record.manifest.name)).toEqual(["pending-example"]);
+    expect(inventory.entries[0]!.body).toBe("");
+    expect(inventory.entries[0]!.disabledReasons.join(" ")).toMatch(/organization.*policy/i);
+    expect(() => inventory.assertAvailable("pending-example")).toThrow(/operator|tool child/i);
+  });
   it("organization deny hides folder skills and rechecks a previously loaded skill", () => {
     put(getConfig().paths.globalSkillsDir);
     const before = load();

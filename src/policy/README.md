@@ -48,6 +48,7 @@ The upstream URL availability exception is retained explicitly: a failed fetch, 
 - MCP (`McpManagerDeps.serverPolicy`): the allowlist, checked before every connect.
 - `atag mcp-server` (`cli/mcp-server-command.ts`, `cli/mcp-server-bridge.ts`): loads and installs the policy itself, gives its gate `setOrgPolicy`, and refuses a denied call before it runs; a policy `ask` is refused there, since an MCP client cannot answer a prompt.
 - Skills: `prepareSkillInstall` refuses a denied skill (`policy_denied`, HTTP 403); the registry and workspace discovery exclude it, and a previously selected workspace skill is checked again before use. A policy allow never activates an unconfirmed learned draft.
+- Tool-child trust inventories retain metadata and pending counts, with skill bodies removed and loading refused; the fork's operator-only trust advice remains visible without exposing policy contents.
 - Fusion and verification: workers share the dispatch/gate policy; worker candidate paths are also matched against the original project. Contract authorization and the actual rebased executor check shell denies (including stdin scripts) and explicit page/probe URLs. Detached shell jobs pass the same launch checks before becoming jobs. Fixed verification executors (including UI detectors) also check the command actually spawned. A host-retargeted file write is checked at its approved destination.
 
 ## Who manages the files
