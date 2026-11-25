@@ -10,28 +10,28 @@ import { sendJson, type HttpHandler } from "./request-context.js";
  * ids, the on switch), not whether the bot is connected. This is what it
  * polls to say so, as `GET /api/telegram/channel` does for Telegram.
  *
- * Answers `{ available, state, lastError, hasToken, bot, otherPoller }`:
+ * Answers `{ available, state, lastError, hasToken, otherPoller }`:
  * `state` is the channel's `up` / `down` / `disabled` / `starting` /
- * `stopping`, `bot` is `{ id, username }` once Discord said who the bot is
- * (null before), `otherPoller` is `{ where: "this_computer", pid }` when
+ * `stopping`; `lastError` is the fixed `channel_error` or null, never
+ * provider text. `otherPoller` is `{ where: "this_computer", pid }` when
  * another atomic-agent on this computer holds `discord.lock`, `null`
  * otherwise. `available: false` on an agent without the channel. The token
  * itself is never in the answer. Bearer auth like every `/api` route.
  */
 export function createDiscordChannelHandler(): HttpHandler {
   return async (_req, res, ctx) => {
+    res.setHeader("cache-control", "no-store");
     const channel = ctx.runtime.discordChannel ?? null;
     if (!channel) {
-      sendJson(res, 200, { available: false, state: null, lastError: null, hasToken: false, bot: null, otherPoller: null });
+      sendJson(res, 200, { available: false, state: null, lastError: null, hasToken: false, otherPoller: null });
       return;
     }
     const lastError = channel.lastError();
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
-      lastError,
+      lastError: lastError ? "channel_error" : null,
       hasToken: channel.hasToken(),
-      bot: channel.getBotIdentity(),
       otherPoller: discordOtherPollerOf(lastError),
     });
   };

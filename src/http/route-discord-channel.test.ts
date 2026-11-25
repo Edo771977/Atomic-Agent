@@ -20,10 +20,10 @@ function call(runtime: unknown): Promise<{ status: number; body: Record<string, 
 describe("GET /api/discord/channel (ATO-516)", () => {
   it("says the channel is missing on an agent without it", async () => {
     const out = await call({ discordChannel: null });
-    expect(out.body).toEqual({ available: false, state: null, lastError: null, hasToken: false, bot: null, otherPoller: null });
+    expect(out.body).toEqual({ available: false, state: null, lastError: null, hasToken: false, otherPoller: null });
   });
 
-  it("reports the live state and the bot, never the token", async () => {
+  it("reports the live state without bot identity or token", async () => {
     const channel = {
       state: () => "up",
       lastError: () => null,
@@ -36,7 +36,6 @@ describe("GET /api/discord/channel (ATO-516)", () => {
       state: "up",
       lastError: null,
       hasToken: true,
-      bot: { id: "123456789012345678", username: "atomic_bot" },
       otherPoller: null,
     });
     expect(JSON.stringify(out.body)).not.toMatch(/token":"/);

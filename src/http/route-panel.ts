@@ -38,12 +38,9 @@ export function createPanelScriptHandler(): HttpHandler {
 /**
  * ATO-1130: the manifest and icon that let the panel be added to a
  * phone's home screen and open full screen. No auth, same as the page:
- * they hold no data. Cached for a day; they change only with a release.
+ * they hold only compiled constants and use the page's no-store headers.
  */
-const ASSET_HEADERS = {
-  "cache-control": "public, max-age=86400",
-  "x-content-type-options": "nosniff",
-};
+const ASSET_HEADERS = HEADERS;
 
 const PANEL_ICON_PNG = Buffer.from(PANEL_ICON_PNG_BASE64, "base64");
 

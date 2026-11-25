@@ -296,7 +296,7 @@ Ondate:
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
 | [#1579](https://github.com/AtomicBot-ai/atomic-agent/pull/1579) | 2 | ATO-1454: atag login chatgpt and logout chatgpt (experimental) | Importare con revisione approfondita |
-| [#1618](https://github.com/AtomicBot-ai/atomic-agent/pull/1618) | 1 | Phone panel can be added to the home screen as an app (ATO-1130) | Importare con revisione approfondita |
+| [#1618](https://github.com/AtomicBot-ai/atomic-agent/pull/1618) | 1 | Phone panel can be added to the home screen as an app (ATO-1130) | Importato con cherry-pick -x in PR_B2_PANEL. Eccezione autorizzata per sole risorse statiche pubbliche fisse: Public read nella matrice, no-store e CSP, nessun service worker, nessuna CDN o chiave, test percorsi e offline; API dati autenticate. |
 | [#1624](https://github.com/AtomicBot-ai/atomic-agent/pull/1624) | 2 | feat(approval): add an approval rule by hand through the API (ATO-1011) | Importare con revisione approfondita |
 | [#1633](https://github.com/AtomicBot-ai/atomic-agent/pull/1633) | 1 | HTTP: POST /api/btw for the side question (ATO-1152) | Importare con revisione approfondita |
 | [#1638](https://github.com/AtomicBot-ai/atomic-agent/pull/1638) | 3 | Serve: A2A agent card and task endpoint behind --a2a (ATO-693) | Importare con revisione approfondita |
@@ -311,7 +311,7 @@ Ondate:
 | [#1704](https://github.com/AtomicBot-ai/atomic-agent/pull/1704) | 1 | Phone calls, first slice: Twilio adapter with your own key (ATO-24) | Importare con revisione approfondita |
 | [#1705](https://github.com/AtomicBot-ai/atomic-agent/pull/1705) | 1 | Serve memory and skills to MCP clients over HTTP on /mcp in atag serve (ATO | Importare con revisione approfondita |
 | [#1707](https://github.com/AtomicBot-ai/atomic-agent/pull/1707) | 1 | feat(llm): experimental GitHub Copilot sign-in (ATO-462) | Importare con revisione approfondita |
-| [#1712](https://github.com/AtomicBot-ai/atomic-agent/pull/1712) | 1 | HTTP: live Discord channel status route for the desktop (ATO-516) | Importare con revisione approfondita |
+| [#1712](https://github.com/AtomicBot-ai/atomic-agent/pull/1712) | 1 | HTTP: live Discord channel status route for the desktop (ATO-516) | Importato con cherry-pick -x in PR_B2_PANEL. Scope read; nessuna identita del bot, id utente, contenuto o errore grezzo; risposta no-store e test sui quattro ruoli. |
 | [#1719](https://github.com/AtomicBot-ai/atomic-agent/pull/1719) | 3 | Tasks from your own mailbox over IMAP: IDLE push, polling fallback, attachm | Importare con revisione approfondita |
 
 ### Ondata C: funzioni grandi
