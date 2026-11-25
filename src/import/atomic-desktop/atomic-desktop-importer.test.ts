@@ -104,7 +104,7 @@ describe("importAtomicDesktop", () => {
     return source;
   }
 
-  function run(extra: { batchSize?: number } = {}) {
+  function run(extra: { batchSize?: number; parts?: { sessions?: boolean; tasks?: boolean; memory?: boolean } } = {}) {
     return importAtomicDesktop({
       sourceDir,
       targetStateDir: targetDir,
@@ -113,6 +113,44 @@ describe("importAtomicDesktop", () => {
       ...extra,
     });
   }
+
+  it.each([false, true])("skips marked and legacy tasks of incognito source chats (tasksOnly=%s)", async (tasksOnly) => {
+    const source = src();
+    source.sessionStore.save(createEmptySessionState({ id: "s-inc", workingDir: sourceDir, incognito: source.sessionStore.newIncognitoMark() }));
+    const make = (sessionId: string) => {
+      const t = source.taskStore.create({ sessionId, userMessage: "PRIVATE-TASK-SECRET", origin: "cli", maxAttempts: 1 });
+      source.taskStore.markRunning(t.id);
+      source.taskStore.markFailed(t.id, { category: "transport", message: "private error" });
+      return t.id;
+    };
+    const marked = make("s-inc");
+    const legacy = make("s-inc");
+    const orphan = make("missing-incognito");
+    const ordinary = source.taskStore.create({ sessionId: "ordinary", userMessage: "ordinary fixture", origin: "cli", maxAttempts: 1 });
+    closeSource();
+    const raw = new DatabaseCtor(join(sourceDir, "tasks.sqlite"));
+    raw.prepare("UPDATE tasks SET incognito = 1 WHERE id IN (?, ?)").run(marked, orphan);
+    raw.close();
+    const result = await run({ ...(tasksOnly ? { parts: { sessions: false, tasks: true, memory: false } } : {}) });
+    expect(result.ok).toBe(true);
+    expect(result.tasks).toEqual({ imported: 1, skipped: 3 });
+    expect(target.sessionStore.load("s-inc")).toBeNull();
+    for (const id of [marked, legacy, orphan]) {
+      expect(target.taskStore.get(id)).toBeNull();
+      expect(target.taskStore.listRuns(id)).toEqual([]);
+    }
+    expect(target.taskStore.get(ordinary.id)?.userMessage).toBe("ordinary fixture");
+    expect(JSON.stringify(result)).not.toContain("PRIVATE-TASK-SECRET");
+  });
+
+  it("still imports ordinary tasks when the source has no sessions database", async () => {
+    const task = src().taskStore.create({ userMessage: "ordinary fixture", origin: "cli", maxAttempts: 1 });
+    closeSource();
+    rmSync(join(sourceDir, "sessions.sqlite"));
+    const result = await run();
+    expect(result.ok).toBe(true);
+    expect(target.taskStore.get(task.id)?.userMessage).toBe("ordinary fixture");
+  });
 
   describe("sessions", () => {
     it("copies sessions by id and keeps the target's row on the same id", async () => {
