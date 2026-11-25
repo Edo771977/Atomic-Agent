@@ -23,6 +23,7 @@ import { isNamedCaller } from "./serve-egress.js";
  */
 export function createTelegramChannelHandler(): HttpHandler {
   return async (_req, res, ctx) => {
+    res.setHeader("cache-control", "no-store");
     const channel = ctx.runtime.telegramChannel ?? null;
     if (!channel) {
       sendJson(res, 200, { available: false, state: null, lastError: null, otherPoller: null });
@@ -33,7 +34,7 @@ export function createTelegramChannelHandler(): HttpHandler {
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
-      lastError,
+      lastError: isChannelLockConflict(lastError) ? "channel_locked" : lastError ? "channel_error" : null,
       otherPoller: isNamedCaller(ctx) && otherPoller?.where === "this_computer" ? { where: "this_computer" } : otherPoller,
     });
   };

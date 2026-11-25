@@ -34,3 +34,20 @@ it.each(["viewer", "member", "operator", "admin"] as const)("hides local poller 
     expect(body.otherPoller).toEqual({ where: "this_computer" });
   }
 });
+
+it.each(["owner", "viewer", "member", "operator", "admin"] as const)("redacts Telegram errors and forbids caching for %s", async role => {
+  const get = await fixture("failed with SYNTHETIC-TOKEN for user 123456789 PRIVATE-MESSAGE", role === "owner" ? "viewer" : role);
+  const response = await get("telegram", role === "owner" ? OWNER : NAMED);
+  expect(response.status).toBe(200);
+  const text = await response.text();
+  expect(JSON.parse(text)).toEqual({ available: true, state: "down", lastError: "channel_error", otherPoller: null });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  for (const secret of ["SYNTHETIC-TOKEN", "123456789", "PRIVATE-MESSAGE"]) expect(text).not.toContain(secret);
+});
+
+it("reports Telegram lock contention without the raw lock error", async () => {
+  const get = await fixture(formatChannelLockHeld(424242));
+  const response = await get("telegram");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(await response.json()).toMatchObject({ lastError: "channel_locked", otherPoller: { where: "this_computer", pid: 424242 } });
+});
