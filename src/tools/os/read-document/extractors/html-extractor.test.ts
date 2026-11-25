@@ -9,6 +9,11 @@ const run = (html: string | Buffer) =>
   });
 
 describe("htmlExtractor", () => {
+  it("uses bounded plain text for deeply nested formatting", async () => {
+    const result = await run("<p>Visible fixture</p>" + "<div>".repeat(300) + "nested" + "</div>".repeat(300));
+    expect(result.text).toContain("Visible fixture");
+    expect(result.warnings.join("\n")).toMatch(/HTML.*formatting/i);
+  });
   it("renders the body as markdown and drops scripts, styles and head", async () => {
     const result = await run(
       `<!doctype html><html><head><title>Report</title><style>.x{}</style><script>alert(1)</script></head>` +

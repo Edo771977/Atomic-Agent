@@ -1,5 +1,6 @@
 import { parseHTML } from "linkedom";
 import TurndownService from "turndown";
+import { convert as htmlToText } from "html-to-text";
 
 /**
  * HTML → light markdown for documents on disk (saved web pages, EPUB
@@ -72,6 +73,35 @@ export interface HtmlMarkdown {
   title?: string;
 }
 
+const HTML_FORMAT_CHARS = 64 * 1024;
+const HTML_FORMAT_TAG_STARTS = 256;
+
+/** Keep recursive Markdown conversion on small, structurally simple input. */
+export function boundedHtmlToMarkdown(html: string, warnings: string[]): HtmlMarkdown {
+  const prefix = html.slice(0, HTML_FORMAT_CHARS);
+  if (prefix.length < html.length) {
+    warnings.push(`HTML was truncated to ${HTML_FORMAT_CHARS} characters before text extraction`);
+  } else {
+    let offset = -1;
+    for (let tags = 0; tags <= HTML_FORMAT_TAG_STARTS; tags++) {
+      offset = prefix.indexOf("<", offset + 1);
+      if (offset < 0) return htmlToMarkdown(prefix);
+    }
+    warnings.push("HTML formatting exceeded the conversion budget; showing plain text");
+  }
+  return { text: htmlToText(prefix, {
+    wordwrap: false,
+    limits: { maxDepth: 32, maxChildNodes: 256 },
+    selectors: [
+      { selector: "head", format: "skip" },
+      { selector: "script", format: "skip" },
+      { selector: "style", format: "skip" },
+      { selector: "a", options: { ignoreHref: true } },
+      { selector: "img", format: "skip" },
+    ],
+  }).trim() };
+}
+
 export function htmlToMarkdown(html: string): HtmlMarkdown {
   // linkedom does not synthesise <html>/<body> around a fragment the way a
   // browser does (the first element becomes the document element), so a
@@ -89,7 +119,7 @@ export function htmlToMarkdown(html: string): HtmlMarkdown {
       : (document.documentElement as { innerHTML?: string } | null)?.innerHTML ?? "";
   const markdown = getTurndown()
     .turndown(source)
-    .replace(/[ \t]+\n/g, "\n")
+    .replace(/[ \t]+(\n)?/g, (run, newline: string | undefined) => newline ?? run)
     .replace(/\n{3,}/g, "\n\n")
     .trim();
   return { text: markdown, title };

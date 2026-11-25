@@ -35,7 +35,7 @@ interface Built {
   dirStart: number;
 }
 
-function buildCfb(children: Node[]): Built {
+function buildCfb(children: Node[], sectorSize = SECTOR): Built {
   const entries: FlatEntry[] = [
     { name: "Root Entry", type: 5, child: NONE, right: NONE, start: END, size: 0 },
   ];
@@ -79,13 +79,14 @@ function buildCfb(children: Node[]): Built {
   }
   const miniStream = Buffer.concat(miniChunks);
 
-  const dirSectors = Math.ceil((entries.length * 128) / SECTOR);
-  const miniFatSectors = Math.ceil((miniFat.length * 4) / SECTOR);
-  const miniStreamSectors = Math.ceil(miniStream.length / SECTOR);
-  const bigSectors = big.map((e) => Math.ceil(e.data!.length / SECTOR));
+  const dirSectors = Math.ceil((entries.length * 128) / sectorSize);
+  const miniFatSectors = Math.ceil((miniFat.length * 4) / sectorSize);
+  const miniStreamSectors = Math.ceil(miniStream.length / sectorSize);
+  const bigSectors = big.map((e) => Math.ceil(e.data!.length / sectorSize));
   const payload = dirSectors + miniFatSectors + miniStreamSectors + bigSectors.reduce((a, b) => a + b, 0);
   let fatSectors = 1;
-  while (fatSectors * (SECTOR / 4) < payload + fatSectors) fatSectors++;
+  while (fatSectors * (sectorSize / 4) < payload + fatSectors) fatSectors++;
+  if (fatSectors > 109) throw new Error("fixture exceeds the header FAT capacity");
 
   const fat: number[] = [];
   for (let i = 0; i < fatSectors; i++) fat.push(0xfffffffd);
@@ -105,15 +106,15 @@ function buildCfb(children: Node[]): Built {
   entries[0]!.size = miniStream.length;
 
   const sectors = fat.length;
-  const out = Buffer.alloc(SECTOR * (sectors + 1));
-  const at = (id: number) => (id + 1) * SECTOR;
+  const out = Buffer.alloc(sectorSize * (sectors + 1));
+  const at = (id: number) => (id + 1) * sectorSize;
 
   // Header.
   Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]).copy(out, 0);
   out.writeUInt16LE(0x3e, 0x18);
-  out.writeUInt16LE(3, 0x1a);
+  out.writeUInt16LE(sectorSize === 4096 ? 4 : 3, 0x1a);
   out.writeUInt16LE(0xfffe, 0x1c);
-  out.writeUInt16LE(9, 0x1e);
+  out.writeUInt16LE(sectorSize === 4096 ? 12 : 9, 0x1e);
   out.writeUInt16LE(6, 0x20);
   out.writeUInt32LE(fatSectors, 0x2c);
   out.writeUInt32LE(dirStart, 0x30);
@@ -125,8 +126,8 @@ function buildCfb(children: Node[]): Built {
   for (let i = 0; i < 109; i++) out.writeUInt32LE(i < fatSectors ? i : FREE, 0x4c + i * 4);
 
   // FAT.
-  for (let i = 0; i < fatSectors * (SECTOR / 4); i++) {
-    out.writeUInt32LE(i < fat.length ? fat[i]! : FREE, SECTOR + i * 4);
+  for (let i = 0; i < fatSectors * (sectorSize / 4); i++) {
+    out.writeUInt32LE(i < fat.length ? fat[i]! : FREE, sectorSize + i * 4);
   }
   // Directory.
   entries.forEach((e, i) => {
@@ -142,7 +143,7 @@ function buildCfb(children: Node[]): Built {
     out.writeUInt32LE(e.start, off + 0x74);
     out.writeUInt32LE(e.size, off + 0x78);
   });
-  for (let i = entries.length; i < dirSectors * 4; i++) {
+  for (let i = entries.length; i < dirSectors * (sectorSize / 128); i++) {
     const off = at(dirStart) + i * 128;
     out.writeUInt32LE(NONE, off + 0x44);
     out.writeUInt32LE(NONE, off + 0x48);
@@ -305,6 +306,18 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("bounds the conversion of an eight MiB HTML body and keeps the visible start", async () => {
+    const head = "<html><body><p>Monthly report</p><p>";
+    const tail = "</p></body></html>";
+    const html = Buffer.from(head + "a".repeat(8 * 1024 * 1024 - head.length - tail.length) + tail);
+    const { buffer } = buildCfb([{ name: b(0x1013), data: html }], 4096);
+    const start = performance.now();
+    const result = await extract(buffer);
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(result.text).toContain("Monthly report");
+    expect(result.text.length).toBeLessThan(1024 * 1024);
+    expect(result.warnings.join("\n")).toMatch(/HTML.*truncat/i);
+  });
   it("preserves the end of a two MiB UTF-16 message body", async () => {
     const body = "a".repeat(1024 * 1024 - 12) + "\nfixture-end";
     const result = await extract(buildCfb([str(0x1000, body)]).buffer);
