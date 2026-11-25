@@ -9,6 +9,8 @@ Inventario di 115 rami core e 62 rami della linea Desktop. Include le punte con 
 
 I commit e i file sono relativi a `upstream/main`, quindi includono eventuali prerequisiti delle PR impilate. Il rischio deriva da `git merge-tree --write-tree --name-only origin/main <sha>`. Un esito pulito indica compatibilità testuale. Le sovrapposizioni derivano da percorsi e dagli incroci dei file con #171, #183 e #184, e richiedono una verifica semantica prima del port.
 
+Aggiornamento del 25 novembre: upstream `main` è avanzato a `89d65615e` con il lotto di integrazione #1740. Lo stato delle PR di quel lotto e dei rami recenti è nella sezione [Lotto di integrazione upstream #1740](#lotto-di-integrazione-upstream-1740-23-novembre), che prevale sulle righe corrispondenti delle tabelle sotto.
+
 ## Core
 
 | Ramo | Commit upstream | File | Area | Modifica | Conflitto | Sovrapposizione | Valore | Raccomandazione |
@@ -194,3 +196,177 @@ I commit e i file sono relativi a `upstream/main`, quindi includono eventuali pr
 - `fix/ato-1634-desktop-more-logos` [#1583](https://github.com/AtomicBot-ai/atomic-agent/pull/1583) — Desktop: brand logos in Connections, the MCP catalog, more providers and models (ATO-1634)
 - `fix/ato-1643-fallback-local-off` [#1701](https://github.com/AtomicBot-ai/atomic-agent/pull/1701) — fix(desktop): local-as-last-resort reads Off when unset, like the agent (ATO-1643)
 - `fix/ato-921-win-main-process-no-sync-powershell` [#1605](https://github.com/AtomicBot-ai/atomic-agent/pull/1605) — Desktop: stop freezing the window on Windows with a synchronous PowerShell probe (ATO-921)
+
+## Lotto di integrazione upstream #1740 (23 novembre)
+
+Upstream ha unito in `main` la PR di integrazione [#1740](https://github.com/AtomicBot-ai/atomic-agent/pull/1740) (`int/w6-main`, merge `89d65615e`). Il lotto contiene 113 PR e circa 200 commit successivi a `6d1f14fcd`. Le righe "Attendere integrazione upstream" delle tabelle precedenti che corrispondono a queste PR sono superate da questa sezione.
+
+Confronto fatto su fork `main` a `9bdf9085c`. Una PR è considerata importata quando i suoi commit compaiono come `cherry picked from commit` nel fork, hanno un patch equivalente (`git cherry`) oppure sono stati portati con adattamento in una PR del fork. Le altre classificazioni sono una proposta di ordine di lavoro: ogni port segue le regole di sempre (cherry-pick `-x`, test che falliscono prima, revisione avversariale).
+
+Ondate:
+- **A, correzioni piccole**: rischio basso, valore diretto. Per prime.
+- **A2, rami recenti fuori da `main`**: valutare insieme all'ondata A (tabella sotto).
+- **B, funzioni con impatto sulla sicurezza**: una PR del fork per gruppo, revisione approfondita su approvazioni, scope HTTP, egress, credenziali e incognito.
+- **C, funzioni grandi**: una serie per volta, dopo A e B.
+- **Release e analytics upstream**: riguardano il processo di release di upstream; valutare se servono al fork prima di importarle.
+
+### Già nel fork
+
+| PR | Commit | Modifica | Stato |
+| --- | --- | --- | --- |
+| [#1560](https://github.com/AtomicBot-ai/atomic-agent/pull/1560) | 2 | fix(fusion): send each role's model in its requests, not only in its label  | Importato o adattato in [#193](https://github.com/Edo771977/Atomic-Agent/pull/193) |
+| [#1561](https://github.com/AtomicBot-ai/atomic-agent/pull/1561) | 1 | fix(fusion): escalate when both legs share one provider with two models (AT | Importato o adattato in [#193](https://github.com/Edo771977/Atomic-Agent/pull/193) |
+| [#1566](https://github.com/AtomicBot-ai/atomic-agent/pull/1566) | 1 | fix(llm): stop on an invalid sampling setting instead of falling over (ATO- | Importato o adattato in [#202](https://github.com/Edo771977/Atomic-Agent/pull/202) |
+| [#1574](https://github.com/AtomicBot-ai/atomic-agent/pull/1574) | 4 | feat(approval): ask before a URL carries data out (ATO-1377) | Importato o adattato in [#191](https://github.com/Edo771977/Atomic-Agent/pull/191) |
+| [#1581](https://github.com/AtomicBot-ai/atomic-agent/pull/1581) | 1 | Offer another model after a cloud model answers empty twice (ATO-1578) | Importato o adattato in [#192](https://github.com/Edo771977/Atomic-Agent/pull/192) |
+| [#1589](https://github.com/AtomicBot-ai/atomic-agent/pull/1589) | 1 | Delete a chat's file checkpoints when the chat is deleted (ATO-1501) | Importato o adattato in [#188](https://github.com/Edo771977/Atomic-Agent/pull/188) |
+| [#1591](https://github.com/AtomicBot-ai/atomic-agent/pull/1591) | 1 | verify.run: on macOS try the Playwright Chromium before the system Chrome ( | Importato o adattato in [#202](https://github.com/Edo771977/Atomic-Agent/pull/202) |
+| [#1595](https://github.com/AtomicBot-ai/atomic-agent/pull/1595) | 2 | Drop an incognito chat's tasks when the boot sweep deletes it (ATO-1547) | Importato o adattato in [#194](https://github.com/Edo771977/Atomic-Agent/pull/194) |
+| [#1612](https://github.com/AtomicBot-ai/atomic-agent/pull/1612) | 2 | feat(sandbox): opt-in OS sandbox for agent shell commands, network off insi | Importato o adattato in [#198](https://github.com/Edo771977/Atomic-Agent/pull/198) |
+| [#1616](https://github.com/AtomicBot-ai/atomic-agent/pull/1616) | 1 | Offline mode: telemetry, feature flags and the update check stay silent (AT | Importato o adattato in [#188](https://github.com/Edo771977/Atomic-Agent/pull/188) |
+| [#1626](https://github.com/AtomicBot-ai/atomic-agent/pull/1626) | 1 | Telegram: an approval button from before a restart says it expired (ATO-613 | Importato o adattato in [#202](https://github.com/Edo771977/Atomic-Agent/pull/202) |
+| [#1634](https://github.com/AtomicBot-ai/atomic-agent/pull/1634) | 1 | Cloud request after local turns: test the body, drop empty assistant replie | Importato o adattato in [#189](https://github.com/Edo771977/Atomic-Agent/pull/189) |
+| [#1635](https://github.com/AtomicBot-ai/atomic-agent/pull/1635) | 1 | Offline smoke: run with offline mode on (ATO-1507) | Importato o adattato in [#202](https://github.com/Edo771977/Atomic-Agent/pull/202) |
+| [#1647](https://github.com/AtomicBot-ai/atomic-agent/pull/1647) | 2 | Named HTTP tokens with roles and per-route scopes, first slice (ATO-583) | Importato o adattato in [#200](https://github.com/Edo771977/Atomic-Agent/pull/200) |
+| [#1649](https://github.com/AtomicBot-ai/atomic-agent/pull/1649) | 3 | Privacy Shield: detector and reversible per-session vault (ATO-599) | Importato o adattato in [#197](https://github.com/Edo771977/Atomic-Agent/pull/197) |
+| [#1674](https://github.com/AtomicBot-ai/atomic-agent/pull/1674) | 1 | Privacy Shield: mask cloud requests, unmask replies and tool calls (ATO-108 | Importato o adattato in [#197](https://github.com/Edo771977/Atomic-Agent/pull/197) |
+| [#1685](https://github.com/AtomicBot-ai/atomic-agent/pull/1685) | 2 | Memory: atomic-agent memory backup, with a restore that never duplicates (A | Importato o adattato in [#196](https://github.com/Edo771977/Atomic-Agent/pull/196) |
+| [#1689](https://github.com/AtomicBot-ai/atomic-agent/pull/1689) | 1 | Privacy Shield in Fusion: shared vault for planner and cloud workers (ATO-1 | Importato o adattato in [#206](https://github.com/Edo771977/Atomic-Agent/pull/206) |
+| [#1695](https://github.com/AtomicBot-ai/atomic-agent/pull/1695) | 1 | Privacy Shield: TUI toggle, masked counter and /api/privacy-shield (ATO-108 | Importato o adattato in [#206](https://github.com/Edo771977/Atomic-Agent/pull/206) |
+| [#1696](https://github.com/AtomicBot-ai/atomic-agent/pull/1696) | 4 | Self-learning: background skill review after long turns, with /learn undo ( | Importato o adattato in [#201](https://github.com/Edo771977/Atomic-Agent/pull/201) |
+| [#1710](https://github.com/AtomicBot-ai/atomic-agent/pull/1710) | 1 | feat(http): serve always requires an API key, generated on first run | Importato o adattato in [#190](https://github.com/Edo771977/Atomic-Agent/pull/190) |
+| [#1716](https://github.com/AtomicBot-ai/atomic-agent/pull/1716) | 1 | Memory: turn one note or profile fact off without deleting it (ATO-1124) | Importato o adattato in [#196](https://github.com/Edo771977/Atomic-Agent/pull/196) |
+| [#1723](https://github.com/AtomicBot-ai/atomic-agent/pull/1723) | 3 | Wait before re-asking after an empty model answer (ATO-1676) | Importato o adattato in [#192](https://github.com/Edo771977/Atomic-Agent/pull/192) |
+| [#1725](https://github.com/AtomicBot-ai/atomic-agent/pull/1725) | 7 | Resend without the grammar when an external llama server refuses it (ATO-16 | Importato o adattato in [#192](https://github.com/Edo771977/Atomic-Agent/pull/192) |
+| [#1726](https://github.com/AtomicBot-ai/atomic-agent/pull/1726) | 2 | Count native tool schemas in the local prompt budget (ATO-1678) | Importato o adattato in [#192](https://github.com/Edo771977/Atomic-Agent/pull/192) |
+
+### Rinviate
+
+| PR | Commit | Modifica | Motivo |
+| --- | --- | --- | --- |
+| [#1609](https://github.com/AtomicBot-ai/atomic-agent/pull/1609) | 2 | Agent proxy: network.proxy for fetch, curl and the browser (ATO-87) | Rinviato: il proxy deve conservare egress per cartella e controlli IP (fork-differences). |
+| [#1630](https://github.com/AtomicBot-ai/atomic-agent/pull/1630) | 4 | feat(mcp): run stdio MCP servers in the Safe Mode sandbox, per-server opt-o | Rinviato: serve una politica di egress applicata ai server MCP nella sandbox. |
+
+### Ondata A: correzioni piccole
+
+| PR | Commit | Modifica | Raccomandazione |
+| --- | --- | --- | --- |
+| [#1562](https://github.com/AtomicBot-ai/atomic-agent/pull/1562) | 1 | fix(fusion): label workers on a foreign llama.cpp server with the model it  | Importare |
+| [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Importare |
+| [#1576](https://github.com/AtomicBot-ai/atomic-agent/pull/1576) | 1 | feat(fallback): ask once whether to keep the local model as the last resort | Importare |
+| [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importare |
+| [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importare |
+| [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importare |
+| [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importare |
+| [#1590](https://github.com/AtomicBot-ai/atomic-agent/pull/1590) | 1 | Refuse self-update when installed through mise or aqua (ATO-1485) | Importare |
+| [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
+| [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
+| [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
+| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importare |
+| [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
+| [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
+| [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
+| [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importare |
+| [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Importare |
+| [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importare |
+| [#1660](https://github.com/AtomicBot-ai/atomic-agent/pull/1660) | 2 | TUI: offer /runmode on the start page (ATO-1640) | Importare |
+| [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Importare |
+| [#1667](https://github.com/AtomicBot-ai/atomic-agent/pull/1667) | 1 | TUI: show how far a local model has read the prompt (ATO-1001) | Importare |
+| [#1678](https://github.com/AtomicBot-ai/atomic-agent/pull/1678) | 1 | TUI: /think sets the reasoning level of the next turns (ATO-490) | Importare |
+| [#1681](https://github.com/AtomicBot-ai/atomic-agent/pull/1681) | 1 | Core: remember a failed update check instead of asking GitHub on every refr | Importare |
+| [#1692](https://github.com/AtomicBot-ai/atomic-agent/pull/1692) | 1 | Local engine: detect a model's MTP head and gate MTP on Core support (ATO-4 | Importare |
+| [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Importare |
+| [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
+| [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
+| [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
+| [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Importare |
+| [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
+| [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
+| [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
+| [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Importare |
+| [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importare |
+| [#1730](https://github.com/AtomicBot-ai/atomic-agent/pull/1730) | 2 | ATO-1679: say why a subscription CLI exited, and what to do for an old CLI  | Importare |
+
+### Ondata B: funzioni con impatto sulla sicurezza
+
+| PR | Commit | Modifica | Raccomandazione |
+| --- | --- | --- | --- |
+| [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
+| [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
+| [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
+| [#1579](https://github.com/AtomicBot-ai/atomic-agent/pull/1579) | 2 | ATO-1454: atag login chatgpt and logout chatgpt (experimental) | Importare con revisione approfondita |
+| [#1618](https://github.com/AtomicBot-ai/atomic-agent/pull/1618) | 1 | Phone panel can be added to the home screen as an app (ATO-1130) | Importare con revisione approfondita |
+| [#1624](https://github.com/AtomicBot-ai/atomic-agent/pull/1624) | 2 | feat(approval): add an approval rule by hand through the API (ATO-1011) | Importare con revisione approfondita |
+| [#1633](https://github.com/AtomicBot-ai/atomic-agent/pull/1633) | 1 | HTTP: POST /api/btw for the side question (ATO-1152) | Importare con revisione approfondita |
+| [#1638](https://github.com/AtomicBot-ai/atomic-agent/pull/1638) | 3 | Serve: A2A agent card and task endpoint behind --a2a (ATO-693) | Importare con revisione approfondita |
+| [#1639](https://github.com/AtomicBot-ai/atomic-agent/pull/1639) | 2 | Bridge trusted Hermes Python plugins as local MCP servers (ATO-953) | Importare con revisione approfondita |
+| [#1646](https://github.com/AtomicBot-ai/atomic-agent/pull/1646) | 2 | Add an ACP server: use Atomic Agent from Zed, JetBrains and Neovim (ATO-543 | Importare con revisione approfondita |
+| [#1671](https://github.com/AtomicBot-ai/atomic-agent/pull/1671) | 2 | ATO-1639: save one key at a time through the agent (config secrets set/get/ | Importare con revisione approfondita |
+| [#1672](https://github.com/AtomicBot-ai/atomic-agent/pull/1672) | 1 | WhatsApp channel through WhatsApp Web pairing (ATO-502) | Importare con revisione approfondita |
+| [#1686](https://github.com/AtomicBot-ai/atomic-agent/pull/1686) | 5 | feat(policy): organization policy file for shell, edits, web, skills and MC | Importare con revisione approfondita |
+| [#1687](https://github.com/AtomicBot-ai/atomic-agent/pull/1687) | 1 | Composio accounts: CLI to add, remove and pick the default, plus a prompt l | Importare con revisione approfondita |
+| [#1688](https://github.com/AtomicBot-ai/atomic-agent/pull/1688) | 2 | TUI Integrations: add, remove and pick the default Composio account (ATO-14 | Importare con revisione approfondita |
+| [#1702](https://github.com/AtomicBot-ai/atomic-agent/pull/1702) | 1 | Mail tasks start by themselves only from your own addresses (ATO-601) | Importare con revisione approfondita |
+| [#1704](https://github.com/AtomicBot-ai/atomic-agent/pull/1704) | 1 | Phone calls, first slice: Twilio adapter with your own key (ATO-24) | Importare con revisione approfondita |
+| [#1705](https://github.com/AtomicBot-ai/atomic-agent/pull/1705) | 1 | Serve memory and skills to MCP clients over HTTP on /mcp in atag serve (ATO | Importare con revisione approfondita |
+| [#1707](https://github.com/AtomicBot-ai/atomic-agent/pull/1707) | 1 | feat(llm): experimental GitHub Copilot sign-in (ATO-462) | Importare con revisione approfondita |
+| [#1712](https://github.com/AtomicBot-ai/atomic-agent/pull/1712) | 1 | HTTP: live Discord channel status route for the desktop (ATO-516) | Importare con revisione approfondita |
+| [#1719](https://github.com/AtomicBot-ai/atomic-agent/pull/1719) | 3 | Tasks from your own mailbox over IMAP: IDLE push, polling fallback, attachm | Importare con revisione approfondita |
+
+### Ondata C: funzioni grandi
+
+| PR | Commit | Modifica | Raccomandazione |
+| --- | --- | --- | --- |
+| [#1570](https://github.com/AtomicBot-ai/atomic-agent/pull/1570) | 1 | Regenerate keeps the old answer, and a route to go back to it (ATO-864) | Importare per serie |
+| [#1584](https://github.com/AtomicBot-ai/atomic-agent/pull/1584) | 1 | Facts about you from a ChatGPT or Claude export, approved before saving (AT | Importare per serie |
+| [#1602](https://github.com/AtomicBot-ai/atomic-agent/pull/1602) | 2 | Fusion: measure each leg's real speed and show it to the planner (ATO-1583) | Importare per serie |
+| [#1606](https://github.com/AtomicBot-ai/atomic-agent/pull/1606) | 2 | Next-step suggestions from a separate small model (ATO-1097) | Importare per serie |
+| [#1615](https://github.com/AtomicBot-ai/atomic-agent/pull/1615) | 1 | Add a TypeScript SDK for the NDJSON sidecar (ATO-539) | Importare per serie |
+| [#1623](https://github.com/AtomicBot-ai/atomic-agent/pull/1623) | 3 | Fetch MCP Apps pages and attach them to tool results (ATO-1135) | Importare per serie |
+| [#1636](https://github.com/AtomicBot-ai/atomic-agent/pull/1636) | 1 | Fusion: forecast a cloud task's cost before it is sent (ATO-1585) | Importare per serie |
+| [#1637](https://github.com/AtomicBot-ai/atomic-agent/pull/1637) | 1 | Fusion: critical path, total work and idle local slot time in the run repor | Importare per serie |
+| [#1640](https://github.com/AtomicBot-ai/atomic-agent/pull/1640) | 2 | Run the agent on your own server with Docker (ATO-595) | Importare per serie |
+| [#1642](https://github.com/AtomicBot-ai/atomic-agent/pull/1642) | 2 | Facts import from a chat export: the run, with one fixed model, receipts an | Importare per serie |
+| [#1659](https://github.com/AtomicBot-ai/atomic-agent/pull/1659) | 1 | Interface language setting with Russian, first slice in the terminal UI (AT | Importare per serie |
+| [#1661](https://github.com/AtomicBot-ai/atomic-agent/pull/1661) | 1 | Terminal: "Here is what I learned about you" step in the Import tab (ATO-16 | Importare per serie |
+| [#1670](https://github.com/AtomicBot-ai/atomic-agent/pull/1670) | 1 | Terminal first run: point ChatGPT and Claude users at their data export (AT | Importare per serie |
+| [#1673](https://github.com/AtomicBot-ai/atomic-agent/pull/1673) | 2 | feat(core): recipe file format and a content check before a shared recipe r | Importare per serie |
+| [#1675](https://github.com/AtomicBot-ai/atomic-agent/pull/1675) | 3 | Screen capture on Windows and Linux (ATO-527) | Importare per serie |
+| [#1679](https://github.com/AtomicBot-ai/atomic-agent/pull/1679) | 3 | Browser: Take over, the user finishes a step and hands back (ATO-508) | Importare per serie |
+| [#1680](https://github.com/AtomicBot-ai/atomic-agent/pull/1680) | 3 | Screen control: numbered app elements and background press (ATO-998, ATO-53 | Importare per serie |
+| [#1691](https://github.com/AtomicBot-ai/atomic-agent/pull/1691) | 2 | Browser scenarios: record once, replay without the model (ATO-960) | Importare per serie |
+| [#1694](https://github.com/AtomicBot-ai/atomic-agent/pull/1694) | 4 | feat(core): export and import a shareable agent setup with keys stripped (A | Importare per serie |
+| [#1697](https://github.com/AtomicBot-ai/atomic-agent/pull/1697) | 3 | My files: index chosen folders, progress routes and files.search with page  | Importare per serie |
+| [#1700](https://github.com/AtomicBot-ai/atomic-agent/pull/1700) | 1 | Files and memory search: sqlite-vec when present, optional reranker (ATO-10 | Importare per serie |
+| [#1722](https://github.com/AtomicBot-ai/atomic-agent/pull/1722) | 1 | Subagents: worker sessions remember their depth (ATO-1666) | Importare per serie |
+| [#1728](https://github.com/AtomicBot-ai/atomic-agent/pull/1728) | 3 | Subagents: shared worker runner core, Fusion as an add-on (ATO-1669) | Importare per serie |
+| [#1731](https://github.com/AtomicBot-ai/atomic-agent/pull/1731) | 3 | Subagents: profiles in settings, llm.runMode.agentProfiles (ATO-1667) | Importare per serie |
+| [#1732](https://github.com/AtomicBot-ai/atomic-agent/pull/1732) | 2 | Subagents: load profiles from settings on a par with files (ATO-1668) | Importare per serie |
+| [#1733](https://github.com/AtomicBot-ai/atomic-agent/pull/1733) | 9 | Subagents: subagent.run tool with depth and child limits (ATO-1670) | Importare per serie |
+
+### Release e analytics upstream
+
+| PR | Commit | Modifica | Raccomandazione |
+| --- | --- | --- | --- |
+| [#1598](https://github.com/AtomicBot-ai/atomic-agent/pull/1598) | 1 | release.sh: bump only the version fields, keep the lock's Linux libc fields | Valutare |
+| [#1600](https://github.com/AtomicBot-ai/atomic-agent/pull/1600) | 1 | ATO-1007: update_checked event for the share of installs on the latest vers | Valutare |
+| [#1622](https://github.com/AtomicBot-ai/atomic-agent/pull/1622) | 1 | ATO-1603: stamp surface on every analytics event | Valutare |
+| [#1703](https://github.com/AtomicBot-ai/atomic-agent/pull/1703) | 1 | Release: ship the update policy with every release, 0.3.x and 0.5.x broken; | Valutare |
+
+### Ondata A2: rami recenti non ancora in `main` upstream
+
+Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla linea Desktop di upstream, non da `desktop-main` (fermo al 9 novembre a `486a024fa`).
+
+| Ramo | Commit in punta | Modifica | Raccomandazione |
+| --- | --- | --- | --- |
+| `fix/ato-1703-openai-key-only-to-openai` | `70d4dca36fb1` | fix(tui): check a reconfigured provider's key against the new address (ATO-1703) | Importare per primo: evita di inviare la chiave di un provider a un indirizzo diverso. |
+| `fix/ato-1703-desktop-openai-key` | `69717680e29c` | fix(desktop): keep the codex billing warning and gate the smoke key names (ATO-1703) | Importare in `desktop-main` insieme al ramo core. |
+| `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Importare con #1562 e #1563. |
+| `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importare. |
+| `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importare. |
+| `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importare dopo verifica della firma. |
+| `fix/ato-1707-skill-list-trust-footnote` | `ff8b13e78503` | fix(cli): print the project trust note of skill list on stderr (ATO-1707) | Importare. |
+| `fix/ato-421-start-pending-marker` | `499fc102f14f` | fix(tui): hold the start marker across the TUI's whole start (ATO-421) | Importare. |
+| `fix/ato-421-desktop-restart-pending` | `8178f1994e66` | fix(desktop): mark the supervisor's restart as a chat start on its way (ATO-421) | Importare in `desktop-main`. |
+| `fix/ato-1729-chat-image-revalidate` | `af3f28642495` | fix(desktop): do not throw when a chat repeats a missing image (ATO-1729) | Importare in `desktop-main`. |
+| `fix/ato-1697-sidebar-waiting-dot` | `e2dc48b997da` | fix(desktop): show the waiting-for-approval dot on a background chat that is still running | Importare in `desktop-main`. |
