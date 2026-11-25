@@ -138,3 +138,19 @@ it("shows retry ideas for ordinary tasks whose chat is gone", async () => {
   expect((await call("GET", "/api/ideas")).body).toMatchObject({ ideas: [expect.objectContaining({ sourceTaskId: task.id })] });
 });
 
+
+it.each([
+  ["/api/approval/resolve", { decision: "deny" }],
+  ["/api/question/answer", { skip: true }],
+] as const)("clears stale mirrored cards for a named operator on %s", async (path, body) => {
+  const { h, visible, hidden, call } = await fixture("operator");
+  const pending = { approvalId: "stale-card", sessionId: visible.id, category: "shell" as const, tool: "os.shell.run", reason: "fixture" };
+  const privatePending = { ...pending, approvalId: "private-card", sessionId: hidden.id };
+  h.approvalBus.publish(pending);
+  h.approvalBus.publish(privatePending);
+  vi.spyOn(h.runtime.approvals, "pendingRequest").mockImplementation((id) => id === privatePending.approvalId ? privatePending : null);
+  expect((await call("POST", path, { ...body, approvalId: pending.approvalId })).status).toBe(404);
+  expect(h.approvalBus.snapshot()).toEqual([privatePending]);
+  expect((await call("POST", path, { ...body, approvalId: privatePending.approvalId })).status).toBe(404);
+  expect(h.approvalBus.snapshot()).toEqual([privatePending]);
+});
