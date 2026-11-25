@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 
 import type { LlmProvider } from "../../llm/provider/llm-provider.js";
 import {
@@ -92,12 +93,12 @@ describe("buildJudgeMessages", () => {
 
 describe("createSkillEvalJudge", () => {
   it("a provider judge calls that provider, reads the emitted verdict and counts its usage", async () => {
-    const complete = vi.fn(async () => ({
+    const complete = vi.fn(async (request) => { assertAuxiliaryArchive(request.sessionId); return ({
       content: "",
       toolCalls: [{ id: "1", type: "function", function: { name: "emit_verdict", arguments: '{"score":4,"reason":"good"}' } }],
       usage: { promptTokens: 300, completionTokens: 20, totalTokens: 320 },
       modelId: "b-model",
-    }));
+    }); });
     const provider = { id: "cloud-b", chatModelId: "b-model", complete } as unknown as LlmProvider;
     const priceUsage = vi.fn(() => 0.002);
     const judge = createSkillEvalJudge(

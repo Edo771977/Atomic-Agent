@@ -5,20 +5,21 @@ import type { ServerResponse } from "node:http";
 
 /** Owned by one listener; both auxiliary inference routes share these slots. */
 export class AuxiliaryCompletions {
-  private total = 0;
+  private namedTotal = 0;
   private readonly callers = new Map<string, number>();
 
   acquire(caller: HttpCaller | undefined): (() => void) | null {
     const key = caller?.role === "owner" ? "owner" : caller ? `token:${caller.name}` : "anonymous";
+    const named = caller?.role !== "owner";
     const count = this.callers.get(key) ?? 0;
-    if (count >= 2 || this.total >= 4) return null;
+    if (count >= 2 || (named && this.namedTotal >= 4)) return null;
     this.callers.set(key, count + 1);
-    this.total += 1;
+    if (named) this.namedTotal += 1;
     let released = false;
     return () => {
       if (released) return;
       released = true;
-      this.total -= 1;
+      if (named) this.namedTotal -= 1;
       const remaining = (this.callers.get(key) ?? 1) - 1;
       if (remaining === 0) this.callers.delete(key);
       else this.callers.set(key, remaining);

@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
 import type { ResponseFormatJsonSchema } from "../../llm/provider/completion-types.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
@@ -251,14 +252,14 @@ export function createLinkGeneratorRunner(
         assistantReply: input.assistantReply,
         candidates: input.candidates,
       });
-      const completion = await deps.llmComplete({
+      const completion = await withFreshPrivacyVault(() => deps.llmComplete({
         prompt,
         grammar: LINK_GENERATOR_GRAMMAR,
         responseFormat: LINK_GENERATOR_RESPONSE_FORMAT,
         slotId: resolveSlotId(deps.reflectionSlotId),
         sessionId: `link-gen:${input.sessionId}`,
         signal: controller.signal,
-      });
+      }));
       if (controller.signal.aborted) {
         finish(timedOut ? "timeout" : "aborted", {
           sessionId: input.sessionId,

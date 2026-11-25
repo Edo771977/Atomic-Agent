@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CompletionResult } from "../../llm/llama-server-client.js";
@@ -87,7 +88,7 @@ describe("createQueryRewriterRunner", () => {
   it("emits an `ok` trace event when the rewrite succeeds", async () => {
     const traced: Array<{ sessionId: string; outcome: string }> = [];
     const runner = createQueryRewriterRunner({
-      llmComplete: async () => completion(envelope("did they mention Redis")),
+      llmComplete: async (privacyRequest) => { assertAuxiliaryArchive(privacyRequest.sessionId); return completion(envelope("did they mention Redis")); },
       timeoutMs: 1000,
       gate: createAlwaysGate(),
       emitTrace: (event) => traced.push(event),

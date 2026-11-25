@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -208,7 +209,7 @@ describe("note reconciliation (ATO-672)", () => {
     let calls = 0;
     let hang = true;
     const reconciler = createNoteReconcileRunner({
-      llmComplete: (p) => {
+      llmComplete: (p) => { assertAuxiliaryArchive(p.sessionId);
         calls += 1;
         if (!hang) return Promise.resolve(completion("NONE\n"));
         return new Promise<CompletionResult>((_, reject) => {

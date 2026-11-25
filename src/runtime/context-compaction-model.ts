@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../privacy/index.js";
 import type { LlmStreamParams } from "../agent/step/step-contract.js";
 import type { CompactionEvent } from "../agent/compaction-control.js";
 import type { CompactionConfig } from "../config/agent/compaction-config.js";
@@ -147,7 +148,7 @@ export async function summarizeWithModel(request: ModelSummaryRequest): Promise<
       partTimer.unref?.();
       let result: CompletionResult;
       try {
-        result = await complete({
+        result = await withFreshPrivacyVault(() => complete({
           prompt: route.transport === "grammar" && !route.serverTemplate ? raw : plain,
           ...(route.transport === "grammar" && route.serverTemplate
             ? { chat: { system, user, prefixHash: hashPrefix(system), enableThinking: false } }
@@ -161,7 +162,7 @@ export async function summarizeWithModel(request: ModelSummaryRequest): Promise<
           reasoningEffort: "low", disableThinking: true, signal: AbortSignal.any([signal, partDeadline.signal]),
           // The part limit is ours: the provider's own request timer must not cut it first.
           requestTimeoutMs: config.timeoutMs + PROVIDER_DEADLINE_MARGIN_MS,
-        });
+        }));
       } finally {
         clearTimeout(partTimer);
       }

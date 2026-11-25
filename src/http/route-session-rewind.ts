@@ -1,3 +1,4 @@
+import { releasePrivacyVault } from "../privacy/index.js";
 import type { ServerResponse } from "node:http";
 
 import type { ConversationTurn } from "../session/conversation-turn.js";
@@ -212,6 +213,7 @@ export function createRewindHandler(preview: boolean): HttpHandler {
         const final = latest === null ? null : replan(latest);
         if (final === null || !final.ok) return { refused: final?.code ?? "point_mismatch", done };
         ctx.runtime.sessionStore.save(final.state);
+        releasePrivacyVault(session.id);
         ctx.runtime.sessionStore.clearTurnProgress(session.id);
         // The turns those copies belong to are gone.
         await store.dropSince(session.id, at);

@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { isProviderNotAllowed } from "../../llm/provider-policy.js";
 import type { AgentMetrics } from "../../tracing/agent-metrics.js";
 import type { StructuredLogger } from "../../tracing/structured-logger.js";
@@ -166,14 +167,14 @@ export class DistillRunner {
     const timer = setTimeout(() => innerCtrl.abort(), this.deps.timeoutMs);
     const startedAt = Date.now();
     try {
-      const result = await this.deps.llmComplete({
+      const result = await withFreshPrivacyVault(() => this.deps.llmComplete({
         prompt,
         grammar,
         responseFormat,
         slotId: resolveSlotId(this.deps.slotId),
         sessionId: request.sessionId,
         signal: innerCtrl.signal,
-      });
+      }));
       const elapsed = Date.now() - startedAt;
       this.deps.metrics?.recordConsolidationDistillLatency(elapsed);
       const rawContent = result.content ?? "";
