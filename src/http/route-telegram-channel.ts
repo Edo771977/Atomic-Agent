@@ -18,7 +18,8 @@ import { isNamedCaller } from "./serve-egress.js";
  *
  * Answers `{ available, state, lastError, otherPoller }`: `otherPoller` is
  * `{ where: "this_computer", pid }` for the lock, `{ where: "elsewhere" }`
- * for Telegram's 409, `null` otherwise. `available: false` on an agent
+ * for Telegram's 409, `null` otherwise. Named tokens never receive the pid;
+ * `lastError` is a fixed `channel_error` / `channel_locked` code or null. `available: false` on an agent
  * without the channel. Bearer auth like every `/api` route.
  */
 export function createTelegramChannelHandler(): HttpHandler {

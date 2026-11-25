@@ -13,10 +13,10 @@ import { sendJson, type HttpHandler } from "./request-context.js";
  *
  * Answers `{ available, state, lastError, hasToken, otherPoller }`:
  * `state` is the channel's `up` / `down` / `disabled` / `starting` /
- * `stopping`; `lastError` is the fixed `channel_error` or null, never
+ * `stopping`; `lastError` is the fixed `channel_error` / `channel_locked` or null, never
  * provider text. `otherPoller` is `{ where: "this_computer", pid }` when
  * another atomic-agent on this computer holds `discord.lock`, `null`
- * otherwise. `available: false` on an agent without the channel. The token
+ * otherwise (named tokens never receive the pid). `available: false` on an agent without the channel. The token
  * itself is never in the answer. Bearer auth like every `/api` route.
  */
 export function createDiscordChannelHandler(): HttpHandler {
