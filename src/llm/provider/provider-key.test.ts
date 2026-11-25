@@ -43,11 +43,31 @@ const LMSTUDIO: ProviderKeySubject = {
 };
 
 describe("providerKeyStatus", () => {
-  it.each(["ANTHROPIC_API_KEY", undefined])("names a withheld native key with apiKeyEnvVar %s", (apiKeyEnvVar) => {
+  it("keeps an explicitly configured gateway key requirement in the missing state", () => {
     vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-vendor-key");
-    const status = providerKeyStatus({ id: "gateway", kind: "anthropic", baseUrl: "https://gateway.example.test", apiKeyEnvVar });
+    const status = providerKeyStatus({ id: "gateway", kind: "anthropic", baseUrl: "https://gateway.example.test", apiKeyEnvVar: "ANTHROPIC_API_KEY" });
     expect(status).toMatchObject({ state: "missing", sharedKeyNotSent: "ANTHROPIC_API_KEY" });
     expect(describeSharedKeyNotSent(status)).toMatch(/ANTHROPIC_API_KEY.*api\.anthropic\.com.*loopback.*apiKeyEnvVar/i);
+  });
+
+  it.each([
+    ["http://0.0.0.0:8000", "not-needed"],
+    ["http://192.168.1.20:8000", "unverified"],
+    ["https://gateway.example.test", "unverified"],
+  ])("holds the vendor key without changing readiness for %s", (baseUrl, expected) => {
+    const entry = { id: "gateway", kind: "anthropic", baseUrl };
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    expect(providerKeyStatus(entry)).toEqual({ state: expected });
+    vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-vendor-key");
+    expect(providerKeyStatus(entry)).toEqual({ state: expected, sharedKeyNotSent: "ANTHROPIC_API_KEY" });
+  });
+
+  it("keeps the localhost. connection usable with or without a vendor key", () => {
+    const entry = { id: "gateway", kind: "anthropic", baseUrl: "http://localhost.:8000" };
+    vi.stubEnv("ANTHROPIC_API_KEY", "");
+    expect(providerKeyStatus(entry).state).toBe("not-needed");
+    vi.stubEnv("ANTHROPIC_API_KEY", "synthetic-vendor-key");
+    expect(providerKeyMissing(entry)).toBe(false);
   });
   it("is present when a key resolves, from the entry or its env var", () => {
     expect(providerKeyStatus({ ...GROQ, apiKey: "gsk-x" }).state).toBe("present");

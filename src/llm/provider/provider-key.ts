@@ -142,10 +142,8 @@ export function providerKeyStatus(
     return { state: "present" };
   }
   if (usesExternalCliAuth(entry)) return { state: "not-needed" };
-  const native = nativeKeyNotSent(entry);
-  if (native !== undefined) return { state: "missing", envVar: native, sharedKeyNotSent: native };
   const preset = presetForEntryId(entry.id);
-  const withheld = sharedOpenAiKeyNotSent(entry);
+  const withheld = sharedOpenAiKeyNotSent(entry) ?? nativeKeyNotSent(entry);
   const note = withheld !== undefined ? { sharedKeyNotSent: withheld } : {};
   if (preset?.local || isLocalProviderUrl(entry.baseUrl)) {
     return { state: "not-needed", ...note };
