@@ -5,6 +5,7 @@ import type { ToolContext, ToolDefinition } from "../../tool-registry.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
 import { CHART_TYPES, type ChartType } from "../ooxml/ooxml-chart.js";
+import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 import { OS_FS_XLSX_CONTRACT } from "./office-contracts.js";
 import { addChartToXlsx, chartDataFromSheet, hasCharts, validateChartRange, type ChartPlacement } from "./xlsx-chart.js";
 import { commitOfficeFile, given, optionalString, readExisting } from "./office-write.js";
@@ -260,10 +261,11 @@ async function chartOp(
   const range = args.range ?? "";
   const build = async (current: Buffer | null): Promise<{ data: Buffer; placement: ChartPlacement }> => {
     if (current === null) throw new Error(`${absolute} was removed`);
+    const zip = await loadBoundedOfficeZip(current);
     const workbook = await wrapXlsxError(() => openWorkbook(current), absolute);
     const { sheet } = pickSheet(workbook, args.sheet, false);
     const spec = chartDataFromSheet(sheet, { ...chart, range });
-    return addChartToXlsx(current, spec, {
+    return addChartToXlsx(zip, spec, {
       ...chart,
       range,
       sheet: sheet.name,

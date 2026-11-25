@@ -1,4 +1,4 @@
-import JSZip from "jszip";
+import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 
 import { packZip } from "../ooxml/ooxml-package.js";
 import { maxAttr, type Revision } from "./docx-blocks.js";
@@ -43,7 +43,7 @@ export async function replaceInDocx(
   options: { all: boolean; revision?: Revision },
 ): Promise<ReplaceOutcome> {
   if (find.length === 0) throw new Error("`find` must not be empty");
-  const zip = await JSZip.loadAsync(data);
+  const zip = await loadBoundedOfficeZip(data);
   const main = await mainDocumentPath(zip);
   const paths = [
     main,

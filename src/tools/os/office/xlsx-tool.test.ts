@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { XMLValidator } from "fast-xml-parser";
 import JSZip from "jszip";
+import { withDeclaredOfficePartSize } from "./office-zip-fixture.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { ApprovalGate, type ApprovalRequest } from "../../../approval/approval-gate.js";
@@ -250,6 +251,13 @@ describe("os.fs.xlsx op chart (ATO-541)", () => {
     expect(again.file("xl/drawings/drawing2.xml")).toBeNull();
     // The workbook still reads.
     expect(await textOf(path)).toContain("Region | July | August");
+  });
+
+  it("rejects an oversized existing package before opening ExcelJS or asking to chart it", async () => {
+    const path = await workbookWithData();
+    await writeFile(path, await withDeclaredOfficePartSize(await readFile(path), 65 * 1024 * 1024));
+    await expect(tool().run({ path: "sales.xlsx", op: "chart", range: "A1:C3" }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
+    expect(prompts).toHaveLength(1);
   });
 
   it("refuses a cell write that would drop the charts, before asking", async () => {

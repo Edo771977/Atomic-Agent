@@ -1,4 +1,5 @@
 import JSZip from "jszip";
+import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 
 import { addOverride, addRelationship, packZip } from "../ooxml/ooxml-package.js";
 import { maxAttr, renderBlocks, type RenderOptions } from "./docx-blocks.js";
@@ -100,7 +101,7 @@ export async function appendToDocx(
   blocks: readonly DocBlock[],
   options: RenderOptions = {},
 ): Promise<Buffer> {
-  const zip = await JSZip.loadAsync(data);
+  const zip = await loadBoundedOfficeZip(data);
   const main = await mainDocumentPath(zip);
   const documentXml = await zip.file(main)!.async("text");
   if (options.revision !== undefined) {

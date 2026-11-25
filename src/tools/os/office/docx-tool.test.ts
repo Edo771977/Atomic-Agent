@@ -16,6 +16,7 @@ import { docxExtractor } from "../read-document/extractors/docx-extractor.js";
 import { appendToDocx } from "./docx-package.js";
 import { buildOsFsDocxTool, parseDocxArgs } from "./docx-tool.js";
 import { parseBlocks } from "./docx-xml.js";
+import { withDeclaredOfficePartSize } from "./office-zip-fixture.js";
 
 const FIXTURE = resolve(
   fileURLToPath(new URL("../test-fixtures/sample.docx", import.meta.url)),
@@ -73,6 +74,14 @@ async function textOf(path: string): Promise<string> {
 }
 
 describe("os.fs.docx", () => {
+  it.each(["append", "replace"] as const)("rejects an oversized existing package before Word %s approval", async op => {
+    await writeFile(join(dir, "large.docx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65 * 1024 * 1024));
+    await expect(tool().run({
+      path: "large.docx", op, blocks: ["fixture"], find: "all systems nominal", replaceWith: "fix",
+    }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
+    expect(prompts).toHaveLength(0);
+  });
+
   it("creates a document that reads back with headings, bullets and bold", async () => {
     const result = await tool().run(
       {

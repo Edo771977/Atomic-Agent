@@ -1,7 +1,8 @@
 import type * as ExcelJS from "exceljs";
-import JSZip from "jszip";
+import type JSZip from "jszip";
 
 import { chartReference, chartXml, MAX_CHART_POINTS, MAX_CHART_SERIES, type ChartSpec, type ChartType } from "../ooxml/ooxml-chart.js";
+import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 import {
   CT,
   addOverride,
@@ -215,19 +216,18 @@ function anchorXml(id: number, relId: string, anchor: { row: number; col: number
 }
 
 /**
- * Add a chart of `spec` to the workbook `data`, its data at `range` on
+ * Add a chart of `spec` to the validated workbook package, using `range` on
  * the sheet. A sheet that already has a drawing (pictures, other
  * charts) gets the chart added to that drawing.
  */
 export async function addChartToXlsx(
-  data: Buffer,
+  zip: JSZip,
   spec: ChartSpec,
   request: ChartRequest,
 ): Promise<{ data: Buffer; placement: ChartPlacement }> {
   const { r0, c0, r1, c1 } = validateChartRange(request.range);
   if (spec.categories.length > MAX_CHART_POINTS) throw new Error(`chart may contain at most ${MAX_CHART_POINTS} points`);
   if (spec.series.length > MAX_CHART_SERIES) throw new Error(`chart may contain at most ${MAX_CHART_SERIES} series`);
-  const zip = await JSZip.loadAsync(data);
   const sheet = await sheetPart(zip, request.sheet);
   const anchor = request.anchor === undefined ? { row: r0, col: c1 + 2 } : parseCellRef(request.anchor);
 
@@ -283,7 +283,7 @@ export async function addChartToXlsx(
 
 /** True when the workbook carries chart parts (which a cell write through exceljs would drop). */
 export async function hasCharts(data: Buffer): Promise<boolean> {
-  const zip = await JSZip.loadAsync(data);
+  const zip = await loadBoundedOfficeZip(data);
   return Object.keys(zip.files).some((name) => /^xl\/charts\/chart\d*\.xml$/i.test(name));
 }
 
