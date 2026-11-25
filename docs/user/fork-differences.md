@@ -135,6 +135,10 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - the transcript was cleared;
   - the send failed.
 
+## A2A protocol
+
+A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candidate's task projection does not enforce the fork's chat visibility and disconnecting a blocking caller leaves its task running. The flag and both routes remain unavailable, with no new public exception or role permission. [HTTP review](../../src/http/README.md)
+
 ## Chat rollback (rewind)
 
 - **A partial restore keeps the way back.** If any file fails, the rollback answers `409 restore_failed`, with `partial: true` and the lists of restored, deleted and failed files. The chat is not cut and the checkpoint copies are kept, so it can be retried ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
