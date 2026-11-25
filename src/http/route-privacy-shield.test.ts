@@ -181,6 +181,21 @@ describe("GET/POST /api/privacy-shield (ATO-1082)", () => {
     }
   });
 
+  it("refuses named incognito creation before running a turn", async () => {
+    const token = "fixture-member";
+    harness = await startTestHarness({ apiKey: "k".repeat(32), namedTokens: () => [
+      { name: "member", role: "member", sha256: hashHttpToken(token), createdAt: "" },
+    ] });
+    const turn = vi.spyOn(harness.runtime, "runTurn");
+    const response = await fetch(harness.baseUrl + "/v1/chat/completions", {
+      method: "POST", headers: { authorization: "Bearer " + token, "content-type": "application/json" },
+      body: JSON.stringify({ model: "atomic-agent", incognito: true, messages: [{ role: "user", content: "fixture" }] }),
+    });
+    expect(response.status).toBe(403);
+    expect(await response.json()).toMatchObject({ error: { code: "incognito_owner_only" } });
+    expect(turn).not.toHaveBeenCalled();
+  });
+
   it("refuses a body without a boolean", async () => {
     harness = await startTestHarness();
     const bad = await post(harness.baseUrl, { enabled: "yes" });

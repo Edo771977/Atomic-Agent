@@ -215,6 +215,10 @@ export function createChatCompletionsHandler(): HttpHandler {
   return async (req, res, ctx) => {
     const parsed = await parseRequestBody(req, res);
     if (!parsed) return;
+    if (parsed.incognito && ctx.caller !== undefined && ctx.caller.role !== "owner") {
+      sendError(res, 403, openaiError("Starting an incognito chat requires the owner key", "permission_error", "incognito", "incognito_owner_only"));
+      return;
+    }
     const session = resolveSession(parsed, ctx);
     if (session === "unavailable") {
       sendError(res, 404, openaiError("session not found", "invalid_request_error", "session_id"));

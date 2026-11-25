@@ -118,7 +118,7 @@ describe("operator memory routes", () => {
   it("allows a backup again after deleting an incognito chat", async () => {
     const response = await send("/v1/chat/completions", {
       model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
-    });
+    }, "owner-test-token");
     expect(response.status).toBe(200);
     const { session_id: id } = await response.json() as { session_id: string };
     expect(id).toBeTruthy();
@@ -135,7 +135,7 @@ describe("operator memory routes", () => {
   it("keeps a deferred incognito deletion tracked until the row is gone", async () => {
     const response = await send("/v1/chat/completions", {
       model: "atomic-agent", messages: [{ role: "user", content: "hello" }], incognito: true,
-    });
+    }, "owner-test-token");
     expect(response.status).toBe(200);
     const { session_id: id } = await response.json() as { session_id: string };
     // Exercise the HTTP tracking independently of the runtime's live-chat guard.
