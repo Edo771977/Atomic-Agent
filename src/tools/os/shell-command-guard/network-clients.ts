@@ -222,7 +222,10 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
     const found = findGitSubcommand(rest);
     if (found === null) return null;
     const next = rest[found.index + 1]?.toLowerCase();
-    if (GIT_NETWORK_VERBS.has(found.verb)) return { program: `git ${found.verb}`, cls: "git" };
+    if (GIT_NETWORK_VERBS.has(found.verb)) {
+      if (urls) for (const word of rest.slice(found.index + 1)) if (/^https?:\/\//i.test(word)) urls.set(word, false);
+      return { program: `git ${found.verb}`, cls: "git" };
+    }
     if (found.verb === "remote" && next === "update") return { program: "git remote update", cls: "git" };
     if (found.verb === "submodule" && next === "update") return { program: "git submodule update", cls: "git" };
     return null;

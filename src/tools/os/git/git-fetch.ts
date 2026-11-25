@@ -61,6 +61,7 @@ export function buildOsGitFetchTool(
         ctx.signal,
       );
       const result = await runGitRemote(options, {
+        sessionId: ctx.sessionId,
         repo,
         workingDir: ctx.workingDir,
         args,

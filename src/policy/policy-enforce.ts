@@ -6,7 +6,10 @@
 import type { ApprovalRule, RuleMatch } from "../approval/approval-rules.js";
 import { dirname, resolve, relative, isAbsolute, sep } from "node:path";
 import { canonicalPolicyPath as canonicalPath, policyFilePaths as policyFiles } from "./policy-paths.js";
-import { READ_TOOL_TARGETS } from "../tools/read-scope/read-scope-targets.js";
+import { READ_TOOL_TARGETS, verifyRunShellCalls } from "../tools/read-scope/read-scope-targets.js";
+import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-clients.js";
+import { shellRuleSegments } from "../tools/os/shell/shell-command-argv.js";
+import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
 import {
   describePolicyRule,
@@ -72,6 +75,18 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const target = toolCallTarget(tool, args);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);
+  const commands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? verifyRunShellCalls(object) : [];
+  if (policy.rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {
+    for (const command of commands) {
+      if (typeof command.cmd !== "string") continue;
+      const rest = coerceShellArgs(command.args) ?? [];
+      const segments = shellRuleSegments(command.cmd, rest, needsShellInterpretation(command.cmd, rest));
+      for (const words of segments) for (const url of shellNetworkUrls(words[0] ?? "", words.slice(1)).keys()) {
+        const verdict = evaluatePolicy(policy, "webfetch", url === "" ? [] : toolCallTarget("os.web.fetch", { url })!.resources, { unreadable: url === "" });
+        if (verdict?.effect === "deny") return `${tool} was not run: blocked by organization policy (${describePolicyRule(verdict.rule)}) for a shell network destination.`;
+      }
+    }
+  }
   if (tool === "verify.run") {
     const ready = record(object.ready);
     const urls = [object.url, ready.url, ...(Array.isArray(object.requests) ? object.requests.map(request => record(request).url) : [])];

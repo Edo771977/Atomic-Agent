@@ -69,6 +69,7 @@ export function buildOsGitPullTool(
         ctx.signal,
       );
       const result = await runGitRemote(options, {
+        sessionId: ctx.sessionId,
         repo,
         workingDir: ctx.workingDir,
         args,

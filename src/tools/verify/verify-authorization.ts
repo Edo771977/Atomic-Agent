@@ -1,3 +1,4 @@
+import { requirePolicyWebUrl } from "../../policy/policy-web.js";
 import { verifyPageFolderKey } from "../../approval/verify-page-folder.js";
 import { activePolicy } from "../../policy/policy-active.js";
 import { policyCallRefusal } from "../../policy/policy-enforce.js";
@@ -362,6 +363,7 @@ export async function authorizeVerifyBatch(
     }
     const authorizeUrls = async () => {
       for (const [url, sendsQueryData] of urls) {
+        await requirePolicyWebUrl(options, "verify.run", url, ctx);
         await requireUrlSendApproval(options, {
           mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
           tool: "verify.run",

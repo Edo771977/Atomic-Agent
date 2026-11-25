@@ -99,6 +99,7 @@ export function buildOsGitCloneTool(
         ctx.signal,
       );
       const result = await runGitRemote(options, {
+        sessionId: ctx.sessionId,
         repo: parent,
         workingDir: ctx.workingDir,
         args,

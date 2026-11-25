@@ -1,3 +1,5 @@
+import { activePolicy } from "../../../policy/policy-active.js";
+import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
 import { compressToolResult, type CompressedToolResult } from "../../../compressor/result-compressor.js";
 import {
   requireApproval,
@@ -77,6 +79,7 @@ export async function requireGitRemoteApproval(
   request: GitRemoteApprovalRequest,
   signal: AbortSignal,
 ): Promise<void> {
+  for (const url of request.affectedResources.filter(value => /^https?:\/\//i.test(value))) await requirePolicyWebUrl(options, request.tool, url, { sessionId: request.sessionId, signal });
   await requireApproval(
     options,
     {
@@ -98,8 +101,15 @@ export async function requireGitRemoteApproval(
  */
 export async function runGitRemote(
   options: GitRemoteToolOptions,
-  run: Omit<GitRunOptions, "env">,
+  run: Omit<GitRunOptions, "env"> & { sessionId?: string },
 ): Promise<GitRunResult> {
+  if (activePolicy().rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {
+    const urls = await remotePolicyUrls(run);
+    for (const url of urls.filter(value => /^https?:\/\//i.test(value))) {
+      if (run.sessionId === undefined) throw new Error("Organization policy requires a session context for Git network authorization");
+      await requirePolicyWebUrl(options, `os.git.${run.args[0]}`, url, { sessionId: run.sessionId, signal: run.signal, workingDir: run.workingDir });
+    }
+  }
   const env = options.env ?? process.env;
   const token = readGithubToken(env);
   const injection = buildCredentialInjection(token);
@@ -151,4 +161,28 @@ export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+/** Read-only URL resolution, including configured insteadOf rewrites, never a network probe. */
+async function remotePolicyUrls(run: Omit<GitRunOptions, "env">): Promise<string[]> {
+  const inspect = async (args: string[]): Promise<string[]> => {
+    const result = await runGit({ ...run, args });
+    if (result.exitCode !== 0 || result.timedOut || result.truncated) throw new Error("Cannot inspect complete Git destinations for organization policy");
+    return result.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  };
+  const verb = run.args[0];
+  if (verb === "clone") {
+    const at = run.args.indexOf("--");
+    const url = at === -1 ? undefined : run.args[at + 1];
+    if (url === undefined) throw new Error("Cannot inspect Git clone destination for organization policy");
+    return inspect(["ls-remote", "--get-url", "--", url]);
+  }
+  if (verb !== "fetch" && verb !== "pull") return [];
+  const remotes = run.args.includes("--all") ? await inspect(["remote"]) : [run.args.find((arg, index) => index > 0 && !arg.startsWith("-")) ?? "origin"];
+  const urls: string[] = [];
+  for (const remote of remotes) {
+    if (/^https?:\/\//i.test(remote)) urls.push(...await inspect(["ls-remote", "--get-url", "--", remote]));
+    else urls.push(...await inspect(["remote", "get-url", "--all", remote]));
+  }
+  return [...new Set(urls)];
 }

@@ -27,6 +27,9 @@ import {
 import type { PinnedExec } from "../../../approval/approval-gate.js";
 import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.js";
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
+import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyCallRefusal } from "../../../policy/policy-enforce.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
@@ -415,6 +418,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
 
     // A host pin already consents to the exact argv and working directory.
     // No saved or interactive shell grant substitutes for URL consent.
+    for (const url of urls.keys()) await requirePolicyWebUrl(options, "os.shell.run", url, ctx);
     if (pinned === undefined) {
       for (const [url, sendsQueryData] of urls) {
         await requireUrlSendApproval(options, {
@@ -432,6 +436,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       pinned === undefined
         ? resolveShellSpawn(cmd, execArgs, useShell)
         : { command: pinned.file, args: pinned.argv.slice(1), windowsVerbatimArguments: false };
+    const actualRefusal = policyCallRefusal(activePolicy(), "os.shell.run", { cmd: spawnSpec.command, args: spawnSpec.args }, cwd);
+    if (actualRefusal !== null) throw new Error(actualRefusal);
+    if (pinned !== undefined) for (const url of shellNetworkUrls(spawnSpec.command, spawnSpec.args).keys()) if (!urls.has(url)) await requirePolicyWebUrl(options, "os.shell.run", url, ctx);
     const facts: ShellCommandFacts = {
       cmd,
       args: execArgs,
