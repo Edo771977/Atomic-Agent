@@ -65,6 +65,8 @@ Point reads compare the exact canonical file. Listing or searching an ancestor (
 
 `ask` only prompts where the tool already asks the gate: shell commands that need approval, file writes, HTTP requests, gated MCP tools. `os.web.search`, read-only MCP tools and shell commands the guard deems safe honour `deny` but are not prompted on `ask`. The policy is read once per start. No cloud publishing of skills or MCP servers per organization, no admin UI.
 
+MCP resource/prompt operations use the server selected by `args.server`: `<server>/resource.list`, `resource.read`, `prompt.list` or `prompt.get`. Dynamic tool and server names are case-sensitive, as their catalog identities are. Server names are assigned by the operator; a policy name is not an attestation of a server's executable or URL.
+
 ## Entry points
 
 - [policy-schema.ts](policy-schema.ts): the file format and its parser.

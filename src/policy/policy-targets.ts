@@ -141,6 +141,10 @@ export function urlResources(values: ReadonlyArray<string | undefined>): Array<s
 /** The target of a tool call by its arguments, or null when no policy action covers it. */
 export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null {
   const a = record(args);
+  if (/^mcp\.(?:resource\.(?:list|read)|prompt\.(?:list|get))$/.test(tool)) {
+    const server = str(a.server);
+    return { action: "mcp", resources: [server ? `${server}/${tool.slice(4)}` : ""], ...(!server ? { unreadable: true } : {}) };
+  }
   const mcp = mcpResource(tool);
   if (mcp !== null) return { action: "mcp", resources: [mcp] };
   if (tool === "verify.run") {
