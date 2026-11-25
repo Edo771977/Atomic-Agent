@@ -17,9 +17,15 @@ it("rejects modified copies containing a display-only redaction marker", () => {
   expect(isEditableMemoryText("token [redacted] end!", "token [redacted] end", "token [redacted] end")).toBe(true);
 });
 
-it("rejects an extra display marker even when the original contained a literal marker", () => {
+it("rejects ambiguous marker edits when the original contained a literal marker", () => {
   const original = "literal [redacted], private value";
   const displayed = "literal [redacted], private [redacted]";
   expect(isEditableMemoryText(displayed, original, displayed)).toBe(false);
-  expect(isEditableMemoryText("literal [redacted], replacement", original, displayed)).toBe(true);
+  expect(isEditableMemoryText("literal [redacted], replacement", original, displayed)).toBe(false);
+  expect(isEditableMemoryText("replacement", original, displayed)).toBe(true);
+});
+
+it("refuses any marker copied from a fully redacted view", () => {
+  expect(isEditableMemoryText("[redacted]", "literal [redacted] and private", "[redacted]")).toBe(false);
+  expect(isEditableMemoryText("new [redacted:other]", "literal [redacted] and private", "[redacted]")).toBe(false);
 });
