@@ -36,7 +36,13 @@ export type FusionWorkerStopReason =
   /** The escalation model's run reached its time limit. */
   | "time-limit"
   /** The escalation model's run reached the escalation spend cap. */
-  | "escalation-cap";
+  | "escalation-cap"
+  /** The worker kept writing the same content. */
+  | "repeated-writes"
+  /** The watch decided the worker was stuck. */
+  | "watch-stuck"
+  /** The worker's own check repeatedly passed on unchanged files. */
+  | "passed-and-current";
 
 export class FusionWorkerStopError extends Error {
   constructor(

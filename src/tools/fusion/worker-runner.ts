@@ -1619,7 +1619,7 @@ async function runOneTask(
     const last = checkRuns.lastRunOutcome();
     const lastCheck = last === undefined ? undefined : { ...last, coversFile: specNames(last.spec, repeat.path) };
     stalledWrite = { reason: "repeated identical writes", ...repeat, ...(lastCheck === undefined ? {} : { lastCheck }) };
-    stopByWatch.abort(new Error("stalled: repeated identical writes"));
+    stopByWatch.abort(new FusionWorkerStopError("repeated-writes", "stalled: repeated identical writes"));
     return identical;
   };
   let escalations = 0;
@@ -1968,7 +1968,7 @@ async function runOneTask(
       judge: watchPlan.judge,
       onHint: (state, hint) =>
         deps.steerWorker?.(run.sessionId, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
-      onStuck: () => stopByWatch.abort(new Error("stopped by the watch: stuck")),
+      onStuck: () => stopByWatch.abort(new FusionWorkerStopError("watch-stuck", "stopped by the watch: stuck")),
       takeOtherSteer: () => {
         const steered = advisorSteeredSinceCheck;
         advisorSteeredSinceCheck = false;
@@ -2143,7 +2143,7 @@ async function runOneTask(
             const ownSpec = green !== undefined && ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === green.spec);
             if (green !== undefined && ownSpec && wroteSomething && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
               passedAndCurrent = green;
-              stopByWatch.abort(new Error("passed and current: the same check passed on unchanged files"));
+              stopByWatch.abort(new FusionWorkerStopError("passed-and-current", "passed and current: the same check passed on unchanged files"));
             }
           }
           if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
