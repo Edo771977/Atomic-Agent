@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../privacy/index.js";
 import { restrictedProjectLessonExposureInSpan } from "../session/project-lesson-exposure.js";
 import type { LlmStreamParams } from "../agent/step/step-contract.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
@@ -331,7 +332,7 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
     const complete = abortableSubcall(request.complete, (params: LlmStreamParams & { signal: AbortSignal }) => params);
     let result: CompletionResult;
     try {
-      result = await complete({
+      result = await withFreshPrivacyVault(() => complete({
         prompt: route.transport === "grammar" && !route.serverTemplate ? raw : plain,
         ...(route.transport === "grammar" && route.serverTemplate
           ? { chat: { system, user, prefixHash: hashPrefix(system), enableThinking: false } }
@@ -345,7 +346,7 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
         reasoningEffort: "low", disableThinking: true,
         signal: AbortSignal.any([request.signal, deadline.signal]),
         requestTimeoutMs: timeoutMs + PROVIDER_DEADLINE_MARGIN_MS,
-      });
+      }));
     } finally {
       clearTimeout(timer);
     }

@@ -1,3 +1,4 @@
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -124,7 +125,7 @@ describe("createVoteRunner", () => {
   it("skips the LLM call when no candidates surfaced", async () => {
     let called = false;
     const runner = createVoteRunner({
-      llmComplete: async () => {
+      llmComplete: async (privacyRequest) => { assertAuxiliaryArchive(privacyRequest.sessionId);
         called = true;
         return completion("NONE");
       },
@@ -148,12 +149,11 @@ describe("createVoteRunner", () => {
 
   it("applies UPVOTE / DOWNVOTE and bumps vote_score (scorecard 7a happy path)", async () => {
     const runner = createVoteRunner({
-      llmComplete: async () =>
-        completion(
+      llmComplete: async (privacyRequest) => { assertAuxiliaryArchive(privacyRequest.sessionId); return completion(
           [`UPVOTE memory:${h.memoryId}`, `DOWNVOTE lesson:${h.lessonId}`].join(
             "\n",
           ) + "\n",
-        ),
+        ); },
       voteStore: h.voteStore,
       reflectionSlotId: 7,
       timeoutMs: 1_000,

@@ -1,3 +1,4 @@
+import { releasePrivacyVault } from "../privacy/index.js";
 import { planLastTurnRollback, type LastTurnRollbackOptions } from "../session/session-truncate.js";
 import { openaiError } from "./openai-errors.js";
 import { readJsonBody, sendError, sendJson, type HttpHandler } from "./request-context.js";
@@ -86,6 +87,7 @@ export function createRollbackLastTurnHandler(): HttpHandler {
     // reloads the session and checks its boundary before it saves.
     ctx.runtime.cancelSessionCompaction(id);
     ctx.runtime.sessionStore.save(plan.state);
+    releasePrivacyVault(id);
     // A stopped turn keeps its resume marker; the turn it points at is gone.
     ctx.runtime.sessionStore.clearTurnProgress(id);
     sendJson(res, 200, { id, text: plan.text });

@@ -9,6 +9,8 @@ import {
   type ConversationTurn,
 } from "../session/conversation-turn.js";
 import { stripTitleReasoning } from "../session/session-title.js";
+import { withFreshPrivacyVault } from "../privacy/index.js";
+import { frameUntrustedText } from "../tools/untrusted-tool-output.js";
 
 /**
  * `/btw <question>` (ATO-1152, ATO-559): a quick question asked beside
@@ -87,7 +89,7 @@ function digestRow(turn: ConversationTurn): string | null {
     case "assistant_tool_call":
       return `Agent called tool ${turn.tool}`;
     case "tool_result":
-      return `Tool ${turn.tool} ${turn.status}: ${clip(turn.summary, SIDE_QUESTION_TOOL_ROW_CHARS)}`;
+      return frameUntrustedText(`Tool ${turn.tool} ${turn.status}: ${clip(turn.summary, SIDE_QUESTION_TOOL_ROW_CHARS)}`, "a tool result in the side-question conversation");
     default:
       return null;
   }
@@ -215,7 +217,7 @@ export async function askSideQuestion(
   timer.unref?.();
   try {
     const prompt = buildSideQuestionPrompt(buildSideQuestionContext(deps.turns ?? []), text);
-    const result = await deps.complete(buildSideQuestionRequest(prompt, deps, abort.signal));
+    const result = await withFreshPrivacyVault(() => deps.complete(buildSideQuestionRequest(prompt, deps, abort.signal)));
     const answer = extractSideAnswerText(result);
     if (answer.length === 0) {
       deps.onError?.(new Error("the model returned no answer"));

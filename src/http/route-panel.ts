@@ -57,7 +57,7 @@ export function createPanelIconSvgHandler(): HttpHandler {
       ...ASSET_HEADERS,
       "content-type": "image/svg+xml",
       // An SVG opened on its own is a document: let it run nothing.
-      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'",
+      "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
     });
     res.end(PANEL_ICON_SVG);
   };

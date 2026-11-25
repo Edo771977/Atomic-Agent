@@ -28,7 +28,10 @@ function isClosed(id: string): boolean {
   const now = performance.now();
   pruneClosed(closedSessions, now);
   pruneClosed(closedWorkers, now);
-  return closedSessions.has(id) || closedWorkers.has(id);
+  for (let suffix = id; ; suffix = suffix.slice(suffix.indexOf(":") + 1)) {
+    if (closedSessions.has(suffix) || closedWorkers.has(suffix)) return true;
+    if (suffix.indexOf(":") < 0) return false;
+  }
 }
 
 function markClosed(id: string, worker = id.startsWith("s-w-")): void {
@@ -192,7 +195,13 @@ export function unlinkPrivacyVault(sessionId: string): void {
 
 /** Release the archive of a finished chat that can still be continued. */
 export function releasePrivacyVault(sessionId: string): void {
-  vaults.delete(sessionId);
+  dropDerivedVaults(sessionId);
+}
+
+function dropDerivedVaults(id: string): void {
+  for (const key of vaults.keys()) {
+    if (key === id || key.endsWith(`:${id}`)) vaults.delete(key);
+  }
 }
 
 /** Drop a session's vault (the session was deleted), and its worker links. */
@@ -202,11 +211,12 @@ export function forgetPrivacyVault(sessionId: string): void {
 
 function closePrivacyVault(sessionId: string, worker?: boolean): void {
   markClosed(sessionId, worker);
-  vaults.delete(sessionId);
+  dropDerivedVaults(sessionId);
   aliases.delete(sessionId);
   for (const [worker, parent] of aliases) {
     if (parent === sessionId) {
       markClosed(worker, true);
+      dropDerivedVaults(worker);
       aliases.delete(worker);
     }
   }

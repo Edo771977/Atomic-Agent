@@ -1,3 +1,4 @@
+import { withFreshPrivacyVault } from "../privacy/index.js";
 import { newUntrustedNonce, wrapUntrusted } from "../tools/untrusted-text.js";
 import type { ApprovalRequest } from "./approval-gate.js";
 import {
@@ -684,7 +685,7 @@ export function createModelRiskReviewer(deps: ModelRiskReviewerDeps): RiskReview
             };
       let verdict: RiskVerdict | null = null;
       try {
-        verdict = extractRiskVerdict(await deps.complete(request));
+        verdict = extractRiskVerdict(await withFreshPrivacyVault(() => deps.complete(request)));
         if (verdict === null) deps.onError?.(new Error("risk review: no readable verdict"));
       } catch (err) {
         deps.onError?.(err);

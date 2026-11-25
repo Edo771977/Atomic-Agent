@@ -64,6 +64,7 @@ it("makes private and unknown IDs indistinguishable on auxiliary routes for memb
   h.handle.completionRegistry.register({ completionId: hidden.id, sessionId: hidden.id, controller: new AbortController(), startedAt: 0 });
   const cases: Array<(id: string) => Promise<unknown>> = [
     (id) => call("POST", "/api/context-preview", { session_id: id, message: "fixture" }),
+    (id) => call("POST", "/api/btw", { session_id: id, question: "fixture" }),
     (id) => call("POST", "/v1/chat/completions/" + id + "/cancel"),
     (id) => call("GET", "/api/project?session=" + id),
     (id) => call("GET", "/api/project/lessons?session=" + id),

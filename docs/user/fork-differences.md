@@ -41,6 +41,10 @@ The fork imports mandatory `serve` authentication from upstream commit `8e2e65b7
 
 Named HTTP tokens port upstream ATO-583. The fork keeps the serve key as the owner credential, separates human decisions from ordinary agent work, and assigns scopes to fork project and memory routes. Only the person's CLI issues or revokes tokens. The registry is owner-only, stores token digests and is protected by the same tool policy as the serve key. [HTTP roles and route matrix](../../src/http/README.md#named-http-tokens)
 
+The B2 import of `GET /api/discord/channel` exposes status with read scope: no bot identity, no token, no user IDs or message content, and no raw `lastError`. Discord and Telegram return fixed `channel_error` / `channel_locked` codes and `Cache-Control: no-store`; named tokens see only `{ where: "this_computer" }` for a local competing poller, without its PID. The owner can see the PID in `otherPoller`.
+
+The installable phone panel has an explicit Public read exception for fixed static files: `/panel`, `/panel/app.js`, `/panel/manifest.webmanifest`, `/panel/icon.svg` and `/panel/icon-180.png`. They contain no key, chat data or configured host/port; manifest navigation stays `/panel` without query or fragment. They use no-store and restrictive security headers, with document restrictions also on the SVG. No service worker or external CDN is added; data APIs still require authentication. The runtime offline switch adds no outbound requests for these resources, and the local listener must remain reachable. [Panel and route matrix](../../src/http/README.md)
+
 Selective imports for provider and scheduler reliability:
 
 - `fix/ato-1575-cloud-body-after-local-turns` (`53fb64392d9f5e20ecd4ac16d523c61d23ce614e`): omit empty assistant replies from native messages.
