@@ -22,6 +22,7 @@ export const MAX_JSON_BODY_BYTES = 1 * 1024 * 1024;
  * off the runtime in ways that bypass the approval/toolRegistry layers.
  */
 export interface HandlerContext {
+  auxiliaryCompletions?: import("./auxiliary-concurrency.js").AuxiliaryCompletions;
   runtime: AgentRuntime;
   apiKey: string | null;
   params: Record<string, string>;
