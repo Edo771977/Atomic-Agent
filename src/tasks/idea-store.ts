@@ -9,6 +9,7 @@ import {
   IDEA_STATUSES,
   IDEAS_PER_KIND_MAX,
   IdeaStateError,
+  ideaSourceTaskId,
   type IdeaCandidate,
   type IdeaEvidence,
   type IdeaKind,
@@ -121,6 +122,9 @@ export class IdeaStore {
     const added: IdeaRecord[] = [];
     const retired: string[] = [];
     this.db.transaction(() => {
+      const hasTasks = candidates.some(c => c.kind === "retry_task")
+        && this.db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'tasks'").get() !== undefined;
+      const ordinaryTask = hasTasks ? this.db.prepare("SELECT 1 FROM tasks WHERE id = ? AND incognito = 0") : undefined;
       const known = new Map(
         (this.db.prepare(`SELECT source_key, status FROM ideas`).all() as Array<{
           source_key: string;
@@ -132,6 +136,10 @@ export class IdeaStore {
       const fresh: IdeaCandidate[] = [];
       for (const c of candidates) {
         if (qualifying.has(c.sourceKey)) continue;
+        if (c.kind === "retry_task") {
+          const taskId = ideaSourceTaskId(c);
+          if (taskId === null || ordinaryTask?.get(taskId) === undefined) continue;
+        }
         recordOrigin.run(c.sourceSessionId ?? c.sessionId, c.sourceKey);
         qualifying.add(c.sourceKey);
         const status = known.get(c.sourceKey);
@@ -166,13 +174,18 @@ export class IdeaStore {
         if (qualifying.has(row.source_key)) continue;
         if (del.run(row.id).changes === 1) retired.push(row.id);
       }
-    })();
+    }).immediate();
     return { added, retired };
   }
 
   get(id: string): IdeaRecord | null {
     const row = this.db.prepare(`SELECT * FROM ideas WHERE id = ?`).get(id) as IdeaRow | undefined;
     return row ? rowToRecord(row) : null;
+  }
+
+  /** Remove a private Retry and its retained prompt, including decided history. */
+  discardPrivateRetry(id: string): void {
+    this.db.prepare("DELETE FROM ideas WHERE id = ? AND kind = 'retry_task'").run(id);
   }
 
   /** Newest first. */

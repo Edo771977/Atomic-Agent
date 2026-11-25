@@ -193,10 +193,14 @@ describe("providerKeyStatus", () => {
       state: "unverified",
       sharedKeyNotSent: "OPENAI_API_KEY",
     });
-    expect(describeSharedKeyNotSent(providerKeyStatus(lan))).toContain("OPENAI_API_KEY is not sent");
+    expect(describeSharedKeyNotSent(providerKeyStatus(lan))).toContain("api.openai.com or loopback");
+    const explicitlyNamed = { ...lan, baseUrl: "https://gateway.example.test", apiKeyEnvVar: "OPENAI_API_KEY" };
+    expect(providerKeyStatus(explicitlyNamed)).toEqual({
+      state: "missing", envVar: "OPENAI_API_KEY", sharedKeyNotSent: "OPENAI_API_KEY",
+    });
     expect(describeSharedKeyNotSent({ state: "not-needed" })).toBeNull();
     // Where the shared key does go, it counts.
-    expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "https://vllm.example" })).toEqual({ state: "present" });
+    expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "https://vllm.example" })).toEqual({ state: "unverified", sharedKeyNotSent: "OPENAI_API_KEY" });
     expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "http://localhost:8000" })).toEqual({ state: "present" });
     // An entry with its own key variable is not about the shared key.
     expect(providerKeyStatus({ ...lan, apiKeyEnvVar: "MY_LLM_KEY" })).toEqual({ state: "missing", envVar: "MY_LLM_KEY" });
@@ -206,5 +210,19 @@ describe("providerKeyStatus", () => {
     expect(providerKeyMissing(GROQ)).toBe(true);
     expect(providerKeyMissing(LMSTUDIO)).toBe(false);
     expect(providerKeyMissing({ id: "my-vllm", kind: "openai-compatible", baseUrl: "https://vllm.lan.example" })).toBe(false);
+  });
+});
+
+describe("providerKeyStatus judges the OpenAI key by the entry's address (ATO-1703)", () => {
+  it("does not count OPENAI_API_KEY for a server a config file named", () => {
+    vi.stubEnv("OPENAI_API_KEY", "sk-real");
+    const named = (baseUrl: string): ProviderKeySubject => ({
+      id: "custom",
+      kind: "openai-compatible",
+      baseUrl,
+      apiKeyEnvVar: "OPENAI_API_KEY",
+    });
+    expect(providerKeyStatus(named("https://evil.example")).state).toBe("missing");
+    expect(providerKeyStatus(named("https://api.openai.com")).state).toBe("present");
   });
 });

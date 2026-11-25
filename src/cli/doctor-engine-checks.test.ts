@@ -110,6 +110,23 @@ describe("doctor engine checks (ATO-577)", () => {
     expect(by(cli, "key")).toMatchObject({ status: "ok", message: expect.stringContaining("does not test") });
   });
 
+  it("explains a withheld OpenAI key without probing the gateway", async () => {
+    const old = process.env.OPENAI_API_KEY;
+    process.env.OPENAI_API_KEY = "synthetic-openai-key";
+    let called = false;
+    try {
+      const provider = { id: "fixture", kind: "openai-compatible", baseUrl: "https://gateway.example.test", apiKeyEnvVar: "OPENAI_API_KEY" };
+      const findings = await runEngineChecks(cfg({ active: provider.id, providers: [provider] }), probes({
+        verifyKey: async () => { called = true; throw new Error("unexpected probe"); },
+      }));
+      expect(by(findings, "key")?.message).toContain("api.openai.com or loopback");
+      expect(called).toBe(false);
+    } finally {
+      if (old === undefined) delete process.env.OPENAI_API_KEY;
+      else process.env.OPENAI_API_KEY = old;
+    }
+  });
+
   it("an own (custom) model is not called on disk", async () => {
     const fs = await runEngineChecks(cfg({ modelId: "my-hf-model" }), probes({ modelDownloaded: () => null }));
     expect(by(fs, "model")?.status).toBe("warn");

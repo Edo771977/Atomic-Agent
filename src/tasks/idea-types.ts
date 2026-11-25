@@ -95,3 +95,9 @@ export class IdeaStateError extends Error {
     this.name = "IdeaStateError";
   }
 }
+/** The task named by a current or legacy Retry card. */
+export function ideaSourceTaskId(idea: Pick<IdeaCandidate, "kind" | "sourceKey" | "evidence">): string | null {
+  if (idea.kind !== "retry_task") return null;
+  if (idea.evidence.source === "task" && idea.evidence.ref) return idea.evidence.ref;
+  return idea.sourceKey.startsWith("task:") ? idea.sourceKey.slice("task:".length) : null;
+}

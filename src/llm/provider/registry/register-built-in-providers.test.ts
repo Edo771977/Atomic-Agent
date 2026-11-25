@@ -64,6 +64,27 @@ async function firstBody(
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+});
+
+it("sends a native default credential only to the official endpoint", async () => {
+  vi.stubEnv("OPENROUTER_API_KEY", "synthetic-vendor-key");
+  registerBuiltInProviderKinds();
+  const request = vi.fn(async (_url: string, _init: RequestInit) => Response.json({
+    choices: [{ message: { role: "assistant", content: "ok" }, finish_reason: "stop" }],
+  }));
+  vi.stubGlobal("fetch", request);
+  const factory = getProviderFactory("openrouter")!;
+  for (const baseUrl of ["https://openrouter.ai/api", "https://gateway.example.test"]) {
+    const provider = await factory({
+      config: {} as AtomicAgentConfig,
+      entry: { id: "native-fixture", kind: "openrouter", baseUrl },
+      logger: { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() } as never,
+    });
+    await provider.complete({ prompt: "fixture" });
+  }
+  const auth = request.mock.calls.map(([, init]) => new Headers(init.headers).get("authorization"));
+  expect(auth).toEqual(["Bearer synthetic-vendor-key", null]);
 });
 
 describe("providerPreferences through the built-in factories", () => {

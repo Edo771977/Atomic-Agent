@@ -74,9 +74,17 @@ export function checkDocs(root = DEFAULT_ROOT) {
   const errors = [];
   const files = activeFiles(root);
   const instructions = files.filter((p) => basename(p) === 'AGENTS.md');
+  const utf8 = new TextDecoder('utf-8', { fatal: true });
   let maxChain = 0;
   for (const file of files) {
-    const text = readFileSync(join(root, file), 'utf8');
+    const bytes = readFileSync(join(root, file));
+    let text;
+    try {
+      text = utf8.decode(bytes);
+    } catch {
+      errors.push(`${file}: invalid UTF-8`);
+      continue;
+    }
     if (file === 'docs/user/upstream-2026-11-triage.md') {
       for (const table of marked.lexer(text).filter((token) => token.type === 'table')) {
         for (const row of table.raw.trimEnd().split('\n').slice(2)) {
@@ -170,6 +178,9 @@ function selfTest() {
     put('README.md', '[ok](src/feature/README.md)\n');
     put('src/feature/README.md', '# Feature\n\nStatus: current\nOwner: src/feature/\n');
     if (checkDocs(root).errors.length) throw new Error('valid fixture failed'); cases++;
+    put('src/feature/README.md', Buffer.concat([Buffer.from('# Feature\nStatus: current\nOwner: src/feature/\n'), Buffer.from([0x92])]));
+    expect('invalid UTF-8');
+    put('src/feature/README.md', '# Feature\nStatus: current\nOwner: src/feature/\n');
     put('src/feature/AGENTS.md', 'x'.repeat(LOCAL_LIMIT + 1)); expect('instruction budget');
     put('src/feature/AGENTS.md', '# Local\n');
     put('AGENTS.md', 'x'.repeat(ROOT_LIMIT + 1)); expect('instruction budget');

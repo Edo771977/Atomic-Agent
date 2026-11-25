@@ -1,11 +1,14 @@
 import { homedir } from "node:os";
 
 import type { SessionState } from "../session/index.js";
+import { isIncognitoSession } from "../session/incognito.js";
 
 import { goalIdeaInputs } from "./idea-goal-source.js";
+import { unsafeRetrySource } from "./idea-privacy.js";
 import { buildIdeaCandidates } from "./idea-rules.js";
 import type { IdeaStore, IdeaSyncResult } from "./idea-store.js";
-import type { IdeaRecord } from "./idea-types.js";
+import { ideaSourceTaskId, type IdeaRecord } from "./idea-types.js";
+export { ideaSourceTaskId } from "./idea-types.js";
 import type { TaskStore } from "./task-store.js";
 import {
   TASK_USER_MESSAGE_MAX_LENGTH,
@@ -27,7 +30,10 @@ export const IDEA_REFRESH_SESSION_SCAN = 50;
 export interface IdeaRefreshDeps {
   ideas: Pick<IdeaStore, "sync">;
   tasks: Pick<TaskStore, "list">;
-  sessions: { listRecent(limit?: number): Pick<SessionState, "id" | "metadata">[] };
+  sessions: {
+    listRecent(limit?: number): Pick<SessionState, "id" | "metadata">[];
+    isIncognito?(id: string): boolean;
+  };
   /**
    * A chat's provider policy now (issue #68): a stamp, `null` when
    * unrestricted, `undefined` when unknown (the chat is gone, no
@@ -40,7 +46,8 @@ export interface IdeaRefreshDeps {
 
 export function refreshIdeas(deps: IdeaRefreshDeps): IdeaSyncResult {
   const now = deps.now ?? Date.now();
-  const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }).filter((task) => task.incognito !== true);
+  const tasks = deps.tasks.list({ limit: IDEA_REFRESH_TASK_SCAN }).filter((task) =>
+    task.incognito !== true && (task.sessionId === null || deps.sessions.isIncognito?.(task.sessionId) !== true));
   const candidates = buildIdeaCandidates({
     tasks,
     goals: goalIdeaInputs(deps.sessions.listRecent(IDEA_REFRESH_SESSION_SCAN)),
@@ -86,7 +93,24 @@ export interface IdeaTaskCarry {
 /** Where `acceptIdea` looks the original task and its chat up. */
 export interface IdeaCarrySource {
   tasks: Pick<TaskStore, "get">;
-  sessions: { load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata">>) | null };
+  sessions: {
+    load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata" | "incognito">>) | null;
+    isIncognito?(id: string): boolean;
+    getSessionPrivacy?(id: string): boolean | null;
+  };
+}
+
+export function ideaRetryIsUnsafe(idea: IdeaRecord, source?: IdeaCarrySource): boolean {
+  if (idea.kind !== "retry_task") return false;
+  if (!source) return true;
+  const taskId = ideaSourceTaskId(idea);
+  const task = taskId === null ? null : source.tasks.get(taskId);
+  return unsafeRetrySource(task, idea.sourceSessionId ?? idea.sessionId, id => {
+    if (source.sessions.getSessionPrivacy) return source.sessions.getSessionPrivacy(id);
+    if (source.sessions.isIncognito?.(id)) return true;
+    const session = source.sessions.load(id);
+    return session === null ? null : isIncognitoSession(session);
+  });
 }
 
 /** How the accepted idea becomes a task: the caller's own create path. */
@@ -126,13 +150,6 @@ export interface AcceptIdeaOptions {
   now?: number;
 }
 
-/** The task a `retry_task` idea was built from, or `null` for other kinds. */
-export function ideaSourceTaskId(idea: Pick<IdeaRecord, "kind" | "sourceKey" | "evidence">): string | null {
-  if (idea.kind !== "retry_task") return null;
-  if (idea.evidence.source === "task" && idea.evidence.ref) return idea.evidence.ref;
-  return idea.sourceKey.startsWith("task:") ? idea.sourceKey.slice("task:".length) : null;
-}
-
 /** What a Retry card carries over, or `null` when the original task is gone. */
 export function ideaTaskCarry(
   idea: Pick<IdeaRecord, "kind" | "sourceKey" | "evidence">,
@@ -167,15 +184,21 @@ export function ideaTaskCarry(
  * idea was already decided and `TaskValidationError` for a bad prompt.
  */
 export function acceptIdea(
-  ideas: Pick<IdeaStore, "get" | "claimForAccept" | "attachTask" | "release" | "dismiss">,
+  ideas: Pick<IdeaStore, "get" | "claimForAccept" | "attachTask" | "release" | "dismiss" | "discardPrivateRetry">,
   createTask: IdeaTaskFactory,
   id: string,
   options: AcceptIdeaOptions = {},
 ): AcceptedIdea | null {
   const now = options.now ?? Date.now();
-  const prompt = options.prompt === undefined ? null : validatePrompt(options.prompt);
   const before = ideas.get(id);
   if (before === null) return null;
+  // A caller without a source lookup cannot decide a Retry's privacy.
+  if (before.kind === "retry_task" && options.carryFrom === undefined) return null;
+  if (ideaRetryIsUnsafe(before, options.carryFrom)) {
+    ideas.discardPrivateRetry(id);
+    return null;
+  }
+  const prompt = options.prompt === undefined ? null : validatePrompt(options.prompt);
   const carry = options.carryFrom ? ideaTaskCarry(before, options.carryFrom) : null;
   const claimed = ideas.claimForAccept(id, prompt, now);
   if (claimed === null) return null;

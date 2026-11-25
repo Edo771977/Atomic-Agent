@@ -15,10 +15,11 @@ export function createWorkspaceLoader(config: AtomicAgentConfig, logger?: Pick<S
   const loadProjectInstructions = createProjectInstructionsCache();
   // One hint per folder and set of withheld items, not one per step.
   const hinted = new Map<string, string>();
-  return (session: Pick<SessionState, "workingDir" | "incognito" | "inheritedWorkspace" | "projectRef">, cloud: boolean, signal?: AbortSignal, options: WorkspacePrepareOptions = {}): SessionWorkspace => {
+  return (session: Pick<SessionState, "workingDir" | "incognito" | "inheritedWorkspace" | "projectRef" | "workspaceTrustDir">, cloud: boolean, signal?: AbortSignal, options: WorkspacePrepareOptions = {}): SessionWorkspace => {
     signal?.throwIfAborted();
     const skills = loadWorkspaceSkills(session.workingDir, { globalDir: config.paths.globalSkillsDir,
       projectDirName: config.paths.projectSkillsDirName, configFile: config.paths.userConfigFile, defaults: config.skills,
+      ...(!cloud && session.workspaceTrustDir !== undefined ? { projectTrustDir: session.workspaceTrustDir } : {}),
       ...(!session.inheritedWorkspace && !isIncognitoSession(session) && !currentProviderPolicy()
         ? { learnedScope: { stateDir: config.paths.stateDir, folder: session.projectRef?.folder ?? session.workingDir } } : {}),
       pluginSkills: () => listEnabledPluginSkills(config.paths.stateDir) }, cloud);

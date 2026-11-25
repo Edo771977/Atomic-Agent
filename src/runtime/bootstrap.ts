@@ -415,13 +415,14 @@ export async function createAgentRuntime(
   const projectStore = runtimeProjectStore(config);
   // Per-folder provider constraints (issue #33): the policy of a session,
   // matched live against `projects.constraints`; see session-provider-policy.ts.
+  const loadSessionPolicySubject = (id: string) => {
+    try { return sessionStore.loadPolicySubject(id); } catch { return null; }
+  };
   const sessionProviderPolicy = createSessionProviderPolicy({
     readConfig: () => getConfig(),
     // A store that cannot answer (closed at shutdown) reads as no
     // session, which fails closed.
-    loadSession: (id) => {
-      try { return sessionStore.load(id); } catch { return null; }
-    },
+    loadSession: loadSessionPolicySubject,
     // A taint the running turn holds but has not saved yet (declared below;
     // only read once the runtime runs).
     liveSession: (id) => sessionReadTaint.liveSession<SessionState>(id),
@@ -1332,7 +1333,7 @@ export async function createAgentRuntime(
       return { session: moved.session, restriction: describeProviderRestriction(moved.policy), restrictionKept: moved.kept !== undefined };
     },
     retrySessionSeed: (source, workingDir) => retrySessionSeed(sessionProviderPolicy, source, workingDir),
-    sessionPolicyStamp: (sessionId) => sessionPolicyStamp(sessionProviderPolicy, (id) => sessionStore.load(id), sessionId) as Record<string, unknown> | null | undefined,
+    sessionPolicyStamp: (sessionId) => sessionPolicyStamp(sessionProviderPolicy, loadSessionPolicySubject, sessionId) as Record<string, unknown> | null | undefined,
     channelSendRefusal: (session) => channelNotifyRefusal(sessionProviderPolicy, session),
     serveRefusal: (session) => egressRefusal(sessionProviderPolicy, session, "serve"),
     egressRefusal: (session, cls) => egressRefusal(sessionProviderPolicy, session, cls),

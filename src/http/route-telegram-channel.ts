@@ -4,6 +4,7 @@ import {
 } from "../channels/channel-lock-error.js";
 
 import { sendJson, type HttpHandler } from "./request-context.js";
+import { isNamedCaller } from "./serve-egress.js";
 
 /**
  * `GET /api/telegram/channel` — the Telegram channel's live state, and
@@ -17,22 +18,25 @@ import { sendJson, type HttpHandler } from "./request-context.js";
  *
  * Answers `{ available, state, lastError, otherPoller }`: `otherPoller` is
  * `{ where: "this_computer", pid }` for the lock, `{ where: "elsewhere" }`
- * for Telegram's 409, `null` otherwise. `available: false` on an agent
+ * for Telegram's 409, `null` otherwise. Named tokens never receive the pid;
+ * `lastError` is a fixed `channel_error` / `channel_locked` code or null. `available: false` on an agent
  * without the channel. Bearer auth like every `/api` route.
  */
 export function createTelegramChannelHandler(): HttpHandler {
   return async (_req, res, ctx) => {
+    res.setHeader("cache-control", "no-store");
     const channel = ctx.runtime.telegramChannel ?? null;
     if (!channel) {
       sendJson(res, 200, { available: false, state: null, lastError: null, otherPoller: null });
       return;
     }
     const lastError = channel.lastError();
+    const otherPoller = otherPollerOf(lastError);
     sendJson(res, 200, {
       available: true,
       state: channel.state(),
-      lastError,
-      otherPoller: otherPollerOf(lastError),
+      lastError: isChannelLockConflict(lastError) ? "channel_locked" : lastError ? "channel_error" : null,
+      otherPoller: isNamedCaller(ctx) && otherPoller?.where === "this_computer" ? { where: "this_computer" } : otherPoller,
     });
   };
 }

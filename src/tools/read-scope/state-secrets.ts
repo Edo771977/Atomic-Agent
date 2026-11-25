@@ -14,7 +14,7 @@ import { resolveUserPath } from "../os/expand-home.js";
 import type { ToolContext } from "../tool-registry.js";
 import { canonical } from "./read-scope.js";
 import { shellCommandLine, type ShellScopeEnv } from "./read-scope-shell.js";
-import { READ_TOOL_TARGETS, URL_LIKE } from "./read-scope-targets.js";
+import { READ_TOOL_TARGETS, isShellHttpUrl, localFileOfUrl, readTargetPaths } from "./read-scope-targets.js";
 
 /**
  * The agent's own secret files, guarded on the way OUT (ATO-877).
@@ -168,17 +168,12 @@ export function findStateSecretReads(
   const known = canonicalSecrets(secrets);
   const hits = new Set<string>();
   for (const target of targetsOf(args)) {
-    if (URL_LIKE.test(target)) continue;
-    let path: string;
-    try {
-      path = resolveUserPath(target, ctx.workingDir);
-    } catch {
-      continue; // The tool refuses this path itself.
+    for (const path of readTargetPaths(target, ctx.workingDir)) {
+      for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
+      if (tool === "os.fs.grep" && isProcProcessDirectory(canonical(path))) hits.add(path);
+      const hit = secretNamedBy(path, known, RECURSIVE_READ_TOOLS.has(tool));
+      if (hit !== null) hits.add(hit);
     }
-    for (const envPath of [...processSecretPaths(path), ...processSecretPaths(canonical(path))]) hits.add(envPath);
-    if (tool === "os.fs.grep" && isProcProcessDirectory(canonical(path))) hits.add(path);
-    const hit = secretNamedBy(path, known, RECURSIVE_READ_TOOLS.has(tool));
-    if (hit !== null) hits.add(hit);
   }
   return dedupe([...hits]);
 }
@@ -334,7 +329,9 @@ function pathOfToken(token: string, cwd: string, home: string): string | null {
   const eq = t.indexOf("=");
   if (eq >= 0) t = t.slice(eq + 1);
   t = t.replace(/^@/, "");
-  if (t.length === 0 || URL_LIKE.test(t)) return null;
+  if (t.length === 0 || isShellHttpUrl(t)) return null;
+  const file = localFileOfUrl(t);
+  if (file !== null) return file;
   if (t === "~") return home;
   if (t.startsWith("~/") || t.startsWith("~\\")) return resolve(home, t.slice(2));
   return isAbsolute(t) ? resolve(t) : resolve(cwd, t);

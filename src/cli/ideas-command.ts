@@ -13,6 +13,7 @@ import {
   TaskValidationError,
   acceptIdea,
   ideaRetryFallbackDir,
+  ideaRetryIsUnsafe,
   ideaToJson,
   refreshIdeas,
   type IdeaRecord,
@@ -99,8 +100,10 @@ function handleList(args: string[]): number {
     process.stderr.write("--limit must be a positive integer\n");
     return 1;
   }
-  return withIdeas((ideas) => {
-    process.stdout.write(`${formatIdeas(ideas.list({ status: statuses as IdeaStatus[], limit }))}\n`);
+  return withIdeaSources((ideas, tasks, sessions) => {
+    const visible = ideas.list({ status: statuses as IdeaStatus[], limit })
+      .filter(idea => !ideaRetryIsUnsafe(idea, { tasks, sessions }));
+    process.stdout.write(`${formatIdeas(visible)}\n`);
     return 0;
   });
 }
@@ -116,7 +119,7 @@ function handleRefresh(): number {
         ideas, tasks, sessions,
         sourcePolicy: (sid) => sessionPolicyStamp(policy, (id) => sessions.load(id), sid) as Record<string, unknown> | null | undefined,
       });
-      const fresh = ideas.list({ status: "new" });
+      const fresh = ideas.list({ status: "new" }).filter(idea => !ideaRetryIsUnsafe(idea, { tasks, sessions }));
       process.stdout.write(
         `${result.added.length} new, ${result.retired.length} retired, ${fresh.length} waiting\n`,
       );
@@ -135,15 +138,30 @@ function handleShow(args: string[]): number {
     process.stderr.write("usage: atomic-agent ideas show <id>\n");
     return 1;
   }
-  return withIdeas((ideas) => {
+  return withIdeaSources((ideas, tasks, sessions) => {
     const idea = ideas.get(id);
-    if (!idea) {
+    if (!idea || ideaRetryIsUnsafe(idea, { tasks, sessions })) {
       process.stderr.write(`idea not found: ${id}\n`);
       return 1;
     }
     process.stdout.write(`${JSON.stringify(ideaToJson(idea), null, 2)}\n`);
     return 0;
   });
+}
+
+function withIdeaSources(fn: (ideas: IdeaStore, tasks: TaskStore, sessions: SessionStore) => number): number {
+  const config = getConfig();
+  const tasks = new TaskStore({ dbFile: config.paths.tasksDbFile });
+  try {
+    const sessions = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+    try {
+      return withIdeas(ideas => fn(ideas, tasks, sessions));
+    } finally {
+      sessions.close();
+    }
+  } finally {
+    tasks.close();
+  }
 }
 
 function handleAccept(args: string[]): number {
@@ -242,8 +260,9 @@ function handleDismiss(args: string[]): number {
     process.stderr.write("usage: atomic-agent ideas dismiss <id>\n");
     return 1;
   }
-  return withIdeas((ideas) => {
-    const idea = ideas.dismiss(id);
+  return withIdeaSources((ideas, tasks, sessions) => {
+    const known = ideas.get(id);
+    const idea = known && !ideaRetryIsUnsafe(known, { tasks, sessions }) ? ideas.dismiss(id) : null;
     if (!idea) {
       process.stderr.write(`idea not found: ${id}\n`);
       return 1;

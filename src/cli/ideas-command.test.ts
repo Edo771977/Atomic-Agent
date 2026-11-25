@@ -9,6 +9,7 @@ import { SessionStore, createEmptySessionState } from "../session/index.js";
 import { IdeaStore, TaskStore } from "../tasks/index.js";
 
 import { ideasCommand } from "./ideas-command.js";
+import { seedLegacyRetry } from "../tasks/idea-legacy-fixture.js";
 
 describe("ideasCommand", () => {
   let stateDir: string;
@@ -64,6 +65,22 @@ describe("ideasCommand", () => {
   it("prints help without a subcommand", async () => {
     expect(await ideasCommand([])).toBe(0);
     expect(out.join("")).toMatch(/atomic-agent ideas/);
+  });
+
+  it("hides and discards a retained Retry whose task and origin cannot be verified", async () => {
+    const ideas = new IdeaStore({ dbFile: getConfig().paths.tasksDbFile });
+    try {
+      const cardId = seedLegacyRetry(getConfig().paths.tasksDbFile, {
+        kind: "retry_task", title: "Legacy fixture", reason: "fixture", prompt: "synthetic-private-prompt",
+        sourceKey: "task:expired", sessionId: null, evidence: { source: "task", ref: "expired", excerpt: "", at: null },
+      });
+      expect(await ideasCommand(["list"])).toBe(0);
+      expect(out.some(line => line.includes("Legacy fixture"))).toBe(false);
+      expect(await ideasCommand(["accept", cardId])).toBe(1);
+      expect(ideas.get(cardId)).toBeNull();
+    } finally {
+      ideas.close();
+    }
   });
 
   it("refresh lists a failed task as an idea with its evidence", async () => {

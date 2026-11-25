@@ -9,6 +9,18 @@ interface StoredIdea {
   source_session_id?: string | null;
 }
 
+/** The same provenance rule at startup, on read and before acceptance. */
+export function unsafeRetrySource(
+  source: { incognito?: boolean; sessionId: string | null } | null,
+  recordedSessionId: string | null,
+  sessionPrivacy: (id: string) => boolean | null,
+): boolean {
+  if (source?.incognito === true) return true;
+  const origin = source?.sessionId ?? recordedSessionId;
+  const privateSession = origin === null ? null : sessionPrivacy(origin);
+  return privateSession === true || (source === null && privateSession !== false);
+}
+
 function storedIdeas(db: Database.Database): StoredIdea[] {
   if (!db.prepare("SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'ideas'").get()) return [];
   return db.prepare("SELECT * FROM ideas").all() as StoredIdea[];
@@ -48,8 +60,7 @@ export function removeUnsafeRetryIdeas(db: Database.Database, sessionPrivacy: (i
     if (idea.kind !== "retry_task") continue;
     const source = task.get(sourceTaskId(idea) ?? "") as { session_id: string | null; incognito: number } | undefined;
     const origin = source?.session_id ?? idea.source_session_id ?? idea.session_id;
-    const privateSession = origin == null ? null : sessionPrivacy(origin);
-    if (source?.incognito === 1 || privateSession === true || (!source && privateSession !== false)) {
+    if (unsafeRetrySource(source ? { sessionId: source.session_id, incognito: source.incognito === 1 } : null, origin, sessionPrivacy)) {
       removed += remove.run(idea.id).changes;
     } else if (origin != null) record.run(origin, idea.id);
   }
