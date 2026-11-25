@@ -262,7 +262,7 @@ Ondate:
 | [#1594](https://github.com/AtomicBot-ai/atomic-agent/pull/1594) | 1 | TUI: offer /theme on the start page after setup (ATO-85) | Importare |
 | [#1596](https://github.com/AtomicBot-ai/atomic-agent/pull/1596) | 1 | Slack: prune old thread entries from slack-session.json (ATO-1509) | Importare |
 | [#1604](https://github.com/AtomicBot-ai/atomic-agent/pull/1604) | 2 | TUI: session picker search finds chats past the loaded pages via the FTS in | Importare |
-| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); firma verificata, conservati path tunnel, requiresSecret e gate del fork. |
+| [#1608](https://github.com/AtomicBot-ai/atomic-agent/pull/1608) | 1 | fix(browser): keep the Annotate note box out of the page's reach (ATO-1543) | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); gate URL del fork conservati. |
 | [#1610](https://github.com/AtomicBot-ai/atomic-agent/pull/1610) | 1 | TUI: exit on the first SIGTERM and hand the terminal back (ATO-1614) | Importare |
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importare |
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importare |
