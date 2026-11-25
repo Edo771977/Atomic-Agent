@@ -4,8 +4,8 @@
  * match shaped like one of its saved rules.
  */
 import type { ApprovalRule, RuleMatch } from "../approval/approval-rules.js";
-import { realpathSync } from "node:fs";
-import { dirname, basename, resolve, relative, isAbsolute, sep, join } from "node:path";
+import { dirname, resolve, relative, isAbsolute, sep } from "node:path";
+import { canonicalPolicyPath as canonicalPath, policyFilePaths as policyFiles } from "./policy-paths.js";
 import { READ_TOOL_TARGETS } from "../tools/read-scope/read-scope-targets.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
 import {
@@ -18,27 +18,15 @@ import {
 } from "./policy-evaluator.js";
 import { gateRequestTarget, toolCallTarget, type PolicyGateRequest, type PolicyTarget } from "./policy-targets.js";
 
-function canonicalPath(path: string): string {
-  try { return realpathSync(path); } catch {
-    const parent = dirname(path);
-    return parent === path ? path : resolve(canonicalPath(parent), basename(path));
-  }
-}
-
-function policyFiles(policy: EffectivePolicy): string[] {
-  return policy.sources.filter(source => source.kind !== "url").flatMap(source =>
-    source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
-}
-
 /** Even an approval cannot authorize the agent to replace its own policy. */
-function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd()): boolean {
+function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd(), ancestors = false): boolean {
   const protectedPaths = policyFiles(policy);
   return paths.some(path => protectedPaths.some(file => {
     const target = canonicalPath(resolve(workingDir, path));
     const protectedFile = canonicalPath(resolve(file));
     const normalize = (value: string) => process.platform === "win32" ? value.toLowerCase() : value;
     const offset = relative(normalize(target), normalize(protectedFile));
-    return offset === "" || !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
+    return offset === "" || ancestors && !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
   }));
 }
 
@@ -60,7 +48,7 @@ function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null): Polic
  */
 export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequest): RuleMatch | null {
   if ((request.category === "trust_config" || request.category === "state_secret") &&
-      touchesPolicy(policy, [...(request.targetPaths ?? []), ...(request.affectedResources ?? [])])) return protectedPolicyMatch(request.tool);
+      touchesPolicy(policy, [...(request.targetPaths ?? []), ...(request.affectedResources ?? [])], undefined, request.category === "trust_config")) return protectedPolicyMatch(request.tool);
   const verdict = verdictFor(policy, gateRequestTarget(request));
   if (verdict === null || verdict.effect === "allow") return null;
   const rule: ApprovalRule = {
@@ -95,7 +83,8 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const shellTouchesPolicy = files.length > 0 && shellCommands.some(command => typeof command.cmd === "string" && findShellStateSecrets(command, { workingDir: workingDir ?? process.cwd() }, {
     stateDir: dirname(policy.sources.find(source => source.kind === "user")?.location ?? files[0]!), files,
   }).length > 0);
-  if (shellTouchesPolicy || touchesPolicy(policy, [...readPaths, ...(target?.action === "edit" ? target.resources : [])], workingDir)) {
+  if (shellTouchesPolicy || touchesPolicy(policy, readPaths, workingDir) ||
+      touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true)) {
     return `${tool} was not run: organization policy files are protected; only the operator may inspect or change them outside agent tools.`;
   }
   if (target?.action === "edit" && workingDir !== undefined) {

@@ -59,6 +59,8 @@ The user policy, cache and system file are included in `getTrustConfigPaths` and
 
 These are application checks plus the existing optional OS sandbox, not isolation from arbitrary code running under the operator's OS account. Recognized shell paths receive the secret/state guard; computed paths have the same best-effort classifier limits as configuration and the serve key. Windows has no native command sandbox; requested Safe Mode refuses execution there. See [OS sandbox](../../docs/user/os-sandbox.md).
 
+Point reads compare the exact canonical file. Listing or searching an ancestor (home, `/etc`, a filesystem root) is not a policy-file read; grep, glob and code-map exclude the protected files within those trees. Ancestor containment is retained for mutations that could replace or remove a policy. Canonical read decisions are scoped to one operation and are never retained after it.
+
 ## Not done yet
 
 `ask` only prompts where the tool already asks the gate: shell commands that need approval, file writes, HTTP requests, gated MCP tools. `os.web.search`, read-only MCP tools and shell commands the guard deems safe honour `deny` but are not prompted on `ask`. The policy is read once per start. No cloud publishing of skills or MCP servers per organization, no admin UI.
