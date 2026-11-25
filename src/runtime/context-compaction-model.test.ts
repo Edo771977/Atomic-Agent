@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
 import { createCompactionDefaults } from "../config/agent/compaction-config.js";
 import { PLAIN_INSTRUCT_PROFILE } from "../llm/model-profile.js";
 import type { CompletionResult } from "../llm/provider/completion-types.js";
@@ -34,7 +35,7 @@ const completion: CompletionResult = { content: "Goal: report on freight orders 
 async function requestFor(through: number, route: ModelSummaryRoute = { providerId: "current", transport: "grammar", serverTemplate: true }, instructions?: string): Promise<LlmStreamParams> {
   const state = session();
   const promptInput = input(state);
-  const complete = vi.fn(async (_params: LlmStreamParams) => completion);
+  const complete = vi.fn(async (params: LlmStreamParams) => { assertAuxiliaryArchive(params.sessionId); return completion; });
   await summarizeWithModel({
     input: promptInput, prompt: buildPrompt(promptInput),
     plan: { reason: "manual", from: 0, through, summaryMaxTokens: 250, targetTokens: 2000, tokensBefore: 3000 },
