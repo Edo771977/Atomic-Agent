@@ -3,6 +3,7 @@ import { SIDE_QUESTION_MAX_INPUT_CHARS } from "../runtime/side-question.js";
 import { sessionIdError } from "../session/session-id.js";
 import {
   sessionUnavailableToCaller,
+  isNamedCaller,
   serveWithheldRecord,
   SERVE_RESTRICTED_NOTICE,
   SERVE_RESTRICTED_CODE,
@@ -90,7 +91,8 @@ export function createSideQuestionHandler(): HttpHandler {
         return;
       }
       const status = result.reason === "timed out" ? 504 : 502;
-      sendError(res, status, openaiError(result.reason, "server_error"));
+      const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
+      sendError(res, status, openaiError(message, "server_error"));
     } finally { release(); }
   };
 }
