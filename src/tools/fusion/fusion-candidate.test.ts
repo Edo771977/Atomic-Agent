@@ -7,7 +7,9 @@ import { mkdir, mkdtemp, readdir, readFile, rm, utimes, writeFile } from "node:f
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { resetConfigCache } from "../../config/index.js";
+import { getConfig, resetConfigCache } from "../../config/index.js";
+import { canonicalTrustWorkspace } from "../../config/skill-policy-commands.js";
+import { createWorkspaceLoader } from "../../runtime/session-workspace.js";
 import { USER_CONFIG_VERSION } from "../../config/config-schema.js";
 import { FanoutScopeRegistry } from "../../approval/fanout-scope.js";
 import { ApprovalGate } from "../../approval/approval-gate.js";
@@ -50,6 +52,49 @@ async function fixture(over: Partial<FusionDelegateDeps> = {}, candidate = true)
 }
 const tasks = [{ id: "api", instructions: "Change API" }, { id: "consumer", instructions: "Change consumer" }];
 const contract = { checks: [{ kind: "command", command: "integration" }] };
+
+it.each([false, true])("keeps local candidate skills trusted by the real project (moved=%s)", async moved => {
+  const f = await fixture();
+  const trustRoot = canonicalTrustWorkspace(f.root);
+  const config = getConfig();
+  const manifest = (name: string) => `---\nname: ${name}\ndescription: Candidate fixture\n---\nSkill body\n`;
+  for (const name of ["trusted-fixture", "pending-fixture"]) {
+    const folder = join(f.root, config.paths.projectSkillsDirName, name);
+    await mkdir(folder, { recursive: true });
+    await writeFile(join(folder, "SKILL.md"), manifest(name));
+  }
+  const loader = createWorkspaceLoader({
+    ...config,
+    paths: { ...config.paths, userConfigFile: join(f.root, "absent-config.json"), globalSkillsDir: join(f.root, "absent-global") },
+    skills: {
+      ...config.skills,
+      projectTrust: [{
+        workingDir: trustRoot, trustedSkills: ["trusted-fixture"], declinedSkills: [],
+        trustedInstructions: [], declinedInstructions: [],
+      }],
+    },
+  });
+  if (moved) f.deps.workingDir = join(f.root, "..");
+  const seen: { inherited: boolean | undefined; cwd: string; enabled: string[]; pending: string[] }[] = [];
+  f.deps.createEphemeralSession = (meta, dir, inherit) => ({
+    ...createEmptySessionState({ id: `${FUSION_WORKER_ID_PREFIX}${meta.taskId}`, workingDir: dir ?? f.root, metadata: { fusionWorker: meta } }),
+    ...(inherit ? { inheritedWorkspace: true } : {}),
+  });
+  f.deps.runTurn = async session => {
+    const skills = loader(session, false).skills.entries;
+    seen.push({
+      inherited: session.inheritedWorkspace, cwd: session.workingDir,
+      enabled: skills.filter(s => s.disabledReasons.length === 0).map(s => s.record.manifest.name),
+      pending: skills.find(s => s.record.manifest.name === "pending-fixture")?.disabledReasons ?? [],
+    });
+    return { session, reason: "reply", stepCount: 1 };
+  };
+  f.deps.runChecks = async () => ({ ok: true, results: [{ ok: true }] });
+  await buildFusionDelegateTool(f.deps).run({ tasks: [tasks[0]], contract }, { ...f.ctx, modelMode: "local" });
+  expect(seen).toHaveLength(1);
+  expect(seen[0]?.cwd).not.toBe(f.root);
+  expect(seen[0]).toMatchObject({ inherited: true, enabled: expect.arrayContaining(["trusted-fixture"]), pending: expect.arrayContaining([expect.stringContaining("not trusted")]) });
+});
 
 it("requested candidate rejects cross-file mismatch without publishing either individually valid file", async () => {
   const f = await fixture(); const cwd: string[] = [];

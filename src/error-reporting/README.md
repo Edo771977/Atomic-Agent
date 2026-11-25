@@ -10,4 +10,5 @@ Entry point: [error-scrubber.ts](error-scrubber.ts). [Secret detector](secret-de
 Prompt-budget and truncation tags report numeric token counts for the failed request (ATO-1678).
 
 Checks: `npx vitest run src/error-reporting` when tests are present; `npm run lint`; `npm run docs:check`.
+Expected Fusion budget and worker stops are excluded from crash reports by their named cause; unrelated failures still report (`fusion-stop.ts`, ATO-1677).
 `cli_reason` is a fixed word derived locally for subscription CLI failures (ATO-1679); raw CLI output is never included in that tag.

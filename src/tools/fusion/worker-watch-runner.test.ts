@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { captureError } from "../../error-reporting/error-reporter.js";
+import type { SentryClient } from "../../error-reporting/sentry-client.js";
 
 import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-loop.js";
 import type { FusionWorkerMeta } from "../../session/fusion-worker-session.js";
@@ -367,6 +369,11 @@ describe("what the watch does with the judge's answer (issue #43)", () => {
     await c.tick();
     const [row] = await run;
     expect(h.signal()?.aborted).toBe(true);
+    const reason = h.signal()?.reason;
+    const capture = vi.fn();
+    captureError({ capture } as unknown as SentryClient, new Error("fixture wrapper", { cause: reason }), { source: "llm_failure" });
+    expect(capture).not.toHaveBeenCalled();
+    expect(reason).toMatchObject({ reason: "watch-stuck" });
     expect(row!.status).toBe("failed");
     expect(row!.failure).toBe("stuck");
     expect(row!.error).toMatch(/^stuck: the watch \(model-r\) judged the worker stuck/);

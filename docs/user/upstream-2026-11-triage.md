@@ -251,8 +251,6 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
-| [#1562](https://github.com/AtomicBot-ai/atomic-agent/pull/1562) | 1 | fix(fusion): label workers on a foreign llama.cpp server with the model it  | Importare |
-| [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Importare |
 | [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importato con cherry-pick -x in [#228](https://github.com/Edo771977/Atomic-Agent/pull/228). Conservati perAccountEndpoint di Lemonade e hint sul porto 8000; test aggiunto. |
 | [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
 | [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
@@ -266,8 +264,8 @@ Ondate:
 | [#1611](https://github.com/AtomicBot-ai/atomic-agent/pull/1611) | 1 | TUI: start with the mouse off on the classic Windows console (ATO-249) | Importato con cherry-pick -x in [#225](https://github.com/Edo771977/Atomic-Agent/pull/225). Nota conhost nel JSDoc sorgente e riferimenti rigenerati. |
 | [#1613](https://github.com/AtomicBot-ai/atomic-agent/pull/1613) | 1 | Log why a model reply was empty: finish reason, tokens, provider, model, re | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Framing SSE del fork conservato. |
 | [#1621](https://github.com/AtomicBot-ai/atomic-agent/pull/1621) | 1 | Windows on ARM: point at Foundry Local and LM Studio when local models are  | Importato con cherry-pick -x in [#227](https://github.com/Edo771977/Atomic-Agent/pull/227). |
-| [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Importare |
-| [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importare |
+| [#1643](https://github.com/AtomicBot-ai/atomic-agent/pull/1643) | 1 | Fusion: real task cap in the delegate description, no dash in the two-provi | Gia equivalente su main: cap 16 e frase senza em dash; conservata la descrizione estesa del fork. |
+| [#1652](https://github.com/AtomicBot-ai/atomic-agent/pull/1652) | 3 | Fusion: a local worker sees the skills of the folder the session moved to ( | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). Preservati gate di fiducia, vincoli, lesson gate e richiesta completa del worker. |
 | [#1660](https://github.com/AtomicBot-ai/atomic-agent/pull/1660) | 2 | TUI: offer /runmode on the start page (ATO-1640) | Importato con cherry-pick -x in [#225](https://github.com/Edo771977/Atomic-Agent/pull/225). |
 | [#1662](https://github.com/AtomicBot-ai/atomic-agent/pull/1662) | 1 | Describe the 71 settings keys that had no description (ATO-1505) | Gia equivalente su main: tutte le 71 chiavi completate da upstream hanno gia una descrizione non vuota nella tabella generata del fork; preservate le formulazioni del fork. |
 | [#1667](https://github.com/AtomicBot-ai/atomic-agent/pull/1667) | 1 | TUI: show how far a local model has read the prompt (ATO-1001) | Importato con cherry-pick -x in [#225](https://github.com/Edo771977/Atomic-Agent/pull/225). Eventi del fork conservati; fixture completata con batchIndex e batchSize. |
@@ -278,14 +276,17 @@ Ondate:
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
 | [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
 | [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
-| [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
-| [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importare |
+| [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importato con cherry-pick -x in [#224](https://github.com/Edo771977/Atomic-Agent/pull/224). Preservati journal/receipts, cap e contabilità; test aggiunto sugli stop incapsulati. |
 | [#1730](https://github.com/AtomicBot-ai/atomic-agent/pull/1730) | 2 | ATO-1679: say why a subscription CLI exited, and what to do for an old CLI  | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). |
 
 ### Ondata B: funzioni con impatto sulla sicurezza
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| [#1562](https://github.com/AtomicBot-ai/atomic-agent/pull/1562) | 1 | fix(fusion): label workers on a foreign llama.cpp server with the model it  | Rinviata in ondata B: nuovo GET /props con chiave del provider tramite client diretto; applicare i controlli provider ed egress del fork prima del probe. |
+| [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Rinviata in ondata B: dipende dalla classificazione dei server esterni di #1562, rinviata per il nuovo probe autenticato. |
+| `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Rinviata in ondata B: dipende dal gruppo #1562 e #1563; rivedere insieme il probe autenticato e la provenienza dei modelli. |
+| [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Rinviata in ondata B: sposta la risoluzione dei nomi prima dei controlli di claim e del trim con approvazioni; rivedere con i filtri e i gate di dispatch del fork. |
 | [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Rinviata in ondata B: estende il restore HTTP a eviction, merge, lesson e procedure; gli snapshot aggiunti vanno adattati a constraintKey e stato disabilitato del fork prima di riattivare memoria. |
 | [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Rinviata in ondata B: Il nuovo /export TUI scrive anche chat incognito, non passa runtimeKnownSecrets per le chiavi di config e sovrascrive i percorsi espliciti: adattare prima le garanzie del fork su privacy, credenziali e --force insieme al writer PDF. |
 | [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Rinviata in ondata B: cambia i redirect del crawl e aggiunge rendering JavaScript nel browser; richiede revisione dei gate URL per ogni hop, policy egress e consenso del fork. |
@@ -362,7 +363,6 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 | --- | --- | --- | --- |
 | `fix/ato-1703-openai-key-only-to-openai` | `70d4dca36fb1` | fix(tui): check a reconfigured provider's key against the new address (ATO-1703) | Importato con cherry-pick -x in [#222](https://github.com/Edo771977/Atomic-Agent/pull/222). Preservate diagnostica e restrizioni del fork; ultimo commit gia equivalente. |
 | `fix/ato-1703-desktop-openai-key` | `69717680e29c` | fix(desktop): keep the codex billing warning and gate the smoke key names (ATO-1703) | Importare in `desktop-main` insieme al ramo core. |
-| `fix/ato-1559-turn-model-wire` | `81cd5a04099a` | fix(fusion): local-llama is always the managed worker, whatever its URL (ATO-1562) | Importare con #1562 e #1563. |
 | `fix/gemini-thought-signature` | `cdde50b279ff` | fix(prompt): keep the Gemini thought signature in the local projection (ATO-1680) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Conservato TOOL_RESULT_STATUS; test aggiunto sulla proiezione locale. |
 | `fix/cloud-history-ends-assistant` | `3e0aa4d08cd1` | fix(llm): never end a cloud request on an assistant message (ATO-1681) | Importato con cherry-pick -x in [#223](https://github.com/Edo771977/Atomic-Agent/pull/223). Conservati service tier e proiezione del fork. |
 | `fix/ato-1542-svix-webhooks` | `d2c63a031b13` | fix(http): accept svix-* headers on standard-webhooks bindings | Importato con cherry-pick -x in [#230](https://github.com/Edo771977/Atomic-Agent/pull/230); firma verificata, conservati path tunnel, requiresSecret e gate del fork. |

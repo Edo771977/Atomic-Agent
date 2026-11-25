@@ -37,6 +37,7 @@ import {
   inspectDeclaredFiles,
 } from "./declared-files.js";
 import type { DeclaredInputsRegistry } from "../os/fs/fs-declared-inputs.js";
+import { FusionWorkerStopError } from "./fusion-stop-errors.js";
 import {
   renderWorkerBrief,
   WORKER_REPLY_CHAR_BUDGET,
@@ -546,6 +547,7 @@ export interface WorkerRunnerDeps {
   /** `runtime.createEphemeralSession` — in-memory, never persisted. */
   createEphemeralSession: (meta: FusionWorkerMeta, workingDir?: string, inheritWorkspace?: boolean) => SessionState;
   inheritWorkspace?: boolean;
+  workspaceTrustDir?: string;
   approvals: Pick<ApprovalGate, "setSessionPolicy" | "clearSessionPolicy"> &
     Partial<
       Pick<
@@ -974,6 +976,7 @@ async function runOneTask(
     parentSessionId: options.parentSessionId,
     taskId: task.id,
   }, workingDir, inheritWorkspace);
+  if (deps.workspaceTrustDir !== undefined) session.workspaceTrustDir = deps.workspaceTrustDir;
   // A worker that queued on the parent id would wait behind the
   // orchestrator's own turn — which is the turn calling this — and the
   // fan-out would deadlock rather than run. `createEphemeralSession`
@@ -1526,7 +1529,10 @@ async function runOneTask(
     }
     stall = stalled;
     handBack.abort(
-      new Error("handed back early: no file written by half the budget"),
+      new FusionWorkerStopError(
+        "hand-back",
+        "handed back early: no file written by half the budget",
+      ),
     );
   };
   const handedBack = (): boolean =>
@@ -1613,7 +1619,7 @@ async function runOneTask(
     const last = checkRuns.lastRunOutcome();
     const lastCheck = last === undefined ? undefined : { ...last, coversFile: specNames(last.spec, repeat.path) };
     stalledWrite = { reason: "repeated identical writes", ...repeat, ...(lastCheck === undefined ? {} : { lastCheck }) };
-    stopByWatch.abort(new Error("stalled: repeated identical writes"));
+    stopByWatch.abort(new FusionWorkerStopError("repeated-writes", "stalled: repeated identical writes"));
     return identical;
   };
   let escalations = 0;
@@ -1716,7 +1722,9 @@ async function runOneTask(
       options.shouldStart?.() === undefined
     ) {
       replaceRequested = true;
-      replaceAbort.abort(new Error("replaced by the escalation model"));
+      replaceAbort.abort(
+        new FusionWorkerStopError("replaced", "replaced by the escalation model"),
+      );
     }
   };
   // The person's notes to this worker (ATO-568). They ride the same
@@ -1771,7 +1779,7 @@ async function runOneTask(
     options.parentSessionId,
     task.id,
     {
-      stop: () => stopByPerson.abort(new Error("stopped by the person")),
+      stop: () => stopByPerson.abort(new FusionWorkerStopError("person", "stopped by the person")),
       escalate: () => escalate({ kind: "manual" }),
       steer: (text) => steerByPerson(session.id, text),
     },
@@ -1960,7 +1968,7 @@ async function runOneTask(
       judge: watchPlan.judge,
       onHint: (state, hint) =>
         deps.steerWorker?.(run.sessionId, formatWatchSteer(watchPlan.judgeLabel ?? "a reviewer", state, hint)) ?? false,
-      onStuck: () => stopByWatch.abort(new Error("stopped by the watch: stuck")),
+      onStuck: () => stopByWatch.abort(new FusionWorkerStopError("watch-stuck", "stopped by the watch: stuck")),
       takeOtherSteer: () => {
         const steered = advisorSteeredSinceCheck;
         advisorSteeredSinceCheck = false;
@@ -2135,7 +2143,7 @@ async function runOneTask(
             const ownSpec = green !== undefined && ownChecks(options.contract, task.id).some((check) => checkSpecKey(check) === green.spec);
             if (green !== undefined && ownSpec && wroteSomething && green.runs >= GREEN_CHECK_REPEAT_LIMIT) {
               passedAndCurrent = green;
-              stopByWatch.abort(new Error("passed and current: the same check passed on unchanged files"));
+              stopByWatch.abort(new FusionWorkerStopError("passed-and-current", "passed and current: the same check passed on unchanged files"));
             }
           }
           if (filesWritten.observeExecuted(result, event.event.batchIndex)) {
@@ -2283,11 +2291,13 @@ async function runOneTask(
       workingDir,
       inheritWorkspace,
     );
+    if (deps.workspaceTrustDir !== undefined) replaceSession.workspaceTrustDir = deps.workspaceTrustDir;
     armWorkerSession(replaceSession.id);
     const replaceCollector = new WorkerRunCollector({ workingDir, pricing });
     const capAbort = new AbortController();
     const replaceTimer = setTimeout(
-      () => capAbort.abort(new Error("time limit")),
+      () =>
+        capAbort.abort(new FusionWorkerStopError("time-limit", "time limit")),
       timeoutMs,
     );
     replaceTimer.unref?.();
@@ -2304,7 +2314,7 @@ async function runOneTask(
       options.parentSessionId,
       task.id,
       {
-        stop: () => stopByPerson.abort(new Error("stopped by the person")),
+        stop: () => stopByPerson.abort(new FusionWorkerStopError("person", "stopped by the person")),
         escalate: async () => "not escalated: the task is already running on the escalation model",
         steer: (text) => steerByPerson(replaceSession.id, text),
       },
@@ -2435,7 +2445,9 @@ async function runOneTask(
                 replaceSpent >= target.maxUsd ||
                 options.shouldStart?.() !== undefined
               ) {
-                capAbort.abort(new Error("escalation cap"));
+                capAbort.abort(
+                  new FusionWorkerStopError("escalation-cap", "escalation cap"),
+                );
               }
             }
           },

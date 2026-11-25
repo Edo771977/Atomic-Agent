@@ -96,6 +96,8 @@ export interface SessionState {
   cloudLoadedSkills?: import("./workspace-context.js").CloudLoadedSkill[];
   /** Local Fusion workers of cloud parents inherit the parent's workspace binding. */
   inheritedWorkspace?: boolean;
+  /** Real project supplying trust to an in-memory Fusion candidate workspace. */
+  workspaceTrustDir?: string;
   /** Immutable model-visible messages for cloud; independent of local packing. */
   cloudContext?: import("./cloud-context.js").CloudContext;
   id: string;
