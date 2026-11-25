@@ -1,6 +1,7 @@
 import { join } from "node:path";
 import { activePolicy } from "../../../policy/policy-active.js";
 import { checkPolicyMutation } from "../../../policy/policy-mutations.js";
+import { policyMayIntersectTree } from "../../../policy/policy-paths.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
@@ -55,8 +56,9 @@ export function buildOsGitCheckoutTool(
           `os.git.checkout: ${toplevel.message}`,
         );
 
-      const scope = checkPolicyMutation(activePolicy(), "os.git.checkout", [toplevel.root], ctx.workingDir, [toplevel.root]);
-      const needsPlan = scope.refusal !== null || scope.ask;
+      const policy = activePolicy();
+      const scope = checkPolicyMutation(policy, "os.git.checkout", [toplevel.root], ctx.workingDir, [toplevel.root]);
+      const needsPlan = scope.refusal !== null || scope.ask || policyMayIntersectTree(policy, toplevel.root);
       // Preserve Git's ordinary errors when no edit restriction or protected
       // policy file can intersect this tree. Relevant policies still need a
       // complete plan before any checkout may run.

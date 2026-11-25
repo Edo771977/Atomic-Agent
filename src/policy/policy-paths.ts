@@ -15,6 +15,25 @@ export function policyFilePaths(policy: EffectivePolicy): string[] {
     source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
 }
 
+/** Include link entries as well as referents: replacing an ancestor can relocate a policy. */
+export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string, canonicalize = canonicalPolicyPath): boolean {
+  const normalize = createEditPathNormalizer(process.cwd(), process.platform, canonicalize);
+  const root = normalize.path(treeRoot).replace(/\/$/, "");
+  const inside = (path: string) => path === root || path.startsWith(`${root}/`);
+  for (const file of policyFilePaths(policy)) {
+    if (inside(normalize.path(file))) return true;
+    let entry = resolve(file);
+    for (;;) {
+      const parent = dirname(entry);
+      const name = process.platform === "win32" || process.platform === "darwin" ? basename(entry).toLowerCase() : basename(entry);
+      if (inside(`${normalize.path(parent).replace(/\/$/, "")}/${name}`)) return true;
+      if (parent === entry) break;
+      entry = parent;
+    }
+  }
+  return false;
+}
+
 /** Patterns and resources share one identity; caches last only for this evaluation. */
 export function createEditPathNormalizer(workingDir = process.cwd(), platform: NodeJS.Platform = process.platform,
   canonicalize: (path: string) => string = platform === process.platform ? canonicalPolicyPath : path => path) {
