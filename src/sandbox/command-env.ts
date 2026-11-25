@@ -160,7 +160,7 @@ export function buildCommandEnv(
   const allowed = new Set(passthrough.map((name) => name.toUpperCase()));
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
-    if (typeof value !== "string" || isServeApiKeyEnv(key)) continue;
+    if (typeof value !== "string" || isServeApiKeyEnv(key) || key.toUpperCase() === "ATOMIC_POLICY_URL") continue;
     if (GIT_CONFIG_ENV_NAME.test(key)) continue;
     if (isSecretEnvName(key) && !allowed.has(key.toUpperCase())) continue;
     env[key] = value;
@@ -233,7 +233,7 @@ function isServeApiKeyEnv(name: string): boolean {
 }
 
 export function withoutServeApiKey(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([name]) => !isServeApiKeyEnv(name)));
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !isServeApiKeyEnv(name) && name.toUpperCase() !== "ATOMIC_POLICY_URL"));
 }
 
 /** Mark subprocesses started by tools so an inherited CLI can refuse operator decisions. */
