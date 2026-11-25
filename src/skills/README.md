@@ -22,6 +22,8 @@ This area owns skill installation and discovery. Read [AGENTS.md](AGENTS.md) bef
 
 Organization policy (ATO-587): `prepareSkillInstall` refuses a skill the admin policy denies (`SkillInstallError` code `policy_denied`, HTTP 403), and `SkillRegistry` takes an `isBlocked` predicate that keeps such a skill out like a disabled one (`listAll` marks it `blocked`). See [../policy/README.md](../policy/README.md).
 
+A `skill` rule governs installation, catalog selection, named loading and the skill-script tool. It is not a read-access rule for the skill's files: a direct filesystem read still follows read scope and OS permissions, and an independently allowed shell command can access a script by path. Keep unreadable content outside permitted read roots/OS access, and use shell restrictions/sandbox for execution boundaries; hiding a skill name alone does not provide either boundary.
+
 ## Ownership and dependencies
 
 SkillRegistry owns filesystem discovery and disabled-name filtering; skill loaders and tools expose selected content to a session. Starter seeding owns packaged defaults without overwriting installed content. Prompt consumes the catalog and loaded skills, while runtime refreshes it; scripts own release-time copying.
