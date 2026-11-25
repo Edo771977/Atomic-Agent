@@ -1,3 +1,4 @@
+import { DEFAULT_AIMLAPI_BASE } from "../llm/provider/aimlapi/aimlapi-endpoint.js";
 import { hasUnresolvedWildcardDnsAddress } from "../llm/provider/openai/local-server-url.js";
 import { isOtherComputerOnNetworkUrl } from "../llm/provider/openai/network-server-address.js";
 import { isLoopbackUrl } from "../llm/provider/url-host.js";
@@ -67,7 +68,6 @@ export function resolveLlmProviderApiKeyWithSource(
     if (!mayUseKeyVariable(entry, entry.apiKeyEnvVar)) return done();
     return fromEnv(entry.apiKeyEnvVar);
   }
-  if (entry.kind === "aimlapi") return fromEnv("AIMLAPI_API_KEY");
   const native = NATIVE_KEY_DEFAULTS.get(entry.kind);
   if (native) return mayReceiveDefaultKey(entry.baseUrl, native.origin) ? fromEnv(native.name) : done();
   if (
@@ -130,16 +130,16 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
 }
 
 const OPENAI_ORIGIN = "https://api.openai.com";
-const AIMLAPI_KEY = { origin: DEFAULT_AIMLAPI_BASE, name: "AIMLAPI_API_KEY" };
 
 const NATIVE_KEY_DEFAULTS = new Map([
+  ["aimlapi", { origin: DEFAULT_AIMLAPI_BASE, name: "AIMLAPI_API_KEY" }],
   ["anthropic", { origin: "https://api.anthropic.com", name: "ANTHROPIC_API_KEY" }],
   ["gemini", { origin: "https://generativelanguage.googleapis.com", name: "GEMINI_API_KEY" }],
   ["openrouter", { origin: "https://openrouter.ai", name: "OPENROUTER_API_KEY" }],
 ]);
 
 const NATIVE_KEY_DESTINATIONS = new Map(
-  [...NATIVE_KEY_DEFAULTS, ["aimlapi", AIMLAPI_KEY] as const]
+  [...NATIVE_KEY_DEFAULTS]
     .map(([kind, { name, origin }]) => [name, { kind, origin }] as const),
 );
 
@@ -269,4 +269,3 @@ export function resolveExtraApiKeys(
   }
   return out;
 }
-import { DEFAULT_AIMLAPI_BASE } from "../llm/provider/aimlapi/aimlapi-endpoint.js";

@@ -31,6 +31,7 @@ it.each([
   ["anthropic", "ANTHROPIC_API_KEY", "https://api.anthropic.com/v1"],
   ["gemini", "GEMINI_API_KEY", "https://generativelanguage.googleapis.com/v1beta"],
   ["openrouter", "OPENROUTER_API_KEY", "https://openrouter.ai/api/v1"],
+  ["aimlapi", "AIMLAPI_API_KEY", "https://api.aimlapi.com/v1"],
 ])("scopes implicit %s credentials to the official origin or loopback", (kind, name, official) => {
   vi.stubEnv(name, "synthetic-vendor-key");
   vi.stubEnv("OPENAI_API_KEY", "synthetic-openai-key");
