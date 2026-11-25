@@ -267,6 +267,8 @@ describe("os.fs.docx tracked changes and pictures (ATO-541)", () => {
     expect(prompts[0]?.reason).toContain("3 paragraphs");
     expect(prompts[0]?.preview).toContain("one.png");
     expect(prompts[0]?.preview).toContain("two.png");
+    expect(prompts[0]?.preview).toContain(JSON.stringify(join(dir, "one.png")));
+    expect(prompts[0]?.preview).toContain(JSON.stringify(join(dir, "two.png")));
   });
 });
 
