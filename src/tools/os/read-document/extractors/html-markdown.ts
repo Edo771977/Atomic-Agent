@@ -1,4 +1,5 @@
 import { parseHTML } from "linkedom";
+import { Parser } from "htmlparser2";
 import TurndownService from "turndown";
 import { convert as htmlToText } from "html-to-text";
 
@@ -13,7 +14,7 @@ import { convert as htmlToText } from "html-to-text";
  * document (a manual, a table-heavy report, an e-book chapter) is often
  * the content itself. We only strip elements that are never document text.
  */
-const DROP_SELECTOR = [
+const DROP_ELEMENTS = new Set([
   "script",
   "style",
   "noscript",
@@ -24,7 +25,8 @@ const DROP_SELECTOR = [
   "svg",
   "canvas",
   "head",
-].join(",");
+]);
+const DROP_SELECTOR = [...DROP_ELEMENTS].join(",");
 
 let turndown: TurndownService | null = null;
 
@@ -40,7 +42,7 @@ function getTurndown(): TurndownService {
   // with a header separator so a local model can still read them as a grid.
   td.addRule("tableCell", {
     filter: ["th", "td"],
-    replacement: (content) => ` ${content.replace(/\s*\n+\s*/g, " ").trim()} |`,
+    replacement: (content) => ` ${content.replace(/\s+/g, run => run.includes("\n") ? " " : run).trim()} |`,
   });
   td.addRule("tableRow", {
     filter: "tr",
@@ -73,29 +75,82 @@ export interface HtmlMarkdown {
   title?: string;
 }
 
-const HTML_FORMAT_CHARS = 64 * 1024;
-const HTML_FORMAT_TAG_STARTS = 256;
+const HTML_FORMAT_CHARS = 384 * 1024;
+const HTML_FORMAT_DEPTH = 1_000;
+const HTML_TITLE_CHARS = 1_024;
 
-/** Keep recursive Markdown conversion on small, structurally simple input. */
-export function boundedHtmlToMarkdown(html: string, warnings: string[]): HtmlMarkdown {
-  const prefix = html.slice(0, HTML_FORMAT_CHARS);
-  if (prefix.length < html.length) {
-    warnings.push(`HTML was truncated to ${HTML_FORMAT_CHARS} characters before text extraction`);
-  } else {
-    let offset = -1;
-    for (let tags = 0; tags <= HTML_FORMAT_TAG_STARTS; tags++) {
-      offset = prefix.indexOf("<", offset + 1);
-      if (offset < 0) return htmlToMarkdown(prefix);
+/**
+ * Strip non-visible markup and check the depth before giving any parser
+ * that builds a DOM or renders recursively a bounded fragment.
+ */
+function prepareHtml(html: string) {
+  const parts: string[] = [];
+  let length = 0;
+  let depth = 0;
+  let omittedDepth = 0;
+  let titleDepth = 0;
+  let rawTitle: string | undefined;
+  let limit: "size" | "depth" | undefined;
+
+  const stop = (reason: "size" | "depth") => {
+    limit = reason;
+    parser.pause();
+  };
+  const append = (text: string, allowPartial: boolean) => {
+    const available = HTML_FORMAT_CHARS - length;
+    if (text.length <= available) {
+      parts.push(text);
+      length += text.length;
+    } else {
+      if (allowPartial && available > 0) parts.push(text.slice(0, available));
+      stop("size");
     }
-    warnings.push("HTML formatting exceeded the conversion budget; showing plain text");
+  };
+  const appendTag = () => append(html.slice(parser.startIndex, parser.endIndex + 1), false);
+  const parser: Parser = new Parser({
+    onopentag(name, _attributes, implied) {
+      if (limit) return;
+      if (++depth > HTML_FORMAT_DEPTH) return stop("depth");
+      if (name === "title" && rawTitle === undefined) {
+        titleDepth = depth;
+        rawTitle = "";
+      }
+      if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
+      if (!omittedDepth && !implied) appendTag();
+    },
+    onclosetag(_name, implied) {
+      if (limit) return;
+      if (titleDepth === depth) titleDepth = 0;
+      if (omittedDepth === depth) omittedDepth = 0;
+      else if (!omittedDepth && !implied) appendTag();
+      depth--;
+    },
+    ontext(text) {
+      if (limit) return;
+      if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
+      if (!omittedDepth) append(text, true);
+    },
+  }, { decodeEntities: false, recognizeSelfClosing: true });
+  parser.end(html);
+  const title = rawTitle
+    ? parseHTML(`<html><head><title>${rawTitle}</title></head><body></body></html>`)
+      .document.querySelector("title")?.textContent?.trim() || undefined
+    : undefined;
+  return { markup: parts.join(""), title, limit };
+}
+
+export function boundedHtmlToMarkdown(html: string, warnings: string[]): HtmlMarkdown {
+  const { markup, title, limit } = prepareHtml(html);
+  if (!limit) return { ...htmlToMarkdown(markup), title };
+  if (limit === "depth") {
+    warnings.push(`HTML exceeded the depth limit of ${HTML_FORMAT_DEPTH}; some content was omitted. Showing plain text.`);
+  } else {
+    warnings.push(`HTML was truncated at ${HTML_FORMAT_CHARS} characters of visible markup; some content may have been omitted. Showing plain text.`);
   }
-  return { text: htmlToText(prefix, {
+  return { title, text: htmlToText(markup, {
     wordwrap: false,
-    limits: { maxDepth: 32, maxChildNodes: 256 },
+    limits: { maxDepth: 128 },
     selectors: [
-      { selector: "head", format: "skip" },
-      { selector: "script", format: "skip" },
-      { selector: "style", format: "skip" },
       { selector: "a", options: { ignoreHref: true } },
       { selector: "img", format: "skip" },
     ],

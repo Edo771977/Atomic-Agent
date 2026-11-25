@@ -326,6 +326,13 @@ describe("msg extractor", () => {
     expect(result.warnings.some(warning => warning.includes("too large"))).toBe(false);
   });
 
+  it("prefers the complete plain body when its HTML alternative would be cut", async () => {
+    const html = Buffer.from("<p>" + "HTML alternative ".repeat(30_000) + "</p>");
+    const result = await extract(buildCfb([str(0x1000, "Complete plain-text report"), { name: b(0x1013), data: html }]).buffer);
+    expect(result.text).toBe("Complete plain-text report");
+    expect(result.warnings).toEqual([]);
+  });
+
   it("omits attachment sizes larger than the compound file", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const offset = buffer.indexOf(Buffer.from(b(0x3701) + "\0", "utf16le"));

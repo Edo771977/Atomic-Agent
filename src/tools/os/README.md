@@ -30,7 +30,7 @@ Root index intentionally composes and exports registrations in the previous orde
 
 ### Outlook document reads
 
-`os.fs.read_document` reads Outlook `.msg` files up to 32 MiB (33,554,432 bytes). Larger files fail with `Outlook .msg input exceeds 33554432 bytes` before extraction. The `maxBytes` argument limits returned text and does not raise the input limit. A plain body can occupy up to 8 MiB within the compound file's shared work budget. When the body is available only as HTML, up to 64 Ki characters enter the converter. Large or deeply structured HTML, including standalone HTML documents, falls back to bounded plain text with a warning. A compressed RTF-only body produces a warning.
+`os.fs.read_document` reads Outlook `.msg` files up to 32 MiB (33,554,432 bytes). Larger files fail with `Outlook .msg input exceeds 33554432 bytes` before extraction. The `maxBytes` argument limits returned text and does not raise the input limit. A plain body can occupy up to 8 MiB within the compound file's shared work budget and is preferred when present. For HTML-only bodies and standalone HTML files, the converter removes comments, styles, scripts and the head before applying a 384 Ki-character visible-markup limit. HTML that exceeds this limit or a nesting depth of 1,000 falls back to bounded plain text and warns that content may have been omitted. A compressed RTF-only body produces a warning.
 
 ## Screen control (macOS)
 

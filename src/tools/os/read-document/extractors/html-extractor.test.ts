@@ -9,10 +9,44 @@ const run = (html: string | Buffer) =>
   });
 
 describe("htmlExtractor", () => {
-  it("uses bounded plain text for deeply nested formatting", async () => {
-    const result = await run("<p>Visible fixture</p>" + "<div>".repeat(300) + "nested" + "</div>".repeat(300));
+  it("finds the body after a large head, comments and styles", async () => {
+    const css = ".item { color: navy; }".repeat(3_600);
+    const result = await run(`<!doctype html><html><head><title>Report</title><style>${css}</style></head>` +
+      `<body><!-- ${css} --><style>${css}</style><script>hidden()</script><p>Visible report body</p></body></html>`);
+    expect(result.text).toBe("# Report\n\nVisible report body");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("keeps every sibling paragraph in a normal page", async () => {
+    const paragraphs = Array.from({ length: 401 }, (_, index) => `Paragraph ${index + 1}`);
+    const result = await run(paragraphs.map(text => `<p>${text}</p>`).join(""));
+    expect(result.text.split("\n\n")).toEqual(paragraphs);
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("preserves links in a newsletter with 150 items", async () => {
+    const items = Array.from({ length: 150 }, (_, index) =>
+      `<p><a href="https://example.test/news/${index}">News item ${index}</a></p>`);
+    const result = await run(items.join(""));
+    expect(result.text.match(/https:\/\/example\.test\/news\//g)).toHaveLength(150);
+    expect(result.text).toContain("[News item 149](https://example.test/news/149)");
+    expect(result.warnings).toEqual([]);
+  });
+
+  it("extracts a roughly 183 KiB article in full", async () => {
+    const paragraphs = Array.from({ length: 173 }, (_, index) =>
+      `Section ${index + 1} ${"A normal paragraph in a local article. ".repeat(27).trim()}`);
+    const result = await run(`<article>${paragraphs.map(text => `<p>${text}</p>`).join("")}</article>`);
+    expect(result.text).toBe(paragraphs.join("\n\n"));
+    expect(result.warnings).toEqual([]);
+  });
+
+  it.each([10_000, Math.floor(8 * 1024 * 1024 / 11)])("uses bounded plain text for %i nested elements", async (depth) => {
+    const start = performance.now();
+    const result = await run("<p>Visible fixture</p>" + "<div>".repeat(depth) + "nested" + "</div>".repeat(depth));
+    expect(performance.now() - start).toBeLessThan(2_000);
     expect(result.text).toContain("Visible fixture");
-    expect(result.warnings.join("\n")).toMatch(/HTML.*formatting/i);
+    expect(result.warnings.join("\n")).toMatch(/HTML.*depth.*content.*omitted/i);
   });
   it("renders the body as markdown and drops scripts, styles and head", async () => {
     const result = await run(
