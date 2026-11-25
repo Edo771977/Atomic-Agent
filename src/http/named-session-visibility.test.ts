@@ -72,9 +72,8 @@ it("makes private and unknown IDs indistinguishable on auxiliary routes for memb
   for (const invoke of cases) {
     expect(await invoke(hidden.id)).toEqual(await invoke("unknown-session"));
   }
-  expect(await call("POST", "/api/webhooks/private-binding", {})).toEqual(
-    await call("POST", "/api/webhooks/unknown-binding", {}),
-  );
+  expect((await call("POST", "/api/webhooks/private-binding", {})).status).toBe(404);
+  expect((await call("POST", "/api/webhooks/unknown-binding", {})).status).toBe(202);
   expect(h.handle.completionRegistry.has(hidden.id)).toBe(true);
 });
 
@@ -106,3 +105,36 @@ it("keeps hidden task runs out of the named admin drain", async () => {
   expect(runOne).toHaveBeenCalledWith(publicTask.id, undefined);
   expect(runOne).not.toHaveBeenCalledWith(privateTask.id, undefined);
 });
+
+
+it("lets a named admin manage an ordinary recurring task after its chat is deleted", async () => {
+  const { h, hidden, visible, call } = await fixture("admin");
+  const makeTask = (sessionId: string) => h.runtime.taskStore.create({
+    sessionId, userMessage: "fixture", origin: "cli", maxAttempts: 1,
+    schedule: { kind: "interval", everyMs: 60_000 },
+  });
+  const ordinary = makeTask(visible.id);
+  const secret = makeTask(hidden.id);
+  h.runtime.sessionStore.delete(visible.id);
+  h.runtime.sessionStore.delete(hidden.id);
+  expect((await call("GET", "/api/tasks")).body).toMatchObject({ tasks: [expect.objectContaining({ id: ordinary.id })] });
+  expect((await call("GET", "/api/tasks?session=" + visible.id)).body).toMatchObject({ tasks: [{ id: ordinary.id }] });
+  expect((await call("GET", "/api/tasks/" + ordinary.id)).status).toBe(200);
+  expect((await call("POST", "/api/tasks/" + ordinary.id + "/pause")).status).toBe(200);
+  expect((await call("DELETE", "/api/tasks/" + ordinary.id)).status).toBe(200);
+  for (const [method, suffix] of [["GET", ""], ["POST", "/pause"], ["DELETE", ""]]) {
+    expect((await call(method!, "/api/tasks/" + secret.id + suffix)).status).toBe(404);
+  }
+  expect((await call("POST", "/api/tasks", { sessionId: "not-created", userMessage: "fixture" })).status).toBe(404);
+});
+
+it("shows retry ideas for ordinary tasks whose chat is gone", async () => {
+  const { h, visible, call } = await fixture("admin");
+  const task = h.runtime.taskStore.create({ sessionId: visible.id, userMessage: "retry fixture", origin: "cli", maxAttempts: 1 });
+  h.runtime.taskStore.markRunning(task.id);
+  h.runtime.taskStore.markFailed(task.id, { category: "transport", message: "timed out" });
+  h.runtime.sessionStore.delete(visible.id);
+  expect((await call("POST", "/api/ideas/refresh")).body).toMatchObject({ ideas: [expect.objectContaining({ sourceTaskId: task.id })] });
+  expect((await call("GET", "/api/ideas")).body).toMatchObject({ ideas: [expect.objectContaining({ sourceTaskId: task.id })] });
+});
+

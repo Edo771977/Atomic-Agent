@@ -71,10 +71,16 @@ export function sessionUnavailableToCaller(ctx: HandlerContext, id: string): boo
   return isNamedCaller(ctx) && !canReadSession(ctx, ctx.runtime.sessionStore.load(id));
 }
 
+/** Durable records can outlive ordinary chats; only an existing hidden chat withholds them. */
+export function existingSessionUnavailableToCaller(ctx: HandlerContext, id: string): boolean {
+  const state = ctx.runtime.sessionStore.load(id);
+  return isNamedCaller(ctx) && state !== null && !canReadSession(ctx, state);
+}
+
 /** The persisted flag also protects old tasks whose chat row has disappeared. */
 export function taskUnavailableToCaller(ctx: HandlerContext, task: { sessionId: string | null; incognito?: boolean }): boolean {
   return isNamedCaller(ctx) && (task.incognito === true
-    || (task.sessionId !== null && sessionUnavailableToCaller(ctx, task.sessionId)));
+    || (task.sessionId !== null && existingSessionUnavailableToCaller(ctx, task.sessionId)));
 }
 
 /** An approval prompt as a network server may show it: no details for a restricted session. */

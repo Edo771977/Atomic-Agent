@@ -335,3 +335,6 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/webhooks` | Administration (admin) |
 | `DELETE /api/webhooks/{name}` | Administration (admin) |
 | `POST /webhooks/{name}` (tunnel listener) | Ordinary action (binding signature or secret) |
+
+
+Durable tasks, webhook bindings and retry ideas may outlive an ordinary chat. Named callers can access those records when the chat is missing; an existing inaccessible chat still withholds them. A task's persisted incognito flag continues to hide it after chat deletion. For `POST /api/tasks`, a named admin must supply an existing readable `sessionId` (missing and hidden IDs both return `404`) or use `workingDir` to open a new chat. The owner retains lazy task creation with a not-yet-existing session ID.
