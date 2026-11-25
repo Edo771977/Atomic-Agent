@@ -21,10 +21,10 @@ import { loadBoundedOfficeZip } from "../../ooxml/bounded-office-zip.js";
  * LibreOffice first.
  */
 export const xlsxExtractor: Extractor = async (input) => {
-  await loadBoundedOfficeZip(input.data);
+  const zip = await loadBoundedOfficeZip(input.data);
   const ExcelJS = await loadExcelJs();
   const workbook = new ExcelJS.Workbook();
-  await workbook.xlsx.load(toArrayBuffer(input.data));
+  await workbook.xlsx.load(await zip.generateAsync({ type: "arraybuffer", compression: "STORE", streamFiles: true }));
 
   const warnings: string[] = [];
   const allSheets = workbook.worksheets;
@@ -131,14 +131,6 @@ function renderCell(cell: CellLike): string {
     if (typeof asHyperlink.text === "string") return asHyperlink.text;
   }
   return String(value);
-}
-
-function toArrayBuffer(buf: Buffer): ArrayBuffer {
-  // Node Buffers are views over shared memory; slice off a standalone
-  // ArrayBuffer so exceljs's zip reader can own it safely.
-  const copy = new Uint8Array(buf.byteLength);
-  copy.set(buf);
-  return copy.buffer;
 }
 
 type ExcelJsModule = {

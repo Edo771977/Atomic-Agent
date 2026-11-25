@@ -108,6 +108,27 @@ describe("/api/ideas", () => {
     }
   });
 
+  it("refreshes goals without loading recent transcripts", async () => {
+    const runtime = harness.runtime;
+    const ordinary = runtime.createSession({ persist: false });
+    const incognito = runtime.createSession({ persist: false });
+    const now = Date.now();
+    const goal = { version: 1, status: "paused", criteria: [{ text: "Synthetic goal", mark: "pending" }],
+      checks: [], maxRounds: 10, roundsUsed: 1, judgeFailures: 0, createdAt: now - 60_000, updatedAt: now - 1_000 };
+    runtime.sessionStore.save({ ...ordinary, metadata: { ...ordinary.metadata, goal } });
+    runtime.sessionStore.save({ ...incognito, incognito: runtime.sessionStore.newIncognitoMark(),
+      metadata: { ...incognito.metadata, goal } });
+    const recent = vi.spyOn(runtime.sessionStore, "listRecent");
+    try {
+      const refresh = await post("/api/ideas/refresh");
+      expect(refresh.status).toBe(200);
+      expect(await refresh.json()).toMatchObject({ ideas: [{ kind: "resume_goal", evidence: { ref: ordinary.id } }] });
+      expect(recent).not.toHaveBeenCalled();
+    } finally {
+      recent.mockRestore();
+    }
+  });
+
   it("accept files a task with the edited prompt; a second accept is 409", async () => {
     failedTask("tidy the inbox");
     const refreshed = (await (await post("/api/ideas/refresh")).json()) as { ideas: IdeaJson[] };
