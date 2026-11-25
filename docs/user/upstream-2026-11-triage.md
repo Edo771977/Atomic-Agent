@@ -254,7 +254,7 @@ Ondate:
 | [#1562](https://github.com/AtomicBot-ai/atomic-agent/pull/1562) | 1 | fix(fusion): label workers on a foreign llama.cpp server with the model it  | Importare |
 | [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Importare |
 | [#1576](https://github.com/AtomicBot-ai/atomic-agent/pull/1576) | 1 | feat(fallback): ask once whether to keep the local model as the last resort | Importare |
-| [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importato con cherry-pick -x in [#228](https://github.com/Edo771977/Atomic-Agent/pull/228). |
+| [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importato con cherry-pick -x in [#228](https://github.com/Edo771977/Atomic-Agent/pull/228). Conservati perAccountEndpoint di Lemonade e hint sul porto 8000; test aggiunto. |
 | [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importare |
 | [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importare |
 | [#1588](https://github.com/AtomicBot-ai/atomic-agent/pull/1588) | 2 | Answer style for Slack, iMessage, Signal and Matrix (ATO-1508) | Importare |
