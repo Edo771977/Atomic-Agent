@@ -75,8 +75,8 @@ export function resolveLlmProviderApiKeyWithSource(
   ) {
     // The shared variables usually hold the operator's real OpenAI key:
     // never as a Bearer over plain http:// off this machine, nor to
-    // another computer on the network (ATO-1066). An explicit
-    // named variable remains subject to the OpenAI destination check.
+    // another computer on the network (ATO-1066). A named OpenAI
+    // variable remains subject to the OpenAI destination check.
     if (!maySendSharedOpenAiKey(entry.baseUrl)) return done();
     const shared = sharedOpenAiKey();
     if (shared === undefined || (shared.name !== "OPENAI_COMPAT_API_KEY" && !mayReceiveOpenAiKey(entry.baseUrl))) return done();

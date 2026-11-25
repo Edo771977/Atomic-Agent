@@ -196,7 +196,7 @@ describe("providerKeyStatus", () => {
     expect(describeSharedKeyNotSent(providerKeyStatus(lan))).toContain("OPENAI_API_KEY is not sent");
     expect(describeSharedKeyNotSent({ state: "not-needed" })).toBeNull();
     // Where the shared key does go, it counts.
-    expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "https://vllm.example" })).toEqual({ state: "present" });
+    expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "https://vllm.example" })).toEqual({ state: "unverified", sharedKeyNotSent: "OPENAI_API_KEY" });
     expect(providerKeyStatus({ id: "custom", kind: "openai-compatible", baseUrl: "http://localhost:8000" })).toEqual({ state: "present" });
     // An entry with its own key variable is not about the shared key.
     expect(providerKeyStatus({ ...lan, apiKeyEnvVar: "MY_LLM_KEY" })).toEqual({ state: "missing", envVar: "MY_LLM_KEY" });

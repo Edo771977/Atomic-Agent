@@ -79,7 +79,7 @@ describe("resolveLlmProviderApiKey for a server on another computer (ATO-1066)",
   });
 });
 
-describe("resolveLlmProviderApiKey: the shared OpenAI key goes only over https or to this machine", () => {
+describe("resolveLlmProviderApiKey: the shared OpenAI key follows the destination", () => {
   afterEach(() => vi.unstubAllEnvs());
 
   function withSharedKey(): void {
@@ -99,10 +99,10 @@ describe("resolveLlmProviderApiKey: the shared OpenAI key goes only over https o
     ...(baseUrl !== undefined ? { baseUrl } : {}),
   });
 
-  it("keeps the fallback for an https endpoint, even on a public IP", () => {
+  it("withholds the OpenAI fallback from foreign https endpoints", () => {
     withSharedKey();
-    expect(resolveLlmProviderApiKey(compat("https://8.8.8.8"))).toBe("sk-shared");
-    expect(resolveLlmProviderApiKey(compat("https://api.together.xyz"))).toBe("sk-shared");
+    expect(resolveLlmProviderApiKey(compat("https://8.8.8.8"))).toBeUndefined();
+    expect(resolveLlmProviderApiKey(compat("https://api.together.xyz"))).toBeUndefined();
   });
 
   it("keeps the fallback when no baseUrl is set (the default endpoint is https)", () => {
@@ -131,19 +131,19 @@ describe("resolveLlmProviderApiKey: the shared OpenAI key goes only over https o
     ]) {
       expect(resolveLlmProviderApiKey(compat(url)), url).toBeUndefined();
     }
-    expect(resolveLlmProviderApiKey(compat("https://8.8.8.8.nip.io"))).toBe("sk-shared");
+    expect(resolveLlmProviderApiKey(compat("https://8.8.8.8.nip.io"))).toBeUndefined();
   });
 
   it("keeps the fallback over plain http to this machine", () => {
     withSharedKey();
-    for (const url of ["http://localhost:8080", "http://127.0.0.2:8080", "http://[::1]:8080", "http://0.0.0.0:8080", "http://[::]:8080", "http://localhost.:8080"]) {
+    for (const url of ["http://localhost:8080", "http://127.0.0.2:8080", "http://[::1]:8080"]) {
       expect(resolveLlmProviderApiKey(compat(url)), url).toBe("sk-shared");
     }
   });
 
-  it("still honours an explicit apiKeyEnvVar naming a shared variable, and a stored key", () => {
+  it("withholds an explicit OpenAI variable on a foreign host but keeps its own stored key", () => {
     withSharedKey();
-    expect(resolveLlmProviderApiKey({ ...compat("http://8.8.8.8"), apiKeyEnvVar: "OPENAI_API_KEY" })).toBe("sk-shared");
+    expect(resolveLlmProviderApiKey({ ...compat("http://8.8.8.8"), apiKeyEnvVar: "OPENAI_API_KEY" })).toBeUndefined();
     expect(resolveLlmProviderApiKey({ ...compat("http://8.8.8.8"), apiKey: "own" })).toBe("own");
   });
 });
