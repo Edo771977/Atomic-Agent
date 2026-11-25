@@ -1,3 +1,4 @@
+import { SessionStore } from "../session/session-store.js";
 import { getConfig } from "../config/index.js";
 import {
   TaskStore,
@@ -505,7 +506,15 @@ async function handleTick(args: string[]): Promise<number> {
 }
 
 function openTaskStore(): TaskStore {
-  return new TaskStore({ dbFile: getConfig().paths.tasksDbFile });
+  const config = getConfig();
+  return new TaskStore({
+    dbFile: config.paths.tasksDbFile,
+    isIncognitoSession: (id) => {
+      const sessions = new SessionStore({ dbFile: config.paths.sessionsDbFile });
+      try { return sessions.isIncognito(id); }
+      finally { sessions.close(); }
+    },
+  });
 }
 
 function readOption(args: string[], name: string): string | undefined {

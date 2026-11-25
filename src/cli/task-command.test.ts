@@ -1,3 +1,5 @@
+import { SessionStore } from "../session/session-store.js";
+import { createEmptySessionState } from "../session/session-state.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,6 +53,20 @@ describe("taskCommand", () => {
   function stderr(): string {
     return stderrChunks.join("");
   }
+
+  it("persists the incognito flag for a CLI task after the bound chat is deleted", async () => {
+    const sessions = new SessionStore({ dbFile: getConfig().paths.sessionsDbFile });
+    const id = "private-cli";
+    try {
+      sessions.save(createEmptySessionState({ id, workingDir: stateDir, incognito: sessions.newIncognitoMark() }));
+      expect(await taskCommand(["create", "--session", id, "--message", "private fixture"])).toBe(0);
+      const task = JSON.parse(stdout());
+      sessions.delete(id);
+      const store = new TaskStore({ dbFile: getConfig().paths.tasksDbFile });
+      try { expect(store.get(task.id)?.incognito).toBe(true); }
+      finally { store.close(); }
+    } finally { sessions.close(); }
+  });
 
   it("prints help when no subcommand is passed", async () => {
     const code = await taskCommand([]);
