@@ -1,7 +1,7 @@
 import type * as ExcelJS from "exceljs";
 import JSZip from "jszip";
 
-import { chartReference, chartXml, type ChartSpec, type ChartType } from "../ooxml/ooxml-chart.js";
+import { chartReference, chartXml, MAX_CHART_POINTS, MAX_CHART_SERIES, type ChartSpec, type ChartType } from "../ooxml/ooxml-chart.js";
 import {
   CT,
   addOverride,
@@ -64,6 +64,14 @@ export function parseRange(range: string): { r0: number; c0: number; r1: number;
   };
 }
 
+export function validateChartRange(range: string): ReturnType<typeof parseRange> {
+  if (range.split(":").length !== 2) throw new Error("chart range must have exactly two cell references");
+  const bounds = parseRange(range);
+  if (bounds.r1 - bounds.r0 > MAX_CHART_POINTS) throw new Error(`chart range may contain at most ${MAX_CHART_POINTS} points`);
+  if (bounds.c1 - bounds.c0 > MAX_CHART_SERIES) throw new Error(`chart range may contain at most ${MAX_CHART_SERIES} series`);
+  return bounds;
+}
+
 function cellNumber(value: ExcelJS.CellValue): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (value !== null && typeof value === "object" && "result" in value) {
@@ -90,7 +98,7 @@ export function chartDataFromSheet(
   sheet: ExcelJS.Worksheet,
   request: Pick<ChartRequest, "type" | "title" | "range">,
 ): ChartSpec {
-  const { r0, c0, r1, c1 } = parseRange(request.range);
+  const { r0, c0, r1, c1 } = validateChartRange(request.range);
   if (r1 - r0 < 1 || c1 - c0 < 1) {
     throw new Error(
       `range ${request.range} needs a header row and at least one row of data, and a category column plus at least one series column`,
@@ -216,9 +224,11 @@ export async function addChartToXlsx(
   spec: ChartSpec,
   request: ChartRequest,
 ): Promise<{ data: Buffer; placement: ChartPlacement }> {
+  const { r0, c0, r1, c1 } = validateChartRange(request.range);
+  if (spec.categories.length > MAX_CHART_POINTS) throw new Error(`chart may contain at most ${MAX_CHART_POINTS} points`);
+  if (spec.series.length > MAX_CHART_SERIES) throw new Error(`chart may contain at most ${MAX_CHART_SERIES} series`);
   const zip = await JSZip.loadAsync(data);
   const sheet = await sheetPart(zip, request.sheet);
-  const { r0, c0, r1, c1 } = parseRange(request.range);
   const anchor = request.anchor === undefined ? { row: r0, col: c1 + 2 } : parseCellRef(request.anchor);
 
   let sheetXml = (await readPart(zip, sheet.path)) ?? "";

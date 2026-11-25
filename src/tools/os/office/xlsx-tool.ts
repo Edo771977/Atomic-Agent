@@ -6,7 +6,7 @@ import { resolveUserPath } from "../expand-home.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
 import { CHART_TYPES, type ChartType } from "../ooxml/ooxml-chart.js";
 import { OS_FS_XLSX_CONTRACT } from "./office-contracts.js";
-import { addChartToXlsx, chartDataFromSheet, hasCharts, type ChartPlacement } from "./xlsx-chart.js";
+import { addChartToXlsx, chartDataFromSheet, hasCharts, validateChartRange, type ChartPlacement } from "./xlsx-chart.js";
 import { commitOfficeFile, given, optionalString, readExisting } from "./office-write.js";
 import {
   openWorkbook,
@@ -97,6 +97,7 @@ export function parseXlsxArgs(raw: Record<string, unknown>): XlsxArgs {
         `${TOOL}: chart needs \`range\` like 'A1:C5': a header row with the series names, the categories in its first column`,
       );
     }
+    validateChartRange(range);
     // Flat fields, not a nested object: they stay on the strict native-tools path.
     const type = typeof raw.chartType === "string" && raw.chartType.length > 0 ? raw.chartType.toLowerCase() : "column";
     if (!(CHART_TYPES as readonly string[]).includes(type)) {
