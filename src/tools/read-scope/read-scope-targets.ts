@@ -6,6 +6,7 @@
 
 import { dirname, isAbsolute, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveUserPath } from "../os/expand-home.js";
 
 import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
 import { needsShellInterpretation } from "../os/shell/shell-interpretation.js";
@@ -70,6 +71,41 @@ export function localFileOfUrl(url: string): string | null {
 export function invalidLocalFileUrlReason(url: string): string | null {
   const local = parseLocalFileUrl(url);
   return local !== null && "error" in local ? local.error : null;
+}
+
+const NON_FILE_READ_PROTOCOLS = new Set(["http:", "https:", "data:", "blob:", "about:"]);
+
+export function isNonFileReadUrl(value: string): boolean {
+  let rest = value.trim();
+  try {
+    let url = new URL(rest);
+    while (url.protocol === "view-source:") {
+      rest = url.pathname.trim();
+      url = new URL(rest);
+    }
+    if (url.protocol === "http:" || url.protocol === "https:") {
+      return /^https?:\/\//i.test(rest) && url.hostname.length > 0;
+    }
+    return NON_FILE_READ_PROTOCOLS.has(url.protocol);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Check the decoded target of a file URL and the lexical target an
+ * ordinary path consumer would open. URL-capable tools remove non-file
+ * URLs before calling this helper. A pathname such as "folder:name"
+ * must still go through the same resolver as the filesystem tools.
+ */
+export function readTargetPaths(target: string, workingDir: string): string[] {
+  const file = localFileOfUrl(target);
+  try {
+    const path = resolveUserPath(target, workingDir);
+    return file === null || file === path ? [path] : [file, path];
+  } catch {
+    return file === null ? [] : [file];
+  }
 }
 
 /** URL reads share argument selection between validation and path extraction. */
@@ -272,8 +308,10 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
   // browser, and the page text comes back to the model.
   ...Array.from(URL_READ_TARGETS, ([name, urlOf]): [string, ReadTargetsOf] => [name, (args) => {
     const url = urlOf(args);
-    const file = url === undefined ? null : localFileOfUrl(url);
-    return file === null ? [] : [file];
+    if (url === undefined) return [];
+    const file = parseLocalFileUrl(url);
+    if (file !== null) return "path" in file ? [file.path] : [];
+    return isNonFileReadUrl(url) ? [] : [url];
   }]),
   [
     // A syntax check reads every file it is handed.
