@@ -73,7 +73,9 @@ export function isEditableMemoryText(value: string, original?: string, displayed
   for (const [marker, displayedCount] of counts(displayed)) {
     const originalCount = source.get(marker) ?? 0;
     const added = displayedCount - originalCount;
-    if (added > 0 && (edited.get(marker) ?? 0) > Math.max(0, originalCount - added)) return false;
+    // Counts cannot identify whether a retained copy was literal or replaced a secret.
+    // Require a fresh replacement for every marker that the projection added.
+    if (added > 0 && (edited.get(marker) ?? 0) > 0) return false;
   }
   return true;
 }

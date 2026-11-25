@@ -29,3 +29,12 @@ it("refuses any marker copied from a fully redacted view", () => {
   expect(isEditableMemoryText("[redacted]", "literal [redacted] and private", "[redacted]")).toBe(false);
   expect(isEditableMemoryText("new [redacted:other]", "literal [redacted] and private", "[redacted]")).toBe(false);
 });
+
+
+it("rejects case E: a retained display marker after deleting two literal markers", () => {
+  const original = "one [redacted], two [redacted], three [redacted], secret value";
+  const displayed = "one [redacted], two [redacted], three [redacted], secret [redacted]";
+  expect(isEditableMemoryText("three [redacted], secret [redacted]", original, displayed)).toBe(false);
+  expect(isEditableMemoryText("secret [redacted]", original, displayed)).toBe(false);
+  expect(isEditableMemoryText("fresh replacement", original, displayed)).toBe(true);
+});
