@@ -20,6 +20,8 @@ This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) b
 
 `POST /api/complete` owns a fresh Privacy Shield archive for every request, independently of its `complete:api` routing partition. Sequential and overlapping owner/member requests cannot resolve another request's placeholders. No completion archive is stored as a session.
 
+`POST /api/complete` and `POST /api/btw` share listener-owned admission limits: two in-flight requests per token (including the owner key), four in total. Excess requests receive `429 completion_concurrency_limit` and `Retry-After: 1`. Slots remain held until inference settles, including cancellation and failure; rejected requests are never queued.
+
 The HTTP server owns request handling and connection cancellation; route modules translate transport payloads into runtime operations. Session routes use the existing turn/steering contract, and webhook routes materialize durable tasks; the persistent-webhook session map moves a corrupt file aside to `.corrupt-<time>` instead of silently overwriting it. Runtime owns session execution, task storage and approval policy; routes must retain authentication and error mapping. MCP routes use [shared server-config commands](../config/mcp-server-commands.ts) and manager operations, independently of TUI.
 
 A request body that is valid JSON but not an object (`null`, an array, a scalar) is `400` on `POST /v1/chat/completions` (issue #74).
@@ -61,6 +63,15 @@ Searching past chats (ATO-1149, [session-search.ts](../session/session-search.ts
 [Rename route](route-session-title.ts): `PATCH /api/sessions/{id}` with `{ title }` (trimmed, 1-120 characters, one line; `400` otherwise, `404` for an unknown id) stores the operator's title through `SessionStore.renameSession`. The title is stamped as user-set, so the session namer never replaces it and a turn already running cannot write an older copy back over it.
 
 [Plain completion route](route-complete.ts): `POST /api/complete` with `{ prompt, system?, max_tokens? }` answers `{ text }` from one request to the current model through `runtime.completePlain` (`../runtime/plain-complete.ts`): no tools, no turn, nothing written to a session, its own `complete:` fallback partition, `max_tokens` clamped to 4096 (default 1024), a 60 s deadline. `400` bad body, `501` no plain call in this runtime, `502` model failure or empty answer, `504` deadline. The desktop Studio's "Improve prompt" uses it when present. While any `projects.constraints` entry exists the call is refused (fail closed): its `complete:api` partition names no session, so the provider policy lets no provider serve it ([session policy](../runtime/session-provider-policy.ts)).
+
+[Side question route](route-side-question.ts) (ATO-1152): `POST /api/btw` with `{ question, session_id? }` answers `{ text }` through `runtime.askSideQuestion`, the TUI's `/btw`: a digest of `session_id`'s conversation as read-only context (none for an unknown or absent id), no tools, its own `btw:` fallback partition, 2048 output tokens, a 90 s deadline. Nothing is written to the session, so the answer never reaches later turns; it may run while that chat's turn runs. `400` bad body, blank question or one over 4000 characters (`param` names the field), `501` no side question in this runtime, `502` model failure or empty answer, `504` deadline. A client that disconnects aborts the call. The desktop's `/btw` uses it.
+
+The B2 side-question route requires the serve key and chat scope. Named tokens get the identical 404 body for unknown, incognito and folder-withheld IDs, using the shared visibility helper; the owner retains the runtime's no-context behavior for unknown IDs. Session IDs are validated at ingress. The listener's folder egress policy is checked before the call and again before releasing the answer. Tests pin the stored history and stable prefix, including while the main turn is running. Side questions use the existing provider boundary for Privacy Shield and offline enforcement, with the same coverage limits documented in the privacy guide.
+
+The visibility equality tests compare status, body, all response headers and content length. A restriction introduced during inference keeps the owner's `403 folder_restricted`; named callers receive `404` only when they supplied a session ID. Named callers receive a fixed provider failure message at `502`. Each side question, including `btw:draft` and concurrent calls on one chat, has a fresh Privacy Shield archive; the `btw:` partition still selects fallback and policy, including the live turn's unsaved read taint. Tool-result summaries in the digest are framed as untrusted external data.
+
+The temporary btw: Privacy Shield archive is released after the last overlapping side call settles, including incognito requests; it is never retained as chat history or memory.
+
 
 `usage` on `/v1/chat/completions` (the body, the extensions-only `usage` frame) reports the tokens every LLM call of the turn reported, summed by the runtime's turn usage meter (`RunTurnResult.usage`; a local llama-server counts by its timings), and zeros when none did. A streaming request with `stream_options.include_usage: true` gets OpenAI's extra chunk before `data: [DONE]`: empty `choices` and the turn's `usage`; every chunk before it then carries `usage: null`, as OpenAI's do ([builders](openai-chunks.ts)).
 
@@ -309,6 +320,7 @@ The table records the per-route authorization policy. The owner key retains full
 | `POST /api/privacy-shield` | Administration (admin) |
 | `PATCH /api/privacy-shield` | Administration (admin) |
 | `POST /api/context-preview` | Ordinary action (chat) |
+| `POST /api/btw` | Ordinary action (chat) |
 | `POST /api/complete` | Ordinary action (chat) |
 | `POST /api/local-model/recheck` | Administration (admin) |
 | `POST /api/llm/active` | Administration (admin) |

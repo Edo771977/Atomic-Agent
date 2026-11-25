@@ -1380,7 +1380,7 @@ export async function createAgentRuntime(
           }),
       });
     },
-    askSideQuestion: (question: string, sideOptions?: { sessionId?: string; signal?: AbortSignal }) => {
+    askSideQuestion: async (question: string, sideOptions?: { sessionId?: string; signal?: AbortSignal }) => {
       if (lifecycle.isShutdown()) return Promise.resolve({ ok: false as const, reason: "shutting down" });
       const partition = sideQuestionPartition(sideOptions?.sessionId);
       // Read once, never written back: the side question leaves no trace
