@@ -661,7 +661,8 @@ describe("sharedKeyNotSentNote (ATO-1066)", () => {
   it("names the shared variable that is set and what to do instead", () => {
     process.env.OPENAI_API_KEY = "sk-SHARED";
     const note = sharedKeyNotSentNote(lan());
-    expect(note).toContain("OPENAI_API_KEY is not sent to other computers on your network");
+    expect(note).toContain("api.openai.com or loopback");
+    expect(sharedKeyNotSentNote(lan("", "https://gateway.example.test"))).toContain("api.openai.com or loopback");
     expect(note).toContain("type the server's key");
     expect(note).toContain("apiKeyEnvVar");
   });

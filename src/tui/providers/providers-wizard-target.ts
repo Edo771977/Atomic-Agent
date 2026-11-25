@@ -10,8 +10,10 @@
  */
 
 import {
+  describeOpenAiKeyDestination,
   maySendSharedOpenAiKey,
   resolveLlmProviderApiKey,
+  sharedOpenAiKeyNotSent,
 } from "../../config/resolve-llm-api-key.js";
 import type { UserLlmProviderEntry } from "../../config/llm-config.js";
 import { DEFAULT_AIMLAPI_BASE } from "../../llm/provider/aimlapi/aimlapi-provider.js";
@@ -211,7 +213,7 @@ const SHARED_COMPAT_KEY_VARS = [
 
 /** Whether `name` is one of the shared compat variables (`SHARED_COMPAT_KEY_VARS`). */
 export function isSharedCompatKeyVar(name: string): boolean {
-  return (SHARED_COMPAT_KEY_VARS as readonly string[]).includes(name);
+  return (SHARED_COMPAT_KEY_VARS as readonly string[]).includes(name.toUpperCase());
 }
 
 /**
@@ -223,12 +225,15 @@ export function isSharedCompatKeyVar(name: string): boolean {
  * stop working with no word as to why.
  */
 export function sharedKeyNotSentNote(wizard: ProvidersWizardState): string | null {
-  if (!getsOwnKeyVariable(wizard) || apiKeyForWizard(wizard)) return null;
-  const set = SHARED_COMPAT_KEY_VARS.find((name) => {
-    const value = process.env[name];
-    return value !== undefined && value.length > 0;
-  });
+  if (apiKeyForWizard(wizard)) return null;
+  const stored = storedEntryForWizard(wizard);
+  const set = sharedOpenAiKeyNotSent(stored ?? keyLookupEntryForWizard(wizard));
   if (!set) return null;
+  const openAi = describeOpenAiKeyDestination(set);
+  if (openAi !== null) {
+    return `${openAi} If this server needs a key, type the server's key here, or name its variable with apiKeyEnvVar in config.json.`;
+  }
+  if (!getsOwnKeyVariable(wizard)) return null;
   const where = targetsOtherComputer(wizard)
     ? "to other computers on your network"
     : "over plain http:// to a server that is not this computer";

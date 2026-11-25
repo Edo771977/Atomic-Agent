@@ -97,8 +97,12 @@ export function resolveLlmProviderApiKeyWithSource(
 export function sharedOpenAiKeyNotSent(
   entry: Pick<UserLlmProviderEntry, "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">,
 ): string | undefined {
+  if (entry.apiKey && describeMalformedApiKey(entry.apiKey) === null) return undefined;
+  if (entry.apiKeyEnvVar) {
+    return !mayUseKeyVariable(entry, entry.apiKeyEnvVar) && process.env[entry.apiKeyEnvVar]
+      ? entry.apiKeyEnvVar : undefined;
+  }
   if (entry.kind !== "openai-compatible" && entry.kind !== "qwen-openai-compatible") return undefined;
-  if (entry.apiKey || entry.apiKeyEnvVar) return undefined;
   const shared = sharedOpenAiKey();
   if (shared === undefined || (maySendSharedOpenAiKey(entry.baseUrl) && (shared.name === "OPENAI_COMPAT_API_KEY" || mayReceiveOpenAiKey(entry.baseUrl)))) return undefined;
   return shared.name;
@@ -138,6 +142,13 @@ export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
   "OPENAI_API_KEY",
   "ATOMIC_AGENT_OPENAI_API_KEY",
 ]);
+
+/** Why the destination-bound OpenAI key was withheld, without its value. */
+export function describeOpenAiKeyDestination(name: string): string | null {
+  return OPENAI_KEY_VARIABLES.has(name.toUpperCase())
+    ? `${name} is not sent to this server. OpenAI keys go only to api.openai.com or loopback.`
+    : null;
+}
 
 /**
  * ATO-1703: whether `OPENAI_API_KEY` / `ATOMIC_AGENT_OPENAI_API_KEY` may be
