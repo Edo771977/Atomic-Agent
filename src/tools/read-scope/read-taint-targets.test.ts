@@ -1,11 +1,37 @@
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
+import { isShellHttpUrl } from "./read-scope-targets.js";
 import { readTaintTargets } from "./read-taint-targets.js";
+import { findShellStateSecrets } from "./state-secrets.js";
 
 const wd = resolve("/work/open");
 const plan = resolve("/work/secret/plan.md");
 const source = resolve("/work/secret/a.ts");
 const repo = resolve("/work/secret");
+
+it.each([
+  "https://example.test/../../../secret/plan.md",
+  "data:fixture/../../secret/plan.md",
+  "blob:fixture/../../secret/plan.md",
+  "about:fixture/../../secret/plan.md",
+])("treats climbing shell token %s as a path for taint and secret checks", token => {
+  const args = { cmd: "cat", args: [token] };
+  expect(readTaintTargets("os.shell.run", args, wd)).toContain(plan);
+  expect(findShellStateSecrets(args, { workingDir: wd }, { stateDir: repo, files: [plan] })).toContain(plan);
+});
+
+it("leaves an ordinary HTTPS shell argument outside the filesystem guards", () => {
+  const args = { cmd: "cat", args: ["https://example.test/resource"] };
+  expect(readTaintTargets("os.shell.run", args, wd)).toEqual([]);
+  expect(findShellStateSecrets(args, { workingDir: wd }, { stateDir: repo, files: [plan] })).toEqual([]);
+});
+
+it("checks the original HTTP path independently of its query and fragment", () => {
+  expect(isShellHttpUrl("https://example.test/folder/..?view=fixture")).toBe(false);
+  expect(isShellHttpUrl("https://example.test/folder/%2e.#fixture")).toBe(false);
+  expect(isShellHttpUrl("https://example.test/folder?view=fixture#section")).toBe(true);
+  expect(isShellHttpUrl("https://")).toBe(false);
+});
 
 describe("readTaintTargets", () => {
   it("reads verify.run commands like the shell: cwd and absolute paths", () => {

@@ -9,7 +9,7 @@ import {
   type HttpHandler,
   type HandlerContext,
 } from "./request-context.js";
-import { existingSessionUnavailableToCaller, serveWithheldRecord, taskUnavailableToCaller } from "./serve-egress.js";
+import { isNamedCaller, serveWithheldRecord } from "./serve-egress.js";
 import { checkWorkingDir } from "./session-working-dir.js";
 import {
   IDEA_STATUSES,
@@ -70,9 +70,10 @@ function withIdeaStore(
  */
 function ideaWithheld(ctx: HandlerContext, idea: IdeaRecord): boolean {
   const task = idea.evidence.source === "goal" ? null : ctx.runtime.taskStore.get(idea.evidence.ref);
-  if (task && taskUnavailableToCaller(ctx, task)) return true;
   const sessionId = idea.evidence.source === "goal" ? idea.evidence.ref : task?.sessionId ?? idea.sourceSessionId ?? idea.sessionId;
-  return (sessionId !== null && existingSessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId);
+  if (isNamedCaller(ctx) && (task?.incognito === true ||
+      (sessionId !== null && ctx.runtime.sessionStore.getSessionPrivacy(sessionId) === true))) return true;
+  return serveWithheldRecord(ctx, sessionId);
 }
 
 /** The runtime's seed (its live view of the original chat); without one, refused while constraints exist. */

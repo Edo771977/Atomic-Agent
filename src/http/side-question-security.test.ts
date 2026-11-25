@@ -137,4 +137,3 @@ it("refuses cloud egress for a side question while offline", async () => {
   expect(egressSnapshot()).toMatchObject({ bytesOut: 0, requestsOut: 0 });
   expect(egressSnapshot().requestsBlocked).toBeGreaterThan(0);
 });
-

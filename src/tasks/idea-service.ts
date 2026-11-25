@@ -7,7 +7,8 @@ import { goalIdeaInputs } from "./idea-goal-source.js";
 import { unsafeRetrySource } from "./idea-privacy.js";
 import { buildIdeaCandidates } from "./idea-rules.js";
 import type { IdeaStore, IdeaSyncResult } from "./idea-store.js";
-import type { IdeaRecord } from "./idea-types.js";
+import { ideaSourceTaskId, type IdeaRecord } from "./idea-types.js";
+export { ideaSourceTaskId } from "./idea-types.js";
 import type { TaskStore } from "./task-store.js";
 import {
   TASK_USER_MESSAGE_MAX_LENGTH,
@@ -95,6 +96,7 @@ export interface IdeaCarrySource {
   sessions: {
     load(id: string): (Pick<SessionState, "workingDir"> & Partial<Pick<SessionState, "metadata" | "incognito">>) | null;
     isIncognito?(id: string): boolean;
+    getSessionPrivacy?(id: string): boolean | null;
   };
 }
 
@@ -104,6 +106,7 @@ export function ideaRetryIsUnsafe(idea: IdeaRecord, source?: IdeaCarrySource): b
   const taskId = ideaSourceTaskId(idea);
   const task = taskId === null ? null : source.tasks.get(taskId);
   return unsafeRetrySource(task, idea.sourceSessionId ?? idea.sessionId, id => {
+    if (source.sessions.getSessionPrivacy) return source.sessions.getSessionPrivacy(id);
     if (source.sessions.isIncognito?.(id)) return true;
     const session = source.sessions.load(id);
     return session === null ? null : isIncognitoSession(session);
@@ -145,13 +148,6 @@ export interface AcceptIdeaOptions {
   /** Lets a Retry card carry over the original task's limits and folder. */
   carryFrom?: IdeaCarrySource;
   now?: number;
-}
-
-/** The task a `retry_task` idea was built from, or `null` for other kinds. */
-export function ideaSourceTaskId(idea: Pick<IdeaRecord, "kind" | "sourceKey" | "evidence">): string | null {
-  if (idea.kind !== "retry_task") return null;
-  if (idea.evidence.source === "task" && idea.evidence.ref) return idea.evidence.ref;
-  return idea.sourceKey.startsWith("task:") ? idea.sourceKey.slice("task:".length) : null;
 }
 
 /** What a Retry card carries over, or `null` when the original task is gone. */
@@ -196,6 +192,8 @@ export function acceptIdea(
   const now = options.now ?? Date.now();
   const before = ideas.get(id);
   if (before === null) return null;
+  // A caller without a source lookup cannot decide a Retry's privacy.
+  if (before.kind === "retry_task" && options.carryFrom === undefined) return null;
   if (ideaRetryIsUnsafe(before, options.carryFrom)) {
     ideas.discardPrivateRetry(id);
     return null;

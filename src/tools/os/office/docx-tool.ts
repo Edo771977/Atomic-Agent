@@ -187,7 +187,10 @@ export function buildOsFsDocxTool(options: FsDangerousToolOptions): ToolDefiniti
 
       const blockPreview = args.blocks.join("\n").slice(0, 400);
       const imagePreview = images.size === 0 ? ""
-        : `Embedded image files:\n${[...images.keys()].map(path => `- ${JSON.stringify(path)}`).join("\n")}\n\n`;
+        : `Embedded image files:\n${[...images.keys()].map(path => {
+          const absoluteImage = resolveUserPath(path, ctx.workingDir);
+          return `- ${JSON.stringify(path)} → ${JSON.stringify(absoluteImage)}`;
+        }).join("\n")}\n\n`;
       const preview =
         args.op === "replace"
           ? `${JSON.stringify(args.find)} → ${JSON.stringify(args.replaceWith)}`

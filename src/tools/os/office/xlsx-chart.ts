@@ -2,7 +2,6 @@ import type * as ExcelJS from "exceljs";
 import type JSZip from "jszip";
 
 import { chartReference, chartXml, MAX_CHART_POINTS, MAX_CHART_SERIES, type ChartSpec, type ChartType } from "../ooxml/ooxml-chart.js";
-import { loadBoundedOfficeZip } from "../ooxml/bounded-office-zip.js";
 import {
   CT,
   addOverride,
@@ -282,8 +281,7 @@ export async function addChartToXlsx(
 }
 
 /** True when the workbook carries chart parts (which a cell write through exceljs would drop). */
-export async function hasCharts(data: Buffer): Promise<boolean> {
-  const zip = await loadBoundedOfficeZip(data);
+export function hasCharts(zip: JSZip): boolean {
   return Object.keys(zip.files).some((name) => /^xl\/charts\/chart\d*\.xml$/i.test(name));
 }
 

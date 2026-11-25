@@ -58,6 +58,14 @@ async function textOf(path: string, sheets?: string[]): Promise<string> {
 }
 
 describe("os.fs.xlsx", () => {
+  it.each(["read", "write"] as const)("rejects %s before unbounded workbook loading", async op => {
+    await writeFile(join(dir, "limit.xlsx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65_537));
+    const bounded = buildOsFsXlsxTool({ approvals: gate, approvalRequired: true }, { maxUncompressedBytes: 65_536 });
+    await expect(bounded.run({ path: "limit.xlsx", op, ...(op === "write" ? { rows: [["fixture"]] } : {}) }, ctx()))
+      .rejects.toThrow(/uncompressed size limit.*65536/i);
+    expect(prompts).toHaveLength(0);
+  });
+
   it("creates a workbook with values and formulas that the reader sees", async () => {
     const result = await tool().run(
       {
@@ -255,7 +263,7 @@ describe("os.fs.xlsx op chart (ATO-541)", () => {
 
   it("rejects an oversized existing package before opening ExcelJS or asking to chart it", async () => {
     const path = await workbookWithData();
-    await writeFile(path, await withDeclaredOfficePartSize(await readFile(path), 65 * 1024 * 1024));
+    await writeFile(path, await withDeclaredOfficePartSize(await readFile(path), 257 * 1024 * 1024));
     await expect(tool().run({ path: "sales.xlsx", op: "chart", range: "A1:C3" }, ctx())).rejects.toThrow(/uncompressed.*limit/i);
     expect(prompts).toHaveLength(1);
   });
