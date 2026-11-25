@@ -77,8 +77,12 @@ export function createSideQuestionHandler(): HttpHandler {
       });
       if (controller.signal.aborted || res.writableEnded) return;
       // The owning turn can read restricted data while this side call runs.
-      if ((sessionId && sessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId ?? null)) {
+      if (sessionId && sessionUnavailableToCaller(ctx, sessionId)) {
         sendError(res, 404, openaiError("session not found"));
+        return;
+      }
+      if (serveWithheldRecord(ctx, sessionId ?? null)) {
+        sendError(res, 403, openaiError(SERVE_RESTRICTED_NOTICE, "invalid_request_error", null, SERVE_RESTRICTED_CODE));
         return;
       }
       if (result.ok) {

@@ -77,6 +77,29 @@ it("drops an answer when a concurrent turn makes its chat inaccessible", async (
   expect(response.text).not.toContain("DO-NOT-EXPOSE");
 });
 
+it.each([false, true])("preserves the owner's folder restriction after inference, with session=%s", async withSession => {
+  h = await startTestHarness({ apiKey: owner, host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local"], allowedEgress: [] } } });
+  const id = withSession ? h.runtime.createSession().id : undefined;
+  let restricted = false;
+  vi.spyOn(h.runtime, "serveRefusal").mockImplementation(() => restricted ? "restricted" : null);
+  vi.spyOn(h.runtime, "askSideQuestion").mockImplementation(async () => { restricted = true; return { ok: true, text: "PRIVATE" }; });
+  const body = { question: "hello", session_id: id };
+  const after = await post(owner, body);
+  expect(after.status).toBe(403);
+  expect(JSON.parse(after.text).error.code).toBe("folder_restricted");
+  expect(after).toEqual(await post(owner, body));
+});
+
+it("keeps a named draft restriction at 403, without inventing an unknown session", async () => {
+  h = await startTestHarness({ apiKey: owner, host: "0.0.0.0", constraints: { "<cwd>": { allowedProviders: ["local"], allowedEgress: [] } }, namedTokens: () => [{ name: "fixture", role: "member", sha256: hashHttpToken(named), createdAt: "" }] });
+  let restricted = false;
+  vi.spyOn(h.runtime, "serveRefusal").mockImplementation(() => restricted ? "restricted" : null);
+  vi.spyOn(h.runtime, "askSideQuestion").mockImplementation(async () => { restricted = true; return { ok: true, text: "PRIVATE" }; });
+  const response = await post(named, { question: "hello" });
+  expect(response.status).toBe(403);
+  expect(JSON.parse(response.text).error.code).toBe("folder_restricted");
+});
+
 it("masks private side-question text at the covered cloud provider boundary", async () => {
   let wire = "";
   const cloud = new OpenAiProvider({ id: "cloud", baseUrl: "https://cloud.example.invalid", apiKey: "", defaultChatModel: "fixture", privacy: { shield: "on" },
@@ -103,3 +126,4 @@ it("refuses cloud egress for a side question while offline", async () => {
   expect(egressSnapshot()).toMatchObject({ bytesOut: 0, requestsOut: 0 });
   expect(egressSnapshot().requestsBlocked).toBeGreaterThan(0);
 });
+
