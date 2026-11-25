@@ -1,3 +1,4 @@
+import { admitAuxiliaryCompletion } from "./auxiliary-concurrency.js";
 import { SIDE_QUESTION_MAX_INPUT_CHARS } from "../runtime/side-question.js";
 import { sessionIdError } from "../session/session-id.js";
 import {
@@ -65,24 +66,28 @@ export function createSideQuestionHandler(): HttpHandler {
       sendError(res, 501, openaiError("side questions are not available in this runtime"));
       return;
     }
-    const controller = new AbortController();
-    onClientGone(res, () => controller.abort());
-    const result = await ctx.runtime.askSideQuestion((body.question as string).trim(), {
-      ...(sessionId ? { sessionId } : {}),
-      signal: controller.signal,
-    });
-    if (controller.signal.aborted || res.writableEnded) return;
-    // The owning turn can read restricted data while this side call runs.
-    if ((sessionId && sessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId ?? null)) {
-      sendError(res, 404, openaiError("session not found"));
-      return;
-    }
-    if (result.ok) {
-      sendJson(res, 200, { text: result.text });
-      return;
-    }
-    const status = result.reason === "timed out" ? 504 : 502;
-    sendError(res, status, openaiError(result.reason, "server_error"));
+    const release = admitAuxiliaryCompletion(ctx, res);
+    if (release === null) return;
+    try {
+      const controller = new AbortController();
+      onClientGone(res, () => controller.abort());
+      const result = await ctx.runtime.askSideQuestion((body.question as string).trim(), {
+        ...(sessionId ? { sessionId } : {}),
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted || res.writableEnded) return;
+      // The owning turn can read restricted data while this side call runs.
+      if ((sessionId && sessionUnavailableToCaller(ctx, sessionId)) || serveWithheldRecord(ctx, sessionId ?? null)) {
+        sendError(res, 404, openaiError("session not found"));
+        return;
+      }
+      if (result.ok) {
+        sendJson(res, 200, { text: result.text });
+        return;
+      }
+      const status = result.reason === "timed out" ? 504 : 502;
+      sendError(res, status, openaiError(result.reason, "server_error"));
+    } finally { release(); }
   };
 }
 
