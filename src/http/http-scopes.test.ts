@@ -22,20 +22,21 @@ describe("ROUTE_SCOPES", () => {
     expect(missing).toEqual([]);
   });
 
-  it("has no entry for a route that no longer exists, or for an open route", () => {
-    const known = new Set(authed);
+  it("has no stale entry and explicitly marks each open route Public read", () => {
+    const known = new Set([...authed, ...open]);
     const stale = Object.keys(ROUTE_SCOPES).filter((key) => !known.has(key));
     expect(stale).toEqual([]);
-    for (const key of open) expect(ROUTE_SCOPES[key]).toBeUndefined();
+    for (const key of open) expect(ROUTE_SCOPES[key]).toBe("public-read");
+    for (const key of authed) expect(ROUTE_SCOPES[key]).not.toBe("public-read");
   });
 
   it("uses only known scopes", () => {
-    for (const scope of Object.values(ROUTE_SCOPES)) expect(HTTP_SCOPES).toContain(scope);
+    for (const scope of Object.values(ROUTE_SCOPES)) expect([...HTTP_SCOPES, "public-read"]).toContain(scope);
   });
 
   it("keeps only health and the panel shell public", () => {
     expect(open).toEqual(
-      ["GET /health", "GET /panel", "GET /panel/app.js"],
+      ["GET /health", "GET /panel", "GET /panel/app.js", "GET /panel/manifest.webmanifest", "GET /panel/icon.svg", "GET /panel/icon-180.png"],
     );
   });
 
@@ -46,6 +47,7 @@ describe("ROUTE_SCOPES", () => {
     expect(scopeForRoute("POST", "/api/webhooks")).toBe("admin");
     expect(scopeForRoute("POST", "/v1/chat/completions")).toBe("chat");
     expect(scopeForRoute("GET", "/api/sessions")).toBe("read");
+    expect(scopeForRoute("GET", "/api/discord/channel")).toBe("read");
   });
 
   it("requires the same permission for both ways of creating a task", () => {
