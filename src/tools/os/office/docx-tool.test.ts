@@ -247,6 +247,18 @@ describe("os.fs.docx tracked changes and pictures (ATO-541)", () => {
     );
     expect(prompts).toHaveLength(1);
   });
+
+  it("lists every embedded image in the append approval even after a long block", async () => {
+    await copyFile(FIXTURE, join(dir, "notes.docx"));
+    await writeFile(join(dir, "one.png"), PNG_1X1);
+    await writeFile(join(dir, "two.png"), PNG_1X1);
+    await tool().run({
+      path: "notes.docx", op: "append", blocks: ["x".repeat(500), "![one](one.png)", "![two](two.png)"],
+    }, ctx());
+    expect(prompts[0]?.reason).toContain("3 paragraphs");
+    expect(prompts[0]?.preview).toContain("one.png");
+    expect(prompts[0]?.preview).toContain("two.png");
+  });
 });
 
 describe("parseDocxArgs", () => {

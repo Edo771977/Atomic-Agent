@@ -185,10 +185,13 @@ export function buildOsFsDocxTool(options: FsDangerousToolOptions): ToolDefiniti
       };
       let edit = await build(existing);
 
+      const blockPreview = args.blocks.join("\n").slice(0, 400);
+      const imagePreview = images.size === 0 ? ""
+        : `Embedded image files:\n${[...images.keys()].map(path => `- ${JSON.stringify(path)}`).join("\n")}\n\n`;
       const preview =
         args.op === "replace"
           ? `${JSON.stringify(args.find)} → ${JSON.stringify(args.replaceWith)}`
-          : args.blocks.join("\n").slice(0, 400);
+          : imagePreview + blockPreview;
       const result = await commitOfficeFile(options, ctx, {
         tool: TOOL,
         absolute,
