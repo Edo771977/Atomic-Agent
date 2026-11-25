@@ -47,6 +47,7 @@ interface AnthropicBlock {
 }
 
 interface AnthropicRequest {
+  incognito?: unknown;
   model?: unknown;
   system?: unknown;
   messages?: unknown;
@@ -107,6 +108,9 @@ function safeJson(value: unknown): string {
 /** Map an Anthropic Messages request onto a chat-completions body. */
 export function anthropicToChatRequest(raw: unknown): MappedRequest {
   const body = (raw ?? {}) as AnthropicRequest;
+  if (body.incognito !== undefined && body.incognito !== false) {
+    return { ok: false, message: "incognito is unsupported on this endpoint; use /v1/chat/completions" };
+  }
   if (!Array.isArray(body.messages) || body.messages.length === 0) {
     return { ok: false, message: "messages: field required and must be a non-empty array" };
   }
