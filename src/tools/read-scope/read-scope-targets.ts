@@ -9,6 +9,7 @@ import { fileURLToPath } from "node:url";
 
 import { stdinScriptOf } from "../os/shell/shell-command-argv.js";
 import { needsShellInterpretation } from "../os/shell/shell-interpretation.js";
+import { imagePathsOf } from "../os/office/docx-xml.js";
 
 export type ReadTargetsOf = (args: Record<string, unknown>) => string[];
 
@@ -145,7 +146,20 @@ export const READ_TOOL_TARGETS: ReadonlyMap<string, ReadTargetsOf> = new Map<
   ["os.fs.read_document", pathArg],
   // The office tools read the file they edit or show; `create` makes a
   // new one, which the approval ladder classifies as a write.
-  ["os.fs.docx", (args) => (args.op === "create" ? [] : pathArg(args))],
+  [
+    // The document itself (not for create), and every picture its
+    // `![alt](path)` blocks embed: a file from outside the scope put in a
+    // document inside it could otherwise be read without asking.
+    "os.fs.docx",
+    (args) => [
+      ...(args.op === "create" ? [] : pathArg(args)),
+      ...imagePathsOf(
+        (Array.isArray(args.blocks) ? args.blocks : []).filter(
+          (block: unknown): block is string => typeof block === "string",
+        ),
+      ),
+    ],
+  ],
   ["os.fs.xlsx", (args) => (args.op === "create" ? [] : pathArg(args))],
   ["os.fs.archive.list", pathArg],
   ["os.fs.archive.read_entry", pathArg],
