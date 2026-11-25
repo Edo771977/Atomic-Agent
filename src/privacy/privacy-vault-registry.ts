@@ -66,6 +66,19 @@ const aliases = new Map<string, string>();
 const vaultKey = (id: string): string => aliases.get(id) ?? id;
 const turnShield = new AsyncLocalStorage<{ id: string; enabled: boolean; shared: boolean }>();
 const workerReferences = new AsyncLocalStorage<Map<PrivacyVault, Set<string>> | null>();
+const requestVault = new AsyncLocalStorage<{ vault?: PrivacyVault; enabled: boolean }>();
+
+/** A single auxiliary completion owns this archive, independently of its routing partition. */
+export function withFreshPrivacyVault<T>(run: () => T): T {
+  const enabled = isPrivacyShieldEnabledForRequest();
+  return workerReferences.run(null, () => requestVault.run({ enabled }, run));
+}
+
+/** Acquire once at the provider boundary; keep that same object through restoration. */
+export function privacyVaultForRequest(sessionId: string | undefined): PrivacyVault {
+  const request = requestVault.getStore();
+  return request ? request.vault ??= newVault() : privacyVaultFor(sessionId);
+}
 
 function newVault(): PrivacyVault {
   return new PrivacyVault(() => knownSecrets(), {
@@ -94,6 +107,8 @@ export function withPrivacyShieldTurn<T>(sessionId: string, run: () => T): T {
 }
 
 export function isPrivacyShieldEnabledForRequest(sessionId?: string): boolean {
+  const request = requestVault.getStore();
+  if (request) return request.enabled;
   const turn = turnShield.getStore();
   return turn && (!sessionId || turn.id === vaultKey(sessionId)) ? turn.enabled : shieldEnabled;
 }
@@ -135,6 +150,13 @@ export function rebuildPrivacyVault(
   previous: PrivacyVault,
   mask: (fresh: PrivacyVault) => void,
 ): PrivacyVault {
+  const request = requestVault.getStore();
+  if (request) {
+    const fresh = newVault();
+    mask(fresh);
+    if (request.vault === previous) request.vault = fresh;
+    return fresh;
+  }
   const turn = turnShield.getStore();
   if (turn?.shared && sessionId && turn.id === vaultKey(sessionId)) throw new PrivacyArchiveLimitError();
   const fresh = newVault();
