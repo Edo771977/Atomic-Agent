@@ -279,7 +279,6 @@ Ondate:
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
 | [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
-| [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Importare |
 | [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
 | [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
 | [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
@@ -291,6 +290,7 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Rinviata in ondata B: cambia i redirect del crawl e aggiunge rendering JavaScript nel browser; richiede revisione dei gate URL per ogni hop, policy egress e consenso del fork. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
