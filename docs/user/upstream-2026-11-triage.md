@@ -253,7 +253,6 @@ Ondate:
 | --- | --- | --- | --- |
 | [#1562](https://github.com/AtomicBot-ai/atomic-agent/pull/1562) | 1 | fix(fusion): label workers on a foreign llama.cpp server with the model it  | Importare |
 | [#1563](https://github.com/AtomicBot-ai/atomic-agent/pull/1563) | 1 | fix(tui): no model pick for a foreign llama.cpp server in the Fusion compos | Importare |
-| [#1576](https://github.com/AtomicBot-ai/atomic-agent/pull/1576) | 1 | feat(fallback): ask once whether to keep the local model as the last resort | Importare |
 | [#1577](https://github.com/AtomicBot-ai/atomic-agent/pull/1577) | 2 | TUI brand badges for providers, models, integrations and MCP servers (ATO-1 | Importare |
 | [#1585](https://github.com/AtomicBot-ai/atomic-agent/pull/1585) | 1 | Remove a stray webhook comment from web-config (ATO-1500) | Importare |
 | [#1586](https://github.com/AtomicBot-ai/atomic-agent/pull/1586) | 1 | eval: small-window bench profile for 16K and 32K windows (ATO-1582) | Importare |
@@ -283,7 +282,6 @@ Ondate:
 | [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
 | [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
 | [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
-| [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Importare |
 | [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importare |
 | [#1730](https://github.com/AtomicBot-ai/atomic-agent/pull/1730) | 2 | ATO-1679: say why a subscription CLI exited, and what to do for an old CLI  | Importare |
 
@@ -291,6 +289,8 @@ Ondate:
 
 | PR | Commit | Modifica | Raccomandazione |
 | --- | --- | --- | --- |
+| [#1576](https://github.com/AtomicBot-ai/atomic-agent/pull/1576) | 1 | feat(fallback): ask once whether to keep the local model as the last resort | Rinviata in ondata B: aggiunge una route HTTP che modifica la configurazione persistente di fallback; verificare ruoli, scope e consenso nel fork. |
+| [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Rinviata in ondata B: nuovi campi nei report esterni derivati dal testo del provider; verificare che nomi e codici non possano contenere dati o credenziali, con offline e incognito. |
 | [#1569](https://github.com/AtomicBot-ai/atomic-agent/pull/1569) | 1 | MCP elicitation: show a server's question to the person through serve (ATO- | Importare con revisione approfondita |
 | [#1573](https://github.com/AtomicBot-ai/atomic-agent/pull/1573) | 2 | Monid in Integrations with browser sign-in (ATO-1630) | Importare con revisione approfondita |
 | [#1578](https://github.com/AtomicBot-ai/atomic-agent/pull/1578) | 4 | ATO-1448: experimental ChatGPT sign-in provider without the Codex CLI (ATO- | Importare con revisione approfondita |
