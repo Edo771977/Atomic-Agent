@@ -58,6 +58,14 @@ async function textOf(path: string, sheets?: string[]): Promise<string> {
 }
 
 describe("os.fs.xlsx", () => {
+  it.each(["read", "write"] as const)("rejects %s before unbounded workbook loading", async op => {
+    await writeFile(join(dir, "limit.xlsx"), await withDeclaredOfficePartSize(await readFile(FIXTURE), 65_537));
+    const bounded = buildOsFsXlsxTool({ approvals: gate, approvalRequired: true }, { maxUncompressedBytes: 65_536 });
+    await expect(bounded.run({ path: "limit.xlsx", op, ...(op === "write" ? { rows: [["fixture"]] } : {}) }, ctx()))
+      .rejects.toThrow(/uncompressed size limit.*65536/i);
+    expect(prompts).toHaveLength(0);
+  });
+
   it("creates a workbook with values and formulas that the reader sees", async () => {
     const result = await tool().run(
       {
