@@ -9,6 +9,7 @@ import {
   type ConversationTurn,
 } from "../session/conversation-turn.js";
 import { stripTitleReasoning } from "../session/session-title.js";
+import { withFreshPrivacyVault } from "../privacy/index.js";
 
 /**
  * `/btw <question>` (ATO-1152, ATO-559): a quick question asked beside
@@ -215,7 +216,7 @@ export async function askSideQuestion(
   timer.unref?.();
   try {
     const prompt = buildSideQuestionPrompt(buildSideQuestionContext(deps.turns ?? []), text);
-    const result = await deps.complete(buildSideQuestionRequest(prompt, deps, abort.signal));
+    const result = await withFreshPrivacyVault(() => deps.complete(buildSideQuestionRequest(prompt, deps, abort.signal)));
     const answer = extractSideAnswerText(result);
     if (answer.length === 0) {
       deps.onError?.(new Error("the model returned no answer"));
