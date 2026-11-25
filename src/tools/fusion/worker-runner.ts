@@ -37,6 +37,7 @@ import {
   inspectDeclaredFiles,
 } from "./declared-files.js";
 import type { DeclaredInputsRegistry } from "../os/fs/fs-declared-inputs.js";
+import { FusionWorkerStopError } from "./fusion-stop-errors.js";
 import {
   renderWorkerBrief,
   WORKER_REPLY_CHAR_BUDGET,
@@ -1526,7 +1527,10 @@ async function runOneTask(
     }
     stall = stalled;
     handBack.abort(
-      new Error("handed back early: no file written by half the budget"),
+      new FusionWorkerStopError(
+        "hand-back",
+        "handed back early: no file written by half the budget",
+      ),
     );
   };
   const handedBack = (): boolean =>
@@ -1716,7 +1720,9 @@ async function runOneTask(
       options.shouldStart?.() === undefined
     ) {
       replaceRequested = true;
-      replaceAbort.abort(new Error("replaced by the escalation model"));
+      replaceAbort.abort(
+        new FusionWorkerStopError("replaced", "replaced by the escalation model"),
+      );
     }
   };
   // The person's notes to this worker (ATO-568). They ride the same
@@ -1771,7 +1777,7 @@ async function runOneTask(
     options.parentSessionId,
     task.id,
     {
-      stop: () => stopByPerson.abort(new Error("stopped by the person")),
+      stop: () => stopByPerson.abort(new FusionWorkerStopError("person", "stopped by the person")),
       escalate: () => escalate({ kind: "manual" }),
       steer: (text) => steerByPerson(session.id, text),
     },
@@ -2287,7 +2293,8 @@ async function runOneTask(
     const replaceCollector = new WorkerRunCollector({ workingDir, pricing });
     const capAbort = new AbortController();
     const replaceTimer = setTimeout(
-      () => capAbort.abort(new Error("time limit")),
+      () =>
+        capAbort.abort(new FusionWorkerStopError("time-limit", "time limit")),
       timeoutMs,
     );
     replaceTimer.unref?.();
@@ -2304,7 +2311,7 @@ async function runOneTask(
       options.parentSessionId,
       task.id,
       {
-        stop: () => stopByPerson.abort(new Error("stopped by the person")),
+        stop: () => stopByPerson.abort(new FusionWorkerStopError("person", "stopped by the person")),
         escalate: async () => "not escalated: the task is already running on the escalation model",
         steer: (text) => steerByPerson(replaceSession.id, text),
       },
@@ -2435,7 +2442,9 @@ async function runOneTask(
                 replaceSpent >= target.maxUsd ||
                 options.shouldStart?.() !== undefined
               ) {
-                capAbort.abort(new Error("escalation cap"));
+                capAbort.abort(
+                  new FusionWorkerStopError("escalation-cap", "escalation cap"),
+                );
               }
             }
           },

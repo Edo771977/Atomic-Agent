@@ -32,6 +32,7 @@ import {
 } from "../../config/llm-run-mode-config.js";
 import { getConfig } from "../../config/index.js";
 import { workerReplyAllowance } from "../../local-llm/server/worker-slots.js";
+import { FusionBudgetStopError } from "./fusion-stop-errors.js";
 import type { ToolContext, ToolDefinition } from "../tool-registry.js";
 import { lessonSourceIsRestricted } from "../../prompt/project-lessons-data.js";
 import { recordRestrictedProjectLessonExposure } from "../../session/project-lesson-exposure.js";
@@ -1548,7 +1549,7 @@ export function buildFusionDelegateTool(
       const stopForBudget = (stop: TurnBudgetStop): void => {
         if (stoppedBy !== undefined) return;
         stoppedBy = stop;
-        budgetAbort.abort(new Error(stop.message));
+        budgetAbort.abort(new FusionBudgetStopError(stop));
       };
       const timeLeft = capped
         ? turnBudget.timeLeftMs(ctx.sessionId, limits)
