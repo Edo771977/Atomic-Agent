@@ -278,10 +278,10 @@ Ondate:
 | [#1708](https://github.com/AtomicBot-ai/atomic-agent/pull/1708) | 1 | Memory history: journal eviction, dedup merges, consolidation, lessons and  | Importare |
 | [#1709](https://github.com/AtomicBot-ai/atomic-agent/pull/1709) | 1 | TUI: step cost in /why and saved /verbose choice (ATO-34) | Importare |
 | [#1711](https://github.com/AtomicBot-ai/atomic-agent/pull/1711) | 1 | Read Outlook .msg files with read_document, no new dependency (ATO-686) | Importare |
-| [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importare |
+| [#1713](https://github.com/AtomicBot-ai/atomic-agent/pull/1713) | 1 | Tables and charts in os.fs.write_pptx, shared OOXML zip helper (ATO-537) | Importato con cherry-pick -x in [#231](https://github.com/Edo771977/Atomic-Agent/pull/231); guard del fork conservati e test aggiunto sul read taint delle immagini Word. |
 | [#1714](https://github.com/AtomicBot-ai/atomic-agent/pull/1714) | 2 | os.web.crawl: gzipped sitemaps, same-site start redirects, JS-built pages ( | Importare |
 | [#1715](https://github.com/AtomicBot-ai/atomic-agent/pull/1715) | 1 | Export a chat to PDF from the terminal, and /export in the TUI (ATO-1054) | Importare |
-| [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importare |
+| [#1720](https://github.com/AtomicBot-ai/atomic-agent/pull/1720) | 2 | Word lists, tables, pictures and tracked changes; Excel charts (ATO-541) | Importato con cherry-pick -x in [#231](https://github.com/Edo771977/Atomic-Agent/pull/231); guard del fork conservati e test aggiunto sul read taint delle immagini Word. |
 | [#1724](https://github.com/AtomicBot-ai/atomic-agent/pull/1724) | 2 | Resolve tool name spellings before step checks and stop reporting near-miss | Importare |
 | [#1727](https://github.com/AtomicBot-ai/atomic-agent/pull/1727) | 2 | Tag provider refusals with what was refused (ATO-1673) | Importare |
 | [#1729](https://github.com/AtomicBot-ai/atomic-agent/pull/1729) | 3 | Fusion: budget and person stops are not crash reports (ATO-1677) | Importare |
