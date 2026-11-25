@@ -196,15 +196,19 @@ export async function importAtomicDesktop(
 
   try {
     // Sessions before tasks: a copied task names its session by id.
-    if (parts.sessions) {
-      await part("sessions", ATOMIC_DESKTOP_DB_FILES.sessions, (file) =>
-        importSessions(file, targets.sessionStore, result, batchSize, dryRun, onItem),
-      );
+    const hasSourceSessions = existsSync(join(sourceDir, ATOMIC_DESKTOP_DB_FILES.sessions));
+    let privateSessionIds: ReadonlySet<string> | null = hasSourceSessions ? null : new Set();
+    if (parts.sessions || (parts.tasks && hasSourceSessions)) {
+      await part("sessions", ATOMIC_DESKTOP_DB_FILES.sessions, (file) => {
+        privateSessionIds = snapshotPrivateSessionIds(file);
+        if (parts.sessions) importSessions(file, targets.sessionStore, result, batchSize, dryRun, onItem);
+      });
     }
     if (parts.tasks) {
-      await part("tasks", ATOMIC_DESKTOP_DB_FILES.tasks, (file) =>
-        importTasks(file, targets.taskStore, result, batchSize, dryRun, onItem),
-      );
+      await part("tasks", ATOMIC_DESKTOP_DB_FILES.tasks, (file) => {
+        if (privateSessionIds === null) throw new Error("source session privacy could not be read; tasks were not copied");
+        importTasks(file, targets.taskStore, result, batchSize, dryRun, onItem, privateSessionIds);
+      });
     }
     if (parts.memory) {
       await part("memory", ATOMIC_DESKTOP_DB_FILES.memory, (file) =>
@@ -319,6 +323,24 @@ function importSessions(
   }
 }
 
+/** Read privacy from the same source snapshot even when only tasks were selected. */
+function snapshotPrivateSessionIds(snapshotFile: string): ReadonlySet<string> {
+  const db = new DatabaseCtor(snapshotFile, { readonly: true, fileMustExist: true });
+  const ids = new Set<string>();
+  try {
+    if (!hasTable(db, "sessions")) return ids;
+    for (const row of db.prepare("SELECT id, payload FROM sessions").iterate() as IterableIterator<{ id: string; payload: string }>) {
+      try {
+        if (isIncognitoSession(JSON.parse(row.payload))) ids.add(row.id);
+      } catch {
+        // An unreadable source chat cannot establish that its tasks are ordinary.
+        ids.add(row.id);
+      }
+    }
+    return ids;
+  } finally { db.close(); }
+}
+
 function importTasks(
   snapshotFile: string,
   store: TaskStore,
@@ -326,12 +348,18 @@ function importTasks(
   batchSize: number,
   dryRun = false,
   onItem: (part: "tasks", id: string, imported: boolean) => void = () => {},
+  privateSessionIds: ReadonlySet<string> = new Set(),
 ): void {
   const counts = result.tasks;
   // Opening the store migrates the private copy to this binary's schema.
   const source = new TaskStore({ dbFile: snapshotFile });
   try {
-    const records = source.list({ limit: Number.MAX_SAFE_INTEGER }).reverse();
+    const records = source.list({ limit: Number.MAX_SAFE_INTEGER }).reverse().filter((task) => {
+      if (task.incognito !== true && (task.sessionId === null || !privateSessionIds.has(task.sessionId))) return true;
+      counts.skipped += 1;
+      onItem("tasks", task.id, false);
+      return false;
+    });
     for (let i = 0; i < records.length; i += batchSize) {
       const batch = records.slice(i, i + batchSize);
       const inserted = new Set(

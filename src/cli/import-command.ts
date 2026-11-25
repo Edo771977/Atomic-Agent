@@ -224,7 +224,10 @@ async function importHermes(args: string[]): Promise<number> {
   const sessionStore = new SessionStore({
     dbFile: config.paths.sessionsDbFile,
   });
-  const taskStore = new TaskStore({ dbFile: config.paths.tasksDbFile });
+  const taskStore = new TaskStore({
+    dbFile: config.paths.tasksDbFile,
+    isIncognitoSession: (id) => sessionStore.isIncognito(id),
+  });
   const source = new HermesSource(sourceDir);
 
   try {
@@ -331,7 +334,10 @@ async function importOpenclaw(args: string[]): Promise<number> {
   const sessionStore = new SessionStore({
     dbFile: config.paths.sessionsDbFile,
   });
-  const taskStore = new TaskStore({ dbFile: config.paths.tasksDbFile });
+  const taskStore = new TaskStore({
+    dbFile: config.paths.tasksDbFile,
+    isIncognitoSession: (id) => sessionStore.isIncognito(id),
+  });
   const source = new OpenclawSource(sourceDir, agent);
 
   try {

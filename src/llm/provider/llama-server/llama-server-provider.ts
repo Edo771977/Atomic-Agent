@@ -190,9 +190,8 @@ export class LlamaServerProvider implements LlmProvider {
 
   private addRawPrivacyInstructions(prompt: string): string {
     const profile = this.getProfile();
-    if (profile.reasoningStyle === "none") return addPrivacyInstructionsToText(prompt);
     const opener = getReasoningTurnFraming(profile)?.systemOpen ?? "### system\n";
-    if (!prompt.startsWith(opener)) return prompt;
+    if (!prompt.startsWith(opener)) return addPrivacyInstructionsToText(prompt);
     let insertion = opener.length;
     const token = profile.reasoningSystemToken;
     if (token && prompt.startsWith(token, insertion)) insertion += token.length;

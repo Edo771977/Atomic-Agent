@@ -50,11 +50,13 @@ export function buildIdeaCandidates(input: IdeaRuleInput): IdeaCandidate[] {
 export function retryTaskIdeas(tasks: readonly TaskRecord[], now: number): IdeaCandidate[] {
   const latestByMessage = new Map<string, number>();
   for (const t of tasks) {
+    if (t.incognito === true) continue;
     const key = messageKey(t.userMessage);
     latestByMessage.set(key, Math.max(latestByMessage.get(key) ?? 0, t.createdAt));
   }
   const out: Array<{ at: number; idea: IdeaCandidate }> = [];
   for (const t of tasks) {
+    if (t.incognito === true) continue;
     if (t.status !== "failed" && t.status !== "blocked") continue;
     const endedAt = t.completedAt ?? t.updatedAt;
     if (now - endedAt > RETRY_TASK_LOOKBACK_MS) continue;
@@ -78,6 +80,7 @@ export function retryTaskIdeas(tasks: readonly TaskRecord[], now: number): IdeaC
         // On accept the original's limits, notify and folder come along
         // (`ideaTaskCarry`); the task id is kept in `evidence.ref`.
         sessionId: null,
+        sourceSessionId: t.sessionId,
       },
     });
   }

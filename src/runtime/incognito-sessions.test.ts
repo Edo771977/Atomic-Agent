@@ -1,3 +1,4 @@
+import { IdeaStore } from "../tasks/idea-store.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -56,6 +57,44 @@ describe("incognito sessions in the runtime", () => {
   afterEach(() => {
     for (const store of stores.splice(0)) store.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it.each(["close", "boot"] as const)("purges legacy retry ideas together with private tasks on %s", async (mode) => {
+    alive.add(10);
+    const store = open(10);
+    save(store, "s-secret", true);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({ dbFile });
+    const ideas = new IdeaStore({ dbFile });
+    try {
+      const task = tasks.create({ sessionId: "s-secret", userMessage: "PRIVATE-TASK-SECRET", origin: "cli", maxAttempts: 1 });
+      const [idea] = ideas.sync([{ kind: "retry_task", sourceKey: "task:" + task.id, title: "private", reason: "fixture",
+        evidence: { source: "task", ref: task.id, excerpt: "private", at: null }, prompt: "PRIVATE-TASK-SECRET", sessionId: null }]).added;
+      ideas.claimForAccept(idea!.id, null);
+      if (mode === "close") {
+        expect(createIncognitoSessions({ sessionStore: store, taskStore: tasks, tracesDir, isBusy: () => false, logger }).discard("s-secret")).toBe("deleted");
+      } else {
+        alive.delete(10);
+        await sweepOrphanIncognitoSessions(open(30), tracesDir, logger, dbFile);
+      }
+      expect(tasks.get(task.id)).toBeNull();
+      expect(ideas.list()).toEqual([]);
+    } finally { ideas.close(); tasks.close(); }
+  });
+
+  it("startup removes legacy Retry cards whose deleted source cannot be proved ordinary", async () => {
+    const store = open(30);
+    save(store, "ordinary", false);
+    const dbFile = join(dir, "tasks.sqlite");
+    const tasks = new TaskStore({ dbFile });
+    const ideas = new IdeaStore({ dbFile });
+    try {
+      ideas.sync(["missing", "known"].map((id) => ({ kind: "retry_task" as const, sourceKey: "task:" + id,
+        title: "fixture", reason: "fixture", evidence: { source: "task" as const, ref: id, excerpt: "fixture", at: null },
+        prompt: "PRIVATE-TASK-SECRET", sessionId: id === "known" ? "ordinary" : null })));
+      await sweepOrphanIncognitoSessions(store, tracesDir, logger, dbFile);
+      expect(ideas.list().map((i) => i.sourceKey)).toEqual(["task:known"]);
+    } finally { ideas.close(); tasks.close(); }
   });
 
   it("discard deletes an idle incognito chat and its trace now", () => {

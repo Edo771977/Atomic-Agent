@@ -116,6 +116,7 @@ export function createResolveApprovalHandler(): HttpHandler {
     const { approved, grant } = parsed;
     const pending = ctx.runtime.approvals.pendingRequest(approvalId);
     if (isNamedCaller(ctx) && (pending === null || sessionUnavailableToCaller(ctx, pending.sessionId))) {
+      if (pending === null) ctx.approvalBus.resolved(approvalId);
       return sendError(res, 404, openaiError("approvalId not pending"));
     }
     const role = ctx.caller?.role;

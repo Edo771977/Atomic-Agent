@@ -1,3 +1,4 @@
+import { isNamedCaller } from "./serve-egress.js";
 import { withFileLock } from "../session/project-lock.js";
 import { isIncognitoSession } from "../session/incognito.js";
 import { routeErrorDiagnostics } from "./route-error-diagnostics.js";
@@ -34,7 +35,7 @@ function assertIdle(ctx: HandlerContext): void {
   if (ctx.runtime.anyIncognitoOpen?.()
     || trackedIncognito
     || busy.some((id) => ctx.runtime.sessionStore.isIncognito(id))) {
-    throw new MemoryChoiceConflict("incognito");
+    throw new MemoryChoiceConflict(isNamedCaller(ctx) ? "turn-running" : "incognito");
   }
   if (busy.length) throw new MemoryChoiceConflict("turn-running");
 }

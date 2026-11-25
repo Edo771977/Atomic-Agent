@@ -49,6 +49,7 @@ export function createAnswerQuestionHandler(): HttpHandler {
     }
     const request = ctx.runtime.approvals.pendingRequest(approvalId);
     if (isNamedCaller(ctx) && (request === null || sessionUnavailableToCaller(ctx, request.sessionId))) {
+      if (request === null) ctx.approvalBus.resolved(approvalId);
       return sendError(res, 404, openaiError("approvalId not pending"));
     }
     if (request === null) {

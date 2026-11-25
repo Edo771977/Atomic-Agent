@@ -44,6 +44,14 @@ describe("idea service", () => {
     });
   }
 
+  it("refresh never persists a Retry from an incognito task", () => {
+    const task = tasks.create({ sessionId: "private-chat", userMessage: "PRIVATE-TASK-SECRET", origin: "cli", maxAttempts: 1 });
+    tasks.markRunning(task.id);
+    tasks.markFailed(task.id, { category: "transport", message: "private error" });
+    expect(refreshIdeas({ ideas, tasks: { list: () => [{ ...tasks.get(task.id)!, incognito: true }] }, sessions: noSessions }).added).toEqual([]);
+    expect(ideas.list()).toEqual([]);
+  });
+
   it("refresh turns a failed task into one idea with evidence, and does not repeat it", () => {
     const now = Date.now();
     const t = failedTask("tidy the inbox", now - 10_000);
@@ -138,6 +146,7 @@ describe("idea service", () => {
     tasks.markRunning(t.id, now - 9_000);
     tasks.markBlocked(t.id, { category: "transport", message: "spend ceiling reached" }, now - 8_000);
     const [idea] = refreshIdeas({ ideas, tasks, sessions: noSessions, now }).added;
+    expect(idea).toMatchObject({ sourceSessionId: "s-orig", sessionId: null });
     const sessions = { load: (id: string) => (id === "s-orig" ? { workingDir: "/tmp/p" } : null) };
     let seen: IdeaTaskCarry | null = null;
     const accepted = acceptIdea(

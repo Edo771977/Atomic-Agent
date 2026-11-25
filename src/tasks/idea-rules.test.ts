@@ -56,6 +56,19 @@ function goal(overrides: Partial<GoalIdeaInput> = {}): GoalIdeaInput {
 }
 
 describe("retryTaskIdeas", () => {
+  it("never suggests private tasks or lets them suppress ordinary retries", () => {
+    const ordinary = task({ id: "normal", userMessage: "same fixture" });
+    const privateTask = task({ id: "private", incognito: true, userMessage: "same fixture", createdAt: ordinary.createdAt + 1 });
+    expect(retryTaskIdeas([privateTask], NOW)).toEqual([]);
+    expect(retryTaskIdeas([ordinary, privateTask], NOW).map((i) => i.sourceKey)).toEqual(["task:normal"]);
+  });
+
+  it("records a Retry's origin without reusing the source chat on accept", () => {
+    expect(retryTaskIdeas([task({ id: "source", sessionId: "origin-chat" })], NOW)[0]).toMatchObject({
+      sessionId: null, sourceSessionId: "origin-chat",
+    });
+  });
+
   it("suggests a recent failed or blocked task with its error as evidence", () => {
     const ideas = retryTaskIdeas(
       [task({ id: "a" }), task({ id: "b", status: "blocked", userMessage: "other", lastError: "session missing" })],

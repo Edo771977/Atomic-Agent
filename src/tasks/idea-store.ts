@@ -42,7 +42,8 @@ CREATE TABLE IF NOT EXISTS ideas (
   created_at    INTEGER NOT NULL,
   updated_at    INTEGER NOT NULL,
   decided_at    INTEGER,
-  source_policy TEXT
+  source_policy TEXT,
+  source_session_id TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_ideas_status_created ON ideas(status, created_at);
 `;
@@ -62,6 +63,7 @@ interface IdeaRow {
   updated_at: number;
   decided_at: number | null;
   source_policy?: string | null;
+  source_session_id?: string | null;
 }
 
 export interface IdeaSyncResult {
@@ -87,6 +89,7 @@ export class IdeaStore {
     // Issue #68: a store from before `source_policy` gains it (NULL: unknown).
     const columns = this.db.prepare(`PRAGMA table_info(ideas)`).all() as Array<{ name: string }>;
     if (!columns.some((c) => c.name === "source_policy")) this.db.exec(`ALTER TABLE ideas ADD COLUMN source_policy TEXT`);
+    if (!columns.some((c) => c.name === "source_session_id")) this.db.exec(`ALTER TABLE ideas ADD COLUMN source_session_id TEXT`);
   }
 
   /**
@@ -105,8 +108,8 @@ export class IdeaStore {
   sync(candidates: readonly IdeaCandidate[], now: number = Date.now()): IdeaSyncResult {
     const insert = this.db.prepare(
       `INSERT INTO ideas (id, kind, source_key, title, reason, evidence_json, prompt,
-         session_id, status, task_id, created_at, updated_at, decided_at, source_policy)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?, NULL, ?)
+         session_id, status, task_id, created_at, updated_at, decided_at, source_policy, source_session_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'new', NULL, ?, ?, NULL, ?, ?)
        ON CONFLICT(source_key) DO NOTHING`,
     );
     // A policy learnt later (the card was offered before it could be read) is
@@ -114,6 +117,7 @@ export class IdeaStore {
     const record = this.db.prepare(
       `UPDATE ideas SET source_policy = ? WHERE source_key = ? AND status = 'new' AND source_policy IS NULL`,
     );
+    const recordOrigin = this.db.prepare("UPDATE ideas SET source_session_id = COALESCE(source_session_id, ?) WHERE source_key = ?");
     const added: IdeaRecord[] = [];
     const retired: string[] = [];
     this.db.transaction(() => {
@@ -128,6 +132,7 @@ export class IdeaStore {
       const fresh: IdeaCandidate[] = [];
       for (const c of candidates) {
         if (qualifying.has(c.sourceKey)) continue;
+        recordOrigin.run(c.sourceSessionId ?? c.sessionId, c.sourceKey);
         qualifying.add(c.sourceKey);
         const status = known.get(c.sourceKey);
         if (status === undefined) fresh.push(c);
@@ -145,6 +150,7 @@ export class IdeaStore {
           id, c.kind, c.sourceKey, c.title, c.reason, JSON.stringify(c.evidence),
           c.prompt, c.sessionId, now, now,
           c.sourcePolicy === undefined ? null : JSON.stringify(c.sourcePolicy),
+          c.sourceSessionId ?? c.sessionId,
         );
         if (info.changes === 1) {
           waiting.set(c.kind, count + 1);
@@ -258,6 +264,7 @@ function rowToRecord(row: IdeaRow): IdeaRecord {
     evidence: parseEvidence(row.evidence_json, row.source_key),
     prompt: row.prompt,
     sessionId: row.session_id,
+    ...(row.source_session_id == null ? {} : { sourceSessionId: row.source_session_id }),
     status: IDEA_STATUSES.includes(row.status as IdeaStatus) ? (row.status as IdeaStatus) : "dismissed",
     taskId: row.task_id,
     createdAt: row.created_at,

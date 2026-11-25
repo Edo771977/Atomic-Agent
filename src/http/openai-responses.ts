@@ -52,6 +52,7 @@ export interface ResponsesItem {
 }
 
 interface ResponsesRequest {
+  incognito?: unknown;
   model?: unknown;
   instructions?: unknown;
   input?: unknown;
@@ -124,6 +125,9 @@ export function responsesItemToMessage(
 /** Map a Responses request onto a chat-completions body. */
 export function responsesToChatRequest(raw: unknown): MappedResponsesRequest {
   const body = (raw ?? {}) as ResponsesRequest;
+  if (body.incognito !== undefined && body.incognito !== false) {
+    return { ok: false, message: "incognito is unsupported on this endpoint; use /v1/chat/completions", param: "incognito" };
+  }
   const model = typeof body.model === "string" && body.model.length > 0 ? body.model : DEFAULT_RESPONSES_MODEL;
   const messages: ChatBridgeBody["messages"] = [];
   const instructions = typeof body.instructions === "string" && body.instructions.length > 0 ? body.instructions : null;

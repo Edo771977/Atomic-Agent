@@ -57,7 +57,9 @@ describe("operator memory routes", () => {
     const incognito = vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(true);
     const privateResponse = await send(path, body);
     expect(privateResponse.status).toBe(409);
-    expect(await privateResponse.json()).toMatchObject({ error: { code: "incognito" } });
+    expect(await privateResponse.json()).toMatchObject({ error: { code: "turn-running" } });
+    const ownerResponse = await send(path, body, "owner-test-token");
+    expect(await ownerResponse.json()).toMatchObject({ error: { code: "incognito" } });
     incognito.mockRestore();
     if (kind !== "backup") {
       const stale = await send(path, body);
@@ -124,7 +126,7 @@ describe("operator memory routes", () => {
     expect(id).toBeTruthy();
     const blocked = await send("/api/memory/backup", {});
     expect(blocked.status).toBe(409);
-    expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
+    expect(await blocked.json()).toMatchObject({ error: { code: "turn-running" } });
     const deleted = await fetch(harness.baseUrl + `/api/sessions/${id}`, {
       method: "DELETE", headers: { authorization: "Bearer owner-test-token" },
     });
@@ -148,7 +150,7 @@ describe("operator memory routes", () => {
     expect(discard).toHaveBeenCalledWith(id);
     const blocked = await send("/api/memory/backup", {});
     expect(blocked.status).toBe(409);
-    expect(await blocked.json()).toMatchObject({ error: { code: "incognito" } });
+    expect(await blocked.json()).toMatchObject({ error: { code: "turn-running" } });
 
     harness.runtime.sessionStore.delete(id);
     expect((await send("/api/memory/backup", {})).status).toBe(200);
@@ -284,7 +286,7 @@ describe("operator memory routes", () => {
     const privateMode = vi.spyOn(harness.runtime, "anyIncognitoOpen").mockReturnValue(true);
     const privateResult = await send(path, {});
     expect(privateResult.status).toBe(409);
-    expect(await privateResult.json()).toMatchObject({ error: { code: "incognito" } });
+    expect(await privateResult.json()).toMatchObject({ error: { code: "turn-running" } });
     privateMode.mockRestore();
     expect(harness.runtime.notesStore.get(noteId)?.disabledAt).toBeDefined();
 

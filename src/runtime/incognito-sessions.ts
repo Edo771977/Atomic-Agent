@@ -51,16 +51,18 @@ export function removeIncognitoTrace(
 function createIncognitoTaskSweeper(
   tasksDbFile: string | null | undefined,
   options: { staleAfterMs?: number; ownerProbe?: TurnOwnerProbe } = {},
-): { removeTasks: (sessionId: string) => boolean; close: () => void } {
+): { removeTasks: (sessionId: string) => boolean; cleanupIdeas: (privacy: (id: string) => boolean | null) => void; close: () => void } {
   let store: TaskStore | null = null;
+  const open = (): TaskStore | null => {
+    if (!tasksDbFile || !existsSync(tasksDbFile)) return null;
+    return store ??= new TaskStore({ dbFile: tasksDbFile, ...(options.ownerProbe ? { ownerProbe: options.ownerProbe } : {}) });
+  };
   return {
+    cleanupIdeas: (privacy) => { open()?.removeUnsafeIdeas(privacy); },
     removeTasks: (sessionId) => {
-      if (!tasksDbFile || !existsSync(tasksDbFile)) return true;
-      store ??= new TaskStore({
-        dbFile: tasksDbFile,
-        ...(options.ownerProbe ? { ownerProbe: options.ownerProbe } : {}),
-      });
-      return store.removeForSessionAtBoot(sessionId, {
+      const tasks = open();
+      if (!tasks) return true;
+      return tasks.removeForSessionAtBoot(sessionId, {
         staleAfterMs: options.staleAfterMs ?? DEFAULT_STALE_AFTER_MS,
       }) !== null;
     },
@@ -82,7 +84,7 @@ function createIncognitoTaskSweeper(
  * the next start and costs the user nothing else.
  */
 export async function sweepOrphanIncognitoSessions(
-  sessionStore: Pick<SessionStore, "sweepOrphanIncognito">,
+  sessionStore: Pick<SessionStore, "sweepOrphanIncognito"> & Partial<Pick<SessionStore, "load">>,
   tracesDir: string | null | undefined,
   logger: Pick<StructuredLogger, "info" | "warn">,
   tasksDbFile?: string | null,
@@ -92,6 +94,14 @@ export async function sweepOrphanIncognitoSessions(
   const retained: string[] = [];
   const tasks = createIncognitoTaskSweeper(tasksDbFile, taskOptions);
   try {
+    try {
+      tasks.cleanupIdeas((id) => {
+        const state = sessionStore.load?.(id);
+        return state == null ? null : isIncognitoSession(state);
+      });
+    } catch {
+      logger.warn("could not clean retained Retry ideas at startup; the next start will retry");
+    }
     const ids = await sessionStore.sweepOrphanIncognito(async (id) => {
       try {
         if (!tasks.removeTasks(id)) {

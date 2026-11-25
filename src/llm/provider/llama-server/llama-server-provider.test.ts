@@ -4,7 +4,7 @@ import { getEventListeners } from "node:events";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LlamaServerClient } from "../../llama-server-client.js";
-import { GEMMA4_THINK_PROFILE, PLAIN_INSTRUCT_PROFILE } from "../../model-profile.js";
+import { GEMMA4_THINK_PROFILE, PLAIN_INSTRUCT_PROFILE, QWEN_THINK_PROFILE } from "../../model-profile.js";
 import type { ModelProfile } from "../../model-profile.js";
 import { LlamaServerProvider } from "./llama-server-provider.js";
 import { VisionUnsupportedError, type VisionResult } from "../llm-provider.js";
@@ -189,6 +189,33 @@ describe("LlamaServerProvider", () => {
       expect(prompts[0]).toMatch(/^<\|turn>system\n<\|think\|>\nPrivacy Shield/);
       expect(prompts[0]?.replace(/first$/, "")).toBe(prompts[1]?.replace(/second$/, ""));
       expect(prompts[0]).toContain("Contact [EMAIL_1]");
+    } finally {
+      resetPrivacyVaults();
+    }
+  });
+
+  it.each([
+    [QWEN_THINK_PROFILE, "Judge: ", "Privacy Shield"],
+    [GEMMA4_THINK_PROFILE, "Review: ", "Privacy Shield"],
+    [PLAIN_INSTRUCT_PROFILE, "### system\n", "### system\nPrivacy Shield"],
+  ] as const)("instructs unframed reviewers and preserves the system opening for %s", async (profile, opening, expected) => {
+    const complete = vi.fn<LlamaServerClient["complete"]>().mockResolvedValue({
+      content: "", reasoningContent: "", stop: true, truncated: false,
+      timing: { promptMs: 0, predictedMs: 0, promptTokens: 0, predictedTokens: 0 },
+      cacheHitTokens: 0, slotId: -1, modelId: null,
+    });
+    const provider = new LlamaServerProvider(fakeClient(complete), {
+      privacyShield: "on", getProfile: () => profile, visionEnabledByConfig: false,
+      visionAutoDetect: false, maxImageBytes: 1024, maxImagesPerCall: 2, requestTimeoutMs: ANY_TIMEOUT_MS,
+    });
+    try {
+      for (const tail of ["first", "second"]) {
+        await provider.complete({ sessionId: "raw-reviewer", prompt: opening + "Contact owner@example.test " + tail });
+      }
+      const prompts = complete.mock.calls.map(([request]) => request.prompt);
+      expect(prompts[0]?.startsWith(expected)).toBe(true);
+      expect(prompts[0]).toContain("Contact [EMAIL_1]");
+      expect(prompts[0]?.replace(/first$/, "")).toBe(prompts[1]?.replace(/second$/, ""));
     } finally {
       resetPrivacyVaults();
     }

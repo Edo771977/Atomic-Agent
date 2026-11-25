@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CompletionResult } from "../llm/llama-server-client.js";
 
@@ -306,4 +306,23 @@ describe("POST /v1/responses (through the server)", () => {
     const created = events[0]?.data["response"] as { id: string };
     expect(sessionIdFromResponseId(created.id)).toBe(response.headers.get(SESSION_ID_HEADER.toLowerCase()));
   });
+});
+
+
+it("rejects incognito on /v1/responses before creating an owner chat", async () => {
+  const h = await startTestHarness({ apiKey: "owner-fixture" });
+  const run = vi.spyOn(h.runtime, "runTurn");
+  try {
+    const response = await fetch(h.baseUrl + "/v1/responses", {
+      method: "POST", headers: { authorization: "Bearer owner-fixture", "content-type": "application/json" },
+      body: JSON.stringify({ input: "private fixture", incognito: true }),
+    });
+    const result = await response.json();
+    expect(response.status).toBe(400);
+    expect(JSON.stringify(result)).toContain("incognito");
+    expect(run).not.toHaveBeenCalled();
+  } finally {
+    run.mockRestore();
+    await h.cleanup();
+  }
 });

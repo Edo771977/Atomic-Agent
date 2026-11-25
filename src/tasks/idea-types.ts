@@ -54,6 +54,8 @@ export interface IdeaCandidate {
   prompt: string;
   /** Session the accepted task runs in; `null` opens a fresh one. */
   sessionId: string | null;
+  /** Original chat for privacy cleanup; independent of the fresh Retry execution chat. */
+  sourceSessionId?: string | null;
   /**
    * A Retry card's original chat's provider policy when the card was
    * offered (issue #68): a stamp (`ProviderPolicyStamp`), `null` for an
