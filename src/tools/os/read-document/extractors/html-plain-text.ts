@@ -23,7 +23,15 @@ function textCollector(budget: number) {
   function edge(name: string): boolean {
     return BLOCK.has(name) && length > 0 && !parts.at(-1)?.endsWith("\n") && append("\n");
   }
-  return { append, edge, result: () => ({ text: parts.join("").trim(), cut }) };
+  function appendText(value: string): boolean {
+    // Empty blocks and indentation between tags should consume at most a
+    // separator. Whitespace within a text node that has content is kept.
+    if (/^[\s\u0085]+$/u.test(value)) {
+      return length > 0 && !/[\s\u0085]$/u.test(parts.at(-1) ?? "") && append(" ");
+    }
+    return append(value);
+  }
+  return { appendText, edge, result: () => ({ text: parts.join("").trim(), cut }) };
 }
 
 type TextCollector = ReturnType<typeof textCollector>;
@@ -64,8 +72,8 @@ function readDeepText(html: string, hiddenTags: ReadonlySet<string>, output: Tex
       if (index !== undefined) close(index);
       if (hiddenAt === undefined && output.edge(tag)) stop();
     },
-    ontext(start, end) { if (!stopped && hiddenAt === undefined && output.append(html.slice(start, end))) stop(); },
-    ontextentity(codepoint) { if (!stopped && hiddenAt === undefined && output.append(String.fromCodePoint(codepoint))) stop(); },
+    ontext(start, end) { if (!stopped && hiddenAt === undefined && output.appendText(html.slice(start, end))) stop(); },
+    ontextentity(codepoint) { if (!stopped && hiddenAt === undefined && output.appendText(String.fromCodePoint(codepoint))) stop(); },
     onattribname() {},
     onattribdata() {},
     onattribend() {},
@@ -106,7 +114,7 @@ export function readBoundedHtmlText(html: string, hiddenTags: ReadonlySet<string
       depth--;
     },
     ontext(text) {
-      if (!stopped && !hiddenDepth && output.append(text)) stop();
+      if (!stopped && !hiddenDepth && output.appendText(text)) stop();
     },
   }, { decodeEntities: true, recognizeSelfClosing: true });
   for (let offset = 0; offset < html.length && !stopped; offset += 16_384) {
