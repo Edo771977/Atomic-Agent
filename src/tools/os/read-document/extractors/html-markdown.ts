@@ -158,7 +158,7 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
   td.remove(["button", "input", "select", "textarea"]);
   td.addRule("imageWithoutUrl", {
     filter: node => (node as unknown as MarkdownNode).nodeName === "IMG" && !attribute(node, "src"),
-    replacement: (_content, node) => escape(attribute(node, "alt") ?? ""),
+    replacement: (_content, node) => escape(normalizeLabel(attribute(node, "alt") ?? "")),
   });
   let spent = 0;
   const charge = (amount: number) => {
@@ -213,10 +213,16 @@ function usableUrlAttribute(value: string | undefined): value is string {
     !/^data:/i.test(value.replace(/[\t\r\n]/g, "").trim()));
 }
 
+function normalizeLabel(value: string): string {
+  return value.replace(/[\s\u0085]+/gu, " ").trim();
+}
+
 function openingTag(name: string, attributes: Record<string, string>): string {
   let result = `<${name}`;
   for (const field of ATTRIBUTES.get(name) ?? []) {
-    const value = attributes[field];
+    const raw = attributes[field];
+    if (!raw) continue;
+    const value = field === "alt" || field === "title" ? normalizeLabel(raw) : raw;
     if (!value) continue;
     const oversize = Buffer.byteLength(value, "utf8") > HTML_ATTRIBUTE_BYTES;
     if (field === "href" || field === "src") {
