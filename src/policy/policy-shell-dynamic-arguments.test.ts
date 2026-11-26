@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeShellRules } from "../tools/os/shell/shell-command-argv.js";
+import { analyzeShellRules } from "../tools/os/shell/org-shell-analysis.js";
 import { shellResources } from "./policy-targets.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { matchRules, type ApprovalRule } from "../approval/approval-rules.js";

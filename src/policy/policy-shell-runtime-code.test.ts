@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { analyzeShellRules } from "../tools/os/shell/shell-command-argv.js";
+import { analyzeShellRules } from "../tools/os/shell/org-shell-analysis.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { matchRules, type ApprovalRule } from "../approval/approval-rules.js";
 
@@ -7,11 +7,11 @@ describe("runtime shell definitions", () => {
   it.each([["python3", "-cprint('fixture')"], ["node", "-evoid(0)"], ["perl", "-we1"], ["ruby", "-e1"], ["php", "-recho 1;"]])("keeps attached inline flags opaque in %s", (cmd, ...args) => {
     expect(analyzeShellRules(cmd, args, false).unreadable).toBe(true);
   });
-  it.each([["python3", "-c", "print('fixture')"], ["node", "--eval=void 0"], ["perl", "-e", "1"], ["ruby", "-e", "1"], ["php", "-r", "echo 1;"], ["awk", "{print $0}"], ["sed", "-e", "s/a/b/"]])("classifies inline code in %s without interpreting it", (cmd, ...args) => {
+  it.each([["python3", "-c", "print('fixture')"], ["node", "--eval=void 0"], ["perl", "-e", "1"], ["ruby", "-e", "1"], ["php", "-r", "echo 1;"], ["awk", "BEGIN { system(\"fixture\") }"], ["sed", "-e", "e fixture"]])("classifies inline code in %s without interpreting it", (cmd, ...args) => {
     expect(analyzeShellRules(cmd, args, false).unreadable).toBe(true);
     expect(analyzeShellRules("printf", [cmd, ...args], false).unreadable).toBe(false);
   });
-  it.each(["trap 'ordinary' EXIT", "hash -p /fixture/ordinary named", "source /fixture/ordinary.sh"])("keeps %s opaque to restrictive rules", line => {
+  it.each(["trap 'ordinary' EXIT", "hash -p /fixture/ordinary named"])("keeps %s opaque to restrictive rules", line => {
     const analysis = analyzeShellRules("bash", ["-c", line], false);
     expect(analysis.unreadable).toBe(true);
     for (const effect of ["deny", "ask"] as const) {

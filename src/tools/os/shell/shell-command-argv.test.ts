@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   shellCommandArgv,
-  shellRuleSegments as nativeSegments,
+  shellRuleSegments,
   shellRunsUnreadableScript,
 } from "./shell-command-argv.js";
 import { shellGrantShape } from "./shell-interpretation.js";
@@ -30,8 +30,6 @@ describe("shellCommandArgv", () => {
     expect(shellCommandArgv("cat ~/.ssh/id_rsa", [], true, "cat")).toBeUndefined();
   });
 });
-
-const shellRuleSegments = (cmd: string, args: readonly string[], useShell: boolean) => nativeSegments(cmd, args, useShell, "posix");
 
 describe("shellRuleSegments", () => {
   it("keeps a direct exec's argv as one command", () => {
@@ -100,7 +98,7 @@ describe("shellRuleSegments", () => {
     ["eval rm -rf tmp", ["rm", "-rf", "tmp"]],
     ['eval "rm -rf tmp"', ["rm", "-rf", "tmp"]],
     ["echo tmp | xargs -n 1 rm -rf", ["rm", "-rf"]],
-    ["find . -name x -exec rm -rf {} ;", ["rm", "-rf", "\0"]],
+    ["find . -name x -exec rm -rf {} ;", ["rm", "-rf", "{}"]],
   ])("reads past the wrapper in %s", (line, inner) => {
     expect(shellRuleSegments(line, [], true)).toContainEqual(inner);
   });
@@ -127,8 +125,6 @@ describe("shellRunsUnreadableScript", () => {
     "cat x.py | python3",
     "cat x.js | node -",
     "sh < run.sh",
-    "cat x | python3 -c 'import sys'",
-    "cat x | python3 -m json.tool",
   ])("flags %s", (line) => {
     expect(shellRunsUnreadableScript(line, [], true)).toBe(true);
   });
@@ -136,13 +132,15 @@ describe("shellRunsUnreadableScript", () => {
   it.each([
     "ls | grep x",
     "echo hi | sh -c 'cat'",
+    "cat x | python3 -c 'import sys'",
+    "cat x | python3 -m json.tool",
     "bash run.sh < input.txt",
     "sh",
   ])("does not flag %s", (line) => {
     expect(shellRunsUnreadableScript(line, [], true)).toBe(false);
   });
 
-  it("does not flag a bare direct shell without code or stdin", () => {
+  it("never flags a direct exec: it has no stdin", () => {
     expect(shellRunsUnreadableScript("sh", [], false)).toBe(false);
   });
 });

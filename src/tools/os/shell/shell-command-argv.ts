@@ -1,6 +1,5 @@
 import { scriptInput } from "./org-script-operands.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
-export { analyzeShellRules } from "./org-shell-analysis.js";
 import {
   invocationsOf,
   NESTED_SHELL_PROGRAMS,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { shellRuleSegments, shellRunsUnreadableScript } from "../tools/os/shell/shell-command-argv.js";
+import { shellRuleSegments, shellRunsUnreadableScript } from "../tools/os/shell/org-shell-analysis.js";
 import { shellResources } from "./policy-targets.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { matchRules, type ApprovalRule } from "../approval/approval-rules.js";
@@ -28,7 +28,7 @@ const forms: Array<[string, string, string[]]> = [
   ["PowerShell group", "PowerShell.exe", ["-Command", "if ($true) { fixture-check stop }"]],
 ];
 describe("shared shell rule decisions on synthetic parser fixtures", () => {
-  it.each(forms)("policy and saved rules agree for %s", (_label, cmd, args) => {
+  it.each(forms)("policy metadata agrees with restrictive rule matching for %s", (_label, cmd, args) => {
     const commandSegments = shellRuleSegments(cmd, args, false);
     const commandUnreadable = shellRunsUnreadableScript(cmd, args, false);
     for (const effect of ["deny", "ask"] as const) {
