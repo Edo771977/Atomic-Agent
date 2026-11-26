@@ -3,6 +3,8 @@
  * complete:api (runtime/plain-complete.ts) is excluded: withFreshPrivacyVault
  * isolates each call, and with folder constraints it is intentionally refused
  * because no chat folder can govern it. See ../http/README.md.
+ * GRAMMAR_SMOKE_SESSION_PREFIX (grammar-smoke:) is also excluded: its
+ * synthetic grammar-protocol probe is partitioned by provider, not by chat.
  */
 export const AUXILIARY_PARTITIONS = [
   "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",

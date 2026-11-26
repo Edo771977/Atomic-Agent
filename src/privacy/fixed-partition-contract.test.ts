@@ -3,7 +3,14 @@ import { afterEach, expect, it } from "vitest";
 import { privacyVaultForRequest, resetPrivacyVaults } from "./index.js";
 import { PLAIN_COMPLETE_PARTITION } from "../runtime/plain-complete.js";
 import { AUXILIARY_PARTITIONS } from "./auxiliary-partitions.js";
+import { GRAMMAR_SMOKE_SESSION_PREFIX } from "../llm/grammar/grammar-smoke.js";
 afterEach(resetPrivacyVaults);
+it("documents the synthetic grammar-probe exclusion alongside the plain-completion partition", () => {
+  const source = readFileSync(new URL("./auxiliary-partitions.ts", import.meta.url), "utf8");
+  expect(source).toContain("GRAMMAR_SMOKE_SESSION_PREFIX");
+  expect(source).toContain(GRAMMAR_SMOKE_SESSION_PREFIX);
+  expect(source).toContain("provider");
+});
 it("documents why the fresh plain completion is excluded from session-owned prefixes", () => {
   expect(AUXILIARY_PARTITIONS).not.toContain(PLAIN_COMPLETE_PARTITION.split(":")[0]);
   const source = readFileSync(new URL("./auxiliary-partitions.ts", import.meta.url), "utf8");
