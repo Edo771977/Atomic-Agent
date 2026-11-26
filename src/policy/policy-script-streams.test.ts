@@ -4,6 +4,10 @@ import { toolCallTarget } from "./policy-targets.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 
 describe("script stream operands", () => {
+  it.each(["-Ssh /dev/stdin", "--split-string=sh /dev/stdin"])("aligns verify stdin through %s", option => {
+    expect(stdinScriptOf("env", [option], false, "fixture-command")).toEqual({ lines: ["fixture-command"], unreadable: false });
+    expect(toolCallTarget("verify.run", { kind: "command", cmd: "env", args: [option], stdin: "fixture-command" })?.resources).toContain("fixture-command");
+  });
   it.each(["/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"])("reads supplied POSIX verification stdin through %s", operand => {
     expect(stdinScriptOf("sh", [operand], false, "fixture-command")).toEqual({ lines: ["fixture-command"], unreadable: false });
     expect(toolCallTarget("verify.run", { kind: "command", cmd: "sh", args: [operand], stdin: "fixture-command" })?.resources).toContain("fixture-command");

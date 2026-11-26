@@ -1,3 +1,4 @@
+import { shellRuleSegments as scriptSourceSegments } from "./org-shell-analysis.js";
 import { scriptInput } from "./org-script-operands.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
@@ -237,7 +238,8 @@ export function stdinScriptOf(
   stdin: string | undefined,
 ): { lines: string[]; unreadable: boolean } | null {
   if (stdin === undefined || stdin.trim() === "") return null;
-  const segments = shellRuleSegments(cmd, execArgs, useShell);
+  // Only locate actual stdin readers here; personal prefix/opaque-code decisions remain separate.
+  const segments = scriptSourceSegments(cmd, execArgs, useShell);
   if (segments.some(words => scriptInput(words) === "unknown")) return { lines: [], unreadable: true };
   const readers = segments.filter(readsScriptFromStdin);
   if (readers.length === 0) return null;
