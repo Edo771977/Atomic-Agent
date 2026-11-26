@@ -90,6 +90,10 @@ export function createSideQuestionHandler(): HttpHandler {
         sendJson(res, 200, { text: result.text });
         return;
       }
+      if (result.reason === "cancelled") {
+        sendError(res, 503, openaiError("The completion was cancelled", "server_error", null, "completion_cancelled"));
+        return;
+      }
       const status = result.reason === "timed out" ? 504 : 502;
       const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
       sendError(res, status, openaiError(message, "server_error"));
