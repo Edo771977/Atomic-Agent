@@ -5,7 +5,7 @@ Owner: src/config/
 
 This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) before changing it.
 
-File triggers validate their optional session ID when parsed and at the configuration save boundary. Invalid internal paths such as `compaction/Y` are refused before replacing the saved file, preventing a repeating task-creation error on every event; valid imported IDs such as `codex:Y` remain supported.
+File trigger creation, edits and configuration saves strictly validate the optional session ID before replacing the saved file. When reading an existing file, only triggers with invalid IDs such as `compaction/Y` are discarded, with one diagnostic per file and rejected set per process. Other settings and valid triggers such as `codex:Y` still load. Pure reads preserve the original bytes and snapshot hash; migration saves the usable configuration. This avoids blocking startup or repeating a task-creation error on every event.
 
 ## Entry points
 

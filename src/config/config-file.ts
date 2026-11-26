@@ -4,6 +4,7 @@ import { dirname, join, sep } from "node:path";
 
 import { carryUnknownConfigKeys } from "./carry-unknown-config-keys.js";
 import { parseFileTriggerMap } from "./file-trigger-config.js";
+import { sessionIdError } from "../session/session-id.js";
 import { keepSetAsideConfigValues, setAsideEnumValueAt } from "./keep-set-aside-values.js";
 import {
   ConfigValidationError,
@@ -146,7 +147,28 @@ export function getStateSecretPaths(paths: {
 export function readUserConfigFileSync(path: string): UserConfigFile | null {
   const raw = readRawUserConfigFileSync(path);
   if (!raw) return null;
-  return parseUserConfigFile(raw.parsed);
+  return parseSavedUserConfigFile(path, raw.parsed);
+}
+
+/** Saved invalid bindings must not prevent unrelated configuration from loading. */
+function parseSavedUserConfigFile(path: string, value: unknown): UserConfigFile {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return parseUserConfigFile(value);
+  const raw = value as Record<string, unknown>;
+  const triggers = raw.fileTriggers;
+  if (triggers === null || typeof triggers !== "object" || Array.isArray(triggers)) return parseUserConfigFile(value);
+  const rejected: string[] = [];
+  const fileTriggers = Object.fromEntries(Object.entries(triggers).filter(([name, trigger]) => {
+    if (trigger !== null && typeof trigger === "object" && !Array.isArray(trigger)
+      && "sessionId" in trigger && trigger.sessionId !== undefined && trigger.sessionId !== null
+      && sessionIdError(trigger.sessionId) !== null) {
+      rejected.push(name);
+      return false;
+    }
+    return true;
+  }));
+  if (rejected.length === 0) return parseUserConfigFile(value);
+  emitConfigNoticeOnce(`[atomic-agent] ignored file triggers with invalid session IDs in ${path}: ${rejected.map(name => JSON.stringify(name)).join(", ")}`);
+  return parseUserConfigFile({ ...raw, fileTriggers });
 }
 
 /**
@@ -233,7 +255,7 @@ export function writeUserConfigFileSync(
  */
 // The sink lives with the primitives so a block parser can say a value was set aside (ATO-1239).
 export { setConfigNoticeSink, type ConfigNoticeSink } from "./config-primitives.js";
-import { emitConfigNotice } from "./config-primitives.js";
+import { emitConfigNotice, emitConfigNoticeOnce } from "./config-primitives.js";
 
 export function ensureUserConfigFileSync(path: string): UserConfigFile {
   const raw = readRawUserConfigFileSync(path);
@@ -243,7 +265,7 @@ export function ensureUserConfigFileSync(path: string): UserConfigFile {
     return USER_CONFIG_DEFAULTS;
   }
   const parsed = withConfigPathInError(path, () =>
-    parseUserConfigFile(raw.parsed),
+    parseSavedUserConfigFile(path, raw.parsed),
   );
   // Migrate upward only. `!==` would treat "written by a newer build" as
   // "needs migrating" and rewrite the file down to this build's schema at
@@ -308,7 +330,7 @@ export function readUserConfigSnapshotSync(path: string): UserConfigSnapshot {
   }
   return {
     sha256: sha256Hex(bytes),
-    config: withConfigPathInError(path, () => parseUserConfigFile(parsed)),
+    config: withConfigPathInError(path, () => parseSavedUserConfigFile(path, parsed)),
   };
 }
 
