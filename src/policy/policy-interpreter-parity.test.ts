@@ -4,7 +4,7 @@ import { matchRules } from "../approval/approval-rules.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { toolCallTarget } from "./policy-targets.js";
 
-const ordinary = [
+const ordinary: Array<[string, ...string[]]> = [
   ["python3", "-W", "error", "-X", "utf8", "fixture.py", "-c", "data"],
   ["python3", "-m", "fixture_module", "-c", "data"],
   ["python3", "--", "fixture.py", "-cdata"],
@@ -20,8 +20,8 @@ const ordinary = [
   ["sed", "-n", "-e", "s/a/b/p", "fixture.txt"],
   ["awk", "{ print $1 }", "fixture.txt"],
   ["source", "/fixture/ordinary.sh", "-e"],
-] as const;
-const inline = [
+];
+const inline: Array<[string, ...string[]]> = [
   ["python3", "-W", "error", "-c", "pass"],
   ["python3", "--check-hash-based-pycs", "always", "-c", "pass"],
   ["node", "--title", "fixture", "-e", "void 0"],
@@ -35,7 +35,7 @@ const inline = [
   ["awk", "BEGIN { system(\"fixture\") }"],
   ["awk", "--source=BEGIN { system(\"fixture\") }"],
   ["sed", "-f", "fixture.sed", "-e", "e fixture"],
-] as const;
+];
 
 describe("personal rules retain main interpreter decisions independently of organization analysis", () => {
   it.each([["node.exe", "fixture"], ["node", "\0"]])("keeps main's literal saved-prefix identity for %j", (...words) => {
