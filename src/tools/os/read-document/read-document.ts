@@ -4,14 +4,13 @@ import { extname } from "node:path";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { ToolDefinition } from "../../tool-registry.js";
-import { DOCUMENT_FORMATS } from "./extractors/extractor-types.js";
+import { DEFAULT_DOCUMENT_MAX_BYTES, DOCUMENT_FORMATS } from "./extractors/extractor-types.js";
 import type {
   DocumentFormat,
   Extractor,
   ExtractorInput,
 } from "./extractors/extractor-types.js";
 
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_PAGES = 50;
 const MAX_MSG_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -56,6 +55,7 @@ export function buildOsFsReadDocumentTool(
       const input: ExtractorInput = {
         data,
         sourcePath: args.absolute,
+        maxBytes: args.maxBytes,
         pagesFrom: args.pagesFrom,
         pagesTo: args.pagesTo,
         maxPages: args.maxPages ?? DEFAULT_MAX_PAGES,
@@ -136,7 +136,7 @@ async function parseArgs(
 
   const maxBytes = parsePositiveInt(
     rawArgs.maxBytes,
-    DEFAULT_MAX_BYTES,
+    DEFAULT_DOCUMENT_MAX_BYTES,
     "maxBytes",
   );
   const maxPages = parseOptionalPositiveInt(rawArgs.maxPages, "maxPages");

@@ -367,7 +367,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(message).toContain("os.fs.read");
   });
 
-  it("forwards pagination args to the extractor", async () => {
+  it("forwards pagination and the output budget to the extractor", async () => {
     let captured: ExtractorInput | undefined;
     const tool = buildOsFsReadDocumentTool({
       extractors: {
@@ -384,6 +384,7 @@ describe("os.fs.read_document dispatcher", () => {
         pagesFrom: 2,
         pagesTo: 5,
         maxPages: 4,
+        maxBytes: 12_345,
         pageSeparators: false,
         includeTables: false,
       },
@@ -392,6 +393,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(captured?.pagesFrom).toBe(2);
     expect(captured?.pagesTo).toBe(5);
     expect(captured?.maxPages).toBe(4);
+    expect(captured?.maxBytes).toBe(12_345);
     expect(captured?.pageSeparators).toBe(false);
     expect(captured?.includeTables).toBe(false);
   });

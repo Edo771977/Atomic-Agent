@@ -65,7 +65,7 @@ export const epubExtractor: Extractor = async (input) => {
     if (pkg.creators.length > 0) head.push(`by ${pkg.creators.join(", ")}`);
   }
 
-  const budget = new FragmentBudget();
+  const budget = new FragmentBudget(input.maxBytes);
   let next = start;
   for (; next <= end; next++) {
     if (extracted.length >= maxPages) break;

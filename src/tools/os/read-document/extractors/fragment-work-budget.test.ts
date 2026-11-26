@@ -25,26 +25,28 @@ function mime(parts: string[]): Buffer {
 }
 
 describe("cumulative formatting work", () => {
-  const heavy = "<p>" + "A line of chapter text. ".repeat(675) + "End.</p>";
+  const heavy = "<ul>" + "<li><a href='/ref'>A list item.</a></li>".repeat(400) + "</ul>";
   const many = Array.from({ length: 128 }, (_, n) => "<h2>Section " + n + "</h2>" + heavy);
 
-  it("stops expensive EPUB chapter conversions before the fragment count limit", async () => {
+  it("uses plain text for later EPUB chapters when formatting work is exhausted", async () => {
     const data = await epub(many);
     const start = performance.now();
     const result = await epubExtractor({ data, sourcePath: "fixture.epub" });
     expect(result.text).toContain("## Section 0");
     expect(result.text).not.toContain("## Section 120");
-    expect(result.warnings).toContainEqual(expect.stringMatching(/chapter budget.*pagesFrom/i));
+    expect(result.text.includes("Section 127")).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget.*plain text/i));
     expect(performance.now() - start).toBeLessThan(3000);
   });
 
-  it("stops expensive MIME text conversions before the fragment count limit", async () => {
+  it("uses plain text for later MIME parts when formatting work is exhausted", async () => {
     const data = mime(many);
     const start = performance.now();
     const result = await emlExtractor({ data, sourcePath: "fixture.eml" });
     expect(result.text).toContain("## Section 0");
     expect(result.text).not.toContain("## Section 120");
-    expect(result.warnings).toContainEqual(expect.stringMatching(/MIME.*budget.*skipped/i));
+    expect(result.text.includes("Section 127")).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget.*plain text/i));
     expect(performance.now() - start).toBeLessThan(3000);
   });
 

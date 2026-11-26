@@ -275,6 +275,7 @@ function openingTag(name: string, attributes: Record<string, string>): string {
 function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   const parts: string[] = [];
   let length = 0;
+  let textMarkupLength = 0;
   let depth = 0;
   let omittedDepth = 0;
   let titleDepth = 0;
@@ -314,7 +315,9 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       inText = true;
     }
     if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
-    append(escapeMarkup(text), text.length);
+    const escaped = escapeMarkup(text);
+    textMarkupLength += escaped.length;
+    append(escaped, text.length);
   };
   const closeTag = (tag: string) => {
     if (tag === "a") {
@@ -494,7 +497,9 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
-  return { markup: parts.join(""), title, limit, flattened, nodes, preWhitespaceTrimmed };
+  const markup = parts.join("");
+  const work = markup.length - textMarkupLength + 16 * nodes;
+  return { markup, title, limit, flattened, work, preWhitespaceTrimmed };
 }
 
 function isXhtml(html: string): boolean {
@@ -511,7 +516,7 @@ export function boundedHtmlToMarkdown(
 ): HtmlMarkdown {
   const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
   let limit = prepared?.limit;
-  if (prepared && !limit && (!budget || budget.takeWork(prepared.markup.length + 16 * prepared.nodes))) {
+  if (prepared && !limit && (!budget || budget.takeWork(prepared.work))) {
     try {
       let wideTable = false;
       const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)

@@ -28,7 +28,7 @@ const MAX_DEPTH = 8;
 export const emlExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const raw = input.data.toString("latin1");
-  const budget = new FragmentBudget();
+  const budget = new FragmentBudget(input.maxBytes);
   const text = renderMessage(raw, 0, warnings, budget);
   if (budget.exhausted) warnings.push("MIME text fragment budget exhausted; remaining text parts were skipped");
   return { format: "eml", text: text.trim(), warnings: dedupe(warnings) };
@@ -56,7 +56,7 @@ export const mboxExtractor: Extractor = async (input) => {
   const separators = input.pageSeparators !== false;
   const chunks: string[] = [];
   const extracted: number[] = [];
-  const budget = new FragmentBudget();
+  const budget = new FragmentBudget(input.maxBytes);
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget).trim();

@@ -1,7 +1,8 @@
+import { DEFAULT_DOCUMENT_MAX_BYTES } from "./extractor-types.js";
+
 const MAX_FRAGMENTS = 128;
 const MAX_FRAGMENT_BYTES = 16 * 1024 * 1024;
-const MAX_RENDER_WORK = 1536 * 1024;
-const MAX_TEXT_CHARS = 5 * 1024 * 1024;
+const MAX_RENDER_WORK = 3 * 1024 * 1024;
 
 /** Bound the total work even when a container repeats the same fragment. */
 export class FragmentBudget {
@@ -11,13 +12,22 @@ export class FragmentBudget {
   #text = 0;
   #exhausted = false;
   #formattingLimited = false;
+  readonly #textLimit: number;
+  readonly #inputLimit: number;
+  readonly #workLimit: number;
+
+  constructor(maxBytes = DEFAULT_DOCUMENT_MAX_BYTES) {
+    this.#textLimit = maxBytes;
+    this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 4));
+    this.#workLimit = Math.min(MAX_RENDER_WORK, Math.max(128 * 1024, Math.floor(maxBytes * 0.3)));
+  }
 
   get exhausted(): boolean {
     return this.#exhausted;
   }
 
   get textRemaining(): number {
-    return MAX_TEXT_CHARS - this.#text;
+    return this.#textLimit - this.#text;
   }
 
   get canFormat(): boolean {
@@ -25,7 +35,7 @@ export class FragmentBudget {
   }
 
   canTake(bytes: number): boolean {
-    return !this.#exhausted && this.#parts < MAX_FRAGMENTS && bytes <= MAX_FRAGMENT_BYTES - this.#bytes;
+    return !this.#exhausted && this.#parts < MAX_FRAGMENTS && bytes <= this.#inputLimit - this.#bytes;
   }
 
   take(bytes: number): boolean {
@@ -40,7 +50,7 @@ export class FragmentBudget {
 
   /** Once formatting is exhausted, subsequent fragments can use plain text. */
   takeWork(work: number): boolean {
-    if (this.#formattingLimited || work > MAX_RENDER_WORK - this.#work) {
+    if (this.#formattingLimited || work > this.#workLimit - this.#work) {
       this.#formattingLimited = true;
       return false;
     }
