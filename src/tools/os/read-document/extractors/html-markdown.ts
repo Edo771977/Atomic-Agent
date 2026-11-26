@@ -57,6 +57,7 @@ interface MarkdownNode {
   readonly nodeName: string;
   readonly nodeType: number;
   readonly nodeValue: string | null;
+  readonly textContent: string;
   readonly parentNode: MarkdownNode | null;
   readonly childNodes: ArrayLike<MarkdownNode>;
   readonly isCode?: boolean;
@@ -156,6 +157,24 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
   const tableRules = new Map([["TD", cellRule], ["TH", cellRule], ["TR", rowRule], ["TABLE", tableRule]]);
   const escape = td.escape.bind(td);
   td.remove(["button", "input", "select", "textarea"]);
+  td.addRule("inlineCodeWithEscapedTablePipe", {
+    filter: (node) => {
+      const element = node as unknown as MarkdownNode;
+      if (element.nodeName !== "CODE" || element.parentNode?.nodeName === "PRE" ||
+          !/(?<!\\)(?:\\\\)*\\\|/.test(element.textContent)) return false;
+      const width = widthOfParent(node);
+      return width > 0 && width <= HTML_TABLE_COLUMNS;
+    },
+    replacement: (content) => {
+      // A table parser removes one backslash from an escaped pipe before
+      // parsing code spans. Entities inside a literal code tag keep both
+      // characters and prevent Markdown from interpreting the punctuation.
+      const encoded = content.replace(/\r\n?|\n/g, " ").replace(/[!-/:-@\x5b-\x60{-~]/g, (char) =>
+        "&#" + char.charCodeAt(0) + ";",
+      );
+      return "<code>" + encoded + "</code>";
+    },
+  });
   td.addRule("imageWithoutUrl", {
     filter: node => (node as unknown as MarkdownNode).nodeName === "IMG" && !attribute(node, "src"),
     replacement: (_content, node) => escape(normalizeLabel(attribute(node, "alt") ?? "")),
