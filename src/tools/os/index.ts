@@ -418,6 +418,7 @@ export function registerOsTools(
   const gitRemote = {
     approvals: options.approvals,
     approvalRequired: options.approvalRequired,
+    urlDataGuard: options.config.http.urlDataGuard,
     isRemoteSyncEnabled:
       options.shellPolicy?.isGitRemoteSyncEnabled ?? (() => false),
   };

@@ -89,6 +89,8 @@ Mutation policy is checked on actual plans in `requireFsApproval`, before fanout
 
 Remote Git verbs retain local edit checks: clone checks its new tree, fetch/push and remote configuration changes check metadata, and pull checks possible worktree descendants before its combined fetch/integration operation. Pull is conservative because its future worktree is unknown before contacting the remote; use a separately permitted fetch and a planned checkout when that distinction matters. The fork's `git_remote` approval and remote-sync switch remain independent.
 
+Git HTTP(S) URL decisions are separate: organization policy may require a fresh `http` decision or deny the destination; the fork's `http.urlDataGuard` independently requests `http_write` for data-bearing URLs (and first-site visits in strict mode). An organization allow/approval does not answer the data request. Resolved clone/fetch/pull URLs and explicit remote URLs are checked before transport; Git's own redirects remain inside its client and are outside this static trace.
+
 ## Entry points
 
 - [policy-schema.ts](policy-schema.ts): the file format and its parser.
