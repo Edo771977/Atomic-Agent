@@ -26,6 +26,9 @@ Read [tool instructions](../AGENTS.md), [contracts](../docs/contracts.md), [OS r
   The ZIP reader retains verified markup and counts decoded media in streaming
   chunks, keeping the original compression for non-markup parts. The same
   limits and storage strategy apply to OpenDocument and EPUB extraction.
+  DOCX text extraction describes referenced images by their archive name,
+  validated byte size and available alternative text. The text result does
+  not embed the image bytes.
 - Existing [archive](archive/index.ts), [document reading](read-document/index.ts), [git](git/README.md) and [process tools](proc/index.ts) retain their owners.
 - [PowerPoint writing](pptx/index.ts) (`os.fs.write_pptx`) builds an editable deck in-process with JSZip and rides the `os.fs.write` approval funnel; its round-trip test reads the deck back with the PPTX extractor.
 

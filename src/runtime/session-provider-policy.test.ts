@@ -1,8 +1,9 @@
 import { PLAIN_COMPLETE_PARTITION } from "./plain-complete.js";
+import { privacyVaultFor, releasePrivacyVault, resetPrivacyVaults } from "../privacy/index.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { describeProviderRestriction, makeProviderPolicy, noAllowedProviderError, runWithProviderPolicy } from "../llm/provider-policy.js";
 import { createRuntimeSessionFactories } from "./composition/runtime-session-services.js";
 import { channelNotifyRefusal, childSessionSeed, createSessionProviderPolicy, moveSessionFolder, retrySessionSeed } from "./session-provider-policy.js";
@@ -30,6 +31,24 @@ describe("session provider policy (issue #33)", () => {
     const { project, policy } = setup();
     expect(policy.forSessionId("s-1")?.key).toBe(project);
     expect(policy.forSessionId("s-1")?.allows("openai")).toBe(false);
+  });
+
+  it.each([
+    "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
+    "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn", "goal-judge",
+  ])("agrees on policy and archive ownership for the known %s caller outside a turn frame", prefix => {
+    const { project, policy } = setup();
+    try {
+      expect(policy.effectivePolicyForSession(`${prefix}:s-1`)?.allowedProviders).toEqual(["local-llama"]);
+      expect(policy.effectivePolicyForSession(`reflection:${prefix}:s-1`)?.key).toBe(project);
+      const derived = privacyVaultFor(`${prefix}/s-1`);
+      const nested = privacyVaultFor(`reflection/${prefix}/s-1`);
+      const real = privacyVaultFor(`${prefix}:s-1`);
+      releasePrivacyVault("s-1");
+      expect(privacyVaultFor(`${prefix}/s-1`)).not.toBe(derived);
+      expect(privacyVaultFor(`reflection/${prefix}/s-1`)).not.toBe(nested);
+      expect(privacyVaultFor(`${prefix}:s-1`)).toBe(real);
+    } finally { resetPrivacyVaults(); }
   });
 
   it("reads a side call's partition id (`reflection:<id>`) as its session's id", () => {
@@ -75,6 +94,36 @@ describe("session provider policy (issue #33)", () => {
   });
 
   describe("effectivePolicyForSession (the one read the egress guard makes)", () => {
+    it("avoids SQLite without constraints and preserves an unsaved imported owner's frame", () => {
+      const loadSession = vi.fn(() => null);
+      const policy = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession });
+      const frame = makeProviderPolicy({ key: "carried", allowedProviders: ["local"], allowedEgress: [], matchedDir: "/fixture" });
+      for (const id of ["compaction:codex:X", "btw:codex:X", "reflection:title:codex:X", "learn:codex:X"]) {
+        expect(runWithProviderPolicy(frame, () => policy.effectivePolicyForSession(id), { sessionId: "codex:X" }), id).toBe(frame);
+      }
+      for (const id of ["complete:api", "codex:X", "compaction:codex:X", "client:chosen:X"]) expect(policy.effectivePolicyForSession(id)).toBeUndefined();
+      expect(loadSession).not.toHaveBeenCalled();
+    });
+
+    it("matches a known auxiliary partition to its frame before looking up a colliding real chat", () => {
+      const loadSession = vi.fn((id: string) => id === "compaction:codex:X" ? { workingDir: "/other" } : null);
+      const policy = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: { "/locked": { allowedProviders: ["local"] } } } }), loadSession });
+      const frame = makeProviderPolicy({ key: "/locked", allowedProviders: ["local"], allowedEgress: [], matchedDir: "/locked" });
+      expect(runWithProviderPolicy(frame, () => policy.effectivePolicyForSession("compaction:codex:X"), { sessionId: "codex:X" })).toBe(frame);
+      expect(loadSession).not.toHaveBeenCalled();
+      // An actual chat whose ID contains a known prefix keeps its own exact frame.
+      expect(runWithProviderPolicy(frame, () => policy.effectivePolicyForSession("compaction:codex:X"), { sessionId: "compaction:codex:X" })).toBe(frame);
+    });
+
+    it("never strips an unknown imported prefix to borrow a different stored chat's policy", () => {
+      const loadSession = vi.fn((id: string) => id === "X" ? { workingDir: "/locked" } : null);
+      const policy = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: { "/locked": { allowedProviders: ["local"] } } } }), loadSession });
+      expect(policy.forSessionId("compaction:codex:X")?.allowedProviders).toEqual([]);
+      expect(loadSession).not.toHaveBeenCalledWith("X");
+      loadSession.mockClear();
+      expect(policy.effectivePolicyForSession("reflection:codex:X")?.allowedProviders).toEqual([]);
+      expect(loadSession).not.toHaveBeenCalledWith("X");
+    });
     it("resolves an auxiliary partition's originating frame without configured constraints", () => {
       const policy = createSessionProviderPolicy({ readConfig: () => ({ projects: { roots: [], constraints: {} } }), loadSession: id => id === "codex:chat" ? { workingDir: "/fixture" } : null });
       const frame = makeProviderPolicy({ key: "carried", allowedProviders: ["local"], allowedEgress: [], matchedDir: "/fixture" });

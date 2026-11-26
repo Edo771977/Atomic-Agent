@@ -1,5 +1,6 @@
 import { OpenAiProvider } from "../../llm/provider/openai/openai-provider.js";
-import { isPrivacyShieldEnabled, setPrivacyShieldEnabled } from "../../privacy/index.js";
+import { isPrivacyShieldEnabled, setPrivacyShieldEnabled, privacyVaultFor, resetPrivacyVaults } from "../../privacy/index.js";
+import { sessionIdError } from "../../session/session-id.js";
 import { learnedSkillScope } from "../../skills/learning/learn-scope.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -127,6 +128,39 @@ describe("createExperienceReviewer", () => {
     } finally {
       setPrivacyShieldEnabled(saved);
     }
+  });
+
+  it("isolates a review of Y from the real chat learn:Y and preserves its placeholders", async () => {
+    const saved = isPrivacyShieldEnabled();
+    resetPrivacyVaults();
+    const chatId = "learn:Y";
+    expect(sessionIdError(chatId)).toBeNull();
+    const chat = privacyVaultFor(chatId);
+    chat.mask("chat.owner@example.test");
+    const responses: string[] = [];
+    const wire: string[] = [];
+    const provider = new OpenAiProvider({ id: "review-cloud", baseUrl: "https://review.example.invalid", apiKey: "", defaultChatModel: "fixture", privacy: { shield: "on" }, fetchImpl: async (_url, init) => {
+      wire.push(String(init?.body));
+      return Response.json({ choices: [{ message: { content: '{"action":"none","reason":"[EMAIL_1]"}' }, finish_reason: "stop" }] });
+    } });
+    const state = { ...session(10), id: "Y" };
+    state.turns[0] = { kind: "user", text: "Send to review.owner@example.test", at: 1 };
+    const { reviewer } = rig(undefined, { llmComplete: async request => {
+      expect(request.sessionId).toBe("learn:Y");
+      const result = await provider.complete(request); responses.push(result.content ?? ""); return result;
+    } });
+    try {
+      expect(reviewer.maybeReview(state, { result: reply(10), origin: "tui" })).toBe(true);
+      await reviewer.whenIdle();
+      expect(wire).toHaveLength(1);
+      expect(wire[0]).not.toContain("review.owner@example.test");
+      expect(wire[0]).not.toContain("chat.owner@example.test");
+      expect(wire[0]).not.toContain("[EMAIL_2]");
+      expect(responses[0]).toContain("review.owner@example.test");
+      expect(responses[0]).not.toContain("chat.owner@example.test");
+      expect(privacyVaultFor(chatId)).toBe(chat);
+      expect(chat.unmask("[EMAIL_1]")).toBe("chat.owner@example.test");
+    } finally { resetPrivacyVaults(); setPrivacyShieldEnabled(saved); }
   });
 
   it("keeps names from the runtime's boot project out of a review in another folder", async () => {

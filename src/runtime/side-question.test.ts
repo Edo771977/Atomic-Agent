@@ -21,6 +21,29 @@ const turns: ConversationTurn[] = [
 ];
 
 describe("askSideQuestion (ATO-1152)", () => {
+  it("types caller cancellation separately from a provider error named cancelled", async () => {
+    const aborted = new AbortController();
+    aborted.abort();
+    const complete = vi.fn<Complete>(async () => { throw new Error("cancelled"); });
+    expect(await askSideQuestion("q", { complete, slotId: () => 0, signal: aborted.signal }))
+      .toEqual({ ok: false, kind: "cancelled", reason: "cancelled" });
+    expect(complete).not.toHaveBeenCalled();
+    expect(await askSideQuestion("q", { complete, slotId: () => 0 }))
+      .toEqual({ ok: false, kind: "failed", reason: "cancelled" });
+  });
+
+  it("types an in-flight caller abort as cancellation and releases its controller", async () => {
+    const caller = new AbortController();
+    const pending = new Set<AbortController>();
+    const result = await askSideQuestion("q", { slotId: () => 0, signal: caller.signal, pending,
+      complete: params => new Promise((_resolve, reject) => {
+        params.signal.addEventListener("abort", () => reject(new Error("transport aborted")), { once: true });
+        caller.abort();
+      }),
+    });
+    expect(result).toEqual({ ok: false, kind: "cancelled", reason: "cancelled" });
+    expect(pending.size).toBe(0);
+  });
   it("asks under its own partition and budget, with the chat as context and no tools", async () => {
     const complete = vi.fn<Complete>(async () => ({ content: "auth.ts" }));
     const result = await askSideQuestion("which file?", {
@@ -93,7 +116,7 @@ describe("askSideQuestion (ATO-1152)", () => {
       },
       slotId: () => 0,
     });
-    expect(failed).toEqual({ ok: false, reason: "boom" });
+    expect(failed).toEqual({ ok: false, kind: "failed", reason: "boom" });
   });
 
   it("times out and frees its pending controller", async () => {
@@ -107,7 +130,7 @@ describe("askSideQuestion (ATO-1152)", () => {
       pending,
       timeoutMs: 5,
     });
-    expect(result).toEqual({ ok: false, reason: "timed out" });
+    expect(result).toEqual({ ok: false, kind: "timeout", reason: "timed out" });
     expect(pending.size).toBe(0);
   });
 });
