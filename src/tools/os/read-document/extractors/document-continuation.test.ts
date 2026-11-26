@@ -124,3 +124,8 @@ it("leaves a partially displayed EPUB chapter out of pagesExtracted", async () =
   expect(result.pagesExtracted).toEqual([]);
 });
 
+it("warns with the MIME body part count when EML pagesFrom is beyond the end", async () => {
+  const result = await emlExtractor({ data: mime(samples.slice(0, 3)), sourcePath: "fixture.eml", pagesFrom: 4 });
+  expect(result.text).toBe("");
+  expect(result.warnings).toContainEqual(expect.stringMatching(/pagesFrom.?4.*3.*parts/i));
+});

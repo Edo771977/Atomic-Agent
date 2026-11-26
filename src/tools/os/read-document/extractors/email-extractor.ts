@@ -49,6 +49,9 @@ export const emlExtractor: Extractor = async (input) => {
   } else if (range.resumeAt !== undefined) {
     warnings.push(`MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
   }
+  if (input.pagesFrom !== undefined && range.start > range.seen) {
+    warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
+  }
   return {
     format: "eml",
     text: text.trim(),
