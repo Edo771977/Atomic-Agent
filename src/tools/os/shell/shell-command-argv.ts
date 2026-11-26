@@ -138,6 +138,9 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   if (--state.remaining < 0) { state.unreadable = true; return []; }
   const inner = withoutWrappers(words);
   if (inner[0]?.includes(UNKNOWN_SHELL_WORD)) state.unreadable = true;
+  // These install deferred code or change subsequent command resolution.
+  // Never execute the fixture or consult the operator's shell state.
+  if (/^(?:trap|hash|source|\.)$/.test(programName(inner[0] ?? ""))) state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
