@@ -25,6 +25,12 @@ const DROP_ELEMENTS = new Set([
   "head",
 ]);
 const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
+const PARAGRAPH_CLOSERS = new Set([
+  "address", "article", "aside", "blockquote", "dd", "details", "dialog", "div", "dl", "dt",
+  "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
+  "header", "hgroup", "hr", "li", "listing", "main", "menu", "nav", "ol", "p", "plaintext",
+  "pre", "search", "section", "summary", "table", "ul", "xmp",
+]);
 const HTML_SOURCE_CHARS = 768 * 1024;
 const HTML_OUTPUT_CHARS = 576 * 1024;
 const HTML_PLAIN_CHARS = 384 * 1024;
@@ -257,6 +263,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let inText = false;
   let renderedDepth = 0;
   let openAnchor = -1;
+  let openParagraph = -1;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
 
@@ -271,14 +278,12 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   };
   const closeTag = (tag: string) => {
     if (tag === "a") openAnchor = -1;
+    if (tag === "p") openParagraph = -1;
     renderedDepth--;
     append(`</${tag}>`);
   };
-  const closeOpenAnchor = () => {
-    // HTML treats a new anchor as the end of an open one. Close its
-    // rendered descendants too so the serialized fragment stays balanced.
-    const anchor = openAnchor;
-    for (let i = emitted.length - 2; i >= anchor && !limit; i--) {
+  const closeEmittedFrom = (index: number) => {
+    for (let i = emitted.length - 2; i >= index && !limit; i--) {
       const tag = emitted[i];
       if (!tag) continue;
       closeTag(tag);
@@ -331,12 +336,17 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
       emitted.push(undefined);
       if (omittedDepth || !HTML_TAG.test(name)) return;
-      if (name === "a" && !recognizeSelfClosing && openAnchor >= 0) closeOpenAnchor();
+      if (!recognizeSelfClosing) {
+        // The parser can leave a paragraph on its stack when an inline
+        // wrapper intervenes. Serialize its implicit HTML closing tag.
+        if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name)) closeEmittedFrom(openParagraph);
+        if (openAnchor >= 0 && name === "a") closeEmittedFrom(openAnchor);
+      }
       if (limit) return;
       // Font and unstyled spans carry no structure in Markdown. Named
       // anchors still close a previous link but do not wrap following text.
       if (name === "font") {
-        flattened.depth ||= depth > HTML_FORMAT_DEPTH;
+        flattened.depth ||= openParagraph < 0 && depth > HTML_FORMAT_DEPTH;
         return;
       }
       if (!recognizeSelfClosing &&
@@ -366,6 +376,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         renderedDepth++;
         emitted[emitted.length - 1] = name;
         if (name === "a" && !recognizeSelfClosing) openAnchor = emitted.length - 1;
+        if (name === "p" && !recognizeSelfClosing) openParagraph = emitted.length - 1;
       }
       append(openingTag(name, attributes));
     },
