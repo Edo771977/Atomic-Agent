@@ -10,6 +10,11 @@ export function checkPolicyMutation(policy: EffectivePolicy, tool: string, paths
   if (paths.length === 0) return { refusal: null, ask: false };
   if (!policy.rules.some(rule => rule.action === "edit" && rule.effect !== "allow") && policyFilePaths(policy).length === 0) return { refusal: null, ask: false };
   const normalize = createEditPathNormalizer(workingDir);
+  if (policy.rules.length === 0 && !policy.sources.some(source => source.state === "loaded") && !policyFilePaths(policy).some(normalize.mayExist)) {
+    // Preserve reserved lexical names, without resolving unrelated mutation paths.
+    const refusal = policyCallRefusal(policy, "os.fs.trash", { paths: [...paths] }, workingDir, normalize)?.replace("os.fs.trash", tool) ?? null;
+    return { refusal, ask: false };
+  }
   const forms = (path: string) => [normalize.path(path)];
   const normalizedPolicy = { ...policy, rules: policy.rules.map(rule => rule.action === "edit" ? { ...rule, resource: normalize.pattern(rule.resource) } : rule) };
   const resources = [...new Set(paths.flatMap(forms))];
