@@ -69,7 +69,7 @@ Diff refuses either protected input before reading; structural code search/rewri
 
 ## Not done yet
 
-`ask` only prompts where the tool already asks the gate: shell commands that need approval, file writes, HTTP requests, gated MCP tools. `os.web.search`, read-only MCP tools and shell commands the guard deems safe honour `deny` but are not prompted on `ask`. The policy is read once per start. No cloud publishing of skills or MCP servers per organization, no admin UI.
+`ask` prompts for shell commands including ordinary commands classified safe, and for file writes, HTTP requests and gated MCP tools. `os.web.search` and read-only MCP tools honour `deny` but are not prompted on `ask`. The policy is read once per start. No cloud publishing of skills or MCP servers per organization, no admin UI.
 
 MCP resource/prompt operations use the server selected by `args.server`: `<server>/resource.list`, `resource.read`, `prompt.list` or `prompt.get`. Dynamic tool and server names are case-sensitive, as their catalog identities are. Server names are assigned by the operator; a policy name is not an attestation of a server's executable or URL.
 

@@ -29,7 +29,7 @@ import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.j
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
 import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
 import { activePolicy } from "../../../policy/policy-active.js";
-import { policyCallRefusal } from "../../../policy/policy-enforce.js";
+import { policyCallRefusal, policyCallAsks } from "../../../policy/policy-enforce.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
@@ -347,6 +347,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // but a saved deny rule still stops it: it goes to the gate, which
     // refuses it on the rule before any level, grant or prompt
     // (ATO-1332). Ask and allow rules keep to the gated path.
+    const organizationAsk = policyCallAsks(activePolicy(), "os.shell.run", { cmd, args: execArgs });
     const deniedBySavedRule =
       guardVerdict.action === "allow" &&
       options.approvalRequired &&
@@ -356,7 +357,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let pinned: PinnedExec | undefined;
     if (
       (guardVerdict.action === "approval_required" && !scopedByFanout) ||
-      deniedBySavedRule
+      deniedBySavedRule || organizationAsk
     ) {
       // Shape grant unit: the bare binary name (lowercased), so `[a]`
       // and "Allow in this chat" cover exactly the argv[0] that would
@@ -375,7 +376,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       // Saved approval rules match on argv and on the session's folder.
       const commandArgv = shellCommandArgv(cmd, execArgs, useShell, commandShape);
       const approval = await requireApproval(
-        options,
+        organizationAsk ? { ...options, approvalRequired: true } : options,
         {
           sessionId: ctx.sessionId,
           tool: "os.shell.run",
@@ -412,6 +413,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           targetPaths,
         },
         ctx.signal,
+        organizationAsk ? true : undefined,
       );
       pinned = approval.pinnedExec;
     }
