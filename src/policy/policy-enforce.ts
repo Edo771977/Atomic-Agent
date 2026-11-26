@@ -8,7 +8,7 @@ import { dirname, relative, isAbsolute, sep } from "node:path";
 import { policyFilePaths as policyFiles, createEditPathNormalizer } from "./policy-paths.js";
 import { READ_TOOL_TARGETS, verifyRunShellCalls } from "../tools/read-scope/read-scope-targets.js";
 import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-clients.js";
-import { shellRuleSegments } from "../tools/os/shell/org-shell-analysis.js";
+import { analyzeShellRules } from "../tools/os/shell/org-shell-analysis.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
 import { shellWriteTargets, execWriteTargets } from "../tools/os/shell-command-guard/write-targets.js";
@@ -83,7 +83,14 @@ export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unkn
 
 /** The model-facing refusal for a tool call the policy denies, or null. */
 export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir)): string | null {
-  const target = toolCallTarget(tool, args);
+  const analyses = new Map<string, ReturnType<typeof analyzeShellRules>>();
+  const analyze: typeof analyzeShellRules = (cmd, rest, useShell, dialect) => {
+    const key = JSON.stringify([cmd, rest, useShell, dialect]);
+    let value = analyses.get(key);
+    if (value === undefined) { value = analyzeShellRules(cmd, rest, useShell, dialect); analyses.set(key, value); }
+    return value;
+  };
+  const target = policy.rules.length === 0 && (tool === "os.shell.run" || tool === "verify.run") ? null : toolCallTarget(tool, args, analyze);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);
   const commands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? verifyRunShellCalls(object) : [];
@@ -91,7 +98,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
       const rest = coerceShellArgs(command.args) ?? [];
-      const segments = shellRuleSegments(command.cmd, rest, needsShellInterpretation(command.cmd, rest));
+      const segments = analyze(command.cmd, rest, needsShellInterpretation(command.cmd, rest)).segments;
       for (const words of segments) for (const url of shellNetworkUrls(words[0] ?? "", words.slice(1)).keys()) {
         const verdict = evaluatePolicy(policy, "webfetch", url === "" ? [] : toolCallTarget("os.web.fetch", { url })!.resources, { unreadable: url === "" });
         if (verdict?.effect === "deny") return `${tool} was not run: blocked by organization policy (${describePolicyRule(verdict.rule)}) for a shell network destination.`;
@@ -111,7 +118,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const readPaths = READ_TOOL_TARGETS.get(tool)?.(object) ?? [];
   const files = policyFiles(policy);
   const shellCommands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? [object, record(object.start)] : [];
-  const shellTouchesPolicy = files.length > 0 && shellCommands.some(command => {
+  const shellTouchesPolicy = (policy.sources.some(source => source.state === "loaded") || files.some(normalize.mayExist)) && shellCommands.some(command => {
     if (typeof command.cmd !== "string") return false;
     const cwd = workingDir ?? process.cwd();
     const named = findShellStateSecrets(command, { workingDir: cwd }, {

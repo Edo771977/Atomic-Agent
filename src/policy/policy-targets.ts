@@ -4,7 +4,7 @@
  * about to decide) and the dispatcher (a tool call about to run).
  */
 import { programName } from "../tools/os/shell-command-guard/command-segments.js";
-import { analyzeShellRules, shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/org-shell-analysis.js";
+import { analyzeShellRules, stdinScriptOf } from "../tools/os/shell/org-shell-analysis.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import type { PolicyAction } from "./policy-schema.js";
 import type { ShellDialect } from "../tools/os/shell-command-guard/shell-line-lexer.js";
@@ -108,10 +108,10 @@ function argvResources(argv: readonly string[]): string[] {
  * wrappers like `sudo` and `env`, inside `bash -c`, `eval` and
  * `find -exec`), each also with its program reduced to its name.
  */
-export function shellResources(cmd: string, args: readonly string[] = [], dialect?: ShellDialect): string[] {
+export function shellResources(cmd: string, args: readonly string[] = [], dialect?: ShellDialect, analysis?: ReturnType<typeof analyzeShellRules>): string[] {
   const line = [cmd, ...args].join(" ").trim().replace(/\s+/g, " ");
   const useShell = needsShellInterpretation(cmd, args);
-  const segments = shellRuleSegments(cmd, args, useShell, dialect);
+  const segments = (analysis ?? analyzeShellRules(cmd, args, useShell, dialect)).segments;
   return nonEmpty([line, ...segments.flatMap(argvResources)]);
 }
 
@@ -144,7 +144,7 @@ export function urlResources(values: ReadonlyArray<string | undefined>): Array<s
 }
 
 /** The target of a tool call by its arguments, or null when no policy action covers it. */
-export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null {
+export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShellRules): PolicyTarget | null {
   const a = record(args);
   if (/^mcp\.(?:resource\.(?:list|read)|prompt\.(?:list|get))$/.test(tool)) {
     const server = str(a.server);
@@ -158,7 +158,7 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
     const cmd = command ?? str(start.cmd) ?? str(start.command);
     if (cmd !== undefined) {
       const rest = coerceShellArgs(command === undefined ? start.args : a.args) ?? [];
-      const target = toolCallTarget("os.shell.run", { cmd, args: rest })!;
+      const target = toolCallTarget("os.shell.run", { cmd, args: rest }, analyze)!;
       const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin));
       target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line, [], "posix")) ?? [])])];
       if (script?.unreadable) target.unreadable = true;
@@ -169,8 +169,8 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
     const cmd = str(a.cmd);
     if (cmd === undefined) return null; // wait / kill / jobs run nothing new
     const rest = coerceShellArgs(a.args) ?? [];
-    const unreadable = shellRunsUnreadableScript(cmd, rest, needsShellInterpretation(cmd, rest));
-    return { action: "shell", resources: shellResources(cmd, rest), ...(unreadable ? { unreadable: true } : {}) };
+    const analysis = analyze(cmd, rest, needsShellInterpretation(cmd, rest));
+    return { action: "shell", resources: shellResources(cmd, rest, undefined, analysis), ...(analysis.unreadable ? { unreadable: true } : {}) };
   }
   if (EDIT_TOOLS.has(tool)) {
     // The diff's real files are checked by the patch planner, including dry runs.
