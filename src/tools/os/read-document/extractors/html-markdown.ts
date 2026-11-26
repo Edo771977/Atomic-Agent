@@ -180,7 +180,7 @@ function openingTag(name: string, attributes: Record<string, string>): string {
  * Strip non-visible markup and check the depth before giving any parser
  * that builds a DOM or renders recursively a bounded fragment.
  */
-function prepareHtml(html: string) {
+function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   const parts: string[] = [];
   let length = 0;
   let depth = 0;
@@ -242,14 +242,20 @@ function prepareHtml(html: string) {
         append(escapeMarkup(text));
       }
     },
-  }, { decodeEntities: true });
+  }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
   return { markup: parts.join(""), title, limit, textChars };
 }
 
-export function boundedHtmlToMarkdown(html: string, warnings: string[]): HtmlMarkdown {
-  const prepared = prepareHtml(html);
+function isXhtml(html: string): boolean {
+  const intro = html.slice(0, 8_192);
+  return /^\s*<\?xml(?:\s|\?)/i.test(intro)
+    || /<html\b[^>]*\sxmlns\s*=\s*["']http:\/\/www\.w3\.org\/1999\/xhtml["']/i.test(intro);
+}
+
+export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = isXhtml(html)): HtmlMarkdown {
+  const prepared = prepareHtml(html, xhtml);
   let limit = prepared.limit;
   if (!limit) {
     try {

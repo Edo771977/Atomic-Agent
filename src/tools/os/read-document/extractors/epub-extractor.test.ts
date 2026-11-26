@@ -6,7 +6,7 @@ import { epubExtractor } from "./epub-extractor.js";
 const chapter = (title: string, body: string) =>
   `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${title}</title><style>p{color:red}</style></head><body><h1>${title}</h1>${body}</body></html>`;
 
-async function makeEpub(options: { encrypted?: boolean } = {}): Promise<Buffer> {
+async function makeEpub(options: { encrypted?: boolean; opening?: string } = {}): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip");
   zip.file(
@@ -26,7 +26,7 @@ async function makeEpub(options: { encrypted?: boolean } = {}): Promise<Buffer> 
   zip.file("OEBPS/style.css", "p { margin: 0 }");
   zip.file(
     "OEBPS/text/ch1.xhtml",
-    chapter("Opening", "<p>It was a <em>dark</em> night.</p><ul><li>one</li><li>two</li></ul>"),
+    chapter("Opening", options.opening ?? "<p>It was a <em>dark</em> night.</p><ul><li>one</li><li>two</li></ul>"),
   );
   zip.file(
     "OEBPS/text/chapter 2.xhtml",
@@ -38,6 +38,14 @@ async function makeEpub(options: { encrypted?: boolean } = {}): Promise<Buffer> 
 }
 
 describe("epubExtractor", () => {
+  it("preserves links after XHTML self-closing page markers", async () => {
+    const markers = Array.from({ length: 300 }, (_, i) =>
+      `<span epub:type="pagebreak" id="p${i}"/><p><a href="https://example.test/${i}">Link</a></p>`).join("");
+    const data = await makeEpub({ opening: markers });
+    const result = await epubExtractor({ data, sourcePath: "b.epub" });
+    expect(result.text.match(/https:\/\/example\.test\//g)).toHaveLength(300);
+    expect(result.warnings).toEqual([]);
+  });
   it("reads chapters in spine order (not manifest order) as markdown", async () => {
     const result = await epubExtractor({ data: await makeEpub(), sourcePath: "b.epub" });
     expect(result.format).toBe("epub");

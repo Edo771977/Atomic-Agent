@@ -9,6 +9,16 @@ const run = (html: string | Buffer) =>
   });
 
 describe("htmlExtractor", () => {
+  it("honours XHTML self-closing anchors and page markers without losing Markdown", async () => {
+    const paragraphs = Array.from({ length: 300 }, (_, i) =>
+      `<a id="n${i}"/><span epub:type="pagebreak" id="page_${i}"/><h2>Section ${i}</h2>` +
+      `<p><a href="https://example.test/${i}">Reference</a></p>`).join("");
+    const result = await run(`<?xml version="1.0"?><html xmlns="http://www.w3.org/1999/xhtml"><body>${paragraphs}</body></html>`);
+    expect(result.text.match(/^## Section /gm)).toHaveLength(300);
+    expect(result.text.match(/https:\/\/example\.test\//g)).toHaveLength(300);
+    expect(result.warnings).toEqual([]);
+  });
+
   it("counts a slash on a non-void HTML element as an opening tag", async () => {
     const result = await run("<p>Fixture</p>" + "<div/>".repeat(1_010) + "Deep text");
     expect(result.warnings.join("\n")).toMatch(/depth/i);
