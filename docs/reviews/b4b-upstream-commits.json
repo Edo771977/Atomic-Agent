@@ -1,0 +1,93 @@
+{
+  "baseline": "2fa1eb9a4fa14987610f74f15b361467fe26a18c",
+  "commits": [
+    {
+      "sha": "0a29ff1aa084570973740dea47f1ebb7012fba1d",
+      "parents": [
+        "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64"
+      ],
+      "subject": "Experimental ChatGPT sign-in provider without the Codex CLI (ATO-1448, ATO-1449, ATO-1453)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "b5e2ad6618ac3386cea459589bdf944da71500cc",
+      "parents": [
+        "0a29ff1aa084570973740dea47f1ebb7012fba1d"
+      ],
+      "subject": "ChatGPT sign-in: Codex's live default model, Sign in again wording (ATO-1448)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "21a3b583a19b799157e13f6e905696b4dfbad4b8",
+      "parents": [
+        "b5e2ad6618ac3386cea459589bdf944da71500cc"
+      ],
+      "subject": "ChatGPT sign-in: refresh tokens exactly like Codex (ATO-1448)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "d54d0ff10362581cf0448c55943a5725758b3478",
+      "parents": [
+        "21a3b583a19b799157e13f6e905696b4dfbad4b8"
+      ],
+      "subject": "ChatGPT sign-in required falls over like a signed-out CLI (ATO-1453)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "e91d8b6aa5a9233964d3e6aa9abcde14f5ff27ce",
+      "parents": [
+        "d54d0ff10362581cf0448c55943a5725758b3478"
+      ],
+      "subject": "Annotate the token store in the ChatGPT Codex test (ATO-1448)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "afafac34aebea5c1ae032f123252f0de72fb9c11",
+      "parents": [
+        "e91d8b6aa5a9233964d3e6aa9abcde14f5ff27ce"
+      ],
+      "subject": "Listen for the no-account refusal before the sign-in callback in the test (ATO-1448)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "6b92916fa53f4f4bd51e2864d2baf0921af952b9",
+      "parents": [
+        "0a29ff1aa084570973740dea47f1ebb7012fba1d"
+      ],
+      "subject": "Add atag login chatgpt and logout chatgpt for the experimental sign-in (ATO-1454)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "30f565d19758b3b695e1e39035729105e69ab062",
+      "parents": [
+        "d97dd97fee5e50b8cc3672e2a0a9cf9d5eb1faf3"
+      ],
+      "subject": "atag login chatgpt: Codex's default model, activate or ask (ATO-1454)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "2b9d196e2df29613f6dfed72269e0236fe0f08d3",
+      "parents": [
+        "29ee10357036e3ec1616594bdab10620b4bbfd59"
+      ],
+      "subject": "Hand login the browser opener from the CLI root instead of importing the TUI (ATO-1454)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "32b2a43ac62fb0168e82958bfcfe1436d75d39b5",
+      "parents": [
+        "29ee10357036e3ec1616594bdab10620b4bbfd59"
+      ],
+      "subject": "feat(llm): experimental GitHub Copilot sign-in on the subscription sign-in framework (ATO-462)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "e83daa15d15e4bd2764f198abe0ece8fff3d2eec",
+      "parents": [
+        "32b2a43ac62fb0168e82958bfcfe1436d75d39b5"
+      ],
+      "subject": "Move the provider activation prompt to its own module to break the login import cycle (ATO-462)",
+      "disposition": "deferred, not cherry-picked"
+    }
+  ]
+}

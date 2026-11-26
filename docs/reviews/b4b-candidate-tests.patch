@@ -1,0 +1,40 @@
+diff --git a/src/llm/provider/subscription-oauth/b4b-candidate.test.ts b/src/llm/provider/subscription-oauth/b4b-candidate.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/llm/provider/subscription-oauth/b4b-candidate.test.ts
+@@ -0,0 +1,35 @@
++import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { dirname, join, sep } from "node:path";
++import { afterEach, expect, it, vi } from "vitest";
++import { getStateSecretPaths, getTrustConfigPaths } from "../../../config/config-file.js";
++import { createFileTokenStore, subscriptionTokenPath } from "./credential-store.js";
++
++const dirs: string[] = [];
++afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
++function fixture(service: string) {
++  const dir = mkdtempSync(join(tmpdir(), "b4b-candidate-")); dirs.push(dir);
++  const path = subscriptionTokenPath(dir, service); mkdirSync(dirname(path));
++  writeFileSync(path, JSON.stringify({ version: 1, tokens: { accessToken: "b4b_private_sentinel_0da9e1" }, savedAt: 1 }), { mode: 0o600 });
++  return { dir, path, store: createFileTokenStore({ path }) };
++}
++it("control: the operator reads and clears a real fixture token", async () => {
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", ""); const { store, path } = fixture("chatgpt");
++  expect(await store.load()).toMatchObject({ accessToken: "b4b_private_sentinel_0da9e1" });
++  await store.clear(); expect(existsSync(path)).toBe(false);
++});
++it.each(["chatgpt", "copilot"])("a marked child cannot read %s tokens", async service => {
++  const { store } = fixture(service); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  let observed: unknown; try { observed = await store.load(); } catch { observed = "refused"; }
++  expect(JSON.stringify(observed)).not.toContain("b4b_private_sentinel_0da9e1");
++});
++it.each(["chatgpt", "copilot"])("a marked child cannot clear %s tokens", async service => {
++  const { store, path } = fixture(service); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  try { await store.clear(); } catch { /* refusal is acceptable */ }
++  expect(existsSync(path)).toBe(true);
++});
++it.each([["state-secret", getStateSecretPaths], ["trust-config", getTrustConfigPaths]] as const)("subscription tokens belong to the %s inventory", (_label, inventory) => {
++  const { dir, path } = fixture("chatgpt");
++  const paths = inventory({ stateDir: dir, userConfigFile: join(dir, "config.json"), localModelsDataDir: join(dir, "models") });
++  expect(paths.some(entry => entry === path || (entry.endsWith(sep) && path.startsWith(entry)))).toBe(true);
++});
