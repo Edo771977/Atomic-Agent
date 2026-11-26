@@ -16,7 +16,7 @@ import { isIncognitoSession } from "../session/incognito.js";
 import { untrustedContentNote } from "../tools/untrusted-tool-output.js";
 import { abortableSubcall } from "./abortable-subcall.js";
 import { compactionReplyBudget } from "./compaction-reply-budget.js";
-import type { ModelSummaryRoute } from "./context-compaction-model.js";
+import { COMPACTION_SESSION_PREFIX, type ModelSummaryRoute } from "./context-compaction-model.js";
 
 /**
  * Pre-compaction memory flush (ATO-676, behind `agent.compaction.memoryFlush`).
@@ -339,7 +339,7 @@ export async function flushMemoryBeforeCompaction(request: MemoryFlushRequest): 
           : {}),
         grammar: "", slotId: request.sideCallSlotId(), cachePrompt: false,
         // Counted with the compaction's own calls.
-        sessionId: `compaction:${state.id}`, providerId: route.providerId,
+        sessionId: `${COMPACTION_SESSION_PREFIX}${state.id}`, providerId: route.providerId,
         // The session's request budget pays for it, as for the summary call.
         budgetOwnerSessionId: state.id,
         maxTokens, maxOutputTokens: maxTokens,

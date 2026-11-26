@@ -1,8 +1,9 @@
+import { CALLER_PARTITIONS as prefixes } from "./auxiliary-caller-test-helpers.js";
 import { afterEach, expect, it } from "vitest";
 import { sessionIdError } from "../session/session-id.js";
 import { forgetPrivacyVault, releasePrivacyVault, privacyVaultFor, resetPrivacyVaults } from "./index.js";
 afterEach(resetPrivacyVaults);
-const prefixes = ["compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter", "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn"];
+
 
 it.each([releasePrivacyVault, forgetPrivacyVault])("uses unforgeable internal keys without reinterpreting real colon IDs: %s", close => {
   for (const prefix of prefixes) {

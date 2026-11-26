@@ -1,5 +1,6 @@
 import { afterEach, expect, it } from "vitest";
 import { AUXILIARY_PARTITIONS } from "./auxiliary-partitions.js";
+import { AUXILIARY_CALLERS, CALLER_PARTITIONS } from "./auxiliary-caller-test-helpers.js";
 import {
   forgetPrivacyVault, privacyVaultFor, privacyVaultForRequest, resetPrivacyVaults,
   withFreshPrivacyVault, withPrivacyShieldTurn,
@@ -7,7 +8,13 @@ import {
 
 afterEach(() => resetPrivacyVaults());
 
-it.each(AUXILIARY_PARTITIONS)("refuses an unscoped %s partition without reinterpreting real colon IDs", prefix => {
+it.each(AUXILIARY_CALLERS)("registers the actual %s caller prefix", (_name, prefix) => {
+  expect(prefix).toBeTypeOf("string");
+  expect(prefix.endsWith(":")).toBe(true);
+  expect(AUXILIARY_PARTITIONS).toContain(prefix.slice(0, -1));
+});
+
+it.each(CALLER_PARTITIONS)("refuses an unscoped %s partition without reinterpreting real colon IDs", prefix => {
   const realId = `${prefix}:Y`;
   const real = privacyVaultFor(realId);
   real.mask("real.chat@example.test");
