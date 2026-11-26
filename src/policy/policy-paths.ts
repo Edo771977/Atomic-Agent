@@ -56,8 +56,8 @@ export function canonicalPolicyPath(path: string, fs: PolicyPathFs = policyPathF
 }
 
 export function policyFilePaths(policy: EffectivePolicy): string[] {
-  return policy.sources.filter(source => source.kind !== "url").flatMap(source =>
-    source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location]);
+  return [...new Set([...(policy.filePins ?? []).map(pin => pin.path), ...policy.sources.filter(source => source.kind !== "url").flatMap(source =>
+    source.kind === "user" ? [source.location, join(dirname(source.location), "policy-cache.json")] : [source.location])])];
 }
 
 /** Include link entries as well as referents: replacing an ancestor can relocate a policy. */

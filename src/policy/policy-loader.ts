@@ -1,6 +1,7 @@
 import { mkdirSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
-import { systemPolicyPath, POLICY_STATE_DIR_ENV, POLICY_SYSTEM_PATH_ENV } from "../config/org-policy-paths.js";
+import { systemPolicyPath, POLICY_STATE_DIR_ENV, POLICY_SYSTEM_PATH_ENV, POLICY_FILE_PINS_ENV } from "../config/org-policy-paths.js";
 import { writeOwnerOnlyFileAtomicSync } from "../config/owner-only-file.js";
 import { offlineRefusal } from "../llm/offline-network.js";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
@@ -9,6 +10,7 @@ import type {
   PolicySourceKind,
   PolicySourceStatus,
   SourcedPolicyRule,
+  PolicyFilePin,
 } from "./policy-evaluator.js";
 import { parsePolicyFile, parsePolicyText, PolicyFormatError, validatePolicyUrl, type PolicyFile } from "./policy-schema.js";
 
@@ -69,6 +71,11 @@ async function defaultFetchText(url: string, timeoutMs: number): Promise<string>
 export interface LoadedPolicySource {
   status: PolicySourceStatus;
   file?: PolicyFile;
+  filePin?: PolicyFilePin;
+}
+
+function pinFile(path: string, text: string, kind: PolicySourceKind): PolicyFilePin {
+  return { path: resolve(path), sha256: createHash("sha256").update(text).digest("hex"), kind };
 }
 
 function errorText(err: unknown): string {
@@ -79,7 +86,7 @@ function readFileSource(kind: PolicySourceKind, path: string, readText: (p: stri
   try {
     const text = readText(path);
     if (text === null) return { status: { kind, location: path, state: "missing" } };
-    return { status: { kind, location: path, state: "loaded" }, file: parsePolicyText(text) };
+    return { status: { kind, location: path, state: "loaded" }, file: parsePolicyText(text), filePin: pinFile(path, text, kind) };
   } catch (err) {
     throw new PolicyFormatError(`Organization policy ${kind} file ${path} could not be loaded: ${errorText(err)}`);
   }
@@ -91,14 +98,14 @@ interface CacheEntry {
   policy: unknown;
 }
 
-function readCache(deps: Required<Pick<PolicyLoaderDeps, "readText">> & PolicyLoaderDeps, url: string): { file: PolicyFile; fetchedAt: string } | null {
+function readCache(deps: Required<Pick<PolicyLoaderDeps, "readText">> & PolicyLoaderDeps, url: string): { file: PolicyFile; fetchedAt: string; filePin: PolicyFilePin } | null {
   try {
     const text = deps.readText(join(deps.stateDir, POLICY_CACHE_FILE));
     if (text === null) return null;
     const entry = JSON.parse(text) as Partial<CacheEntry>;
     // A copy cached for another URL is not this organisation's policy.
     if (entry.url !== url || typeof entry.fetchedAt !== "string") return null;
-    return { file: parsePolicyFile(entry.policy), fetchedAt: entry.fetchedAt };
+    return { file: parsePolicyFile(entry.policy), fetchedAt: entry.fetchedAt, filePin: pinFile(join(deps.stateDir, POLICY_CACHE_FILE), text, "url") };
   } catch {
     return null;
   }
@@ -120,6 +127,7 @@ function fromCache(deps: Required<Pick<PolicyLoaderDeps, "readText">> & PolicyLo
   return {
     status: { ...base, state: "cached", fetchedAt: cached.fetchedAt, ...(error ? { error } : {}) },
     file: cached.file,
+    filePin: cached.filePin,
   };
 }
 
@@ -135,15 +143,23 @@ export function mergePolicySources(loaded: readonly LoadedPolicySource[]): Effec
     file.rules.forEach((rule, index) => rules.push({ ...rule, source: status.kind, index }));
     if (file.mcpAllowlist !== undefined) mcpAllowlists.push({ ...file.mcpAllowlist, source: status.kind });
   }
-  return { rules, mcpAllowlists, sources: loaded.map((l) => l.status) };
+  const filePins = loaded.flatMap(source => source.filePin ? [source.filePin] : []);
+  return { rules, mcpAllowlists, sources: loaded.map((l) => l.status), ...(filePins.length ? { filePins } : {}) };
 }
 
 function withDefaults(deps: PolicyLoaderDeps) {
+  const read = deps.readText ?? defaultReadText;
+  const texts = new Map<string, string | null>();
   return {
     ...deps,
     platform: deps.platform ?? process.platform,
     env: deps.env ?? process.env,
-    readText: deps.readText ?? defaultReadText,
+    readText: (path: string) => {
+      const absolute = resolve(path);
+      const key = process.platform === "win32" || process.platform === "darwin" ? absolute.toLowerCase() : absolute;
+      if (!texts.has(key)) texts.set(key, read(path));
+      return texts.get(key)!;
+    },
   };
 }
 
@@ -172,22 +188,47 @@ function policyUrl(env: NodeJS.ProcessEnv, local: readonly LoadedPolicySource[])
  */
 export function loadLocalPolicy(deps: PolicyLoaderDeps): EffectivePolicy {
   const d = withDefaults(deps);
+  const inheritedPins: PolicyFilePin[] = [];
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || d.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    const required = process.env[POLICY_FILE_PINS_ENV] ?? d.env[POLICY_FILE_PINS_ENV];
+    if (required !== undefined) {
+      try {
+        const pins: unknown = JSON.parse(required);
+        if (!Array.isArray(pins) || pins.length > 64) throw new Error("invalid pins");
+        for (const pin of pins) {
+          if (!pin || typeof pin.path !== "string" || typeof pin.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(pin.sha256) || !["user", "system", "url"].includes(pin.kind)) throw new Error("invalid pin");
+          const raw = d.readText(pin.path);
+          if (raw === null || pinFile(pin.path, raw, pin.kind).sha256 !== pin.sha256) throw new Error("snapshot unavailable");
+          inheritedPins.push(pin);
+        }
+      } catch { throw new PolicyFormatError("Inherited organization policy snapshot is unavailable or changed; restart the parent instance"); }
+    }
+  }
   const loaded = localSources(d);
   if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || d.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    const loadChildCache = (path: string, raw: string): LoadedPolicySource => {
+      try {
+        const cache = JSON.parse(raw) as CacheEntry;
+        validatePolicyUrl(cache.url);
+        if (typeof cache.fetchedAt !== "string") throw new Error("missing cache timestamp");
+        return { status: { kind: "url", location: redactPolicyUrl(cache.url), state: "cached", fetchedAt: cache.fetchedAt }, file: parsePolicyFile(cache.policy), filePin: pinFile(path, raw, "url") };
+      } catch { throw new PolicyFormatError("Organization policy cache could not be loaded by tool child"); }
+    };
+    for (const pin of inheritedPins) {
+      if (loaded.some(source => source.filePin?.path === pin.path)) continue;
+      loaded.push(pin.kind === "url" ? loadChildCache(pin.path, d.readText(pin.path)!) : readFileSource(pin.kind, pin.path, d.readText));
+    }
     const inherited = process.env[POLICY_STATE_DIR_ENV] ?? d.env[POLICY_STATE_DIR_ENV];
     const admin = process.env[POLICY_SYSTEM_PATH_ENV] ?? d.env[POLICY_SYSTEM_PATH_ENV];
     if (admin && resolve(admin) !== resolve(systemPolicyPath(d.platform, d.env))) loaded.push(readFileSource("system", admin, d.readText));
     const roots = new Set([resolve(d.stateDir), ...(inherited ? [resolve(inherited)] : [])]);
     for (const root of roots) {
       if (root !== resolve(d.stateDir)) loaded.push(readFileSource("user", userPolicyPath(root), d.readText));
-      const raw = d.readText(join(root, POLICY_CACHE_FILE));
+      const cachePath = join(root, POLICY_CACHE_FILE);
+      if (loaded.some(source => source.filePin?.path === resolve(cachePath))) continue;
+      const raw = d.readText(cachePath);
       if (raw === null) continue;
-      try {
-        const cache = JSON.parse(raw) as CacheEntry;
-        validatePolicyUrl(cache.url);
-        if (typeof cache.fetchedAt !== "string") throw new Error("missing cache timestamp");
-        loaded.push({ status: { kind: "url", location: redactPolicyUrl(cache.url), state: "cached", fetchedAt: cache.fetchedAt }, file: parsePolicyFile(cache.policy) });
-      } catch { throw new PolicyFormatError("Organization policy cache could not be loaded by tool child"); }
+      loaded.push(loadChildCache(cachePath, raw));
     }
     // Multiple inherited contexts may share a source kind. Ignoring allows
     // makes their union at least as restrictive, never an override channel.
@@ -227,14 +268,16 @@ async function fetchSource(d: ReturnType<typeof withDefaults>, target: PolicyUrl
   }
   const { raw, file } = fetched;
   const fetchedAt = (d.now?.() ?? new Date()).toISOString();
+  const entry: CacheEntry = { url, fetchedAt, policy: raw };
+  const cacheText = `${JSON.stringify(entry, null, 2)}\n`;
   try {
-    const entry: CacheEntry = { url, fetchedAt, policy: raw };
-    (d.writeText ?? defaultWriteText)(join(d.stateDir, POLICY_CACHE_FILE), `${JSON.stringify(entry, null, 2)}\n`);
+    (d.writeText ?? defaultWriteText)(join(d.stateDir, POLICY_CACHE_FILE), cacheText);
   } catch {
     throw new PolicyFormatError("Organization policy cache could not be persisted for tool children");
   }
   return {
     status: { kind: "url", location: redactPolicyUrl(url), namedBy: target.namedBy, state: "loaded", fetchedAt },
     file,
+    filePin: pinFile(join(d.stateDir, POLICY_CACHE_FILE), cacheText, "url"),
   };
 }

@@ -29,8 +29,11 @@ export interface SourcedPolicyRule extends PolicyRule {
   /** Position inside its own source, for messages (`system rule 3`). */
   index: number;
 }
+export interface PolicyFilePin { path: string; sha256: string; kind: PolicySourceKind }
 
 export interface EffectivePolicy {
+  /** Internal bootstrap identities, never policy contents or a remote delivery URL. */
+  filePins?: PolicyFilePin[];
   /** All rules, grouped by source: user file, then system file, then URL. */
   rules: SourcedPolicyRule[];
   /** Every source's allowlist; a server must pass each one. Empty means every server is allowed. */
