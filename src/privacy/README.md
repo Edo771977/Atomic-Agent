@@ -16,7 +16,7 @@ The archive lives in process memory. Chat deletion, including incognito close, d
 
 Outside `withFreshPrivacyVault`, calls to `privacyVaultForRequest("consolidator")` share the registry archive. The fixed partition alone does not provide per-call isolation; callers must enter the fresh scope before invoking the provider.
 
-Skill reviews release their temporary archives at completion. The self-learning review still uses the registry archive `learn:<id>`, pinned for the review's lifetime and released by `runtime-experience-review.ts` after it settles.
+Skill reviews use a fresh archive for each provider call. `learn:<id>` remains only the routing partition in `runtime-experience-review.ts`; it is not pinned in or released from the registry and cannot borrow a real chat's archive.
 
 The detector reads the fork's current [known credentials](../runtime/runtime-known-secrets.ts) and uses the shared credential masker to detect them. Existing tool-output and error-report scrubbing continue to run independently. Values already redacted from tool output remain redacted.
 

@@ -1,5 +1,5 @@
 import { sameSideCallProvider, type SideCallProvider } from "./turn-sidecall-provider.js";
-import { releasePrivacyVault, pinPrivacyVault } from "../../privacy/index.js";
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { join } from "node:path";
 import { learnedSkillScope, withLearnedTurn } from "../../skills/learning/learn-scope.js";
 import { currentProviderPolicy } from "../../llm/provider-policy.js";
@@ -121,7 +121,6 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     timer.unref?.();
     deps.pending.add(abort);
     const sessionId = `${EXPERIENCE_REVIEW_SESSION_PREFIX}${state.id}`;
-    const release = pinPrivacyVault(sessionId);
     try {
       const targets = {
         records: deps.skillRegistry.listAll().map((e) => e.record).filter(record => record.source === "global"),
@@ -173,7 +172,7 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
                         },
                       }),
                 };
-          const completion = await deps.llmComplete({ ...request, ...(providerId === undefined ? {} : { providerId }), signal: abort.signal });
+          const completion = await withFreshPrivacyVault(() => deps.llmComplete({ ...request, ...(providerId === undefined ? {} : { providerId }), signal: abort.signal }));
           abort.signal.throwIfAborted();
           return answerText(completion);
         },
@@ -209,8 +208,6 @@ export function createExperienceReviewer(deps: ExperienceReviewerDeps) {
     } finally {
       clearTimeout(timer);
       deps.pending.delete(abort);
-      releasePrivacyVault(sessionId);
-      release();
     }
   };
 
