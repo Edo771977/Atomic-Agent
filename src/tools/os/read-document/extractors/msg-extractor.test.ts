@@ -313,6 +313,18 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("keeps Outlook table layout and its link in a 2.2 MB styled body", async () => {
+    const style = "x".repeat(2_200_000);
+    const html = Buffer.from(`<div style="${style}">` + "<table><tr><td>".repeat(6) +
+      '<a href="https://example.test/report">Report</a>' + "</td></tr></table>".repeat(6) + "</div>");
+    const { buffer } = buildCfb([{ name: b(0x1013), data: html }], 4096);
+    const started = performance.now();
+    const result = await extract(buffer);
+    expect(performance.now() - started).toBeLessThan(2_000);
+    expect(result.text).toContain("[Report](https://example.test/report)");
+    expect(result.text).toContain("| --- |");
+    expect(result.warnings.join("\n")).not.toContain("Showing plain text");
+  });
   it("keeps the final Outlook paragraph after large inline styles and images", async () => {
     const decoration = "x".repeat(410 * 1024);
     const html = Buffer.from(`<p style="${decoration}">Visible intro</p>` +

@@ -1,6 +1,6 @@
 import { Parser } from "htmlparser2";
 import TurndownService from "turndown";
-import { readBoundedHtmlText } from "./html-plain-text.js";
+import { HTML_PARSER_DEPTH, readBoundedHtmlText } from "./html-plain-text.js";
 
 /**
  * HTML → light markdown for saved pages, EPUB chapters and mail bodies.
@@ -24,12 +24,15 @@ const DROP_ELEMENTS = new Set([
   "head",
 ]);
 const VOID_ELEMENTS = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
-const HTML_FORMAT_CHARS = 384 * 1024;
+const HTML_SOURCE_CHARS = 768 * 1024;
+const HTML_OUTPUT_CHARS = 576 * 1024;
+const HTML_PLAIN_CHARS = 384 * 1024;
 const HTML_FORMAT_DEPTH = 128;
-const HTML_FORMAT_NODES = 6_000;
-const HTML_QUOTE_DEPTH = 8;
-const HTML_TABLE_DEPTH = 4;
+const HTML_FORMAT_NODES = 30_000;
+const HTML_QUOTE_DEPTH = 32;
+const HTML_TABLE_DEPTH = 64;
 const HTML_TABLE_COLUMNS = 64;
+const TABLE_LAYOUT_TAGS = new Set(["table", "thead", "tbody", "tfoot", "tr", "td", "th", "colgroup", "col"]);
 const HTML_TITLE_CHARS = 1_024;
 const HTML_ATTRIBUTE_BYTES = 2_048;
 const HTML_TAG = /^[a-z][a-z0-9:-]*$/i;
@@ -39,7 +42,7 @@ const ATTRIBUTES = new Map([
   ["ol", ["start"]],
 ]);
 
-type FormatLimit = "size" | "depth" | "nodes" | "quotes" | "table" | "output";
+type FormatLimit = "size" | "depth" | "nodes" | "table" | "output";
 
 class HtmlFormatLimit extends Error {
   constructor(readonly limit: FormatLimit) { super(limit); }
@@ -125,7 +128,7 @@ function makeTurndown(textChars: number): TurndownService {
   let spent = textChars;
   const charge = (amount: number) => {
     spent += amount;
-    if (spent > HTML_FORMAT_CHARS) throw new HtmlFormatLimit("output");
+    if (spent > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
   };
   const escape = td.escape.bind(td);
   td.escape = (text) => {
@@ -193,40 +196,75 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let tables = 0;
   let textChars = 0;
   let inText = false;
+  let renderedDepth = 0;
+  const emitted: Array<string | undefined> = [];
+  const flattened = { depth: false, quotes: false, tables: false };
 
   const stop = (reason: FormatLimit) => {
     limit = reason;
     parser.pause();
   };
-  const append = (text: string) => {
-    if (text.length > HTML_FORMAT_CHARS - length) return stop("size");
+  const append = (text: string, cost = text.length) => {
+    if (cost > HTML_SOURCE_CHARS - length) return stop("size");
     parts.push(text);
-    length += text.length;
+    length += cost;
   };
   const parser: Parser = new Parser({
     onopentag(name, attributes) {
       if (limit) return;
       inText = false;
       depth++;
-      if (!VOID_ELEMENTS.has(name) && depth > HTML_FORMAT_DEPTH) return stop("depth");
-      if (name === "blockquote" && ++quotes > HTML_QUOTE_DEPTH) return stop("quotes");
-      if (name === "table" && ++tables > HTML_TABLE_DEPTH) return stop("table");
+      if (!VOID_ELEMENTS.has(name) && depth > HTML_PARSER_DEPTH) return stop("depth");
+      if (name === "blockquote") quotes++;
+      if (name === "table") tables++;
       if (name === "title" && rawTitle === undefined) {
         titleDepth = depth;
         rawTitle = "";
       }
       if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
-      if (!omittedDepth && HTML_TAG.test(name)) {
-        if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
-        append(openingTag(name, attributes));
+      emitted.push(undefined);
+      if (omittedDepth || !HTML_TAG.test(name)) return;
+      if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
+      if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
+        flattened.quotes = true;
+        return;
       }
+      // Keep nested layout in its outer cell without emitting nested grids
+      // or stripping the links and headings inside those cells.
+      if (tables > 1 && TABLE_LAYOUT_TAGS.has(name)) {
+        if (tables > HTML_TABLE_DEPTH) flattened.tables = true;
+        if (name === "td" || name === "th" || name === "tr") append(" ");
+        return;
+      }
+      // Font attributes are discarded, so these wrappers contribute no
+      // Markdown structure and must not hide an otherwise shallow link.
+      if (name === "font") {
+        flattened.depth ||= depth > HTML_FORMAT_DEPTH;
+        return;
+      }
+      const isVoid = VOID_ELEMENTS.has(name);
+      if (!isVoid && renderedDepth >= HTML_FORMAT_DEPTH) {
+        flattened.depth = true;
+        return;
+      }
+      if (!isVoid) {
+        renderedDepth++;
+        emitted[emitted.length - 1] = name;
+      }
+      append(openingTag(name, attributes));
     },
     onclosetag(name) {
       if (limit) return;
       inText = false;
       if (titleDepth === depth) titleDepth = 0;
       if (omittedDepth === depth) omittedDepth = 0;
-      else if (!omittedDepth && !VOID_ELEMENTS.has(name) && HTML_TAG.test(name)) append(`</${name}>`);
+      const tag = emitted.pop();
+      if (tag) {
+        renderedDepth--;
+        append(`</${tag}>`);
+      } else if (!omittedDepth && tables > 1 && (name === "td" || name === "th" || name === "tr")) {
+        append(" ");
+      }
       if (name === "blockquote") quotes--;
       if (name === "table") tables--;
       depth--;
@@ -235,17 +273,19 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (limit) return;
       if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
       if (!omittedDepth) {
-        if (!inText && ++nodes > HTML_FORMAT_NODES) return stop("nodes");
-        inText = true;
-        if (text.length > HTML_FORMAT_CHARS - length) return stop("size");
+        if (!inText && /\S/.test(text)) {
+          if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
+          inText = true;
+        }
+        if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
         textChars += text.length;
-        append(escapeMarkup(text));
+        append(escapeMarkup(text), text.length);
       }
     },
   }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
-  return { markup: parts.join(""), title, limit, textChars };
+  return { markup: parts.join(""), title, limit, textChars, flattened };
 }
 
 function isXhtml(html: string): boolean {
@@ -261,7 +301,10 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
     try {
       const text = makeTurndown(prepared.textChars).turndown(prepared.markup)
         .split("\n").map(line => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
-      if (text.length > HTML_FORMAT_CHARS) throw new HtmlFormatLimit("output");
+      if (text.length > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
+      if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
+      if (prepared.flattened.quotes) warnings.push(`HTML quotations beyond ${HTML_QUOTE_DEPTH} levels were flattened locally.`);
+      if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
       return { text, title: prepared.title };
     } catch (error) {
       if (!(error instanceof HtmlFormatLimit)) throw error;
@@ -269,15 +312,14 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
     }
   }
   const descriptions: Record<FormatLimit, string> = {
-    depth: `depth (${HTML_FORMAT_DEPTH})`,
+    depth: `depth (${HTML_PARSER_DEPTH})`,
     nodes: `node count (${HTML_FORMAT_NODES})`,
-    quotes: `quotation depth (${HTML_QUOTE_DEPTH})`,
-    table: `table width or nesting (${HTML_TABLE_COLUMNS} columns, ${HTML_TABLE_DEPTH} levels)`,
-    size: `source size (${HTML_FORMAT_CHARS} characters)`,
-    output: `output size (${HTML_FORMAT_CHARS} characters)`,
+    table: `table width (${HTML_TABLE_COLUMNS} columns)`,
+    size: `source size (${HTML_SOURCE_CHARS} characters)`,
+    output: `output size (${HTML_OUTPUT_CHARS} characters)`,
   };
-  const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, HTML_FORMAT_CHARS);
+  const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, HTML_PLAIN_CHARS);
   warnings.push(`HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`);
-  if (cut) warnings.push(`HTML plain text was truncated at ${HTML_FORMAT_CHARS} characters.`);
+  if (cut) warnings.push(`HTML plain text was truncated at ${HTML_PLAIN_CHARS} characters.`);
   return { title: prepared.title, text };
 }
