@@ -152,7 +152,7 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
         if (valueFlags.includes(flag)) { if (j === arg.length - 1) i++; break; }
       }
     } else if (name === "php") {
-      if (/^-r/.test(arg)) return { kind: "inline" };
+      if (/^-[rBRE]/.test(arg)) return { kind: "inline" };
       if (arg === "-f") return { kind: "file", operand: args[i + 1] };
       if (/^(?:-d|-c)$/.test(arg)) i++;
     } else if (name === "osascript") {
