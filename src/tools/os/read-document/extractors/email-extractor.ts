@@ -30,6 +30,7 @@ interface TextPartRange {
   end: number;
   seen: number;
   resumeAt?: number;
+  partial?: number;
 }
 
 export const emlExtractor: Extractor = async (input) => {
@@ -43,7 +44,9 @@ export const emlExtractor: Extractor = async (input) => {
     seen: 0,
   };
   const text = renderMessage(raw, 0, warnings, budget, output, "", range);
-  if (range.resumeAt !== undefined) {
+  if (range.partial !== undefined) {
+    warnings.push(`MIME part ${range.partial} was truncated. Use pagesFrom=${range.partial + 1} to continue with the next part.`);
+  } else if (range.resumeAt !== undefined) {
     warnings.push(`MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
   }
   return {
@@ -83,10 +86,19 @@ export const mboxExtractor: Extractor = async (input) => {
     if (extracted.length >= maxPages) break;
     const message = new FragmentOutput(output.limit);
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
+    if (budget.exhausted && !message.partialItem) {
+      output.stop();
+      warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
+      break;
+    }
     const item = separators ? `--- message ${n} ---\n${text}` : text;
-    const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, message.truncated || budget.exhausted);
+    const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, message.truncated);
     if (shown.text) chunks.push(shown.text);
-    if (shown.status !== "complete" || budget.exhausted) {
+    if (shown.status === "partial") {
+      warnings.push(`MBOX message ${n} was truncated. Use pagesFrom=${n + 1} to continue with the next message.`);
+      break;
+    }
+    if (shown.status === "deferred") {
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
@@ -326,7 +338,8 @@ function renderTextPart(
   if (accepted < bodySize) budget.noteTruncation();
   if (!text && !clipped) return "";
   const shown = output.appendItem(prefix, text, clipped);
-  if (range && shown.status !== "complete") range.resumeAt = part;
+  if (range && shown.status === "partial") range.partial = part;
+  if (range && shown.status === "deferred") range.resumeAt = part;
   return shown.text;
 }
 

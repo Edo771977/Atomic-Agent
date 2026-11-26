@@ -67,6 +67,7 @@ export class FragmentOutput {
   #hasItem = false;
   truncated = false;
   stopped = false;
+  partialItem = false;
 
   constructor(readonly limit: number) {}
 
@@ -105,7 +106,7 @@ export class FragmentOutput {
     const partial = clipped || size > this.remaining;
     const text = this.append(prefix + value);
     this.#hasItem = true;
-    if (partial) this.stopped = this.truncated = true;
+    if (partial) this.partialItem = this.stopped = this.truncated = true;
     return { text, status: partial ? "partial" : "complete" };
   }
 

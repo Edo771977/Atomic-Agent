@@ -70,6 +70,7 @@ export const epubExtractor: Extractor = async (input) => {
   const title = output.append(head.join("\n"));
   if (title) chunks.push(title);
   let next = start;
+  let partialChapter = false;
   for (; next <= end; next++) {
     if (extracted.length >= maxPages) break;
     const n = next;
@@ -94,13 +95,16 @@ export const epubExtractor: Extractor = async (input) => {
       const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, truncated || accepted < size);
       if (shown.text) chunks.push(shown.text);
       if (shown.status !== "deferred") extracted.push(n);
+      partialChapter = shown.status === "partial";
       if (output.stopped || budget.exhausted) break;
     } catch (err) {
       warnings.push(`chapter ${n}: failed to parse (${(err as Error).message})`);
     }
   }
   const remaining = end - next + 1;
-  if (budget.exhausted || output.stopped) {
+  if (partialChapter) {
+    warnings.push(`EPUB chapter ${next} was truncated. Use pagesFrom=${next + 1} to continue with the next chapter.`);
+  } else if (budget.exhausted || output.stopped) {
     warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom=${next})`);
   } else if (remaining > 0) {
     warnings.push(
