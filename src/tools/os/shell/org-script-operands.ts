@@ -90,11 +90,24 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
     if (python) {
       if (/^-c/.test(arg)) return { kind: "inline" };
       if (/^-m/.test(arg)) return { kind: "file", operand: arg.length > 2 ? arg.slice(2) : args[i + 1] };
-      if (arg === "-W" || arg === "-X") i++;
+      if (["-W", "-X", "--check-hash-based-pycs"].includes(arg)) { i++; continue; }
+      if (/^-(?:W|X).|^--check-hash-based-pycs=/.test(arg)) continue;
+      if (/^--(?:help(?:-env|-xoptions|-all)?|version)$|^-[hV]$/.test(arg)) return { kind: "none" };
+      if (!/^-[bBdEhiIOPqRsSuvVx]+$/.test(arg)) return { kind: "unknown" };
     } else if (name === "node") {
       if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
-      if (/^(?:-r|--require|--import|--input-type|--loader|--experimental-loader|--conditions|--inspect-port)$/.test(arg)) i++;
+      const option = arg.split("=", 1)[0]!;
+      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout"];
+      if (values.includes(option)) { if (!arg.includes("=")) i++; continue; }
+      if (/^-r./.test(arg)) continue;
+      if (/^(?:-v|--version|--help)$/.test(arg)) return { kind: "none" };
+      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
     } else if (name === "perl" || name === "ruby") {
+      if (arg.startsWith("--")) {
+        if (name === "ruby" && ["--encoding", "--external-encoding", "--internal-encoding"].includes(arg.split("=", 1)[0]!)) { if (!arg.includes("=")) i++; continue; }
+        if (/^--(?:version|help)$/.test(arg)) return { kind: "none" };
+        return { kind: "unknown" };
+      }
       const valueFlags = name === "perl" ? "IMmFi" : "IrCFEKTW";
       for (let j = 1; j < arg.length && arg[1] !== "-"; j++) {
         const flag = arg[j]!;

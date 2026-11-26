@@ -23,6 +23,10 @@ const ordinary = [
 ] as const;
 const inline = [
   ["python3", "-W", "error", "-c", "pass"],
+  ["python3", "--check-hash-based-pycs", "always", "-c", "pass"],
+  ["node", "--title", "fixture", "-e", "void 0"],
+  ["node", "--future-fixture-option", "fixture", "-e", "void 0"],
+  ["ruby", "--encoding", "UTF-8", "-e1"],
   ["node", "--require", "fixture.cjs", "-e", "void 0"],
   ["perl", "-I", "/fixture", "-we1"],
   ["ruby", "-I", "/fixture", "-e1"],
