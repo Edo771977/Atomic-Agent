@@ -34,6 +34,10 @@ Read [tool instructions](../AGENTS.md), [contracts](../docs/contracts.md), [OS r
 
 Root index intentionally composes and exports registrations in the previous order. Clipboard/email/notify/window platform tools and expand-home remain root operations/shared path support; they do not acquire filesystem/shell/web state. Tool names, descriptors, schemas and agent resource classes are unchanged.
 
+### EPUB and MIME document reads
+
+Each EPUB chapter slice and each MIME message (`.eml` or a message in an `.mbox`) has a shared extraction budget of 128 fragments and 16 MiB of fragment input. The reader warns when it skips the remaining fragments. For EPUB, use `pagesFrom` to resume at the first skipped chapter or a later one.
+
 ### Outlook document reads
 
 `os.fs.read_document` reads Outlook `.msg` files up to 32 MiB (33,554,432 bytes). Larger files fail with `Outlook .msg input exceeds 33554432 bytes` before extraction. The `maxBytes` argument limits returned text and does not raise the input limit. A plain body can occupy up to 8 MiB within the compound file's shared work budget and is preferred when present. HTML conversion removes comments, styles, scripts and the head before applying its Markdown limits. It keeps only attributes used by the converter (up to 2 KiB each). Data URI links keep their labels and inline data URI images keep their alternative text. The Markdown budgets cover 768 Ki characters of decoded text and retained markup, 576 Ki characters of output and 30,000 nodes, excluding whitespace-only text. The renderer flattens only the affected structure beyond 128 rendered elements in depth or 32 nested quotations. It folds nested tables into their outer cells and reports nesting beyond 64 levels separately from tables wider than 64 columns, which are flattened locally. If the document exceeds a global budget or 2,048 levels of input nesting, the reader switches to plain text with a separate 384 Ki-character limit and warns if text was truncated. A compressed RTF-only body produces a warning.

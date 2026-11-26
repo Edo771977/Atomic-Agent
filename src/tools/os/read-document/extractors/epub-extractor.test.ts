@@ -6,7 +6,9 @@ import { epubExtractor } from "./epub-extractor.js";
 const chapter = (title: string, body: string) =>
   `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml"><head><title>${title}</title><style>p{color:red}</style></head><body><h1>${title}</h1>${body}</body></html>`;
 
-async function makeEpub(options: { encrypted?: boolean; opening?: string } = {}): Promise<Buffer> {
+async function makeEpub(
+  options: { encrypted?: boolean; opening?: string; openingRepeats?: number } = {},
+): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("mimetype", "application/epub+zip");
   zip.file(
@@ -21,7 +23,9 @@ async function makeEpub(options: { encrypted?: boolean; opening?: string } = {})
       `<item id="c1" href="text/ch1.xhtml" media-type="application/xhtml+xml"/>` +
       `<item id="css" href="style.css" media-type="text/css"/>` +
       `<item id="c3" href="text/ch3.xhtml" media-type="application/xhtml+xml"/>` +
-      `</manifest><spine><itemref idref="c1"/><itemref idref="css"/><itemref idref="c2"/><itemref idref="c3"/></spine></package>`,
+      `</manifest><spine>` +
+      `<itemref idref="c1"/>`.repeat(options.openingRepeats ?? 1) +
+      `<itemref idref="css"/><itemref idref="c2"/><itemref idref="c3"/></spine></package>`,
   );
   zip.file("OEBPS/style.css", "p { margin: 0 }");
   zip.file(
@@ -38,6 +42,18 @@ async function makeEpub(options: { encrypted?: boolean; opening?: string } = {})
 }
 
 describe("epubExtractor", () => {
+  it("limits cumulative chapter conversions and allows resuming at a later chapter", async () => {
+    const data = await makeEpub({ openingRepeats: 140 });
+    const result = await epubExtractor({ data, sourcePath: "b.epub" });
+    expect(result.pageCount).toBe(142);
+    expect(result.text).toContain("# Opening");
+    expect(result.text).not.toContain("# Middle");
+    expect(result.warnings).toContainEqual(expect.stringMatching(/chapter budget.*pagesFrom/i));
+
+    const tail = await epubExtractor({ data, sourcePath: "b.epub", pagesFrom: 141 });
+    expect(tail.pagesExtracted).toEqual([141, 142]);
+    expect(tail.text).toContain("# Middle");
+  });
   it("identifies the chapter when a wide table is flattened", async () => {
     const data = await makeEpub({ opening: "<table><tr>" + "<td>cell</td>".repeat(65) + "</tr></table>" });
     const result = await epubExtractor({ data, sourcePath: "b.epub" });

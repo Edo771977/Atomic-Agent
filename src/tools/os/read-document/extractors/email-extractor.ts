@@ -1,4 +1,5 @@
 import type { DocumentFormat, Extractor, ExtractResult } from "./extractor-types.js";
+import { FragmentBudget } from "./fragment-budget.js";
 import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes } from "./text-decode.js";
 
@@ -221,7 +222,7 @@ function decodeTransfer(body: string, encoding: string | undefined): Uint8Array 
 
 // -------------------------------------------------------------- rendering
 
-function renderMessage(raw: string, depth: number, warnings: string[]): string {
+function renderMessage(raw: string, depth: number, warnings: string[], budget = new FragmentBudget()): string {
   const part = splitPart(raw);
   const lines: string[] = [];
   for (const name of SHOWN_HEADERS) {
@@ -229,7 +230,8 @@ function renderMessage(raw: string, depth: number, warnings: string[]): string {
     if (value) lines.push(`${capitalise(name)}: ${decodeHeaderWords(value)}`);
   }
   const attachments: string[] = [];
-  const body = renderPart(part, depth, warnings, attachments).trim();
+  const body = renderPart(part, depth, warnings, attachments, budget).trim();
+  if (depth === 0 && budget.exhausted) warnings.push("MIME fragment budget exhausted; remaining parts were skipped");
   const out = [lines.join("\n"), body];
   if (attachments.length > 0) {
     out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
@@ -242,42 +244,59 @@ function renderPart(
   depth: number,
   warnings: string[],
   attachments: string[],
+  budget: FragmentBudget,
 ): string {
+  const type = parseStructuredHeader(part.headers.get("content-type") ?? "text/plain");
+  const mime = type.value || "text/plain";
+  const boundary = mime.startsWith("multipart/") ? type.params.boundary : undefined;
+  // Child bodies count individually. A transfer-encoded forwarded
+  // message also costs decoding work before its children are available.
+  if (!budget.take(boundary ? 0 : part.body.length)) return "";
   if (depth > MAX_DEPTH) {
     warnings.push(`MIME nesting deeper than ${MAX_DEPTH} levels was cut`);
     return "";
   }
-  const type = parseStructuredHeader(part.headers.get("content-type") ?? "text/plain");
-  const mime = type.value || "text/plain";
   const disposition = parseStructuredHeader(part.headers.get("content-disposition"));
   const filename = decodeHeaderWords(
     disposition.params.filename ?? type.params.name ?? "",
   );
 
   if (mime.startsWith("multipart/")) {
-    const boundary = type.params.boundary;
     if (!boundary) {
       warnings.push(`${mime} without a boundary; shown as text`);
       return decodeBytes(Buffer.from(part.body, "latin1")).text;
     }
-    const children = splitMultipart(part.body, boundary).map(splitPart);
+    const rawChildren = splitMultipart(part.body, boundary);
     if (mime === "multipart/alternative") {
-      const pick =
-        children.find((c) => partMime(c) === "text/plain" && !isAttachment(c)) ??
-        children.find((c) => partMime(c) === "text/html" && !isAttachment(c)) ??
-        children[children.length - 1];
-      return pick ? renderPart(pick, depth + 1, warnings, attachments) : "";
+      let plain: Part | undefined;
+      let html: Part | undefined;
+      let last: Part | undefined;
+      for (const child of rawChildren) {
+        last = splitPart(child);
+        if (isAttachment(last)) continue;
+        const childMime = partMime(last);
+        if (childMime === "text/plain") {
+          plain = last;
+          break;
+        }
+        if (childMime === "text/html") html ??= last;
+      }
+      const pick = plain ?? html ?? last;
+      return pick ? renderPart(pick, depth + 1, warnings, attachments, budget) : "";
     }
-    return children
-      .map((c) => renderPart(c, depth + 1, warnings, attachments).trim())
-      .filter((t) => t.length > 0)
-      .join("\n\n");
+    const chunks: string[] = [];
+    for (const child of rawChildren) {
+      const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget).trim();
+      if (text) chunks.push(text);
+      if (budget.exhausted) break;
+    }
+    return chunks.join("\n\n");
   }
 
   const bytes = decodeTransfer(part.body, part.headers.get("content-transfer-encoding"));
 
   if (mime === "message/rfc822" && disposition.value !== "attachment") {
-    const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings);
+    const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget);
     return `--- attached message ---\n${nested}`;
   }
 
@@ -302,28 +321,29 @@ function isAttachment(part: Part): boolean {
   return parseStructuredHeader(part.headers.get("content-disposition")).value === "attachment";
 }
 
-function splitMultipart(body: string, boundary: string): string[] {
+function* splitMultipart(body: string, boundary: string): Generator<string> {
   const delimiter = `--${boundary}`;
-  const parts: string[] = [];
+  const closing = delimiter + "--";
   let current: string[] | null = null;
-  for (const line of body.split(/\r?\n/)) {
-    const trimmed = line.trimEnd();
-    if (trimmed === `${delimiter}--`) {
-      if (current) parts.push(current.join("\n"));
-      current = null;
-      break;
-    }
-    if (trimmed === delimiter) {
-      if (current) parts.push(current.join("\n"));
-      current = [];
-      continue;
+  for (let start = 0; start <= body.length; ) {
+    const newline = body.indexOf("\n", start);
+    const end = newline === -1 ? body.length : newline;
+    const line = body.slice(start, newline !== -1 && body[end - 1] === "\r" ? end - 1 : end);
+    start = newline === -1 ? body.length + 1 : newline + 1;
+    if (line.startsWith(delimiter)) {
+      const trimmed = line.trimEnd();
+      if (trimmed === delimiter || trimmed === closing) {
+        if (current) yield current.join("\n");
+        if (trimmed === closing) return;
+        current = [];
+        continue;
+      }
     }
     // Lines before the first delimiter are the MIME preamble: ignored.
     current?.push(line);
   }
   // Truncated message without a closing delimiter: keep the last part.
-  if (current) parts.push(current.join("\n"));
-  return parts;
+  if (current) yield current.join("\n");
 }
 
 function capitalise(name: string): string {
