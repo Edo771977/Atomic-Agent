@@ -10,6 +10,8 @@ import { buildOsFsGrepTool } from "../tools/os/fs/fs-grep.js";
 import { buildOsFsCodeMapTool } from "../tools/os/code-map/code-map-tool.js";
 import { regexOutlineBackend } from "../tools/os/code-map/regex-outline.js";
 import { policyFileReadFilter } from "./policy-paths.js";
+import { osFsDiffTool } from "../tools/os/fs/fs-diff.js";
+import { buildOsCodeSearchTool } from "../tools/os/code/code-search.js";
 
 describe("policy file read boundary", () => {
   let root: string, file: string, policy: EffectivePolicy;
@@ -37,6 +39,20 @@ describe("policy file read boundary", () => {
   it("glob omits only policy files while retaining ordinary descendants", async () => {
     const result = await buildOsFsGlobTool().run({ pattern: ["**/*.ts"], cwd: root }, ctx());
     expect(result.summary).toContain("ordinary.ts"); expect(result.summary).not.toContain("policy.ts");
+  });
+  it("diff refuses protected inputs before reading either side", async () => {
+    await expect(osFsDiffTool.run({ aPath: file, bText: "ordinary" }, ctx())).rejects.toThrow(/policy.*protected/i);
+    expect((await osFsDiffTool.run({ aPath: join(root, "ordinary.ts"), bText: "ordinary" }, ctx())).status).toBe("ok");
+  });
+  it("code.search supplies exclusions to its fake adapter and filters returned protected matches", async () => {
+    const runCommand = vi.fn<typeof import("../sandbox/command-runner.js").runCommand>(async () => ({ command: "fake-sg", args: [], exitCode: 0, signal: null, stdout: JSON.stringify([file, join(root, "ordinary.ts")].map(file => ({ file, text: "Fixture", lines: "Fixture", range: { byteOffset: { start: 0, end: 7 }, start: { line: 0, column: 0 }, end: { line: 0, column: 7 } } }))), stderr: "", durationMs: 0, timedOut: false, truncated: false, inputTruncated: false }));
+    const tool = buildOsCodeSearchTool({ resolveAstGrepPath: () => "fake-sg", neutralConfig: async () => join(root, "neutral.yml"), runCommand });
+    const result = await tool.run({ pattern: "Fixture", path: root }, ctx());
+    expect(runCommand.mock.calls[0]?.[1]).toContain("!state/policy.ts");
+    expect(result.summary).not.toContain("policy.ts");
+    expect(result.summary).toContain("ordinary.ts");
+    await expect(tool.run({ pattern: "Fixture", path: file }, ctx())).rejects.toThrow(/policy.*protected/i);
+    expect(runCommand).toHaveBeenCalledTimes(1);
   });
   it("grep supplies exact protected-file exclusions to its fake transport", async () => {
     const runCommand = vi.fn<typeof import("../sandbox/command-runner.js").runCommand>(async () => ({ command: "rg", args: [], exitCode: 1, signal: null, stdout: "", stderr: "", durationMs: 0, timedOut: false, truncated: false, inputTruncated: false }));
