@@ -2,7 +2,7 @@ import { CfbError, openCfb } from "./cfb-reader.js";
 import type { CfbEntry, CfbFile } from "./cfb-reader.js";
 import { formatSize } from "./email-extractor.js";
 import type { Extractor } from "./extractor-types.js";
-import { htmlToMarkdown } from "./html-markdown.js";
+import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes, sniffHtmlCharset } from "./text-decode.js";
 
 /**
@@ -146,11 +146,11 @@ function hex4(n: number): string {
   return n.toString(16).toUpperCase().padStart(4, "0");
 }
 
-function readStream(ctx: MessageCtx, name: string): Buffer | undefined {
+function readStream(ctx: MessageCtx, name: string, maxBytes = MAX_PROPERTY_BYTES): Buffer | undefined {
   const entry = ctx.cfb.child(ctx.storage, name);
   if (!entry || entry.type !== "stream") return undefined;
-  if (entry.size > MAX_PROPERTY_BYTES) {
-    ctx.warnings.push(`skipped unreadable property ${name}: too large (max ${MAX_PROPERTY_BYTES} bytes)`);
+  if (entry.size > maxBytes) {
+    ctx.warnings.push(`skipped unreadable property ${name}: too large (max ${maxBytes} bytes)`);
     return undefined;
   }
   try {
@@ -163,9 +163,10 @@ function readStream(ctx: MessageCtx, name: string): Buffer | undefined {
 }
 
 function readString(ctx: MessageCtx, id: number): string | undefined {
-  const unicode = readStream(ctx, substgName(id, PT_UNICODE));
+  const maxBytes = id === PR_BODY ? MAX_PLAIN_BODY_BYTES : id === PR_HTML ? MAX_HTML_SOURCE_BYTES : MAX_PROPERTY_BYTES;
+  const unicode = readStream(ctx, substgName(id, PT_UNICODE), maxBytes);
   if (unicode) return clean(unicode.toString("utf16le"));
-  const ansi = readStream(ctx, substgName(id, PT_STRING8));
+  const ansi = readStream(ctx, substgName(id, PT_STRING8), maxBytes);
   if (ansi) return clean(decodeBytes(ansi, ctx.ansi).text);
   return undefined;
 }
@@ -240,6 +241,8 @@ function smtpOnly(value: string | undefined): string | undefined {
 }
 
 const MAX_PROPERTY_BYTES = 1024 * 1024;
+const MAX_PLAIN_BODY_BYTES = 8 * 1024 * 1024;
+const MAX_HTML_SOURCE_BYTES = 8 * 1024 * 1024;
 const MAX_CHILD_STORAGES = 1000;
 
 function childStorages(ctx: MessageCtx, prefix: string, label: string): CfbEntry[] {
@@ -290,7 +293,7 @@ function readBody(ctx: MessageCtx): string {
   if (plain && plain.trim().length > 0) return plain.replace(/\r\n?/g, "\n").trim();
 
   const html = readHtml(ctx);
-  if (html) return htmlToMarkdown(html).text;
+  if (html) return boundedHtmlToMarkdown(html, ctx.warnings).text;
 
   if (ctx.cfb.child(ctx.storage, substgName(PR_RTF_COMPRESSED, PT_BINARY))) {
     ctx.warnings.push("message body is stored only as compressed RTF, which is not read");
@@ -301,7 +304,7 @@ function readBody(ctx: MessageCtx): string {
 function readHtml(ctx: MessageCtx): string | undefined {
   const asString = readString(ctx, PR_HTML);
   if (asString) return asString;
-  const bytes = readStream(ctx, substgName(PR_HTML, PT_BINARY));
+  const bytes = readStream(ctx, substgName(PR_HTML, PT_BINARY), MAX_HTML_SOURCE_BYTES);
   if (!bytes || bytes.length === 0) return undefined;
   const charset = codepageLabel(getLong(ctx.props, PR_INTERNET_CPID)) ?? sniffHtmlCharset(bytes);
   const decoded = decodeBytes(bytes, charset);

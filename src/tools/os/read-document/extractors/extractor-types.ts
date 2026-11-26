@@ -32,10 +32,14 @@ export const DOCUMENT_FORMATS = [
 
 export type DocumentFormat = (typeof DOCUMENT_FORMATS)[number];
 
+export const DEFAULT_DOCUMENT_MAX_BYTES = 5 * 1024 * 1024;
+
 export interface ExtractorInput {
   data: Buffer;
   /** Original file path, purely informational (used in warnings/errors). */
   sourcePath: string;
+  /** Output limit requested by the caller, before the dispatcher applies the exact UTF-8 cap. */
+  maxBytes?: number;
   /** Page/slide lower bound, 1-indexed. Extractors that ignore pagination may skip this. */
   pagesFrom?: number;
   /** Page/slide upper bound, 1-indexed, inclusive. */
@@ -53,6 +57,8 @@ export interface ExtractorInput {
 export interface ExtractResult {
   format: DocumentFormat;
   text: string;
+  /** The extractor returned a prefix because it reached an input or output budget. */
+  truncated?: boolean;
   /** Total pages/slides/sheets in the source, regardless of extraction range. */
   pageCount?: number;
   sheetCount?: number;

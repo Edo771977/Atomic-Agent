@@ -1,0 +1,624 @@
+{
+  "baseline": "2fa1eb9a4fa14987610f74f15b361467fe26a18c",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "nameNormalization": "Only the absolute checkout prefix in parameterized test names is replaced by <checkout>.",
+  "candidateReport": "atomic-b4d-20261126-focused",
+  "baselineCounts": {
+    "numPassedTests": 30507,
+    "numFailedTests": 67,
+    "numPendingTests": 658,
+    "numTotalTests": 31232
+  },
+  "candidateCounts": {
+    "numPassedTests": 14486,
+    "numFailedTests": 31,
+    "numPendingTests": 572,
+    "numTotalTests": 15089
+  },
+  "commonFailedNames": [
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies direct procfs reads even without state secret files",
+    "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc && cat self/environ",
+    "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc/self && cat environ",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags find /proc/123 -type f without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags grep -r synthetic /proc/self without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags pushd /proc/self && cat environ without reading a real credential"
+  ],
+  "additionalFailedNames": [
+    "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+    "src/tools/fusion/branch-workspace-copy-plan.test.ts :: measures exactly the complete unchanged future branch-set copy (Git=true)",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: includes tracked byte overlays in the measured final copy",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509"
+  ],
+  "baselineFailedNamesPassingInCandidate": [
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes but reports new ignored paths it kept private"
+  ],
+  "newTestNames": [
+    "src/integrations/monid-hub-deferred.test.ts :: keeps Monid browser sign-in and disconnect absent from the integrations hub"
+  ],
+  "staticChecks": [
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0
+    }
+  ],
+  "focusedCommand": "npx vitest run src/config src/http src/llm src/cli src/tools src/composio src/integrations src/tui/integrations src/prompt src/privacy",
+  "newAbsenceTestsPassed": 1,
+  "currentMainAbsenceCheck": {
+    "mainCommit": "2ce8742c9cc08c8066bade617e10a93ee3078f04",
+    "copiedTestFilesOnly": true,
+    "productionFilesChanged": [],
+    "passed": 15,
+    "failed": 0,
+    "files": [
+      {
+        "path": "src/cli/composio-accounts-deferred.test.ts",
+        "tests": [
+          {
+            "name": "rejects Composio account access in the real offline child CLI without disclosing input or creating state",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "src/integrations/monid-hub-deferred.test.ts",
+        "tests": [
+          {
+            "name": "keeps Monid browser sign-in and disconnect absent from the integrations hub",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "src/http/secrets-api-deferred.test.ts",
+        "tests": [
+          {
+            "name": "keeps secret read and mutation routes absent for viewer, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps secret read and mutation routes absent for member, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps secret read and mutation routes absent for operator, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps secret read and mutation routes absent for admin, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps secret read and mutation routes absent for owner, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps secret read and mutation routes absent for anonymous, including a child with an inherited owner key",
+            "status": "passed"
+          },
+          {
+            "name": "keeps CLI get/set/unset unavailable with offline=false, without new durable state or output secrets",
+            "status": "passed"
+          },
+          {
+            "name": "keeps CLI get/set/unset unavailable with offline=true, without new durable state or output secrets",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "src/prompt/composio-accounts-deferred.test.ts",
+        "tests": [
+          {
+            "name": "keeps account mutations and connected-account listing out of the CLI and TUI",
+            "status": "passed"
+          },
+          {
+            "name": "keeps prefix bytes and personal account names independent of account selection on both transports",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "path": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "tests": [
+          {
+            "name": "does not register an OAuth cloud provider or activate a token store",
+            "status": "passed"
+          },
+          {
+            "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+            "status": "passed"
+          },
+          {
+            "name": "keeps copilot login/logout absent offline and in a marked child, with no token or chat state",
+            "status": "passed"
+          }
+        ]
+      }
+    ],
+    "repository": "Edo771977/Atomic-Agent",
+    "testSources": [
+      {
+        "branch": "codex/b4a-secrets",
+        "path": "src/http/secrets-api-deferred.test.ts",
+        "blob": "40d7101eb29bce29c851fa72537ace61d3914d72"
+      },
+      {
+        "branch": "codex/b4b-subscription-signin-deferred",
+        "path": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "blob": "d4f4552d845bfa11e617449d5fbea0df7bbd7860"
+      },
+      {
+        "branch": "codex/b4c-composio-accounts-deferred",
+        "path": "src/prompt/composio-accounts-deferred.test.ts",
+        "blob": "df734dbe2095c68f79410a8441e89fc454948afc"
+      },
+      {
+        "branch": "codex/b4c-composio-accounts-deferred",
+        "path": "src/cli/composio-accounts-deferred.test.ts",
+        "blob": "3d8f9e3dea1772bd921c842779741e3429278f83"
+      },
+      {
+        "branch": "codex/b4d-monid-deferred",
+        "path": "src/integrations/monid-hub-deferred.test.ts",
+        "blob": "f5794c3f695d89c6f6a8eee289418cd659be516b"
+      }
+    ],
+    "dependencyLockBlob": "017f0c70448915e6f70694caaa4263baedecdd66"
+  },
+  "mainTargetedRerun": {
+    "command": "npx vitest run src/tools/fusion/candidate-copy-budget.test.ts -t 'retains Git checkout capacity'",
+    "failedNames": [
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits"
+    ],
+    "diagnostic": "All three failures are EBUSY during temporary-directory cleanup."
+  },
+  "additionalFailuresAlsoReproducedOnMain": [
+    "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509"
+  ],
+  "pairedExtraReruns": [
+    {
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/tools/fusion/branch-private-git.test.ts",
+        "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "src/tools/fusion/candidate-copy-budget.test.ts",
+        "src/tools/fusion/candidate-integration.test.ts",
+        "--maxWorkers=1",
+        "--testNamePattern",
+        "keeps\\ nested\\ tasks\\ and\\ the\\ final\\ planned\\ source\\ independent\\ from\\ the\\ candidate\\ and\\ each\\ other|measures\\ exactly\\ the\\ complete\\ unchanged\\ future\\ branch\\-set\\ copy\\ \\(Git=true\\)|includes\\ tracked\\ byte\\ overlays\\ in\\ the\\ measured\\ final\\ copy|never\\ promotes\\ deletion\\ of\\ ignored\\ standalone\\ files|never\\ promotes\\ modification\\ of\\ ignored\\ standalone\\ files|promotes\\ a\\ tracked\\ file\\ under\\ a\\ directory\\ named\\ like\\ a\\ dependency/build\\ folder|refuses\\ to\\ delete\\ a\\ directory\\ that\\ still\\ holds\\ ignored\\ or\\ disposable\\ original\\ entries,\\ naming\\ them|stages\\ a\\ worktree\\ candidate\\ whose\\ source\\ directory\\ has\\ mode\\ 448|stages\\ a\\ worktree\\ candidate\\ whose\\ source\\ directory\\ has\\ mode\\ 509"
+      ],
+      "results": [
+        {
+          "name": "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+          "main": {
+            "status": "failed",
+            "durationMs": 15284.298
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15021.751199999999
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/branch-workspace-copy-plan.test.ts :: measures exactly the complete unchanged future branch-set copy (Git=true)",
+          "main": {
+            "status": "passed",
+            "durationMs": 9001.6234
+          },
+          "candidate": {
+            "status": "passed",
+            "durationMs": 13742.8503
+          },
+          "outcome": "passes-on-both-in-targeted-rerun"
+        },
+        {
+          "name": "src/tools/fusion/candidate-copy-budget.test.ts :: includes tracked byte overlays in the measured final copy",
+          "main": {
+            "status": "passed",
+            "durationMs": 10547.4286
+          },
+          "candidate": {
+            "status": "passed",
+            "durationMs": 12888.1702
+          },
+          "outcome": "passes-on-both-in-targeted-rerun"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+          "main": {
+            "status": "failed",
+            "durationMs": 15038.1176
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15014.4551
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+          "main": {
+            "status": "failed",
+            "durationMs": 15021.399599999997
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15384.177800000001
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+          "main": {
+            "status": "failed",
+            "durationMs": 15016.642100000001
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15030.4181
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+          "main": {
+            "status": "failed",
+            "durationMs": 15193.746200000001
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15011.940799999997
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+          "main": {
+            "status": "failed",
+            "durationMs": 15012.795600000012
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15119.84109999999
+          },
+          "outcome": "also-fails-on-main"
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509",
+          "main": {
+            "status": "failed",
+            "durationMs": 15007.410999999993
+          },
+          "candidate": {
+            "status": "failed",
+            "durationMs": 15011.838199999991
+          },
+          "outcome": "also-fails-on-main"
+        }
+      ]
+    }
+  ],
+  "mainAdditionalTargetedReruns": [
+    {
+      "report": "b4-main-extra",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/tools/fusion/branch-private-git.test.ts",
+        "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "src/tools/fusion/candidate-copy-budget.test.ts",
+        "src/tools/fusion/candidate-integration.test.ts",
+        "--maxWorkers=1",
+        "--testNamePattern",
+        "executes\\ candidate\\ final\\ checks\\ with\\ autonomous\\ Git\\ metadata\\ while\\ retaining\\ efficient\\ tracked\\ materialization|keeps\\ nested\\ tasks\\ and\\ the\\ final\\ planned\\ source\\ independent\\ from\\ the\\ candidate\\ and\\ each\\ other|measures\\ exactly\\ the\\ complete\\ unchanged\\ future\\ branch\\-set\\ copy\\ \\(Git=true\\)|includes\\ tracked\\ byte\\ overlays\\ in\\ the\\ measured\\ final\\ copy|never\\ promotes\\ deletion\\ of\\ ignored\\ standalone\\ files|never\\ promotes\\ modification\\ of\\ ignored\\ standalone\\ files|promotes\\ a\\ tracked\\ file\\ under\\ a\\ directory\\ named\\ like\\ a\\ dependency/build\\ folder|refuses\\ to\\ delete\\ a\\ directory\\ that\\ still\\ holds\\ ignored\\ or\\ disposable\\ original\\ entries,\\ naming\\ them|stages\\ a\\ worktree\\ candidate\\ whose\\ source\\ directory\\ has\\ mode\\ 448|stages\\ a\\ worktree\\ candidate\\ whose\\ source\\ directory\\ has\\ mode\\ 509"
+      ],
+      "results": [
+        {
+          "name": "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+          "status": "failed",
+          "durationMs": 15196.5819
+        },
+        {
+          "name": "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+          "status": "failed",
+          "durationMs": 15284.298
+        },
+        {
+          "name": "src/tools/fusion/branch-workspace-copy-plan.test.ts :: measures exactly the complete unchanged future branch-set copy (Git=true)",
+          "status": "passed",
+          "durationMs": 9001.6234
+        },
+        {
+          "name": "src/tools/fusion/candidate-copy-budget.test.ts :: includes tracked byte overlays in the measured final copy",
+          "status": "passed",
+          "durationMs": 10547.4286
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+          "status": "failed",
+          "durationMs": 15038.1176
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+          "status": "failed",
+          "durationMs": 15021.399599999997
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+          "status": "failed",
+          "durationMs": 15016.642100000001
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+          "status": "failed",
+          "durationMs": 15193.746200000001
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+          "status": "failed",
+          "durationMs": 15012.795600000012
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509",
+          "status": "failed",
+          "durationMs": 15007.410999999993
+        }
+      ]
+    },
+    {
+      "report": "b4b-main-alias",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/tools/fusion/candidate-integration.test.ts",
+        "--maxWorkers=1",
+        "--testNamePattern",
+        "promotes\\ through\\ a\\ symlinked\\ alias\\ of\\ the\\ project\\ root\\ without\\ writing\\ a\\ separate\\ tree\\ there\\ \\(git\\ worktree\\)"
+      ],
+      "results": [
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+          "status": "failed",
+          "durationMs": 15015.0608
+        }
+      ]
+    },
+    {
+      "report": "b4b-main-extra",
+      "argv": [
+        "node",
+        "node_modules/vitest/vitest.mjs",
+        "run",
+        "src/tools/fusion/branch-isolation-safety.test.ts",
+        "src/tools/fusion/branch-private-git.test.ts",
+        "src/tools/fusion/candidate-integration.test.ts",
+        "--maxWorkers=1",
+        "--testNamePattern",
+        "workspace\\ removal\\ never\\ lets\\ git\\ walk\\ a\\ generated\\ link\\ sweeps\\ dead\\ independent\\ Git\\ stores\\ without\\ changing\\ source\\ worktree\\ registrations|keeps\\ independent\\ Git\\ metadata\\ for\\ every\\ workspace\\ and\\ preserves\\ dirty/index/untracked\\ bytes|promotes\\ inside\\ a\\ Git\\ subdirectory\\ while\\ retaining\\ dirty\\ and\\ untracked\\ original\\ bytes|promotes\\ through\\ a\\ symlinked\\ alias\\ of\\ the\\ project\\ root\\ without\\ writing\\ a\\ separate\\ tree\\ there\\ \\(git\\ worktree\\)|rejects\\ a\\ declared\\ provide\\ that\\ only\\ exists\\ under\\ an\\ ignored\\ path|rejects\\ a\\ tracked\\ file\\ renamed\\ onto\\ an\\ ignored\\ name\\ instead\\ of\\ silently\\ deleting\\ it"
+      ],
+      "results": [
+        {
+          "name": "src/tools/fusion/branch-isolation-safety.test.ts :: workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations",
+          "status": "passed",
+          "durationMs": 7507.267500000001
+        },
+        {
+          "name": "src/tools/fusion/branch-private-git.test.ts :: keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+          "status": "passed",
+          "durationMs": 5716.8651
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+          "status": "failed",
+          "durationMs": 15016.7744
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+          "status": "passed",
+          "durationMs": 14961.040400000002
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+          "status": "failed",
+          "durationMs": 15005.418900000004
+        },
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+          "status": "failed",
+          "durationMs": 15019.907
+        }
+      ]
+    }
+  ],
+  "remainingAdditionalFailureNames": [],
+  "fullComparison": {
+    "baseline": "2fa1eb9a4fa14987610f74f15b361467fe26a18c",
+    "environment": {
+      "os": "Windows",
+      "node": "v26.13.1",
+      "install": "npm ci"
+    },
+    "nameNormalization": "Only the absolute checkout prefix in parameterized test names is replaced by <checkout>.",
+    "candidateReport": "b4d-full",
+    "baselineCounts": {
+      "numPassedTests": 30507,
+      "numFailedTests": 67,
+      "numPendingTests": 658,
+      "numTotalTests": 31232
+    },
+    "candidateCounts": {
+      "numPassedTests": 30511,
+      "numFailedTests": 64,
+      "numPendingTests": 658,
+      "numTotalTests": 31233
+    },
+    "commonFailedNames": [
+      "src/agent-profiles/profile-loader.test.ts :: loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+      "src/agent/progress/read-coverage.test.ts :: read-coverage detection end to end sees a symlink and its target as one file",
+      "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+      "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+      "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+      "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+      "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+      "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+      "src/local-llm/backend/backend-installer-stable-repo.test.ts :: direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+      "src/local-llm/core/core-contract.test.ts :: Core host contract accepts its own data folder reported through a symlinked path",
+      "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+      "src/plugins/plugin-install.test.ts :: plugin install drops symlinks while copying",
+      "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy hides credential folders and the agent's state",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy protects a configured model key outside the state root",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy writes go to the project and temp only",
+      "src/sandbox/os-sandbox.test.ts :: round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+      "src/sandbox/os-sandbox.test.ts :: round 3 point 5: protects root home and privileged etc files",
+      "src/sandbox/os-sandbox.test.ts :: round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+      "src/sandbox/os-sandbox.test.ts :: round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+      "src/sandbox/os-sandbox.test.ts :: wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+      "src/skills/eval/checks.test.ts :: runCheck command that runs too long fails as a timeout",
+      "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+      "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir flags a symlink pointing outside the skill instead of following it",
+      "src/skills/hub/skill-lock.test.ts :: skill lock covers symlinks by their link text",
+      "src/skills/install-local-skill.test.ts :: installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+      "src/skills/skill-loader.test.ts :: loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+      "src/skills/skill-script-runner.test.ts :: runSkillScript runs a bash script by .sh extension",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy never imports project symlinks outside the workspace",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy stores canonical workspace policy without modifying the project",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes but reports new ignored paths it kept private",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies direct procfs reads even without state secret files",
+      "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc && cat self/environ",
+      "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc/self && cat environ",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags find /proc/123 -type f without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags grep -r synthetic /proc/self without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags pushd /proc/self && cat environ without reading a real credential"
+    ],
+    "additionalFailedNames": [
+      "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+      "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+      "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509"
+    ],
+    "baselineFailedNamesPassingInCandidate": [
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+      "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+      "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+      "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+      "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits"
+    ],
+    "newTestNames": [
+      "src/integrations/monid-hub-deferred.test.ts :: keeps Monid browser sign-in and disconnect absent from the integrations hub"
+    ],
+    "additionalFailuresAlsoReproducedOnMain": [
+      "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+      "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+      "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509"
+    ],
+    "remainingAdditionalFailureNames": [],
+    "command": "npm test",
+    "baselineCommand": "npm test"
+  }
+}

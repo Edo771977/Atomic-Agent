@@ -135,6 +135,8 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - the transcript was cleared;
   - the send failed.
 
+The B4d Monid integrations row (#1573) is deferred: a configured server named monid selects a foreign origin for the branded sign-in entry point. The generic MCP catalog entry is unchanged. [Review and reopening requirements](../reviews/b4d-monid.md).
+
 ## A2A protocol
 
 A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candidate's task projection does not enforce the fork's chat visibility and disconnecting a blocking caller leaves its task running. The flag and both routes remain unavailable, with no new public exception or role permission. [HTTP review](../../src/http/README.md)
@@ -160,6 +162,8 @@ A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candid
 
   See [#79](https://github.com/Edo771977/atomic-agent/pull/79), [#82](https://github.com/Edo771977/atomic-agent/pull/82), [#85](https://github.com/Edo771977/atomic-agent/pull/85) and [#89](https://github.com/Edo771977/atomic-agent/pull/89).
 
+The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../reviews/b4b-subscription-signin.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
@@ -183,6 +187,8 @@ The editor-launched ACP command from upstream #1646 remains deferred in B3. Its 
   - Fixes found in real Windows test runs: native Anthropic provider, verified prices and the local runtime ([#18](https://github.com/Edo771977/atomic-agent/pull/18), [#20](https://github.com/Edo771977/atomic-agent/pull/20), [#21](https://github.com/Edo771977/atomic-agent/pull/21), [#23](https://github.com/Edo771977/atomic-agent/pull/23), [#31](https://github.com/Edo771977/atomic-agent/pull/31), [#36](https://github.com/Edo771977/atomic-agent/pull/36)).
   - A Windows core CI gate.
 
+The B4c Composio account CLI/TUI import (#1687/#1688) is deferred: connected accounts are readable from a marked child, and account selection changes the stable prompt prefix. Existing ATO-548 configuration and session pins are unchanged. [Review and reopening requirements](../reviews/b4c-composio-accounts.md).
+
 ## MCP over HTTP
 
 The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
@@ -200,6 +206,8 @@ The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport 
   - A Codex reviewer cannot be used.
   - Memory notes are labelled and kept apart.
   - No phone push is sent.
+
+The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../reviews/b4a-1671.md).
 
 ## Security and reliability
 

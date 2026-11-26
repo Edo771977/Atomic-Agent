@@ -1,0 +1,21 @@
+{
+  "baseline": "2fa1eb9a4fa14987610f74f15b361467fe26a18c",
+  "commits": [
+    {
+      "sha": "15190515c3a67944b01c06cf7f56e299a86fcf3f",
+      "parents": [
+        "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64"
+      ],
+      "subject": "ATO-1639: save one key at a time through the agent (config secrets set/get/unset, PUT /api/secrets)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "0b61319c0dc072659a4353b2ecde5a1488dc3a9b",
+      "parents": [
+        "15190515c3a67944b01c06cf7f56e299a86fcf3f"
+      ],
+      "subject": "Shell guard: ask before the agent runs config secrets get, set or unset",
+      "disposition": "deferred, not cherry-picked"
+    }
+  ]
+}

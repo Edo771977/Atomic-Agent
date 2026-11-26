@@ -1,0 +1,29 @@
+{
+  "baseline": "2fa1eb9a4fa14987610f74f15b361467fe26a18c",
+  "commits": [
+    {
+      "sha": "cb16265b4a540ca82febf3664835305726f4fb62",
+      "parents": [
+        "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64"
+      ],
+      "subject": "Integrations: add Monid row with browser sign-in (ATO-1630)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "710540e3cb81d49a1a5c462d66d562c69d680567",
+      "parents": [
+        "cb16265b4a540ca82febf3664835305726f4fb62"
+      ],
+      "subject": "Integrations: disconnect verb on the Monid row, the same sign-out as /mcp signout (ATO-1630)",
+      "disposition": "deferred, not cherry-picked"
+    },
+    {
+      "sha": "626104ff0068cac16bef53e9bcc4a4777a75eb95",
+      "parents": [
+        "710540e3cb81d49a1a5c462d66d562c69d680567"
+      ],
+      "subject": "Return a label from the Monid test's browser opener (ATO-1630)",
+      "disposition": "deferred, not cherry-picked"
+    }
+  ]
+}
