@@ -1,4 +1,9 @@
-/** Known routing partitions; archive keys use `/` instead of the wire's `:`. */
+/**
+ * Known session-owned routing partitions; archive keys use `/` instead of `:`.
+ * complete:api (runtime/plain-complete.ts) is excluded: withFreshPrivacyVault
+ * isolates each call, and with folder constraints it is intentionally refused
+ * because no chat folder can govern it. See ../http/README.md.
+ */
 export const AUXILIARY_PARTITIONS = [
   "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
   "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn", "goal-judge",
