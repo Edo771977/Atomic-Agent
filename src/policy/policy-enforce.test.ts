@@ -1,3 +1,6 @@
+import { randomUUID } from "node:crypto";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { parse, join } from "node:path";
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +11,7 @@ import { parsePolicyFile } from "./policy-schema.js";
 import { gateRequestTarget, mcpResource, shellResources, toolCallTarget } from "./policy-targets.js";
 
 function policyOf(raw: unknown): EffectivePolicy {
-  return mergePolicySources([{ status: { kind: "system", location: "test", state: "loaded" }, file: parsePolicyFile(raw) }]);
+  return mergePolicySources([{ status: { kind: "system", location: join(tmpdir(), randomUUID(), "nonexistent-policy.json"), state: "loaded" }, file: parsePolicyFile(raw) }]);
 }
 
 describe("policy targets", () => {
@@ -86,7 +89,12 @@ describe("policyCallRefusal (dispatch)", () => {
   });
 
   it("does nothing with an empty policy", () => {
-    expect(policyCallRefusal(policyOf({}), "os.shell.run", { cmd: "rm", args: ["-rf", "/"] })).toBeNull();
+    const cwd = process.cwd(), fixture = mkdtempSync(join(tmpdir(), "policy-empty-location-"));
+    writeFileSync(join(fixture, "test"), "{}");
+    try {
+      process.chdir(fixture);
+      expect(policyCallRefusal(policyOf({}), "os.shell.run", { cmd: "rm", args: ["-rf", "/"] })).toBeNull();
+    } finally { process.chdir(cwd); rmSync(fixture, { recursive: true, force: true }); }
   });
 });
 
