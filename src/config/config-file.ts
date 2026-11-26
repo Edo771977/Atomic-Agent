@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join, sep } from "node:path";
 
 import { carryUnknownConfigKeys } from "./carry-unknown-config-keys.js";
+import { parseFileTriggerMap } from "./file-trigger-config.js";
 import { keepSetAsideConfigValues, setAsideEnumValueAt } from "./keep-set-aside-values.js";
 import {
   ConfigValidationError,
@@ -176,6 +177,9 @@ export function writeUserConfigFileSync(
   /** Dotted keys this write sets on purpose: they replace a value set aside on read (ATO-1265). */
   opts: { readonly chosen?: readonly string[] } = {},
 ): void {
+  // Some callers bypass the full config parser; reject invalid bindings
+  // before persisting a trigger that would fail on every filesystem event.
+  parseFileTriggerMap(data.fileTriggers, "fileTriggers");
   mkdirSync(dirname(path), { recursive: true });
   const diskTree = readJsonObjectFromFileSync(path);
   const onDisk = readVersionField(diskTree);

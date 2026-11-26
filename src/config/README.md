@@ -5,6 +5,8 @@ Owner: src/config/
 
 This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) before changing it.
 
+File triggers validate their optional session ID when parsed and at the configuration save boundary. Invalid internal paths such as `compaction/Y` are refused before replacing the saved file, preventing a repeating task-creation error on every event; valid imported IDs such as `codex:Y` remain supported.
+
 ## Entry points
 
 - [config-schema.ts](config-schema.ts)
