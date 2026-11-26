@@ -125,6 +125,7 @@ const MAX_NESTED_SHELL_DEPTH = 4;
 export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix"): { segments: string[][]; unreadable: boolean } {
   const syntax = useShell ? shellSyntax([cmd, ...execArgs].join(" "), dialect) : { segments: [[cmd, ...execArgs]], unreadable: false };
   const state = { unreadable: syntax.unreadable, remaining: 2048 };
+  if (useShell && /[|<]/.test([cmd, ...execArgs].join(" ")) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words)))) state.unreadable = true;
   const segments = syntax.segments.flatMap(words => expandSegment(words, 0, state));
   return { segments, unreadable: state.unreadable };
 }
@@ -145,6 +146,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const nested = lines.flatMap(({ line, dialect }) => {
     if (line.includes(UNKNOWN_SHELL_WORD)) { state.unreadable = true; return []; }
     const syntax = shellSyntax(line, dialect); state.unreadable ||= syntax.unreadable;
+    if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words)))) state.unreadable = true;
     return syntax.segments.flatMap(w => expandSegment(w, depth + 1, state));
   });
   const executed = findExecCommands(inner).flatMap(w => expandSegment(w, depth + 1, state));
@@ -249,11 +251,9 @@ export function shellRunsUnreadableScript(
   cmd: string,
   execArgs: readonly string[],
   useShell: boolean,
+  dialect?: ShellDialect,
 ): boolean {
-  if (analyzeShellRules(cmd, execArgs, useShell).unreadable) return true;
-  if (!useShell) return false;
-  if (!/[|<]/.test([cmd, ...execArgs].join(" "))) return false;
-  return shellRuleSegments(cmd, execArgs, useShell).some(readsScriptFromStdin);
+  return analyzeShellRules(cmd, execArgs, useShell, dialect).unreadable;
 }
 
 /**
@@ -275,5 +275,5 @@ export function stdinScriptOf(
   const readers = shellRuleSegments(cmd, execArgs, useShell).filter(readsScriptFromStdin);
   if (readers.length === 0) return null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
-  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length };
+  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length || shells.length > 0 && analyzeShellRules(stdin, [], true, "posix").unreadable };
 }

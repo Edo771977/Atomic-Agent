@@ -160,7 +160,7 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
       const rest = coerceShellArgs(command === undefined ? start.args : a.args) ?? [];
       const target = toolCallTarget("os.shell.run", { cmd, args: rest })!;
       const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin));
-      target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line)) ?? [])])];
+      target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line, [], "posix")) ?? [])])];
       if (script?.unreadable) target.unreadable = true;
       return target;
     }

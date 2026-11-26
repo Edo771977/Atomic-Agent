@@ -54,11 +54,11 @@ export function verifyRunStdinScript(args: VerifyRunArgs): { lines: string[]; un
  */
 export function verifyRunCommands(
   args: VerifyRunArgs,
-): { cmd: string; args: readonly string[] }[] {
+): { cmd: string; args: readonly string[]; dialect?: "posix" }[] {
   if (args.kind === "command") {
     if (args.cmd === undefined) return [];
     const lines = verifyRunStdinScript(args)?.lines ?? [];
-    return [{ cmd: args.cmd, args: args.args ?? [] }, ...lines.map((line) => ({ cmd: line, args: [] }))];
+    return [{ cmd: args.cmd, args: args.args ?? [] }, ...lines.map((line) => ({ cmd: line, args: [], dialect: "posix" as const }))];
   }
   if (args.start === undefined || args.start.cmd.length === 0) return [];
   return [{ cmd: args.start.cmd, args: args.start.args ?? [] }];

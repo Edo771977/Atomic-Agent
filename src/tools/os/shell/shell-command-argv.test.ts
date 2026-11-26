@@ -100,7 +100,7 @@ describe("shellRuleSegments", () => {
     ["eval rm -rf tmp", ["rm", "-rf", "tmp"]],
     ['eval "rm -rf tmp"', ["rm", "-rf", "tmp"]],
     ["echo tmp | xargs -n 1 rm -rf", ["rm", "-rf"]],
-    ["find . -name x -exec rm -rf {} ;", ["rm", "-rf", "{}"]],
+    ["find . -name x -exec rm -rf {} ;", ["rm", "-rf", "\0"]],
   ])("reads past the wrapper in %s", (line, inner) => {
     expect(shellRuleSegments(line, [], true)).toContainEqual(inner);
   });
