@@ -22,7 +22,8 @@ describe("common edit path identity", () => {
     const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "edit", resource: absolute.replace(/\\/g, "/"), effect: "deny" }] };
     expect(policyRuleMatch(policy, { tool: "os.fs.write", category: "fs_write_workspace", targetPaths: ["src/blocked.txt"], workdir } as Parameters<typeof policyRuleMatch>[1])?.decision).toBe("deny");
     expect(policyCallRefusal(policy, "os.fs.write", { path: "src/blocked.txt" }, workdir)).toContain("policy");
-    expect(gateRequestTarget({ tool: "os.fs.write", category: "fs_write_workspace", targetPaths: ["src/blocked.txt"], workdir } as Parameters<typeof gateRequestTarget>[0])?.resources).toContain(absolute.replace(/\\/g, "/").toLowerCase());
+    const expected = absolute.replace(/\\/g, "/");
+    expect(gateRequestTarget({ tool: "os.fs.write", category: "fs_write_workspace", targetPaths: ["src/blocked.txt"], workdir } as Parameters<typeof gateRequestTarget>[0])?.resources).toContain(process.platform === "win32" || process.platform === "darwin" ? expected.toLowerCase() : expected);
   });
   it("relative patterns match an absolute actual file in both paths", () => {
     const workdir = join(tmpdir(), "policy-path-fixture");
