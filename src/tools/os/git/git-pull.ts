@@ -72,9 +72,22 @@ export function buildOsGitPullTool(
       );
       let result;
       if (needsGitPolicyPlan(repoRoot)) {
-        // Fetch writes metadata only. Its URL/data approvals stay in runGitRemote.
+        let fetchBranch = branch;
+        if (fetchBranch === undefined) {
+          const probe = { repo: repoRoot, workingDir: ctx.workingDir, signal: ctx.signal };
+          const current = await runGit({ ...probe, args: ["symbolic-ref", "--quiet", "--short", "HEAD"] });
+          const name = current.stdout.trim();
+          if (current.exitCode !== 0 || current.timedOut || current.truncated || !name || /[\r\n]/.test(name)) throw new Error("Cannot determine the current pull branch for organization policy; specify a branch");
+          const trackingRemote = await runGit({ ...probe, args: ["config", "--get", `branch.${name}.remote`] });
+          if (trackingRemote.exitCode !== 0 || trackingRemote.timedOut || trackingRemote.truncated || trackingRemote.stdout.trim() !== remote) throw new Error("Cannot match the configured pull remote for organization policy; specify a branch");
+          const configured = await runGit({ ...probe, args: ["config", "--get", `branch.${name}.merge`] });
+          const ref = configured.stdout.trim();
+          if (configured.exitCode !== 0 || configured.timedOut || configured.truncated || !/^refs\/(?:heads|tags)\/[^\r\n]+$/.test(ref)) throw new Error("Cannot determine one configured pull source for organization policy; specify a branch");
+          fetchBranch = ref;
+        }
+        // Fetch one source so FETCH_HEAD cannot select a different remote ref.
         const fetched = await runGitRemote(options, { sessionId: ctx.sessionId, repo: repoRoot, workingDir: ctx.workingDir,
-          args: ["fetch", NO_PROGRESS, remote, ...(branch ? [branch] : [])], signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
+          args: ["fetch", NO_PROGRESS, remote, fetchBranch], signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
         if (fetched.exitCode !== 0) return gitFailureResult(TOOL, fetched, { remote, branch, rebase, repoRoot });
         const probe = { repo: repoRoot, workingDir: ctx.workingDir, signal: ctx.signal };
         const pinned = await runGit({ ...probe, args: ["rev-parse", "--verify", "FETCH_HEAD^{commit}"] });
