@@ -20,13 +20,13 @@ describe("HTML format budgets", () => {
   it("bounds formatting for a wide table and for tables nested beyond 64 levels", async () => {
     const wide = "<table><tr>" + "<td>Cell</td>".repeat(66) + "</tr></table>";
     const deep = "<table><tr><td>".repeat(65) + "Nested cell" + "</td></tr></table>".repeat(65);
-    for (const html of [wide, deep]) {
+    for (const [html, warning] of [[wide, /table width/i], [deep, /table nesting/i]] as const) {
       const started = performance.now();
       const result = await run(html + "<p>After tables</p>");
       expect(performance.now() - started).toBeLessThan(2_000);
       expect(result.text).toContain("After tables");
       expect(result.text.length).toBeLessThan(2_000);
-      expect(result.warnings.join("\n")).toMatch(/table/i);
+      expect(result.warnings.join("\n")).toMatch(warning);
     }
   });
 

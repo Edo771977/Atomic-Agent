@@ -40,9 +40,11 @@ const ATTRIBUTES = new Map([
   ["a", ["href", "title"]],
   ["img", ["src", "alt", "title"]],
   ["ol", ["start"]],
+  ["td", ["colspan"]],
+  ["th", ["colspan"]],
 ]);
 
-type FormatLimit = "size" | "depth" | "nodes" | "table" | "output";
+type FormatLimit = "size" | "depth" | "nodes" | "output";
 
 class HtmlFormatLimit extends Error {
   constructor(readonly limit: FormatLimit) { super(limit); }
@@ -56,20 +58,30 @@ interface MarkdownNode {
   readonly childNodes: ArrayLike<MarkdownNode>;
 }
 
-function tableNesting(node: object): number {
-  let count = 0;
+function parentTable(node: object): MarkdownNode | undefined {
   for (let parent = (node as MarkdownNode).parentNode; parent; parent = parent.parentNode) {
-    if (parent.nodeName === "TABLE") count++;
+    if (parent.nodeName === "TABLE") return parent;
   }
-  return count;
+  return undefined;
+}
+
+function columnSpan(node: object): number {
+  return Number(attribute(node, "colspan") ?? 1);
+}
+
+function rowWidth(row: MarkdownNode): number {
+  let width = 0;
+  for (const cell of Array.from(row.childNodes)) {
+    if (cell.nodeName === "TD" || cell.nodeName === "TH") width += columnSpan(cell);
+  }
+  return width;
 }
 
 function outerRowWidth(table: MarkdownNode): number {
   let width = 0;
   for (const child of Array.from(table.childNodes)) {
     if (child.nodeName === "TR") {
-      const cells = Array.from(child.childNodes).filter(cell => cell.nodeName === "TD" || cell.nodeName === "TH");
-      width = Math.max(width, cells.length);
+      width = Math.max(width, rowWidth(child));
     } else if (child.nodeName === "THEAD" || child.nodeName === "TBODY" || child.nodeName === "TFOOT") {
       width = Math.max(width, outerRowWidth(child));
     }
@@ -81,36 +93,49 @@ function attribute(node: object, name: string): string | null {
   return (node as { getAttribute(name: string): string | null }).getAttribute(name);
 }
 
-function makeTurndown(textChars: number): TurndownService {
+function makeTurndown(textChars: number, flattenWideTable: () => void): TurndownService {
   const td = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
     bulletListMarker: "-",
   });
-  // Turndown core has no table support: every cell becomes its own
-  // paragraph and the row/column shape is lost. Render tables as pipe rows
-  // with a header separator so a local model can still read them as a grid.
-  td.addRule("tableCell", {
+  // Record each table's width before its children render. No cell or row
+  // needs to rescan the table, and wide tables never build pipe grids.
+  const widths = new WeakMap<object, number>();
+  const widthOfParent = (node: object) => {
+    const table = parentTable(node);
+    return table ? (widths.get(table) ?? 0) : 0;
+  };
+  const cellRule: TurndownService.Rule = {
     filter: ["th", "td"],
     replacement: (content, node) => {
       const text = content.replace(/\n/g, " ").replace(/ {2,}/g, " ").trim();
-      return tableNesting(node) > 1 ? ` ${text}` : ` ${text.replace(/\\?\|/g, "\\|")} |`;
+      const width = widthOfParent(node);
+      if (!width || width > HTML_TABLE_COLUMNS) return ` ${text}`;
+      return ` ${text.replace(/\\?\|/g, "\\|")} |${"  |".repeat(columnSpan(node) - 1)}`;
     },
-  });
-  td.addRule("tableRow", {
+  };
+  const rowRule: TurndownService.Rule = {
     filter: "tr",
-    replacement: (content, node) => tableNesting(node) > 1 ? ` ${content.trim()}` : `\n|${content}`,
-  });
+    replacement: (content, node) => {
+      const columns = widthOfParent(node);
+      if (!columns || columns > HTML_TABLE_COLUMNS) return `\n${content.trim()}\n`;
+      const missing = Math.max(0, columns - rowWidth(node as unknown as MarkdownNode));
+      return `\n|${content}${"  |".repeat(missing)}`;
+    },
+  };
   td.addRule("tableSection", {
     filter: ["thead", "tbody", "tfoot"],
     replacement: (content) => content,
   });
-  td.addRule("table", {
+  const tableRule: TurndownService.Rule = {
     filter: "table",
     replacement: (content, node) => {
-      if (tableNesting(node)) return ` ${content.trim()}`;
-      const columns = outerRowWidth(node as unknown as MarkdownNode);
-      if (columns > HTML_TABLE_COLUMNS) throw new HtmlFormatLimit("table");
+      const columns = widths.get(node) ?? 0;
+      if (columns > HTML_TABLE_COLUMNS) {
+        flattenWideTable();
+        return `\n\n${content.trim()}\n\n`;
+      }
       const rows = content
         .split("\n")
         .map((l) => l.trim())
@@ -119,7 +144,8 @@ function makeTurndown(textChars: number): TurndownService {
       const separator = `|${" --- |".repeat(columns)}`;
       return `\n\n${[rows[0], separator, ...rows.slice(1)].join("\n")}\n\n`;
     },
-  });
+  };
+  const tableRules = new Map([["TD", cellRule], ["TH", cellRule], ["TR", rowRule], ["TABLE", tableRule]]);
   td.remove(["button", "input", "select", "textarea"]);
   td.addRule("imageWithoutUrl", {
     filter: node => (node as unknown as MarkdownNode).nodeName === "IMG" && !attribute(node, "src"),
@@ -141,7 +167,10 @@ function makeTurndown(textChars: number): TurndownService {
   const { rules } = td;
   const ruleFor = rules.forNode.bind(rules);
   rules.forNode = (node) => {
-    const rule = ruleFor(node);
+    const element = node as unknown as MarkdownNode;
+    if (element.nodeName === "TABLE") widths.set(element, outerRowWidth(element));
+    // Empty cells also need a delimiter. Turndown's blank rule would omit it.
+    const rule = tableRules.get(element.nodeName) ?? ruleFor(node);
     const replace = rule.replacement;
     if (!replace) return rule;
     return { ...rule, replacement(content, target, options) {
@@ -173,6 +202,7 @@ function openingTag(name: string, attributes: Record<string, string>): string {
       if (oversize || /^data:/i.test(value.replace(/[\t\r\n]/g, "").trim())) continue;
     }
     if (field === "start" && !/^-?\d{1,8}$/.test(value)) continue;
+    if (field === "colspan" && !/^[1-9]\d{0,3}$/.test(value)) continue;
     const bounded = oversize ? value.slice(0, HTML_ATTRIBUTE_BYTES / 4) : value;
     result += ` ${field}="${escapeMarkup(bounded).replaceAll('"', "&quot;")}"`;
   }
@@ -299,12 +329,14 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
   let limit = prepared.limit;
   if (!limit) {
     try {
-      const text = makeTurndown(prepared.textChars).turndown(prepared.markup)
+      let wideTable = false;
+      const text = makeTurndown(prepared.textChars, () => { wideTable = true; }).turndown(prepared.markup)
         .split("\n").map(line => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
       if (text.length > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
       if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
       if (prepared.flattened.quotes) warnings.push(`HTML quotations beyond ${HTML_QUOTE_DEPTH} levels were flattened locally.`);
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
+      if (wideTable) warnings.push(`HTML table width exceeded ${HTML_TABLE_COLUMNS} columns. Only the wide table was flattened.`);
       return { text, title: prepared.title };
     } catch (error) {
       if (!(error instanceof HtmlFormatLimit)) throw error;
@@ -314,7 +346,6 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
   const descriptions: Record<FormatLimit, string> = {
     depth: `depth (${HTML_PARSER_DEPTH})`,
     nodes: `node count (${HTML_FORMAT_NODES})`,
-    table: `table width (${HTML_TABLE_COLUMNS} columns)`,
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
   };
