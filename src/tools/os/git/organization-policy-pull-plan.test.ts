@@ -13,11 +13,11 @@ describe("pull fetches then plans a pinned local integration", () => {
     const root = mkdtempSync(join(tmpdir(), "policy-pull-plan-"));
     try {
       installPolicy({ sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "edit", resource: join(root, "blocked.txt"), effect: "deny" }] });
-      let file = "ordinary.txt";
+      let file = "ordinary.txt", history = false;
       const calls: string[][] = [];
       vi.spyOn(runner, "runGit").mockImplementation(async input => {
         calls.push(input.args);
-        const stdout = input.args.includes("--show-toplevel") ? root : input.args[0] === "rev-parse" ? "a".repeat(40) : input.args[0] === "diff" ? file + "\0" : "";
+        const stdout = input.args.includes("--show-toplevel") ? root : input.args[0] === "rev-parse" ? "a".repeat(40) : input.args[0] === "rev-list" ? history ? "b".repeat(40) : "" : input.args[0] === "diff-tree" ? "blocked.txt\0" : input.args[0] === "diff" ? file + "\0" : "";
         return { repoRoot: root, command: "fake", args: input.args, exitCode: 0, signal: null, stdout, stderr: "", durationMs: 0, timedOut: false, truncated: false, inputTruncated: false };
       });
       const tool = buildOsGitPullTool({ approvals: new ApprovalGate({ level: 5, emit: () => undefined }), approvalRequired: false, isRemoteSyncEnabled: () => true, urlDataGuard: "off", env: {} });
@@ -27,6 +27,11 @@ describe("pull fetches then plans a pinned local integration", () => {
       file = "blocked.txt"; calls.length = 0;
       await expect(tool.run({ branch: "fixture", rebase }, ctx)).rejects.toThrow(/policy/);
       expect(calls.some(args => ["merge", "rebase", "pull"].includes(args[0] ?? ""))).toBe(false);
+      if (rebase) {
+        file = "ordinary.txt"; history = true; calls.length = 0;
+        await expect(tool.run({ branch: "fixture", rebase }, ctx)).rejects.toThrow(/policy/);
+        expect(calls.some(args => args[0] === "rebase")).toBe(false);
+      }
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

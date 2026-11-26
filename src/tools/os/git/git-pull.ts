@@ -81,6 +81,12 @@ export function buildOsGitPullTool(
         if (pinned.exitCode !== 0 || pinned.timedOut || pinned.truncated || !/^[a-f0-9]{40,64}$/i.test(pinned.stdout.trim())) throw new Error("Cannot pin fetched Git revision for organization policy");
         const revision = pinned.stdout.trim();
         const paths = await gitPlanPaths(probe, repoRoot, ["diff", "--name-only", "--no-renames", "-z", "HEAD", revision, "--"]);
+        if (rebase) {
+          const history = await runGit({ ...probe, args: ["rev-list", `${revision}..HEAD`] });
+          const commits = history.stdout.trim().split(/\r?\n/).filter(Boolean);
+          if (history.exitCode !== 0 || history.timedOut || history.truncated || commits.length > 256 || commits.some(commit => !/^[a-f0-9]{40,64}$/i.test(commit))) throw new Error("Cannot inspect complete rebase history for organization policy");
+          for (const commit of commits) paths.push(...await gitPlanPaths(probe, repoRoot, ["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", commit, "--"]));
+        }
         await authorizeGitPolicyMutation(options, TOOL, repoRoot, paths, ctx);
         result = await runGit({ ...probe, args: rebase ? ["rebase", revision] : ["merge", "--ff-only", revision], timeoutMs: NETWORK_TIMEOUT_MS });
       } else {
