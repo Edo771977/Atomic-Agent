@@ -4,14 +4,13 @@ import { extname } from "node:path";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { ToolDefinition } from "../../tool-registry.js";
-import { DOCUMENT_FORMATS } from "./extractors/extractor-types.js";
+import { DEFAULT_DOCUMENT_MAX_BYTES, DOCUMENT_FORMATS } from "./extractors/extractor-types.js";
 import type {
   DocumentFormat,
   Extractor,
   ExtractorInput,
 } from "./extractors/extractor-types.js";
 
-const DEFAULT_MAX_BYTES = 5 * 1024 * 1024;
 const DEFAULT_MAX_PAGES = 50;
 const MAX_MSG_INPUT_BYTES = 32 * 1024 * 1024;
 
@@ -44,7 +43,7 @@ export function buildOsFsReadDocumentTool(
   return {
     name: "os.fs.read_document",
     description:
-      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox, Outlook .msg) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. Read-only, no approval required.",
+      "Extract plain text (with light structure markers) from PDF, DOCX, DOC (legacy), XLSX, RTF, ODT, PPTX, ODS, ODP, EPUB, HTML (as markdown), email (.eml, .mbox, Outlook .msg up to 32 MiB) and plain-text files. NOT for source code — read code with os.fs.read, which pages with offset/limit. Auto-detects format by extension; override with `format`, one of: pdf, docx, doc, xlsx, rtf, odt, pptx, ods, odp, epub, html, eml, mbox, msg, plain. pagesFrom/pagesTo/maxPages page through PDF pages, slides, EPUB chapters and mbox messages. For EML, pagesFrom/pagesTo select displayed MIME body parts. Read-only, no approval required.",
     readonly: true,
     async run(rawArgs, ctx) {
       const args = await parseArgs(rawArgs, ctx.workingDir);
@@ -56,6 +55,7 @@ export function buildOsFsReadDocumentTool(
       const input: ExtractorInput = {
         data,
         sourcePath: args.absolute,
+        maxBytes: args.maxBytes,
         pagesFrom: args.pagesFrom,
         pagesTo: args.pagesTo,
         maxPages: args.maxPages ?? DEFAULT_MAX_PAGES,
@@ -69,7 +69,7 @@ export function buildOsFsReadDocumentTool(
       const details: Record<string, unknown> = {
         path: args.absolute,
         format: result.format,
-        truncated: bytesTruncated,
+        truncated: bytesTruncated || result.truncated === true,
         warnings: result.warnings,
       };
       if (result.pageCount !== undefined) details.pageCount = result.pageCount;
@@ -136,7 +136,7 @@ async function parseArgs(
 
   const maxBytes = parsePositiveInt(
     rawArgs.maxBytes,
-    DEFAULT_MAX_BYTES,
+    DEFAULT_DOCUMENT_MAX_BYTES,
     "maxBytes",
   );
   const maxPages = parseOptionalPositiveInt(rawArgs.maxPages, "maxPages");

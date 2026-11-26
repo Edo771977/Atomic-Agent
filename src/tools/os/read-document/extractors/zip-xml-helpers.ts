@@ -18,8 +18,8 @@ const xmlParser = new XMLParser({
 
 export type XmlNode = Record<string, unknown>;
 
-export async function openZip(data: Buffer): Promise<JSZip> {
-  return loadBoundedOfficeZip(data);
+export async function openZip(data: Buffer, partSizes?: Map<string, number>): Promise<JSZip> {
+  return loadBoundedOfficeZip(data, undefined, partSizes);
 }
 
 export async function readZipText(

@@ -332,6 +332,11 @@ describe("os.fs.read_document dispatcher", () => {
     expect(calls).toBe(0);
   });
 
+  it("states the standard Outlook input limit in the tool description", () => {
+    const description = buildOsFsReadDocumentTool().description;
+    expect(description).toMatch(/Outlook.*32 MiB/);
+  });
+
   it("rejects unknown format overrides", async () => {
     const tool = buildOsFsReadDocumentTool({});
     const path = join(dir, "any.txt");
@@ -362,7 +367,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(message).toContain("os.fs.read");
   });
 
-  it("forwards pagination args to the extractor", async () => {
+  it("forwards pagination and the output budget to the extractor", async () => {
     let captured: ExtractorInput | undefined;
     const tool = buildOsFsReadDocumentTool({
       extractors: {
@@ -379,6 +384,7 @@ describe("os.fs.read_document dispatcher", () => {
         pagesFrom: 2,
         pagesTo: 5,
         maxPages: 4,
+        maxBytes: 12_345,
         pageSeparators: false,
         includeTables: false,
       },
@@ -387,6 +393,7 @@ describe("os.fs.read_document dispatcher", () => {
     expect(captured?.pagesFrom).toBe(2);
     expect(captured?.pagesTo).toBe(5);
     expect(captured?.maxPages).toBe(4);
+    expect(captured?.maxBytes).toBe(12_345);
     expect(captured?.pageSeparators).toBe(false);
     expect(captured?.includeTables).toBe(false);
   });
@@ -413,6 +420,15 @@ describe("os.fs.read_document dispatcher", () => {
     await writeFile(path, Buffer.from("fake"));
     const result = await tool.run({ path, maxBytes: 100 }, makeCtx(dir));
     expect(result.details.truncated).toBe(true);
+  });
+
+  it("reports an EML body truncated inside its extractor", async () => {
+    const tool = buildOsFsReadDocumentTool({});
+    const path = join(dir, "body.eml");
+    await writeFile(path, "Content-Type: text/plain\r\n\r\nA clipped message");
+    const result = await tool.run({ path, maxBytes: 8 }, makeCtx(dir));
+    expect(result.details.truncated).toBe(true);
+    expect(result.details.warnings).toContainEqual(expect.stringMatching(/part 1.*pagesFrom/i));
   });
 
   it("rejects non-files (directories)", async () => {

@@ -1,5 +1,5 @@
 import type { Extractor } from "./extractor-types.js";
-import { htmlToMarkdown } from "./html-markdown.js";
+import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes, sniffHtmlCharset } from "./text-decode.js";
 
 /**
@@ -12,7 +12,7 @@ export const htmlExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const decoded = decodeBytes(input.data, sniffHtmlCharset(input.data));
   if (decoded.warning) warnings.push(decoded.warning);
-  const { text, title } = htmlToMarkdown(decoded.text);
+  const { text, title } = boundedHtmlToMarkdown(decoded.text, warnings);
   const startsWithTitle = title !== undefined && text.startsWith(`# ${title}`);
   const body = title && !startsWithTitle ? `# ${title}\n\n${text}` : text;
   if (body.length === 0) warnings.push("no visible text in the HTML body");
