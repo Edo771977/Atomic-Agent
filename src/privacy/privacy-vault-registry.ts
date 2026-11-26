@@ -92,7 +92,15 @@ export function withFreshPrivacyVault<T>(run: () => T): T {
 /** Acquire once at the provider boundary; keep that same object through restoration. */
 export function privacyVaultForRequest(sessionId: string | undefined): PrivacyVault {
   const request = requestVault.getStore();
-  return request ? request.vault ??= newVault() : privacyVaultFor(sessionId);
+  if (request) return request.vault ??= newVault();
+  const colon = sessionId?.indexOf(":") ?? -1;
+  if (sessionId && colon > 0 && isAuxiliaryPartition(sessionId.slice(0, colon))
+    && turnShield.getStore()?.id !== vaultKey(sessionId)) {
+    // A routing ID cannot tell us whether its suffix is a real colon ID
+    // or another partition. Refuse ambiguity rather than guessing ownership.
+    throw new Error(`Auxiliary completion '${sessionId.slice(0, colon)}' requires withFreshPrivacyVault`);
+  }
+  return privacyVaultFor(sessionId);
 }
 
 function newVault(): PrivacyVault {
