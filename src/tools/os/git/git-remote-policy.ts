@@ -199,7 +199,15 @@ async function remotePolicyUrls(run: Omit<GitRunOptions, "env">): Promise<string
   const urls: string[] = [];
   for (const remote of remotes) {
     if (/^https?:\/\//i.test(remote)) urls.push(...await inspect(["ls-remote", "--get-url", "--", remote]));
-    else urls.push(...await inspect(["remote", "get-url", "--all", remote]));
+    else {
+      const configured = await runGit({ ...run, args: ["remote", "get-url", "--all", remote] });
+      if (configured.timedOut || configured.truncated) throw new Error("Cannot inspect complete Git destinations for organization policy");
+      // Git accepts repository paths, SSH URLs and insteadOf aliases as
+      // operands too. --get-url resolves those without contacting a server;
+      // a missing name retains Git's ordinary eventual error.
+      if (configured.exitCode === 0) urls.push(...configured.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean));
+      else urls.push(...await inspect(["ls-remote", "--get-url", "--", remote]));
+    }
   }
   return [...new Set(urls)];
 }
