@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync, realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, parse } from "node:path";
 import { installPolicy } from "./policy-active.js";
@@ -12,6 +12,7 @@ import { regexOutlineBackend } from "../tools/os/code-map/regex-outline.js";
 import { policyFileReadFilter } from "./policy-paths.js";
 import { osFsDiffTool } from "../tools/os/fs/fs-diff.js";
 import { buildOsCodeSearchTool } from "../tools/os/code/code-search.js";
+vi.mock("node:fs", async importOriginal => { const actual = await importOriginal<typeof import("node:fs")>(); return { ...actual, realpathSync: vi.fn(actual.realpathSync) }; });
 
 describe("policy file read boundary", () => {
   let root: string, file: string, policy: EffectivePolicy;
@@ -26,6 +27,19 @@ describe("policy file read boundary", () => {
   });
   afterEach(() => { installPolicy(null); rmSync(root, { recursive: true, force: true }); });
   const ctx = () => ({ workingDir: root, sessionId: "fixture", stepIndex: 0, signal: new AbortController().signal });
+  it("keeps ordinary reads available when no protected file exists and canonical target metadata is unavailable", () => {
+    const empty: EffectivePolicy = { sources: [{ kind: "user", state: "missing", location: join(root, "absent", "policy.json") }], rules: [], mcpAllowlists: [] };
+    vi.mocked(realpathSync).withImplementation(() => { throw Object.assign(new Error("synthetic unavailable volume metadata"), { code: "UNKNOWN" }); }, () => {
+      expect(policyCallRefusal(empty, "os.fs.read", { path: join(root, "ordinary.ts") }, root)).toBeNull();
+      const filter = policyFileReadFilter(empty);
+      expect(filter.allows(join(root, "ordinary.ts"))).toBe(true);
+      expect(filter.allows(empty.sources[0]!.location)).toBe(false);
+      expect(filter.exclusions(root)).toContain("absent/policy.json");
+      expect(policyCallRefusal(empty, "os.fs.read", { path: empty.sources[0]!.location }, root)).toContain("protected");
+      expect(() => policyCallRefusal(empty, "os.fs.write", { path: join(root, "ordinary.ts") }, root)).toThrow(/canonical/);
+      expect(() => policyCallRefusal(policy, "os.fs.read", { path: join(root, "ordinary.ts") }, root)).toThrow(/canonical/);
+    });
+  });
   it.each(["os.fs.list", "os.fs.grep", "os.fs.glob", "os.fs.code_map"])("ordinary ancestor reads remain available for %s with no rules", tool => {
     for (const path of [root, dirname(file), parse(root).root, join(parse(root).root, "etc")]) {
       expect(policyCallRefusal(policy, tool, { path, cwd: path }, root)).toBeNull();
@@ -72,7 +86,7 @@ describe("policy file read boundary", () => {
     const alias = join(tmpdir(), "policy-alias-fixture");
     const real = join(tmpdir(), "policy-real-fixture");
     const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "user", state: "missing", location: join(real, "State", "policy.json") }] };
-    const filter = policyFileReadFilter(policy, path => path.replace("policy-alias-fixture", "policy-real-fixture"));
+    const filter = policyFileReadFilter(policy, path => path.replace("policy-alias-fixture", "policy-real-fixture"), () => true);
     expect(filter.allows(join(alias, "State", "policy.json"))).toBe(false);
     expect(filter.exclusions(alias)).toContain("State/policy.json");
   });

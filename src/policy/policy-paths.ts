@@ -10,6 +10,13 @@ interface PolicyPathFs {
 }
 const policyPathFs: PolicyPathFs = { realpath: realpathSync, lstat: lstatSync, readlink: readlinkSync };
 
+/** Only a definite absence permits skipping a protected file's read identity. */
+function policyPathMayExist(path: string): boolean {
+  try { lstatSync(path); return true; } catch (error) {
+    return !["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "");
+  }
+}
+
 /** Cache filesystem facts for one operation, including missing ancestors. */
 export function createPolicyCanonicalizer(fs: PolicyPathFs = policyPathFs): (path: string) => string {
   const memo = <T>(read: (path: string) => T) => {
@@ -85,13 +92,18 @@ export function createEditPathNormalizer(workingDir = process.cwd(), platform: N
   canonicalize: (path: string) => string = platform === process.platform ? createPolicyCanonicalizer() : path => path) {
   const api = platform === "win32" ? win32 : posix;
   const cache = new Map<string, string>();
+  const presence = new Map<string, boolean>();
   const fold = (value: string) => {
     const path = value.replace(/\\/g, "/");
     return platform === "win32" || platform === "darwin" ? path.toLowerCase() : path;
   };
-  const path = (value: string): string => {
+  const absolutePath = (value: string) => {
     const expanded = value.replace(/^~(?=$|[\\/])/, homedir());
-    const absolute = api.resolve(workingDir, expanded.replace(/\\/g, "/"));
+    return api.resolve(workingDir, expanded.replace(/\\/g, "/"));
+  };
+  const lexical = (value: string) => fold(absolutePath(value));
+  const path = (value: string): string => {
+    const absolute = absolutePath(value);
     const key = fold(absolute);
     let canonical = cache.get(key);
     if (canonical === undefined) { canonical = fold(canonicalize(absolute)); cache.set(key, canonical); }
@@ -105,11 +117,16 @@ export function createEditPathNormalizer(workingDir = process.cwd(), platform: N
     const prefix = slash === -1 ? "." : normalized.slice(0, slash + 1);
     return `${path(prefix).replace(/\/$/, "")}/${normalized.slice(slash + 1)}`;
   };
-  return { path, pattern };
+  const mayExist = (value: string) => {
+    const absolute = absolutePath(value), key = fold(absolute);
+    if (!presence.has(key)) presence.set(key, policyPathMayExist(absolute));
+    return presence.get(key)!;
+  };
+  return { path, pattern, lexical, mayExist };
 }
 
 /** One read operation: canonicalize each path once, without retaining decisions across calls. */
-export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = createPolicyCanonicalizer()) {
+export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = createPolicyCanonicalizer(), mayExist = policyPathMayExist) {
   const canonical = new Map<string, string>();
   const real = (path: string): string => {
     const absolute = resolve(path);
@@ -123,8 +140,11 @@ export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = cre
   const key = (path: string) => process.platform === "win32" || process.platform === "darwin" ? real(path).toLowerCase() : real(path);
   const files = policyFilePaths(policy);
   if (files.length === 0) return { files, exclusions: (_root: string): string[] => [], allows: (_path: string) => true };
-  const protectedKeys = new Set(files.map(key));
-  const exclusions = (root: string) => [...new Set(files.flatMap(file => [relative(resolve(root), resolve(file)), relative(real(root), real(file))])
+  const lexical = (path: string) => process.platform === "win32" || process.platform === "darwin" ? resolve(path).toLowerCase() : resolve(path);
+  const lexicalKeys = new Set(files.map(lexical));
+  const present = new Set(files.filter(mayExist));
+  const protectedKeys = new Set([...present].map(key));
+  const exclusions = (root: string) => [...new Set(files.flatMap(file => [relative(resolve(root), resolve(file)), ...(present.has(file) ? [relative(real(root), real(file))] : [])])
     .filter(path => !isAbsolute(path) && path !== ".." && !path.startsWith("../") && !path.startsWith("..\\")).map(path => path.replace(/\\/g, "/")))];
-  return { files, exclusions, allows: (path: string) => !protectedKeys.has(key(path)) };
+  return { files, exclusions, allows: (path: string) => !lexicalKeys.has(lexical(path)) && (protectedKeys.size === 0 || !protectedKeys.has(key(path))) };
 }

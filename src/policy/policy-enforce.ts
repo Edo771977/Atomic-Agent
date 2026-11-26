@@ -27,7 +27,11 @@ type EditPathNormalizer = ReturnType<typeof createEditPathNormalizer>;
 function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd(), ancestors = false, normalize = createEditPathNormalizer(workingDir)): boolean {
   const protectedPaths = policyFiles(policy);
   if (paths.length === 0 || protectedPaths.length === 0) return false;
-  const protectedFiles = protectedPaths.map(normalize.path);
+  const lexicalFiles = new Set(protectedPaths.map(normalize.lexical));
+  if (paths.some(path => lexicalFiles.has(normalize.lexical(path)))) return true;
+  const candidates = ancestors ? protectedPaths : protectedPaths.filter(normalize.mayExist);
+  if (candidates.length === 0) return false;
+  const protectedFiles = candidates.map(normalize.path);
   return paths.some(path => protectedFiles.some(file => {
     const offset = relative(normalize.path(path), file);
     return offset === "" || ancestors && !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
