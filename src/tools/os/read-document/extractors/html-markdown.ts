@@ -113,7 +113,10 @@ function makeTurndown(textChars: number, flattenWideTable: () => void): Turndown
       const text = content.replace(/\n/g, " ").replace(/ {2,}/g, " ").trim();
       const width = widthOfParent(node);
       if (!width || width > HTML_TABLE_COLUMNS) return ` ${text}`;
-      return ` ${text.replace(/\\?\|/g, "\\|")} |${"  |".repeat(columnSpan(node) - 1)}`;
+      // A pipe needs an odd number of preceding backslashes to stay in
+      // its cell. Preserve runs that already escape the pipe.
+      const escaped = text.replace(/(?<!\\)((?:\\\\)*)\|/g, "$1\\|");
+      return ` ${escaped} |${"  |".repeat(columnSpan(node) - 1)}`;
     },
   };
   const rowRule: TurndownService.Rule = {
