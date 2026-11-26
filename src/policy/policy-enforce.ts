@@ -161,7 +161,8 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const readPaths = READ_TOOL_TARGETS.get(tool)?.(object) ?? [];
   const files = policyFiles(policy);
   const shellCommands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? [object, record(object.start)] : [];
-  const shellTouchesPolicy = (policy.sources.some(source => source.state === "loaded") || files.some(normalize.mayExist)) && shellCommands.some(command => {
+  // A remote-only source has rules, but no local file inventory to inspect.
+  const shellTouchesPolicy = files.length > 0 && (policy.sources.some(source => source.state === "loaded") || files.some(normalize.mayExist)) && shellCommands.some(command => {
     if (typeof command.cmd !== "string") return false;
     const cwd = workingDir ?? process.cwd();
     const named = findShellStateSecrets(command, { workingDir: cwd }, {
