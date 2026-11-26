@@ -294,7 +294,9 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let inText = false;
   let renderedDepth = 0;
   let openAnchor = -1;
-  let openAnchorMarkup = -1;
+  let anchorOpening = -1;
+  let anchorHasLabel = false;
+  let firstAnchorBlock = -1;
   let openParagraph = -1;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
@@ -310,6 +312,9 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   };
   const appendText = (text: string) => {
     if (!text) return;
+    if (openAnchor >= 0 && firstAnchorBlock < 0 && !anchorHasLabel && /[^\s\u0085]/u.test(text)) {
+      anchorHasLabel = true;
+    }
     if (!inText && /[^\s\u0085]/u.test(text)) {
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       inText = true;
@@ -322,7 +327,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   const closeTag = (tag: string) => {
     if (tag === "a") {
       openAnchor = -1;
-      openAnchorMarkup = -1;
+      firstAnchorBlock = -1;
     }
     if (tag === "p") openParagraph = -1;
     renderedDepth--;
@@ -337,18 +342,21 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     }
   };
   const closeOpenAnchor = () => {
-    for (let i = emitted.length - 2; i > openAnchor; i--) {
-      const tag = emitted[i];
-      if (tag && !INLINE_ELEMENTS.has(tag)) {
-        // An overlapping anchor is invalid. Unwrap the outer link
-        // so its blocks remain open around the inner link.
-        parts[openAnchorMarkup] = "";
-        emitted[openAnchor] = undefined;
-        openAnchor = -1;
-        openAnchorMarkup = -1;
-        renderedDepth--;
-        return;
+    if (firstAnchorBlock >= 0) {
+      // Leave intervening blocks intact and preserve the linked text
+      // before the first block. Reuse its output slot to avoid splicing.
+      if (anchorHasLabel) {
+        if (length + 4 > HTML_SOURCE_CHARS) return stop("size");
+        parts[firstAnchorBlock] = "</a>" + parts[firstAnchorBlock];
+        length += 4;
+      } else {
+        parts[anchorOpening] = "";
       }
+      emitted[openAnchor] = undefined;
+      openAnchor = -1;
+      firstAnchorBlock = -1;
+      renderedDepth--;
+      return;
     }
     closeEmittedFrom(openAnchor);
   };
@@ -447,6 +455,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           (name === "img" && (usableUrlAttribute(attributes.src) || /[^\s\u0085]/u.test(attributes.alt ?? "")))) {
         // A visible void element separates otherwise consecutive breaks.
         whitespaceRun = 0;
+        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasLabel = true;
       }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
@@ -473,7 +482,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         emitted[emitted.length - 1] = name;
         if (name === "a" && !recognizeSelfClosing) {
           openAnchor = emitted.length - 1;
-          openAnchorMarkup = parts.length;
+          anchorOpening = parts.length;
+          anchorHasLabel = false;
+        } else if (openAnchor >= 0 && firstAnchorBlock < 0 && !INLINE_ELEMENTS.has(name)) {
+          firstAnchorBlock = parts.length;
         }
         if (name === "p" && !recognizeSelfClosing) openParagraph = emitted.length - 1;
       }
