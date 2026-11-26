@@ -9,10 +9,10 @@ function attachment(name: string, mime: string, body: string): string {
   return "Content-Type: " + mime + "\r\nContent-Disposition: attachment; filename=" + name + "\r\n\r\n" + body;
 }
 
-async function email(parts: string[]) {
+async function email(parts: string[], maxBytes?: number) {
   const raw = 'Content-Type: multipart/mixed; boundary="fixture"\r\n\r\n' +
     parts.map((part) => "--fixture\r\n" + part + "\r\n").join("") + "--fixture--\r\n";
-  return emlExtractor({ data: Buffer.from(raw), sourcePath: "mail.eml" });
+  return emlExtractor({ data: Buffer.from(raw), sourcePath: "mail.eml", maxBytes });
 }
 
 it("keeps six captions and all photo attachments", async () => {
@@ -51,10 +51,10 @@ it("lists all 140 attachments and keeps the following message body", async () =>
 
 it("keeps listing attachments after the text budget is exhausted", async () => {
   const result = await email([
-    ...Array.from({ length: 128 }, () => textPart("Earlier text")),
+    textPart("Earlier text"),
     textPart("Skipped body"),
     attachment("after.pdf", "application/pdf", "file"),
-  ]);
+  ], 12);
   expect(result.text).not.toContain("Skipped body");
   expect(result.text).toContain("after.pdf (application/pdf, 4 B)");
   expect(result.warnings).toContainEqual(expect.stringMatching(/MIME.*budget.*skipped/i));

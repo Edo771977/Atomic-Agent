@@ -422,6 +422,15 @@ describe("os.fs.read_document dispatcher", () => {
     expect(result.details.truncated).toBe(true);
   });
 
+  it("reports an EML body truncated inside its extractor", async () => {
+    const tool = buildOsFsReadDocumentTool({});
+    const path = join(dir, "body.eml");
+    await writeFile(path, "Content-Type: text/plain\r\n\r\nA clipped message");
+    const result = await tool.run({ path, maxBytes: 8 }, makeCtx(dir));
+    expect(result.details.truncated).toBe(true);
+    expect(result.details.warnings).toContainEqual(expect.stringMatching(/part 1.*pagesFrom/i));
+  });
+
   it("rejects non-files (directories)", async () => {
     const tool = buildOsFsReadDocumentTool({});
     await expect(tool.run({ path: dir }, makeCtx(dir))).rejects.toThrow(

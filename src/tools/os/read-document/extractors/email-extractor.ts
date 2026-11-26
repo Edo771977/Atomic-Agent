@@ -25,25 +25,46 @@ import { decodeBytes } from "./text-decode.js";
 const SHOWN_HEADERS = ["from", "to", "cc", "date", "subject"] as const;
 const MAX_DEPTH = 8;
 
+interface TextPartRange {
+  start: number;
+  end: number;
+  seen: number;
+  resumeAt?: number;
+}
+
 export const emlExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const raw = input.data.toString("latin1");
   const budget = new FragmentBudget(input.maxBytes);
-  const text = renderMessage(raw, 0, warnings, budget);
-  if (budget.exhausted) warnings.push("MIME text fragment budget exhausted; remaining text parts were skipped");
-  return { format: "eml", text: text.trim(), warnings: dedupe(warnings) };
+  const range: TextPartRange = {
+    start: input.pagesFrom ?? 1,
+    end: input.pagesTo ?? Infinity,
+    seen: 0,
+  };
+  const text = renderMessage(raw, 0, warnings, budget, range);
+  if (range.resumeAt !== undefined) {
+    warnings.push(`MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom to resume at that part or a later one.`);
+  }
+  return {
+    format: "eml",
+    text: text.trim(),
+    warnings: dedupe(warnings),
+    ...(budget.exhausted && { truncated: true }),
+  };
 };
 
 export const mboxExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const messages = splitMbox(input.data.toString("latin1"));
   const total = messages.length;
+  const budget = new FragmentBudget(input.maxBytes);
   const result = (text: string, extracted: number[]): ExtractResult => ({
     format: "mbox" satisfies DocumentFormat,
     text,
     pageCount: total,
     pagesExtracted: extracted,
     warnings: dedupe(warnings),
+    ...(budget.exhausted && { truncated: true }),
   });
   if (total === 0) {
     warnings.push("no messages found (expected lines starting with \"From \")");
@@ -56,18 +77,17 @@ export const mboxExtractor: Extractor = async (input) => {
   const separators = input.pageSeparators !== false;
   const chunks: string[] = [];
   const extracted: number[] = [];
-  const budget = new FragmentBudget(input.maxBytes);
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget).trim();
     if (text || !budget.exhausted) {
       chunks.push(separators ? `--- message ${n} ---\n${text}` : text);
-      extracted.push(n);
     }
     if (budget.exhausted) {
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom to resume at this message or a later one.`);
       break;
     }
+    extracted.push(n);
   }
   const remaining = end - start + 1 - extracted.length;
   if (remaining > 0 && !budget.exhausted) {
@@ -250,7 +270,7 @@ function attachmentSize(body: string, encoding: string | undefined): number {
 
 // -------------------------------------------------------------- rendering
 
-function renderMessage(raw: string, depth: number, warnings: string[], budget: FragmentBudget): string {
+function renderMessage(raw: string, depth: number, warnings: string[], budget: FragmentBudget, range?: TextPartRange): string {
   const part = splitPart(raw);
   const lines: string[] = [];
   for (const name of SHOWN_HEADERS) {
@@ -258,12 +278,22 @@ function renderMessage(raw: string, depth: number, warnings: string[], budget: F
     if (value) lines.push(`${capitalise(name)}: ${decodeHeaderWords(value)}`);
   }
   const attachments: string[] = [];
-  const body = renderPart(part, depth, warnings, attachments, budget).trim();
+  const body = renderPart(part, depth, warnings, attachments, budget, range).trim();
   const out = [lines.join("\n"), body];
   if (attachments.length > 0) {
     out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
   }
   return out.filter((s) => s.length > 0).join("\n\n");
+}
+
+function renderTextPart(bodySize: number, budget: FragmentBudget, range: TextPartRange | undefined, render: (inputBytes: number) => string): string {
+  const part = range ? ++range.seen : 0;
+  if (range && (part < range.start || part > range.end)) return "";
+  const accepted = budget.take(bodySize);
+  const text = accepted === undefined ? "" : render(accepted);
+  if (accepted !== undefined && accepted < bodySize) budget.noteTruncation();
+  if (range && budget.exhausted) range.resumeAt ??= part;
+  return text;
 }
 
 function renderPart(
@@ -272,6 +302,8 @@ function renderPart(
   warnings: string[],
   attachments: string[],
   budget: FragmentBudget,
+  range?: TextPartRange,
+  htmlAlternative?: Part,
 ): string {
   const type = parseStructuredHeader(part.headers.get("content-type") ?? "text/plain");
   const mime = type.value || "text/plain";
@@ -286,10 +318,10 @@ function renderPart(
   if (mime.startsWith("multipart/") && !attached) {
     const boundary = type.params.boundary;
     if (!boundary) {
-      if (!budget.take(part.body.length)) return "";
-      warnings.push(`${mime} without a boundary; shown as text`);
-      const text = decodeBytes(Buffer.from(part.body, "latin1")).text;
-      return budget.includeText(text);
+      return renderTextPart(part.body.length, budget, range, (inputBytes) => {
+        warnings.push(`${mime} without a boundary; shown as text`);
+        return budget.includeText(decodeBytes(Buffer.from(part.body.slice(0, inputBytes), "latin1")).text);
+      });
     }
     const rawChildren = splitMultipart(part.body, boundary);
     if (mime === "multipart/alternative") {
@@ -299,7 +331,7 @@ function renderPart(
       for (const child of rawChildren) {
         const candidate = splitPart(child);
         if (isAttachment(candidate)) {
-          renderPart(candidate, depth + 1, warnings, attachments, budget);
+          renderPart(candidate, depth + 1, warnings, attachments, budget, range);
           continue;
         }
         last = candidate;
@@ -307,16 +339,12 @@ function renderPart(
         if (childMime === "text/plain") plain ??= last;
         if (childMime === "text/html") html ??= last;
       }
-      if (plain && html && budget.canTake(plain.body.length)) {
-        const text = renderPart(plain, depth + 1, warnings, attachments, budget);
-        if (text.trim() || budget.exhausted) return text;
-      }
-      const pick = html ?? plain ?? last;
-      return pick ? renderPart(pick, depth + 1, warnings, attachments, budget) : "";
+      const pick = plain && (!html || budget.canTake(plain.body.length)) ? plain : html ?? last;
+      return pick ? renderPart(pick, depth + 1, warnings, attachments, budget, range, pick === plain ? html : undefined) : "";
     }
     const chunks: string[] = [];
     for (const child of rawChildren) {
-      const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget).trim();
+      const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget, range).trim();
       if (text) chunks.push(text);
     }
     return chunks.join("\n\n");
@@ -324,8 +352,8 @@ function renderPart(
 
   if (mime === "message/rfc822" && !attached) {
     const bytes = decodeTransfer(part.body, encoding);
-    const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget);
-    return `--- attached message ---\n${nested}`;
+    const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget, range);
+    return nested ? `--- attached message ---\n${nested}` : "";
   }
 
   const isText = mime === "text/plain" || mime === "text/html";
@@ -335,12 +363,17 @@ function renderPart(
     return "";
   }
 
-  if (!budget.take(part.body.length)) return "";
-  const decoded = decodeBytes(decodeTransfer(part.body, encoding), type.params.charset);
-  if (decoded.warning) warnings.push(decoded.warning);
-  const text = decoded.text.replace(/\r\n?/g, "\n");
-  if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget).text;
-  return budget.includeText(text);
+  return renderTextPart(part.body.length, budget, range, (inputBytes) => {
+    const decoded = decodeBytes(decodeTransfer(part.body.slice(0, inputBytes), encoding), type.params.charset);
+    if (decoded.warning) warnings.push(decoded.warning);
+    const text = decoded.text.replace(/\r\n?/g, "\n");
+    if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget).text;
+    if (!text.trim() && htmlAlternative) {
+      // Both representations belong to the same displayed MIME part.
+      return renderPart(htmlAlternative, depth, warnings, attachments, budget);
+    }
+    return budget.includeText(text);
+  });
 }
 
 function partMime(part: Part): string {

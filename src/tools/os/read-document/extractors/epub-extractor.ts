@@ -71,18 +71,21 @@ export const epubExtractor: Extractor = async (input) => {
     if (extracted.length >= maxPages) break;
     const n = next;
     const href = pkg.spine[n - 1]!;
-    if (!budget.take(partSizes.get(href) ?? 0)) break;
     const file = zip.file(href);
     if (!file) {
       warnings.push(`chapter ${n}: ${href} missing from the archive`);
       continue;
     }
+    const size = partSizes.get(href) ?? 0;
+    const accepted = budget.take(size);
+    if (accepted === undefined) break;
     try {
-      const bytes = await file.async("uint8array");
+      const bytes = (await file.async("uint8array")).subarray(0, accepted);
       const decoded = decodeBytes(bytes, sniffHtmlCharset(bytes));
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
       const chapterWarnings: string[] = [];
       const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
+      if (accepted < size) budget.noteTruncation();
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
       if (budget.exhausted && !text) break;
       if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
@@ -108,6 +111,7 @@ export const epubExtractor: Extractor = async (input) => {
     pageCount: total,
     pagesExtracted: extracted,
     warnings,
+    ...(budget.exhausted && { truncated: true }),
   };
 };
 

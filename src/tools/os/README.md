@@ -36,7 +36,7 @@ Root index intentionally composes and exports registrations in the previous orde
 
 ### EPUB and MIME document reads
 
-Each EPUB chapter slice, EML message, or MBOX message slice has a shared extraction budget of 128 chapters or displayed text parts and 16 MiB of fragment input. MIME attachments in the messages read are listed independently of the text budget. The formatting budget starts at 1,572,864 units and charges each prepared HTML character and 16 units per node, or each plain text character. It also charges Markdown output larger than the prepared markup and node cost. The reader warns when it skips the remaining text. For EPUB and MBOX, use `pagesFrom` to resume at the chapter or message named in the warning.
+Each EPUB, EML, or MBOX read budgets input, body text, and HTML formatting separately. The body text budget follows `maxBytes`. The formatting budget follows `maxBytes` within a fixed range and charges serialized tags, attributes and 16 units per node. After that budget runs out, subsequent HTML fragments are rendered as plain text. MIME attachments in the messages read are listed independently of the text budget. Use `pagesFrom` to resume at the chapter, displayed MIME body part, or MBOX message named in the warning. In EML, `pagesTo` also applies to displayed body parts, and alternative representations of the same content count as one part.
 
 ### Outlook document reads
 

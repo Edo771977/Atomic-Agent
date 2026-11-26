@@ -44,7 +44,7 @@ async function makeEpub(
 describe("epubExtractor", () => {
   it("limits cumulative chapter conversions and allows resuming at a later chapter", async () => {
     const data = await makeEpub({ openingRepeats: 140 });
-    const result = await epubExtractor({ data, sourcePath: "b.epub" });
+    const result = await epubExtractor({ data, sourcePath: "b.epub", maxBytes: 256 });
     expect(result.pageCount).toBe(142);
     expect(result.text).toContain("# Opening");
     expect(result.text).not.toContain("# Middle");

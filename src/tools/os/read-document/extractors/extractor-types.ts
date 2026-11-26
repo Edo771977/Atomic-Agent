@@ -57,6 +57,8 @@ export interface ExtractorInput {
 export interface ExtractResult {
   format: DocumentFormat;
   text: string;
+  /** The extractor returned a prefix because it reached an input or output budget. */
+  truncated?: boolean;
   /** Total pages/slides/sheets in the source, regardless of extraction range. */
   pageCount?: number;
   sheetCount?: number;
