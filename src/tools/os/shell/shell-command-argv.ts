@@ -3,6 +3,7 @@ import { interpreterScript, scriptInput } from "./org-script-operands.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   invocationsOf,
+  busyboxApplet,
   NESTED_SHELL_PROGRAMS,
   PREFIX_COMMANDS,
   programName,
@@ -67,6 +68,7 @@ function withoutWrappers(input: readonly string[]): string[] {
       continue;
     }
     const name = programName(word);
+    if (busyboxApplet(words.slice(i)) !== null) { i++; continue; }
     const valueFlags = prefixCommandFlags(name);
     if (valueFlags === undefined) break;
     i += 1;

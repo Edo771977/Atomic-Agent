@@ -3,6 +3,7 @@ import { shellSyntax, UNKNOWN_SHELL_WORD } from "./shell-rule-syntax.js";
 import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   NESTED_SHELL_PROGRAMS,
+  busyboxApplet,
   PREFIX_COMMANDS,
   programName,
   scanNestedShellOptions,
@@ -53,7 +54,7 @@ const RULE_WRAPPERS: Readonly<Record<string, readonly string[]>> = {
   setsid: [], ionice: ["-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"],
   chroot: ["--userspec", "--groups"], strace: ["-o", "-e", "-p", "-P", "-u", "-I", "-b", "-s", "--output", "--trace", "--attach"],
   unshare: ["--root", "--wd", "--map-user", "--map-group", "--setuid", "--setgid"],
-  flock: ["-w", "-E", "--wait", "--conflict-exit-code"], parallel: ["-j", "-P", "-S", "--jobs", "--sshlogin"], busybox: [], call: [], start: ["/d", "/node", "/affinity"],
+  flock: ["-w", "-E", "--wait", "--conflict-exit-code"], parallel: ["-j", "-P", "-S", "--jobs", "--sshlogin"], call: [], start: ["/d", "/node", "/affinity"],
 };
 
 /**
@@ -72,6 +73,7 @@ function withoutWrappers(input: readonly string[]): string[] {
       continue;
     }
     const name = programName(word);
+    if (busyboxApplet(words.slice(i)) !== null) { i++; continue; }
     const wrapperStart = i;
     const valueFlags = prefixCommandFlags(name);
     if (valueFlags === undefined) break;
