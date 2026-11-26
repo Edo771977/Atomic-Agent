@@ -19,9 +19,9 @@ it.each(["member", "operator", "admin"] as const)("redacts complete provider fai
   expect(await (await post("/api/complete", "owner")).text()).toContain("SYNTHETIC-SECRET");
 });
 
-it("reports runtime cancellation with 409 and a fixed cancellation code", async () => {
+it("reports runtime cancellation with 503 and a fixed cancellation code", async () => {
   h = await createHttpServer({ host: "127.0.0.1", port: 0, apiKey: "owner", routes: buildRouteTable(), runtime: { completePlain: async () => ({ ok: false, kind: "cancelled", reason: "cancelled" }) } as never });
   const response = await fetch(`http://127.0.0.1:${h.port}/api/complete`, { method: "POST", headers: { authorization: "Bearer owner", "content-type": "application/json" }, body: JSON.stringify({ prompt: "hello" }) });
-  expect(response.status).toBe(409);
+  expect(response.status).toBe(503);
   expect(await response.json()).toMatchObject({ error: { code: "completion_cancelled", message: "The completion was cancelled" } });
 });

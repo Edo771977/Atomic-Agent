@@ -41,6 +41,16 @@ describe("TaskStore", () => {
   let tmp: string;
   let store: TaskStore;
 
+  it("rejects internal archive keys on the task create --session storage path", () => {
+    for (const sessionId of ["compaction/Y", "reflection/title/Y", "bad\\id", "bad\u0000id", "bad..id"]) {
+      expect(() => store.create({ sessionId, userMessage: "synthetic task", origin: "cli", maxAttempts: 1 }))
+        .toThrow(TaskValidationError);
+    }
+    for (const sessionId of ["compaction:Y", "codex:Y", "claude-code:Y"]) {
+      expect(store.create({ sessionId, userMessage: "synthetic task", origin: "cli", maxAttempts: 1 }).sessionId).toBe(sessionId);
+    }
+  });
+
   it("purges orphan tasks when the optional run history table is absent", () => {
     const abandoned = store.create({ sessionId: "private", userMessage: "secret", origin: "cli", maxAttempts: 1 });
     const ordinary = store.create({ sessionId: "ordinary", userMessage: "public", origin: "cli", maxAttempts: 1 });

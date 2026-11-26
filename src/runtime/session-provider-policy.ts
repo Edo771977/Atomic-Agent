@@ -12,7 +12,22 @@ import {
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
+import { isAuxiliaryPartition } from "../privacy/auxiliary-partitions.js";
 import { READ_TAINT_METADATA_KEY, readTaintOf } from "./session-read-taint.js";
+
+function partitionOwner(id: string): string | null {
+  const colon = id.indexOf(":");
+  return colon > 0 && isAuxiliaryPartition(id.slice(0, colon)) ? id.slice(colon + 1) : null;
+}
+
+function originatingSessionId(id: string): string {
+  for (let hops = 0; hops < 4; hops++) {
+    const owner = partitionOwner(id);
+    if (owner === null) break;
+    id = owner;
+  }
+  return id;
+}
 
 /** The policy that lets no provider serve: what an unscoped caller gets while constraints exist. */
 export function refuseAllPolicy(key: string, matchedDir = ""): ProviderPolicy {
@@ -111,8 +126,10 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
     // the part after the prefix.
     let id = sessionId;
     let session = deps.loadSession(id);
-    for (let hops = 0; session === null && hops < 4 && id.indexOf(":") > 0; hops += 1) {
-      id = id.slice(id.indexOf(":") + 1);
+    for (let hops = 0; session === null && hops < 4; hops += 1) {
+      const owner = partitionOwner(id);
+      if (owner === null) break;
+      id = owner;
       session = deps.loadSession(id);
     }
     return { id, session };
@@ -137,8 +154,13 @@ export function createSessionProviderPolicy(deps: SessionProviderPolicyDeps) {
   const effectivePolicyForSession = (
     target: string | { id: string; workingDir: string; metadata?: Record<string, unknown> },
   ): ProviderPolicy | undefined => {
-    const id = typeof target === "string" ? resolveSession(target).id : target.id;
     const frame = currentProviderPolicyFrame();
+    const exactId = typeof target === "string" ? target : target.id;
+    if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === exactId)) return frame.policy;
+    if (typeof target === "string" && frame?.sessionId === originatingSessionId(target)) return frame.policy;
+    const id = typeof target === "string"
+      ? (constraintsActive() ? resolveSession(target).id : originatingSessionId(target))
+      : target.id;
     if (frame !== undefined && (frame.sessionId === undefined || frame.sessionId === id)) return frame.policy;
     // Every view of the session narrows: the caller's object (possibly a
     // stale copy), the stored row, and the running turn's object, whose

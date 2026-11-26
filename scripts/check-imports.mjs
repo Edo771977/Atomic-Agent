@@ -99,7 +99,7 @@ export function violation(edge) {
   if (['src/config/config-values.ts', 'src/config/mcp-server-config.ts'].includes(source) && ['src/config/config-schema.ts', 'src/config/index.ts'].includes(target)) return 'config value/MCP owner depends on composition';
   if (source === 'src/config/config-values.ts' && target === 'src/config/mcp-server-config.ts') return 'config values depends on MCP configuration';
   if (source === 'src/tools/os/fs/fs-hash-contract.ts' && target.startsWith('src/')) return 'hash contract depends on another source owner';
-  if (['src/tools/os/fs/fs-locate-project-test-helpers.ts', 'src/local-llm/catalog/gguf-metadata.fixtures.ts'].includes(target)) return 'production depends on a test helper';
+  if (['src/tools/os/fs/fs-locate-project-test-helpers.ts', 'src/local-llm/catalog/gguf-metadata.fixtures.ts', 'src/privacy/auxiliary-isolation-test-helpers.ts'].includes(target)) return 'production depends on a test helper';
   if (domains.has(area) && (target.startsWith('src/tui/') || target.startsWith('src/channels/'))) return 'domain depends on an interface';
   if (area === 'channels' && target.startsWith('src/tui/')) return 'channel depends on TUI';
   if (area === 'http' && target.startsWith('src/tui/')) return 'HTTP interface depends on TUI';

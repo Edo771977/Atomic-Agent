@@ -8,6 +8,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret-detector.js";
 import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
+import { isAuxiliaryPartition } from "./auxiliary-partitions.js";
 
 const MAX_SESSION_VAULTS = 128;
 const CLOSED_SESSION_TTL_MS = 30 * 60_000;
@@ -17,15 +18,15 @@ const closedSessions = new Map<string, number>();
 const closedWorkers = new Map<string, number>();
 const activeTurns = new Map<string, number>();
 
-const AUXILIARY_PREFIXES = new Set([
-  "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
-  "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn",
-]);
-
-/** Only a known auxiliary prefix denotes an owner; colons in chat IDs are literal. */
+/** Slash is reserved for internal archive keys: sessionIdError rejects it in chat IDs. */
 function auxiliaryOwner(id: string): string | null {
-  const colon = id.indexOf(":");
-  return colon > 0 && AUXILIARY_PREFIXES.has(id.slice(0, colon)) ? id.slice(colon + 1) : null;
+  const separator = id.indexOf("/");
+  return separator > 0 && isAuxiliaryPartition(id.slice(0, separator)) ? id.slice(separator + 1) : null;
+}
+
+/** Each step removes a trusted internal prefix; a real chat ID is an opaque leaf. */
+function* archiveOwners(id: string): Generator<string> {
+  for (let current: string | null = id; current !== null; current = auxiliaryOwner(current)) yield current;
 }
 
 function pruneClosed(ids: Map<string, number>, now: number): void {
@@ -39,9 +40,10 @@ function isClosed(id: string): boolean {
   const now = performance.now();
   pruneClosed(closedSessions, now);
   pruneClosed(closedWorkers, now);
-  const owner = auxiliaryOwner(id);
-  return closedSessions.has(id) || closedWorkers.has(id)
-    || (owner !== null && (closedSessions.has(owner) || closedWorkers.has(owner)));
+  for (const owner of archiveOwners(id)) {
+    if (closedSessions.has(owner) || closedWorkers.has(owner)) return true;
+  }
+  return false;
 }
 
 function markClosed(id: string, worker = id.startsWith("s-w-")): void {
@@ -90,7 +92,15 @@ export function withFreshPrivacyVault<T>(run: () => T): T {
 /** Acquire once at the provider boundary; keep that same object through restoration. */
 export function privacyVaultForRequest(sessionId: string | undefined): PrivacyVault {
   const request = requestVault.getStore();
-  return request ? request.vault ??= newVault() : privacyVaultFor(sessionId);
+  if (request) return request.vault ??= newVault();
+  const colon = sessionId?.indexOf(":") ?? -1;
+  if (sessionId && colon > 0 && isAuxiliaryPartition(sessionId.slice(0, colon))
+    && turnShield.getStore()?.id !== vaultKey(sessionId)) {
+    // A routing ID cannot tell us whether its suffix is a real colon ID
+    // or another partition. Refuse ambiguity rather than guessing ownership.
+    throw new Error(`Auxiliary completion '${sessionId.slice(0, colon)}' requires withFreshPrivacyVault`);
+  }
+  return privacyVaultFor(sessionId);
 }
 
 function newVault(): PrivacyVault {
@@ -210,7 +220,9 @@ export function releasePrivacyVault(sessionId: string): void {
 
 function dropDerivedVaults(id: string): void {
   for (const key of vaults.keys()) {
-    if (key === id || auxiliaryOwner(key) === id) vaults.delete(key);
+    for (const owner of archiveOwners(key)) {
+      if (owner === id) { vaults.delete(key); break; }
+    }
   }
 }
 

@@ -71,7 +71,7 @@ function systemLines(actions: readonly TuiAction[]): string[] {
 function hangingAsk(): Ask {
   return (_question, options) =>
     new Promise<SideQuestionResult>((resolve) => {
-      options?.signal?.addEventListener("abort", () => resolve({ ok: false, reason: "cancelled" }), { once: true });
+      options?.signal?.addEventListener("abort", () => resolve({ ok: false, kind: "cancelled", reason: "cancelled" }), { once: true });
     });
 }
 
@@ -127,7 +127,7 @@ describe("ChatOrchestrator /btw (ATO-1152)", () => {
   });
 
   it("says why on a failure", async () => {
-    const { orchestrator, actions } = setup(async () => ({ ok: false, reason: "timed out" }));
+    const { orchestrator, actions } = setup(async () => ({ ok: false, kind: "timeout", reason: "timed out" }));
     await orchestrator.askSideQuestion("q");
     expect(systemLines(actions)).toContain("Could not answer the side question (timed out).");
   });
