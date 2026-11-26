@@ -15,10 +15,11 @@ export function createPolicyCanonicalizer(fs: PolicyPathFs = policyPathFs): (pat
   const memo = <T>(read: (path: string) => T) => {
     const cache = new Map<string, { value: T } | { error: unknown }>();
     return (path: string): T => {
-      let result = cache.get(path);
+      const key = process.platform === "win32" || process.platform === "darwin" ? path.toLowerCase() : path;
+      let result = cache.get(key);
       if (result === undefined) {
         try { result = { value: read(path) }; } catch (error) { result = { error }; }
-        cache.set(path, result);
+        cache.set(key, result);
       }
       if ("error" in result) throw result.error;
       return result.value;
@@ -90,8 +91,9 @@ export function createEditPathNormalizer(workingDir = process.cwd(), platform: N
   const path = (value: string): string => {
     const expanded = value.replace(/^~(?=$|[\\/])/, homedir());
     const absolute = api.resolve(workingDir, expanded.replace(/\\/g, "/"));
-    let canonical = cache.get(absolute);
-    if (canonical === undefined) { canonical = fold(canonicalize(absolute)); cache.set(absolute, canonical); }
+    const key = fold(absolute);
+    let canonical = cache.get(key);
+    if (canonical === undefined) { canonical = fold(canonicalize(absolute)); cache.set(key, canonical); }
     return canonical;
   };
   const pattern = (value: string): string => {

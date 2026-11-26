@@ -13,7 +13,7 @@ export function checkPolicyMutation(policy: EffectivePolicy, tool: string, paths
   const forms = (path: string) => [normalize.path(path)];
   const normalizedPolicy = { ...policy, rules: policy.rules.map(rule => rule.action === "edit" ? { ...rule, resource: normalize.pattern(rule.resource) } : rule) };
   const resources = [...new Set(paths.flatMap(forms))];
-  const refusal = policyCallRefusal(normalizedPolicy, "os.fs.trash", { paths: resources }, workingDir)?.replace("os.fs.trash", tool) ?? null;
+  const refusal = policyCallRefusal(normalizedPolicy, "os.fs.trash", { paths: resources }, workingDir, normalize)?.replace("os.fs.trash", tool) ?? null;
   if (refusal !== null) return { refusal, ask: false };
   let ask = evaluatePolicy(normalizedPolicy, "edit", resources)?.effect === "ask";
   if (!normalizedPolicy.rules.some(rule => rule.action === "edit" && rule.effect !== "allow")) return { refusal: null, ask };
@@ -47,7 +47,7 @@ export function checkPolicyMutation(policy: EffectivePolicy, tool: string, paths
       const entries = descendants(resolve(workingDir, source));
       if (entries !== null) {
         const actual = entries.map(entry => normalize.path(join(absolute, entry)));
-        const protectedRefusal = policyCallRefusal(policy, "os.fs.trash", { paths: actual }, workingDir);
+        const protectedRefusal = policyCallRefusal(policy, "os.fs.trash", { paths: actual }, workingDir, normalize);
         if (protectedRefusal !== null) return { refusal: protectedRefusal.replace("os.fs.trash", tool), ask: false };
         const verdict = evaluatePolicy(normalizedPolicy, "edit", actual);
         if (verdict?.effect === "deny") return { refusal: `${tool} was not run: blocked by organization policy (${describePolicyRule(verdict.rule)}) for a descendant.`, ask: false };

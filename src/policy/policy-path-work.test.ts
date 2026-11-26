@@ -4,12 +4,22 @@ import { tmpdir } from "node:os";
 import { createPolicyCanonicalizer } from "./policy-paths.js";
 import { checkPolicyMutation } from "./policy-mutations.js";
 import * as fs from "node:fs";
+import { policyCallRefusal } from "./policy-enforce.js";
 vi.mock("node:fs", async importOriginal => {
   const actual = await importOriginal<typeof import("node:fs")>();
   return { ...actual, statSync: vi.fn(actual.statSync), realpathSync: vi.fn(actual.realpathSync) };
 });
 
 describe("policy path work per evaluation", () => {
+  it("shares canonical facts between protected-file and edit-rule checks in one dispatch", () => {
+    const root = fs.mkdtempSync(join(tmpdir(), "policy-dispatch-cache-"));
+    const realpath = vi.mocked(fs.realpathSync).mockClear();
+    try {
+      const policy = { sources: [{ kind: "user" as const, state: "missing" as const, location: join(root, "state", "policy.json") }], mcpAllowlists: [], rules: [{ source: "system" as const, index: 0, action: "edit" as const, resource: `${root.replace(/\\/g, "/")}/*.txt`, effect: "deny" as const }] };
+      expect(policyCallRefusal(policy, "os.fs.write", { path: join(root, "ordinary.txt") }, root)).toContain("policy");
+      expect(realpath.mock.calls.filter(([path]) => String(path).toLowerCase() === root.toLowerCase())).toHaveLength(1);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  });
   it("shares missing-parent scans only inside one evaluation", () => {
     const root = join(tmpdir(), "missing-policy-fixture");
     const realpath = vi.fn((path: string) => { if (path === parse(root).root) return path; throw Object.assign(new Error("missing"), { code: "ENOENT" }); });

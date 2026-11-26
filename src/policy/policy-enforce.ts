@@ -23,10 +23,10 @@ import {
 import { gateRequestTarget, toolCallTarget, type PolicyGateRequest, type PolicyTarget } from "./policy-targets.js";
 
 /** Even an approval cannot authorize the agent to replace its own policy. */
-function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd(), ancestors = false): boolean {
+type EditPathNormalizer = ReturnType<typeof createEditPathNormalizer>;
+function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd(), ancestors = false, normalize = createEditPathNormalizer(workingDir)): boolean {
   const protectedPaths = policyFiles(policy);
   if (paths.length === 0 || protectedPaths.length === 0) return false;
-  const normalize = createEditPathNormalizer(workingDir);
   const protectedFiles = protectedPaths.map(normalize.path);
   return paths.some(path => protectedFiles.some(file => {
     const offset = relative(normalize.path(path), file);
@@ -38,10 +38,9 @@ function protectedPolicyMatch(tool: string): RuleMatch {
   return { decision: "deny", rule: { id: "org-policy:protected-file", decision: "deny", tool, createdAt: "", source: "user", note: "Only the operator may inspect or change organization policy files outside agent tools" } };
 }
 
-function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workingDir?: string): PolicyVerdict | null {
+function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workingDir?: string, normalize = createEditPathNormalizer(workingDir)): PolicyVerdict | null {
   if (target === null || policy.rules.length === 0) return null;
   if (target.action === "edit") {
-    const normalize = createEditPathNormalizer(workingDir);
     const normalized = { ...policy, rules: policy.rules.map(rule => rule.action === "edit" ? { ...rule, resource: normalize.pattern(rule.resource) } : rule) };
     return evaluatePolicy(normalized, "edit", target.resources.map(normalize.path), { unreadable: target.unreadable === true });
   }
@@ -56,10 +55,11 @@ function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workin
  * prompt the user's own settings would show.
  */
 export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequest): RuleMatch | null {
+  const normalize = createEditPathNormalizer(request.workdir);
   if ((request.category === "trust_config" || request.category === "state_secret") &&
-      (touchesPolicy(policy, request.targetPaths ?? [], request.workdir, request.category === "trust_config") ||
-       touchesPolicy(policy, request.affectedResources ?? [], request.workdir))) return protectedPolicyMatch(request.tool);
-  const verdict = verdictFor(policy, gateRequestTarget(request), request.workdir);
+      (touchesPolicy(policy, request.targetPaths ?? [], request.workdir, request.category === "trust_config", normalize) ||
+       touchesPolicy(policy, request.affectedResources ?? [], request.workdir, false, normalize))) return protectedPolicyMatch(request.tool);
+  const verdict = verdictFor(policy, gateRequestTarget(request, normalize), request.workdir, normalize);
   if (verdict === null || verdict.effect === "allow") return null;
   const rule: ApprovalRule = {
     id: `org-policy:${verdict.rule.source}:${verdict.rule.index + 1}`,
@@ -78,7 +78,7 @@ export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unkn
 }
 
 /** The model-facing refusal for a tool call the policy denies, or null. */
-export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string): string | null {
+export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir)): string | null {
   const target = toolCallTarget(tool, args);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);
@@ -113,17 +113,17 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     const named = findShellStateSecrets(command, { workingDir: cwd }, {
       stateDir: dirname(policy.sources.find(source => source.kind === "user")?.location ?? files[0]!), files,
     });
-    if (touchesPolicy(policy, named, cwd)) return true;
+    if (touchesPolicy(policy, named, cwd, false, normalize)) return true;
     const args = coerceShellArgs(command.args) ?? [];
     const scope = { recursive: [] as string[], placed: [] as string[] };
     const writes = needsShellInterpretation(command.cmd, args) ? shellWriteTargets([command.cmd, ...args].join(" "), cwd, scope) : execWriteTargets(command.cmd, args, cwd, scope);
-    return touchesPolicy(policy, [...writes, ...scope.recursive, ...scope.placed], cwd, true);
+    return touchesPolicy(policy, [...writes, ...scope.recursive, ...scope.placed], cwd, true, normalize);
   });
-  if (shellTouchesPolicy || touchesPolicy(policy, readPaths, workingDir) ||
-      touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true)) {
+  if (shellTouchesPolicy || touchesPolicy(policy, readPaths, workingDir, false, normalize) ||
+      touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true, normalize)) {
     return `${tool} was not run: organization policy files are protected; only the operator may inspect or change them outside agent tools.`;
   }
-  const verdict = verdictFor(policy, target, workingDir);
+  const verdict = verdictFor(policy, target, workingDir, normalize);
   if (verdict?.effect !== "deny") return null;
   return (
     `${tool} was not run: blocked by your organization's policy (${describePolicyRule(verdict.rule)}).\n` +

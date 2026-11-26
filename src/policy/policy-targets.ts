@@ -54,7 +54,7 @@ function nonEmpty(values: ReadonlyArray<string | undefined>): string[] {
 }
 
 /** The target of an approval request, or null when no policy action covers it. */
-export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | null {
+export function gateRequestTarget(request: PolicyGateRequest, normalize = createEditPathNormalizer(request.workdir)): PolicyTarget | null {
   const mcp = mcpResource(request.tool);
   if (mcp !== null) return { action: "mcp", resources: [mcp] };
   if (SHELL_CATEGORIES.has(request.category) || request.tool === "os.shell.run") {
@@ -71,7 +71,6 @@ export function gateRequestTarget(request: PolicyGateRequest): PolicyTarget | nu
   if (EDIT_CATEGORIES.has(request.category) || EDIT_TOOLS.has(request.tool) ||
       (request.targetPaths?.length ?? 0) > 0 ||
       request.category === "other" && request.tool.startsWith("os.fs.")) {
-    const normalize = createEditPathNormalizer(request.workdir);
     return { action: "edit", resources: nonEmpty([...(request.targetPaths ?? []), ...(request.affectedResources ?? [])]).map(normalize.path) };
   }
   if (FETCH_CATEGORIES.has(request.category)) {
