@@ -130,7 +130,7 @@ function prepareHtml(html: string) {
       if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
       if (!omittedDepth) append(text, true);
     },
-  }, { decodeEntities: false, recognizeSelfClosing: true });
+  }, { decodeEntities: false });
   parser.end(html);
   const title = rawTitle
     ? parseHTML(`<html><head><title>${rawTitle}</title></head><body></body></html>`)

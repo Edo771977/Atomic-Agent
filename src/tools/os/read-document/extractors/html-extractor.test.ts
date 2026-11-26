@@ -9,6 +9,11 @@ const run = (html: string | Buffer) =>
   });
 
 describe("htmlExtractor", () => {
+  it("counts a slash on a non-void HTML element as an opening tag", async () => {
+    const result = await run("<p>Fixture</p>" + "<div/>".repeat(1_010) + "Deep text");
+    expect(result.warnings.join("\n")).toMatch(/depth/i);
+  });
+
   it("finds the body after a large head, comments and styles", async () => {
     const css = ".item { color: navy; }".repeat(3_600);
     const result = await run(`<!doctype html><html><head><title>Report</title><style>${css}</style></head>` +
