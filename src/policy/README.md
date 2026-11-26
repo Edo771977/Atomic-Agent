@@ -143,3 +143,21 @@ For a policy-relevant pull without an explicit branch, the planned fetch selects
 Ordinary sed blocks and awk logical OR, regex alternation and quoted pipes stay readable; recognized sed execution extensions and awk system/external pipes remain opaque. These bounded selectors do not implement every extension of every sed/awk dialect. Node operational flags in the option table stay readable before a file operand; recognized inline code and data-URL preloads remain opaque. Unknown Node option semantics remain conservative.
 
 The shared shell family also recognizes rbash, mksh/lksh, ash/hush, yash/posh, oksh/loksh and sash. A literal BusyBox applet is analyzed as its selected program, including script input from a pipe; global BusyBox help/list/install flags are not applet selectors. Renamed binaries and runtime-selected applets remain outside literal name recognition.
+
+## Less common families and follow-up
+
+The fourth-review inventory uses synthetic argv only, never execution of the supplied fixtures. Literal classification means the selector was readable, not that its code or runtime effects were proved. Remaining coverage is tracked in [fork issue #266](https://github.com/Edo771977/Atomic-Agent/issues/266), linked from PR #246.
+
+| Family | Current boundary and remaining limits |
+| --- | --- |
+| Environment wrappers | Known env flags, split-string and wrapper chains are read; visible reset/export changes receive the separate metadata guard. BSD/signal/argv0 variants, optional arguments and arbitrary changes inside code are not exhaustive. |
+| Package managers | npm exec/npx call and known network selectors are read. dlx/corepack aliases, configuration, lifecycle hooks and downloaded programs are not inspected or attested. |
+| Process utilities | Known prefix/options for setsid, ionice, chroot, strace, unshare, flock, script, su and parallel are read. Remote modes, unusual bundles/abbreviations and runtime-selected commands are not a complete process trace. |
+| Node | Known operational flags remain ordinary; eval/print and data-URL preloads are opaque. NODE_OPTIONS/NODE_PATH, startup/configuration and file/module preload contents are not read. New option semantics remain conservative or outside the table. |
+| Git | Explicit alias/config and SSH/pager/editor selectors are conservative. Implicit config, hooks, helpers, extensions and internally generated commands are not resolved. |
+| Tar and zip | Explicit tar program selectors, bundled/old-style I and zip -TT are opaque. TAR_OPTIONS, bsdtar variants, implicit testers/compressors, abbreviations and permutations are not exhaustively parsed. Ordinary archives remain file operations, not proof of program effects. |
+| Editors and shell startup | Common vi/view/r/g/nvim names are conservative; literal shell/BusyBox names and explicit initialization selectors are recognized. Renamed/alternative binaries, ambient rc/plugins/profiles and help/version behavior across implementations are not attested. |
+| sed and awk | Ordinary blocks, OR, regex alternation and strings differ from recognized execution/pipe extensions. gawk modules, other awk names/dialects, new extensions and file-loaded DSL code are not interpreted. |
+| Perl, PHP and Python | Known option boundaries locate file/module/stdin. PHP r/B/R/E inline code is opaque. PERL5OPT, imports/startup hooks, file contents and uncommon/future interpreter options are not a language interpreter. |
+
+A mandatory restriction on actual filesystem or network effects needs the administrator-owned policy plus OS permissions, available sandbox and egress controls. Shell selectors and inherited metadata do not isolate arbitrary same-account code. Windows has no native command sandbox in this fork. Prefer explicit structured tools when their complete mutation/network plans are needed; the policy itself never widens the fork's independent guards.
