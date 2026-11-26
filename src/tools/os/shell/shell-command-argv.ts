@@ -1,3 +1,4 @@
+import { scriptInput } from "./org-script-operands.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 export { analyzeShellRules } from "./org-shell-analysis.js";
 import {
@@ -172,10 +173,6 @@ function findExecCommands(words: readonly string[]): string[][] {
   return commands;
 }
 
-/** Interpreters that, with no script of their own, run what comes on stdin. */
-const STDIN_INTERPRETER_RE = /^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/;
-/** `python3 -c`, `-m`, `node -e` / `-p`, `perl -E`, `php -r`: the code is on the line. */
-const INLINE_CODE_FLAG_RE = /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/;
 
 /** PowerShell: `-Command -`, `-File -`, a bare `-`, or no script at all reads stdin. */
 const POWERSHELL_RE = /^(?:pwsh|powershell)(?:\.exe)?$/i;
@@ -202,14 +199,8 @@ function readsScriptFromStdin(words: readonly string[]): boolean {
   if (head === undefined) return false;
   const name = programName(head);
   const args = words.slice(1);
-  if (NESTED_SHELL_PROGRAMS.includes(name)) {
-    return scanNestedShellOptions(args, name).readsStdin;
-  }
   if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
-  if (!STDIN_INTERPRETER_RE.test(name)) return false;
-  if (args.some((a) => INLINE_CODE_FLAG_RE.test(a))) return false;
-  const operand = args.find((a) => a === "-" || !a.startsWith("-"));
-  return operand === undefined || operand === "-";
+  return scriptInput(words) === "stdin";
 }
 
 /**
@@ -247,7 +238,9 @@ export function stdinScriptOf(
   stdin: string | undefined,
 ): { lines: string[]; unreadable: boolean } | null {
   if (stdin === undefined || stdin.trim() === "") return null;
-  const readers = shellRuleSegments(cmd, execArgs, useShell).filter(readsScriptFromStdin);
+  const segments = shellRuleSegments(cmd, execArgs, useShell);
+  if (segments.some(words => scriptInput(words) === "unknown")) return { lines: [], unreadable: true };
+  const readers = segments.filter(readsScriptFromStdin);
   if (readers.length === 0) return null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
   return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length };

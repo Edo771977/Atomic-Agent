@@ -1,6 +1,31 @@
-import { programName } from "../shell-command-guard/command-segments.js";
+import { programName, NESTED_SHELL_PROGRAMS, scanNestedShellOptions } from "../shell-command-guard/command-segments.js";
 
 export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string };
+
+/** Descriptor identities cannot be inferred from a different stdin payload. */
+export function scriptStream(operand: string | undefined): "stdin" | "unknown" | null {
+  if (operand === "-" || operand === "/dev/stdin" || /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\/0$/.test(operand ?? "")) return "stdin";
+  return /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\//.test(operand ?? "") || operand?.includes("\0") ? "unknown" : null;
+}
+
+export function scriptInput(words: readonly string[]): "stdin" | "unknown" | null {
+  const name = programName(words[0] ?? ""), args = words.slice(1);
+  if (NESTED_SHELL_PROGRAMS.includes(name)) {
+    const options = scanNestedShellOptions(args, name);
+    if (options.readsStdin) return "stdin";
+    if (options.runsCommand) return null;
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i]!;
+      if (arg === "--") return scriptStream(args[i + 1]);
+      if (/^(?:--rcfile|--init-file|[-+][A-Za-z]*[oO])$/.test(arg)) { i++; continue; }
+      if (arg.startsWith("-") || arg.startsWith("+")) continue;
+      return scriptStream(arg);
+    }
+    return null;
+  }
+  const script = interpreterScript(words);
+  return script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand) : null;
+}
 
 /** Static option boundaries only: never inspect or execute a program's code. */
 export function interpreterScript(words: readonly string[]): ScriptOperand | null {
