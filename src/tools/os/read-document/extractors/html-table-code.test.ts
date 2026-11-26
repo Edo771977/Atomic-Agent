@@ -8,6 +8,7 @@ it("keeps a literal backslash before a pipe in inline code in a table", async ()
       "<tr><td><code>left &#92;| right &lt;x&gt; _ok_</code></td><td>Still here</td></tr></table>",
     [],
   ).text;
+  expect(text).toContain("\\|");
   const html = await marked.parse(text);
   expect(html.match(/<td>/g)).toHaveLength(2);
   expect(html).toContain("<td>Still here</td>");

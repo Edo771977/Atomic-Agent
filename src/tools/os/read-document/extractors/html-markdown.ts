@@ -179,9 +179,9 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
     },
     replacement: (content) => {
       // A table parser removes one backslash from an escaped pipe before
-      // parsing code spans. Entities inside a literal code tag keep both
-      // characters and prevent Markdown from interpreting the punctuation.
-      const encoded = content.replace(/\r\n?|\n/g, " ").replace(/[!-/:-@\x5b-\x60{-~]/g, (char) =>
+      // parsing code spans. Encode the literal backslash and leave the
+      // pipe for the table's usual Markdown escaping.
+      const encoded = content.replace(/\r\n?|\n/g, " ").replace(/[!-/:-@\x5b-\x60{}~]/g, (char) =>
         "&#" + char.charCodeAt(0) + ";",
       );
       return "<code>" + encoded + "</code>";
