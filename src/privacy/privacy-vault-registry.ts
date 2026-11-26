@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { knownSecretsFromEnv, type KnownSecret } from "../error-reporting/secret-detector.js";
 import { PrivacyArchiveLimitError, PrivacyVault } from "./privacy-vault.js";
 import { isAuxiliaryPartition } from "./auxiliary-partitions.js";
+import { PrivacyVaultScopeError } from "./privacy-vault-scope-error.js";
 
 const MAX_SESSION_VAULTS = 128;
 const CLOSED_SESSION_TTL_MS = 30 * 60_000;
@@ -98,7 +99,7 @@ export function privacyVaultForRequest(sessionId: string | undefined): PrivacyVa
     && turnShield.getStore()?.id !== vaultKey(sessionId)) {
     // A routing ID cannot tell us whether its suffix is a real colon ID
     // or another partition. Refuse ambiguity rather than guessing ownership.
-    throw new Error(`Auxiliary completion '${sessionId.slice(0, colon)}' requires withFreshPrivacyVault`);
+    throw new PrivacyVaultScopeError(sessionId.slice(0, colon));
   }
   return privacyVaultFor(sessionId);
 }

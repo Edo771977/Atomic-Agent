@@ -11,6 +11,8 @@ import { parseNoteReconcileOutput } from "./note-reconcile-parser.js";
 import { buildNoteReconcilePrompt } from "./note-reconcile-prompt.js";
 import { NOTE_RECONCILE_RESPONSE_FORMAT } from "./note-reconcile-response-format.js";
 
+export const NOTE_RECONCILE_SESSION_PREFIX = "note-reconcile:";
+
 /**
  * ATO-672. Closes contradictions between notes: after reflection writes
  * a note, compare it with the few older notes that share words with it
@@ -204,7 +206,7 @@ export function createNoteReconcileRunner(deps: NoteReconcileRunnerDeps): NoteRe
         grammar: NOTE_RECONCILE_GRAMMAR,
         responseFormat: NOTE_RECONCILE_RESPONSE_FORMAT,
         slotId: resolveSlotId(deps.reflectionSlotId),
-        sessionId: `note-reconcile:${input.sessionId}`,
+        sessionId: `${NOTE_RECONCILE_SESSION_PREFIX}${input.sessionId}`,
         signal: controller.signal,
       }));
       if (controller.signal.aborted) {

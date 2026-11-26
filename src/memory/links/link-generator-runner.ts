@@ -21,6 +21,8 @@ import {
   type LinkGeneratorBackoffOptions,
 } from "./link-generator-backoff.js";
 
+export const LINK_GENERATOR_SESSION_PREFIX = "link-gen:";
+
 /**
  * Memory-v2 phase 2. Fire-and-forget runner that turns a recent
  * macro-turn + a set of surfaced memory ids into LINK edges via a
@@ -257,7 +259,7 @@ export function createLinkGeneratorRunner(
         grammar: LINK_GENERATOR_GRAMMAR,
         responseFormat: LINK_GENERATOR_RESPONSE_FORMAT,
         slotId: resolveSlotId(deps.reflectionSlotId),
-        sessionId: `link-gen:${input.sessionId}`,
+        sessionId: `${LINK_GENERATOR_SESSION_PREFIX}${input.sessionId}`,
         signal: controller.signal,
       }));
       if (controller.signal.aborted) {

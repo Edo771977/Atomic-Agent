@@ -13,6 +13,7 @@ export {
   type UnmaskOptions,
 } from "./privacy-vault.js";
 export { createStreamUnmasker, partialPlaceholderStart, type StreamUnmasker } from "./stream-unmasker.js";
+export { PrivacyVaultScopeError } from "./privacy-vault-scope-error.js";
 export {
   forgetPrivacyVault,
   releasePrivacyVault,

@@ -1,5 +1,6 @@
 import { ConfigValidationError } from "./config-validation-error.js";
 import { parseBool, parseNonEmptyString } from "./config-primitives.js";
+import { sessionIdError } from "../session/session-id.js";
 
 /**
  * A file or log line that wakes the agent up (ATO-441). Each entry under
@@ -118,6 +119,10 @@ function parseOne(cfg: Record<string, unknown>, at: string): FileTriggerConfig {
     );
   }
   const sessionId = optionalString(cfg.sessionId, `${at}.sessionId`);
+  if (sessionId !== undefined) {
+    const error = sessionIdError(sessionId);
+    if (error !== null) throw new ConfigValidationError(`${at}.sessionId`, error);
+  }
   return {
     path,
     ...(glob !== undefined ? { glob } : {}),

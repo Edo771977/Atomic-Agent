@@ -1,4 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { writeUserConfigFileSync } from "./config-file.js";
 import {
   ConfigValidationError,
   parseUserConfigFile,
@@ -20,6 +24,21 @@ function parsedTrigger(raw: Record<string, unknown>): FileTriggerConfig {
 const BASE = { path: "~/Inbox", userMessageTemplate: "Process {{path}}" };
 
 describe("parseFileTriggerMap", () => {
+  it.each(["compaction/Y", "bad\\id", "bad\u0000id", "bad..id"])("rejects invalid session ID %j before watching", sessionId => {
+    expect(() => parsedTrigger({ ...BASE, sessionId })).toThrow(ConfigValidationError);
+  });
+
+  it("refuses an invalid trigger at the actual save boundary without changing the saved config", () => {
+    const root = mkdtempSync(join(tmpdir(), "trigger-session-save-"));
+    const path = join(root, "config.json");
+    try {
+      writeUserConfigFileSync(path, { ...USER_CONFIG_DEFAULTS, fileTriggers: { inbox: parsedTrigger({ ...BASE, sessionId: "codex:Y" }) } });
+      const previous = readFileSync(path, "utf8");
+      const trigger = { ...parsedTrigger(BASE), sessionId: "compaction/Y" };
+      expect(() => writeUserConfigFileSync(path, { ...USER_CONFIG_DEFAULTS, fileTriggers: { inbox: trigger } })).toThrow(ConfigValidationError);
+      expect(readFileSync(path, "utf8")).toBe(previous);
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
   it("fills the defaults for a minimal entry", () => {
     expect(parsedTrigger(BASE)).toStrictEqual({
       path: "~/Inbox",
