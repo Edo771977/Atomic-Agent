@@ -4,7 +4,7 @@
  * about to decide) and the dispatcher (a tool call about to run).
  */
 import { programName } from "../tools/os/shell-command-guard/command-segments.js";
-import { shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/shell-command-argv.js";
+import { analyzeShellRules, shellRuleSegments, shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/org-shell-analysis.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import type { PolicyAction } from "./policy-schema.js";
 import type { ShellDialect } from "../tools/os/shell-command-guard/shell-line-lexer.js";
@@ -59,10 +59,11 @@ export function gateRequestTarget(request: PolicyGateRequest, normalize = create
   if (mcp !== null) return { action: "mcp", resources: [mcp] };
   if (SHELL_CATEGORIES.has(request.category) || request.tool === "os.shell.run") {
     const argvs = [...(request.commandArgv ? [request.commandArgv] : []), ...(request.commandSegments ?? [])];
+    const analyses = argvs.map(argv => analyzeShellRules(argv[0] ?? "", argv.slice(1), false));
     return {
       action: "shell",
-      resources: nonEmpty(argvs.flatMap(argvResources)),
-      ...(request.commandUnreadable === true ? { unreadable: true } : {}),
+      resources: nonEmpty(analyses.flatMap(analysis => analysis.segments.flatMap(argvResources))),
+      ...(request.commandUnreadable === true || analyses.some(analysis => analysis.unreadable) ? { unreadable: true } : {}),
     };
   }
   // The fork keeps filesystem writes outside home/workspace under `other`,

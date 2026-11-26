@@ -8,7 +8,7 @@ import { dirname, relative, isAbsolute, sep } from "node:path";
 import { policyFilePaths as policyFiles, createEditPathNormalizer } from "./policy-paths.js";
 import { READ_TOOL_TARGETS, verifyRunShellCalls } from "../tools/read-scope/read-scope-targets.js";
 import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-clients.js";
-import { shellRuleSegments } from "../tools/os/shell/shell-command-argv.js";
+import { shellRuleSegments } from "../tools/os/shell/org-shell-analysis.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
 import { shellWriteTargets, execWriteTargets } from "../tools/os/shell-command-guard/write-targets.js";
