@@ -106,10 +106,10 @@ Configuration via env vars (all optional unless noted):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | unset (**required for the default URL**) | Bearer token for OpenRouter. Takes priority over `ATOMIC_AGENT_JUDGE_API_KEY`. |
+| `OPENROUTER_API_KEY` | unset | Bearer token for OpenRouter. Takes priority at the official OpenRouter origin and literal loopback. |
 | `ATOMIC_AGENT_JUDGE_URL` | `https://openrouter.ai/api/v1` | OpenAI-compatible base URL. Accepts short (`http://host:port`), `/v1`-suffixed, or fully-qualified `/chat/completions` forms. |
 | `ATOMIC_AGENT_JUDGE_MODEL` | `openai/gpt-4o-mini` | Model slug. Try `anthropic/claude-3.5-haiku` for stricter rubric adherence, or `google/gemini-2.0-flash-001` for cost-sensitive runs. |
-| `ATOMIC_AGENT_JUDGE_API_KEY` | unset | Legacy bearer token. Falls back to this when `OPENROUTER_API_KEY` is unset. |
+| `ATOMIC_AGENT_JUDGE_API_KEY` | unset | Bearer token dedicated to the configured judge. Used for other hosted endpoints or when the permitted OpenRouter key is unset. |
 | `ATOMIC_AGENT_JUDGE_TIMEOUT_MS` | `30000` | Per-call timeout. |
 | `ATOMIC_AGENT_JUDGE_REFERER` | repo URL | Sent as `HTTP-Referer` (OpenRouter attribution). |
 | `ATOMIC_AGENT_JUDGE_TITLE` | `atomic-agent eval` | Sent as `X-Title` (OpenRouter attribution). |

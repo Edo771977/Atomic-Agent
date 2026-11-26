@@ -644,6 +644,16 @@ describe("the shared compat key and a server on another computer (ATO-1066)", ()
 });
 
 describe("sharedKeyNotSentNote (ATO-1066)", () => {
+  it("explains that a preset gateway needs its own key variable", () => {
+    process.env.ANTHROPIC_API_KEY = "synthetic-vendor-key";
+    try {
+      const wizard = { ...wizardFor("openai-compatible", "anthropic"), baseUrlLine: "https://gateway.example.test" };
+      expect(apiKeyForWizard(wizard)).toBeUndefined();
+      expect(sharedKeyNotSentNote(wizard)).toMatch(/ANTHROPIC_API_KEY.*api\.anthropic\.com.*loopback.*apiKeyEnvVar/i);
+    } finally {
+      delete process.env.ANTHROPIC_API_KEY;
+    }
+  });
   // A LAN server's key used to live in OPENAI_COMPAT_API_KEY. It is no
   // longer sent there, so an operator upgrading must be told why the
   // server suddenly sees no key.

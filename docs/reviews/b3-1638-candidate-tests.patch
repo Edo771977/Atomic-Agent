@@ -1,0 +1,67 @@
+--- /dev/null
++++ b/src/http/b3-a2a-candidate.test.ts
+@@ -0,0 +1,64 @@
++import { EventEmitter } from "node:events";
++import { afterEach, describe, expect, it, vi } from "vitest";
++import { createA2aRpcHandler } from "./route-a2a.js";
++import type { HandlerContext } from "./request-context.js";
++import { Readable } from "node:stream";
++
++afterEach(() => vi.useRealTimers());
++function fixture(hidden: "incognito" | "folder" = "incognito") {
++  const state = { id: "private-chat", workingDir: process.cwd(), incognito: hidden === "incognito", metadata: { source: "a2a", ...(hidden === "incognito" ? { incognito: true } : {}) }, turns: [] };
++  const task = { id: "private-task", sessionId: state.id, incognito: hidden === "incognito", status: "running", userMessage: "private fixture content", updatedAt: 1, startedAt: 1, completedAt: null };
++  const cancel = vi.fn(() => ({ ...task, status: "cancelled" }));
++  const ctx = {
++    networkServe: hidden === "folder",
++    caller: { role: "member", name: "fixture" },
++    runtime: {
++      config: { tasks: { enabled: true, maxAttempts: 1 } },
++      serveRefusal: () => hidden === "folder" ? "restricted" : null,
++      sessionStore: { load: (id: string) => id === state.id ? state : null },
++      taskStore: { get: (id: string) => id === task.id ? task : null },
++      taskRunner: { cancel, create: () => task },
++    },
++  } as unknown as HandlerContext;
++  async function invoke(method: string, params: object) {
++    const req = Readable.from([Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }))]);
++    const res = Object.assign(new EventEmitter(), {
++      writableEnded: false, destroyed: false,
++      writeHead: vi.fn(), end: vi.fn(),
++    });
++    const promise = createA2aRpcHandler()(req as never, res as never, ctx);
++    return { res, promise, response: async () => { await promise; return res.end.mock.calls[0]?.[0]; } };
++  }
++  return { ctx, cancel, invoke };
++}
++describe("B3 A2A candidate boundary", () => {
++  it("control: a known A2A task is returned to the owner", async () => {
++    const f = fixture();
++    f.ctx.caller = { role: "owner" } as never;
++    const call = await f.invoke("tasks/get", { id: "private-task" });
++    expect(await call.response()).toContain("private fixture content");
++  });
++  it.each(["viewer", "member", "operator", "admin"] as const)("makes private and unknown task responses byte-identical for %s", async (role) => {
++    const f = fixture();
++    f.ctx.caller = { role, name: "fixture" } as never;
++    const hidden = await f.invoke("tasks/get", { id: "private-task" });
++    const unknown = await f.invoke("tasks/get", { id: "unknown-task" });
++    expect(await hidden.response()).toBe(await unknown.response());
++  });
++  it("makes a folder-withheld task indistinguishable from unknown", async () => {
++    const f = fixture("folder");
++    const hidden = await f.invoke("tasks/get", { id: "private-task" });
++    const unknown = await f.invoke("tasks/get", { id: "unknown-task" });
++    expect(await hidden.response()).toBe(await unknown.response());
++  });
++  it("cancels the owned blocking task when its client disconnects", async () => {
++    vi.useFakeTimers();
++    const f = fixture();
++    const call = await f.invoke("message/send", { message: { role: "user", messageId: "m", contextId: "private-chat", parts: [{ kind: "text", text: "fixture" }] }, configuration: { blocking: true } });
++    await vi.waitFor(() => expect(call.res.listenerCount("close")).toBeGreaterThan(0));
++    call.res.emit("close");
++    await vi.advanceTimersByTimeAsync(251);
++    await call.promise;
++    expect(f.cancel).toHaveBeenCalledWith("private-task");
++  });
++});

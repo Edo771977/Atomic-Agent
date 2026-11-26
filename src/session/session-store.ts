@@ -1287,17 +1287,19 @@ export class SessionStore {
     return row === undefined ? null : row.incognito === 1;
   }
 
-  /** Recent ordinary chats with goals, projected without loading any transcript. */
+  /** Ordinary goals from the same recent window as listRecent, without loading transcripts. */
   listRecentGoals(limit: number): Pick<SessionState, "id" | "metadata">[] {
     const rows = this.db.prepare(`
       SELECT id, json_extract(payload, '$.metadata.goal') AS goal
-      FROM sessions
+      FROM (
+        SELECT id, payload, updated_at FROM sessions ORDER BY updated_at DESC, id DESC LIMIT ?
+      )
       WHERE CASE WHEN json_valid(payload) THEN
         json_type(payload, '$.metadata.goal') = 'object'
         AND json_type(payload, '$.incognito') IS NOT 'object'
         AND json_type(payload, '$.incognito') IS NOT 'array'
       ELSE 0 END
-      ORDER BY updated_at DESC LIMIT ?
+      ORDER BY updated_at DESC, id DESC
     `).all(limit) as { id: string; goal: string }[];
     return rows.map(({ id, goal }) => ({ id, metadata: { goal: JSON.parse(goal) as unknown } }));
   }

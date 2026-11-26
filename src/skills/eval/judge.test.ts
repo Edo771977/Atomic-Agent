@@ -19,6 +19,17 @@ const llm = {
 };
 
 describe("resolveJudgeConfig", () => {
+  it("only uses the OpenRouter environment key at OpenRouter or loopback", () => {
+    const env = { OPENROUTER_API_KEY: "synthetic-openrouter-key", ATOMIC_AGENT_JUDGE_MODEL: "fixture" };
+    const gateway = "https://judge.example.test/v1";
+    expect(resolveJudgeConfig({}, llm, null, { ...env, ATOMIC_AGENT_JUDGE_URL: gateway }))
+      .toMatchObject({ error: expect.stringContaining("ATOMIC_AGENT_JUDGE_API_KEY") });
+    expect(resolveJudgeConfig({ url: gateway }, llm, null, { ...env, ATOMIC_AGENT_JUDGE_API_KEY: "synthetic-judge-key" }))
+      .toMatchObject({ apiKey: "synthetic-judge-key" });
+    for (const url of ["https://openrouter.ai/api/v1", "http://127.0.0.1:8080"]) {
+      expect(resolveJudgeConfig({ url }, llm, null, env)).toMatchObject({ apiKey: "synthetic-openrouter-key" });
+    }
+  });
   it("has no built-in paid default: a local model and nothing set is an error", () => {
     expect(resolveJudgeConfig({}, llm, null, {})).toEqual({ error: expect.stringContaining("there is no judge: the active model is local") });
     expect(resolveJudgeConfig({}, llm, null, { OPENROUTER_API_KEY: "k" })).toEqual({ error: expect.stringContaining("skills.eval.judgeProvider") });

@@ -342,7 +342,7 @@ export function registerBuiltInProviderKinds(): void {
       privacy: entry.privacy,
       providerKind: "aimlapi",
       baseUrl: entry.baseUrl,
-      ...keyOptions(entry, ctx.logger),
+      ...nativeKeyOptions(entry, ctx.logger),
       defaultChatModel: model,
       extraBody: entry.extraBody,
       maxOutputTokens: entry.maxOutputTokens,

@@ -1,0 +1,60 @@
+--- /dev/null
++++ b/src/cli/b3-acp-candidate.test.ts
+@@ -0,0 +1,57 @@
++import { PassThrough, Writable } from "node:stream";
++import { afterEach, expect, it, vi } from "vitest";
++import { acpCommand } from "./acp-command.js";
++import { AcpServer, type AcpRuntimeHandlers } from "./acp-server.js";
++import { permissionDecision } from "./acp-translator.js";
++afterEach(() => vi.unstubAllEnvs());
++
++it("control: an editor cancellation denies permission", () => {
++  const request = { approvalId: "fixture", sessionId: "chat", category: "shell", tool: "os.shell.run", reason: "fixture" } as const;
++  expect(permissionDecision(request, true, { outcome: "cancelled" })).toMatchObject({ approved: false });
++});
++
++it("refuses to start an ACP runtime from a marked tool child", async () => {
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  const stdin = new PassThrough();
++  const output: string[] = [];
++  const stdout = new Writable({ write(chunk, _encoding, done) { output.push(String(chunk)); done(); } });
++  const stderr = new Writable({ write(_chunk, _encoding, done) { done(); } });
++  const createRuntime = vi.fn(async () => ({ approvals: { denyPendingForSession: () => 0 }, createSession: () => ({ id: "fixture" }), shutdown: async () => {} }));
++  const exit = acpCommand([], { stdin, stdout, stderr, createRuntime: () => createRuntime as never });
++  stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "session/new", params: { cwd: process.cwd() } }) + "\n");
++  await vi.waitFor(() => expect(output.length).toBeGreaterThan(0));
++  stdin.end();
++  await exit;
++  expect(createRuntime).not.toHaveBeenCalled();
++});
++
++it("does not turn an editor answer into a persistent allow rule", () => {
++  const request = { approvalId: "fixture", sessionId: "chat", category: "shell", tool: "os.shell.run", reason: "fixture" } as const;
++  expect(permissionDecision(request, true, { outcome: "selected", optionId: "allow-always" })).not.toMatchObject({ approved: true, grant: "always" });
++});
++
++it("refuses an uncorrelated worker approval instead of showing it in the sole busy chat", async () => {
++  let handlers: AcpRuntimeHandlers | undefined;
++  let finish!: () => void;
++  const busy = new Promise<void>(resolve => { finish = resolve; });
++  const resolve = vi.fn();
++  const request = vi.fn(async () => ({ outcome: { outcome: "selected", optionId: "allow" } }));
++  const server = new AcpServer({ version: "fixture", setupCommand: { command: "fixture", args: [] },
++    createRuntime: async (_cwd, h) => {
++      handlers = h;
++      return { approvals: { resolve, canGrantAlways: () => false, denyPendingForSession: () => 0 },
++        sessionStore: { load: () => null }, createSession: () => ({ id: "busy-chat" }) as never,
++        runTurn: async session => { await busy; return { session, reason: "reply" }; }, shutdown: async () => {} };
++    },
++  });
++  server.attach({ notify: () => {}, request });
++  await server.handleRequest("session/new", { cwd: process.cwd() });
++  const prompt = server.handleRequest("session/prompt", { sessionId: "busy-chat", prompt: [{ type: "text", text: "fixture" }] });
++  handlers!.onApprovalRequest({ approvalId: "unrelated", sessionId: "unrelated-worker", category: "shell", tool: "os.shell.run", reason: "private fixture" });
++  await vi.waitFor(() => expect(resolve).toHaveBeenCalled());
++  finish();
++  await prompt;
++  await server.shutdown();
++  expect(request).not.toHaveBeenCalled();
++  expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ approved: false }));
++});
