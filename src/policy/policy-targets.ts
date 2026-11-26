@@ -173,6 +173,8 @@ export function toolCallTarget(tool: string, args: unknown): PolicyTarget | null
     return { action: "shell", resources: shellResources(cmd, rest), ...(unreadable ? { unreadable: true } : {}) };
   }
   if (EDIT_TOOLS.has(tool)) {
+    // The diff's real files are checked by the patch planner, including dry runs.
+    if (tool === "os.fs.patch") return null;
     const paths = Array.isArray(a.paths) ? a.paths.map(str) : [];
     const moves = Array.isArray(a.moves) ? a.moves.flatMap(item => { const move = record(item); return [str(move.from), str(move.to)]; }) : [];
     return { action: "edit", resources: nonEmpty([str(a.path), str(a.from), str(a.to), str(a.destination), ...paths, ...moves]) };

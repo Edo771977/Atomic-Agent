@@ -11,6 +11,7 @@ import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-client
 import { shellRuleSegments } from "../tools/os/shell/shell-command-argv.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
+import { shellWriteTargets, execWriteTargets } from "../tools/os/shell-command-guard/write-targets.js";
 import {
   describePolicyRule,
   evaluatePolicy,
@@ -56,7 +57,8 @@ function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workin
  */
 export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequest): RuleMatch | null {
   if ((request.category === "trust_config" || request.category === "state_secret") &&
-      touchesPolicy(policy, [...(request.targetPaths ?? []), ...(request.affectedResources ?? [])], request.workdir, request.category === "trust_config")) return protectedPolicyMatch(request.tool);
+      (touchesPolicy(policy, request.targetPaths ?? [], request.workdir, request.category === "trust_config") ||
+       touchesPolicy(policy, request.affectedResources ?? [], request.workdir))) return protectedPolicyMatch(request.tool);
   const verdict = verdictFor(policy, gateRequestTarget(request), request.workdir);
   if (verdict === null || verdict.effect === "allow") return null;
   const rule: ApprovalRule = {
@@ -105,9 +107,18 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const readPaths = READ_TOOL_TARGETS.get(tool)?.(object) ?? [];
   const files = policyFiles(policy);
   const shellCommands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? [object, record(object.start)] : [];
-  const shellTouchesPolicy = files.length > 0 && shellCommands.some(command => typeof command.cmd === "string" && findShellStateSecrets(command, { workingDir: workingDir ?? process.cwd() }, {
-    stateDir: dirname(policy.sources.find(source => source.kind === "user")?.location ?? files[0]!), files,
-  }).length > 0);
+  const shellTouchesPolicy = files.length > 0 && shellCommands.some(command => {
+    if (typeof command.cmd !== "string") return false;
+    const cwd = workingDir ?? process.cwd();
+    const named = findShellStateSecrets(command, { workingDir: cwd }, {
+      stateDir: dirname(policy.sources.find(source => source.kind === "user")?.location ?? files[0]!), files,
+    });
+    if (touchesPolicy(policy, named, cwd)) return true;
+    const args = coerceShellArgs(command.args) ?? [];
+    const scope = { recursive: [] as string[], placed: [] as string[] };
+    const writes = needsShellInterpretation(command.cmd, args) ? shellWriteTargets([command.cmd, ...args].join(" "), cwd, scope) : execWriteTargets(command.cmd, args, cwd, scope);
+    return touchesPolicy(policy, [...writes, ...scope.recursive, ...scope.placed], cwd, true);
+  });
   if (shellTouchesPolicy || touchesPolicy(policy, readPaths, workingDir) ||
       touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true)) {
     return `${tool} was not run: organization policy files are protected; only the operator may inspect or change them outside agent tools.`;
