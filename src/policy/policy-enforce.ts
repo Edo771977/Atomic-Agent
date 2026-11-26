@@ -134,7 +134,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
       const args = coerceShellArgs(command.args) ?? [];
-      if (changesPolicyChildMetadata(command.cmd, args, needsShellInterpretation(command.cmd, args))) return `${tool} was not run: inherited organization policy metadata is reserved for the operator.`;
+      if (changesPolicyChildMetadata(command.cmd, args, needsShellInterpretation(command.cmd, args), analyze)) return `${tool} was not run: inherited organization policy metadata is reserved for the operator.`;
     }
   }
   if (policy.rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {

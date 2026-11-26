@@ -63,7 +63,7 @@ const RULE_WRAPPERS: Readonly<Record<string, readonly string[]>> = {
  * shared with the guard's browser-bypass layer) skip their value too, so
  * `sudo -u root rm` reads as `rm`, not `root`.
  */
-function withoutWrappers(input: readonly string[]): string[] {
+function withoutWrappers(input: readonly string[], observe?: (words: string[]) => void): string[] {
   const words = [...input];
   let i = 0;
   while (i < words.length) {
@@ -74,6 +74,7 @@ function withoutWrappers(input: readonly string[]): string[] {
     }
     const name = programName(word);
     if (busyboxApplet(words.slice(i)) !== null) { i++; continue; }
+    observe?.(words.slice(i));
     const wrapperStart = i;
     const valueFlags = prefixCommandFlags(name);
     if (valueFlags === undefined) break;
@@ -110,6 +111,13 @@ function withoutWrappers(input: readonly string[]): string[] {
     if ((name === "timeout" || name === "gtimeout") && /^\d/.test(words[i] ?? "")) i += 1;
   }
   return words.slice(i);
+}
+
+/** The literal wrapper chain, using the same option and split-string boundaries. */
+export function shellWrapperSegments(words: readonly string[]): string[][] {
+  const segments: string[][] = [];
+  withoutWrappers(words, segment => segments.push(segment));
+  return segments;
 }
 
 /**
