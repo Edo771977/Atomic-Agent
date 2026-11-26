@@ -28,7 +28,9 @@ const MAX_DEPTH = 8;
 export const emlExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const raw = input.data.toString("latin1");
-  const text = renderMessage(raw, 0, warnings);
+  const budget = new FragmentBudget();
+  const text = renderMessage(raw, 0, warnings, budget);
+  if (budget.exhausted) warnings.push("MIME text fragment budget exhausted; remaining text parts were skipped");
   return { format: "eml", text: text.trim(), warnings: dedupe(warnings) };
 };
 
@@ -54,14 +56,21 @@ export const mboxExtractor: Extractor = async (input) => {
   const separators = input.pageSeparators !== false;
   const chunks: string[] = [];
   const extracted: number[] = [];
+  const budget = new FragmentBudget();
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
-    const text = renderMessage(messages[n - 1]!, 0, warnings).trim();
-    chunks.push(separators ? `--- message ${n} ---\n${text}` : text);
-    extracted.push(n);
+    const text = renderMessage(messages[n - 1]!, 0, warnings, budget).trim();
+    if (text || !budget.exhausted) {
+      chunks.push(separators ? `--- message ${n} ---\n${text}` : text);
+      extracted.push(n);
+    }
+    if (budget.exhausted) {
+      warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom to resume at this message or a later one.`);
+      break;
+    }
   }
   const remaining = end - start + 1 - extracted.length;
-  if (remaining > 0) {
+  if (remaining > 0 && !budget.exhausted) {
     warnings.push(
       `stopped at maxPages=${maxPages}; ${remaining} more message(s) not read (use pagesFrom)`,
     );
@@ -241,7 +250,7 @@ function attachmentSize(body: string, encoding: string | undefined): number {
 
 // -------------------------------------------------------------- rendering
 
-function renderMessage(raw: string, depth: number, warnings: string[], budget = new FragmentBudget()): string {
+function renderMessage(raw: string, depth: number, warnings: string[], budget: FragmentBudget): string {
   const part = splitPart(raw);
   const lines: string[] = [];
   for (const name of SHOWN_HEADERS) {
@@ -250,7 +259,6 @@ function renderMessage(raw: string, depth: number, warnings: string[], budget = 
   }
   const attachments: string[] = [];
   const body = renderPart(part, depth, warnings, attachments, budget).trim();
-  if (depth === 0 && budget.exhausted) warnings.push("MIME text fragment budget exhausted; remaining text parts were skipped");
   const out = [lines.join("\n"), body];
   if (attachments.length > 0) {
     out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
