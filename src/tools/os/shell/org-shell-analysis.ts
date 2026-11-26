@@ -1,6 +1,6 @@
 import { interpreterScript, scriptInput } from "./org-script-operands.js";
 import { shellSyntax, UNKNOWN_SHELL_WORD } from "./shell-rule-syntax.js";
-import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
+import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   NESTED_SHELL_PROGRAMS,
   PREFIX_COMMANDS,
@@ -83,9 +83,12 @@ function withoutWrappers(input: readonly string[]): string[] {
         continue;
       }
       // `env -S 'rm -rf x'`: the value is the command line, split on blanks.
-      if (name === "env" && (next === "-S" || next === "--split-string")) {
-        const split = (words[i + 1] ?? "").split(/\s+/).filter((t) => t.length > 0);
-        words.splice(i, 2, ...split);
+      if (name === "env" && /^(?:-S|--split-string)(?:=|.|$)/.test(next)) {
+        const separate = next === "-S" || next === "--split-string";
+        const value = separate ? words[i + 1] ?? "" : next.startsWith("--split-string=") ? next.slice(15) : next.slice(2);
+        const tokens = /[$`\\]/.test(value) ? null : lexShellLine(value, "posix");
+        const split = tokens?.every(token => token.kind === "word") ? tokens.map(token => token.kind === "word" ? token.text : "") : [UNKNOWN_SHELL_WORD];
+        words.splice(i, separate ? 2 : 1, ...split);
         break;
       }
       if (next === "--") {
@@ -171,6 +174,15 @@ function nestedShellScripts(words: readonly string[], state: { unreadable: boole
   const inner = withoutWrappers(words), name = programName(inner[0] ?? "");
   if (NESTED_SHELL_PROGRAMS.includes(name)) {
     for (const line of scanNestedShellOptions(inner.slice(1), name).scripts) if (line.trim() !== "") scripts.push({ line, dialect: "posix" });
+  }
+  if (name === "npx" || name === "npm" && inner[1] === "exec") {
+    for (let i = name === "npm" ? 2 : 1; i < inner.length; i++) {
+      const arg = inner[i]!;
+      if (arg === "--" || !arg.startsWith("-")) break;
+      if (/^(?:-c|--call)$/.test(arg)) { if (inner[i + 1] !== undefined) scripts.push({ line: inner[i + 1]!, dialect: "posix" }); else state.unreadable = true; break; }
+      if (/^(?:-c.|--call=)/.test(arg)) { scripts.push({ line: arg.startsWith("--") ? arg.slice(7) : arg.slice(2), dialect: "posix" }); break; }
+      if (/^(?:-p|--package|--prefix|--cache|--userconfig)$/.test(arg)) i++;
+    }
   }
   if (name === "cmd") {
     const index = inner.findIndex((word, i) => i > 0 && /^\/[ck]$/i.test(word));
