@@ -12,16 +12,12 @@ import {
   type ProviderPolicyStamp,
 } from "../llm/provider-policy.js";
 import { readFusionWorkerMeta } from "../session/fusion-worker-session.js";
+import { isAuxiliaryPartition } from "../privacy/auxiliary-partitions.js";
 import { READ_TAINT_METADATA_KEY, readTaintOf } from "./session-read-taint.js";
-
-const AUXILIARY_PARTITIONS = new Set([
-  "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
-  "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn",
-]);
 
 function partitionOwner(id: string): string | null {
   const colon = id.indexOf(":");
-  return colon > 0 && AUXILIARY_PARTITIONS.has(id.slice(0, colon)) ? id.slice(colon + 1) : null;
+  return colon > 0 && isAuxiliaryPartition(id.slice(0, colon)) ? id.slice(colon + 1) : null;
 }
 
 function originatingSessionId(id: string): string {

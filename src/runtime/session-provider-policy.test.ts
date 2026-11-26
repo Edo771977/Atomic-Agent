@@ -1,4 +1,5 @@
 import { PLAIN_COMPLETE_PARTITION } from "./plain-complete.js";
+import { privacyVaultFor, releasePrivacyVault, resetPrivacyVaults } from "../privacy/index.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +31,24 @@ describe("session provider policy (issue #33)", () => {
     const { project, policy } = setup();
     expect(policy.forSessionId("s-1")?.key).toBe(project);
     expect(policy.forSessionId("s-1")?.allows("openai")).toBe(false);
+  });
+
+  it.each([
+    "compaction", "next-step", "risk", "browser-extract", "reflection", "rewriter",
+    "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn", "goal-judge",
+  ])("agrees on policy and archive ownership for the known %s caller outside a turn frame", prefix => {
+    const { project, policy } = setup();
+    try {
+      expect(policy.effectivePolicyForSession(`${prefix}:s-1`)?.allowedProviders).toEqual(["local-llama"]);
+      expect(policy.effectivePolicyForSession(`reflection:${prefix}:s-1`)?.key).toBe(project);
+      const derived = privacyVaultFor(`${prefix}/s-1`);
+      const nested = privacyVaultFor(`reflection/${prefix}/s-1`);
+      const real = privacyVaultFor(`${prefix}:s-1`);
+      releasePrivacyVault("s-1");
+      expect(privacyVaultFor(`${prefix}/s-1`)).not.toBe(derived);
+      expect(privacyVaultFor(`reflection/${prefix}/s-1`)).not.toBe(nested);
+      expect(privacyVaultFor(`${prefix}:s-1`)).toBe(real);
+    } finally { resetPrivacyVaults(); }
   });
 
   it("reads a side call's partition id (`reflection:<id>`) as its session's id", () => {
