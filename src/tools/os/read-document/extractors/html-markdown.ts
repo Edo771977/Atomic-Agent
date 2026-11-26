@@ -1,13 +1,10 @@
-import { parseHTML } from "linkedom";
 import { Parser } from "htmlparser2";
 import TurndownService from "turndown";
 import { readBoundedHtmlText } from "./html-plain-text.js";
 
 /**
- * HTML → light markdown for documents on disk (saved web pages, EPUB
- * chapters, HTML mail bodies). Built on the same two libraries web fetch
- * already ships (`linkedom` for the DOM, `turndown` for markdown), so this
- * adds no dependency.
+ * HTML → light markdown for saved pages, EPUB chapters and mail bodies.
+ * The HTML parser prepares bounded markup before Turndown builds a DOM.
  *
  * Unlike web fetch we do NOT run Readability here: it is tuned for news
  * articles and drops content it scores as boilerplate, which on a local
@@ -34,6 +31,13 @@ const HTML_QUOTE_DEPTH = 8;
 const HTML_TABLE_DEPTH = 4;
 const HTML_TABLE_COLUMNS = 64;
 const HTML_TITLE_CHARS = 1_024;
+const HTML_ATTRIBUTE_BYTES = 2_048;
+const HTML_TAG = /^[a-z][a-z0-9:-]*$/i;
+const ATTRIBUTES = new Map([
+  ["a", ["href", "title"]],
+  ["img", ["src", "alt", "title"]],
+  ["ol", ["start"]],
+]);
 
 type FormatLimit = "size" | "depth" | "nodes" | "quotes" | "table" | "output";
 
@@ -68,6 +72,10 @@ function outerRowWidth(table: MarkdownNode): number {
     }
   }
   return width;
+}
+
+function attribute(node: object, name: string): string | null {
+  return (node as { getAttribute(name: string): string | null }).getAttribute(name);
 }
 
 function makeTurndown(textChars: number): TurndownService {
@@ -110,6 +118,10 @@ function makeTurndown(textChars: number): TurndownService {
     },
   });
   td.remove(["button", "input", "select", "textarea"]);
+  td.addRule("imageWithoutUrl", {
+    filter: node => (node as unknown as MarkdownNode).nodeName === "IMG" && !attribute(node, "src"),
+    replacement: (_content, node) => td.escape(attribute(node, "alt") ?? ""),
+  });
   let spent = textChars;
   const charge = (amount: number) => {
     spent += amount;
@@ -143,6 +155,27 @@ export interface HtmlMarkdown {
   title?: string;
 }
 
+function escapeMarkup(value: string): string {
+  return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function openingTag(name: string, attributes: Record<string, string>): string {
+  let result = `<${name}`;
+  for (const field of ATTRIBUTES.get(name) ?? []) {
+    const value = attributes[field];
+    if (!value) continue;
+    const oversize = Buffer.byteLength(value, "utf8") > HTML_ATTRIBUTE_BYTES;
+    if (field === "href" || field === "src") {
+      // With no URL, an anchor retains its text and an image keeps its alt.
+      if (oversize || /^data:/i.test(value.replace(/[\t\r\n]/g, "").trim())) continue;
+    }
+    if (field === "start" && !/^-?\d{1,8}$/.test(value)) continue;
+    const bounded = oversize ? value.slice(0, HTML_ATTRIBUTE_BYTES / 4) : value;
+    result += ` ${field}="${escapeMarkup(bounded).replaceAll('"', "&quot;")}"`;
+  }
+  return result + ">";
+}
+
 /**
  * Strip non-visible markup and check the depth before giving any parser
  * that builds a DOM or renders recursively a bounded fragment.
@@ -159,25 +192,21 @@ function prepareHtml(html: string) {
   let quotes = 0;
   let tables = 0;
   let textChars = 0;
+  let inText = false;
 
   const stop = (reason: FormatLimit) => {
     limit = reason;
     parser.pause();
   };
-  const append = (text: string, allowPartial: boolean) => {
-    const available = HTML_FORMAT_CHARS - length;
-    if (text.length <= available) {
-      parts.push(text);
-      length += text.length;
-    } else {
-      if (allowPartial && available > 0) parts.push(text.slice(0, available));
-      stop("size");
-    }
+  const append = (text: string) => {
+    if (text.length > HTML_FORMAT_CHARS - length) return stop("size");
+    parts.push(text);
+    length += text.length;
   };
-  const appendTag = () => append(html.slice(parser.startIndex, parser.endIndex + 1), false);
   const parser: Parser = new Parser({
-    onopentag(name, _attributes, implied) {
+    onopentag(name, attributes) {
       if (limit) return;
+      inText = false;
       depth++;
       if (!VOID_ELEMENTS.has(name) && depth > HTML_FORMAT_DEPTH) return stop("depth");
       if (name === "blockquote" && ++quotes > HTML_QUOTE_DEPTH) return stop("quotes");
@@ -187,16 +216,17 @@ function prepareHtml(html: string) {
         rawTitle = "";
       }
       if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
-      if (!omittedDepth && !implied) {
+      if (!omittedDepth && HTML_TAG.test(name)) {
         if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
-        appendTag();
+        append(openingTag(name, attributes));
       }
     },
-    onclosetag(name, implied) {
+    onclosetag(name) {
       if (limit) return;
+      inText = false;
       if (titleDepth === depth) titleDepth = 0;
       if (omittedDepth === depth) omittedDepth = 0;
-      else if (!omittedDepth && !implied) appendTag();
+      else if (!omittedDepth && !VOID_ELEMENTS.has(name) && HTML_TAG.test(name)) append(`</${name}>`);
       if (name === "blockquote") quotes--;
       if (name === "table") tables--;
       depth--;
@@ -205,17 +235,16 @@ function prepareHtml(html: string) {
       if (limit) return;
       if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
       if (!omittedDepth) {
-        if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
+        if (!inText && ++nodes > HTML_FORMAT_NODES) return stop("nodes");
+        inText = true;
+        if (text.length > HTML_FORMAT_CHARS - length) return stop("size");
         textChars += text.length;
-        append(text, true);
+        append(escapeMarkup(text));
       }
     },
-  }, { decodeEntities: false });
+  }, { decodeEntities: true });
   parser.end(html);
-  const title = rawTitle
-    ? parseHTML(`<html><head><title>${rawTitle}</title></head><body></body></html>`)
-      .document.querySelector("title")?.textContent?.trim() || undefined
-    : undefined;
+  const title = rawTitle?.trim() || undefined;
   return { markup: parts.join(""), title, limit, textChars };
 }
 

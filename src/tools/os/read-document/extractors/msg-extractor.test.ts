@@ -306,6 +306,16 @@ describe("cfb reader", () => {
 });
 
 describe("msg extractor", () => {
+  it("keeps the final Outlook paragraph after large inline styles and images", async () => {
+    const decoration = "x".repeat(410 * 1024);
+    const html = Buffer.from(`<p style="${decoration}">Visible intro</p>` +
+      `<img src="data:image/png;base64,${decoration}" alt="Logo"><p>Final Outlook paragraph</p>`);
+    const { buffer } = buildCfb([{ name: b(0x1013), data: html }], 4096);
+    const result = await extract(buffer);
+    expect(result.text).toContain("Final Outlook paragraph");
+    expect(result.text).not.toContain("data:image");
+    expect(result.warnings).toEqual([]);
+  });
   it("bounds the conversion of an eight MiB HTML body and keeps the visible start", async () => {
     const head = "<html><body><p>Monthly report</p><p>";
     const tail = "</p></body></html>";
