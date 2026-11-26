@@ -1,7 +1,7 @@
 import { requirePolicyWebUrl } from "../../policy/policy-web.js";
 import { verifyPageFolderKey } from "../../approval/verify-page-folder.js";
 import { activePolicy } from "../../policy/policy-active.js";
-import { policyCallRefusal } from "../../policy/policy-enforce.js";
+import { policyCallRefusal, policyCallAsks } from "../../policy/policy-enforce.js";
 import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
@@ -374,7 +374,8 @@ export async function authorizeVerifyBatch(
         });
       }
     };
-    const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
+    const organizationAsk = policyCallAsks(activePolicy(), "verify.run", logical);
+    const scoped = !organizationAsk && options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
@@ -388,7 +389,7 @@ export async function authorizeVerifyBatch(
     // denies, or the person declined the target (the gate also refuses it
     // after outside content). Every other category keeps "Allow once".
     const page = prompt.category === "verify_page_local" && opensFileInside(logical, cwd);
-    if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
+    if (!organizationAsk && page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) {
       await authorizeUrls();
@@ -401,7 +402,7 @@ export async function authorizeVerifyBatch(
       ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
       : undefined;
     try {
-      const outcome = await requireApproval(options, prompt, ctx.signal);
+      const outcome = await requireApproval(organizationAsk ? { ...options, approvalRequired: true } : options, prompt, ctx.signal, organizationAsk ? true : undefined);
       const actualArgs = Array.isArray(spec.args) ? spec.args : [];
       const pin = outcome.pinnedExec;
       if (logical.kind === "ui" || pin === undefined || pin.argv.length !== actualArgs.length + 1 ||
