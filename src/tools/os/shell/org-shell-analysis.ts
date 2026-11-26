@@ -161,6 +161,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   if (/^g?make$/.test(program) && args.some((arg, index) => /^(?:--eval(?:=|$)|(?:SHELL|\.SHELLFLAGS)=|--(?:file|makefile)=-$)/.test(arg) || /^(?:-f|--file|--makefile)$/.test(arg) && args[index + 1] === "-")) state.unreadable = true;
   if (/^(?:vi|[rg]?vim(?:diff)?|[rg]?view|nvim(?:diff)?|nview|evim|eview|ex|gex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
   if (program === "tar" && (args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg)) || /^-?[A-Za-z]*I/.test(args[0] ?? ""))) state.unreadable = true;
+  if (program === "zip" && args.slice(0, args.indexOf("--") === -1 ? args.length : args.indexOf("--")).some(arg => /^-TT/.test(arg))) state.unreadable = true;
   if (NESTED_SHELL_PROGRAMS.includes(program) && (words.some(word => /^(?:BASH_ENV|ENV|ZDOTDIR|SHELLOPTS|BASHOPTS)=/.test(word)) || args.some(arg => /^(?:--rcfile|--init-file)(?:=|$)/.test(arg)))) state.unreadable = true;
   if (["inline", "unknown"].includes(interpreterScript(inner)?.kind ?? "")) state.unreadable = true;
   if (scriptInput(inner) === "unknown" || interpreterScript(inner)?.kind === "file" && scriptInput(inner) === "stdin" || NESTED_SHELL_PROGRAMS.includes(program) && !scanNestedShellOptions(inner.slice(1), program).readsStdin && scriptInput(inner) === "stdin") state.unreadable = true;
