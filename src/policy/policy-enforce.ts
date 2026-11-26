@@ -29,7 +29,7 @@ function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workin
   if (paths.length === 0 || protectedPaths.length === 0) return false;
   const lexicalFiles = new Set(protectedPaths.map(normalize.lexical));
   if (paths.some(path => lexicalFiles.has(normalize.lexical(path)))) return true;
-  const candidates = ancestors ? protectedPaths : protectedPaths.filter(normalize.mayExist);
+  const candidates = protectedPaths.filter(normalize.mayExist);
   if (candidates.length === 0) return false;
   const protectedFiles = candidates.map(normalize.path);
   return paths.some(path => protectedFiles.some(file => {

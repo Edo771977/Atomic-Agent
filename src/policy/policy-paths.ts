@@ -68,11 +68,11 @@ export function policyFilePaths(policy: EffectivePolicy): string[] {
 }
 
 /** Include link entries as well as referents: replacing an ancestor can relocate a policy. */
-export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string, canonicalize = createPolicyCanonicalizer()): boolean {
+export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string, canonicalize = createPolicyCanonicalizer(), mayExist = policyPathMayExist): boolean {
   const normalize = createEditPathNormalizer(process.cwd(), process.platform, canonicalize);
   const root = normalize.path(treeRoot).replace(/\/$/, "");
   const inside = (path: string) => path === root || path.startsWith(`${root}/`);
-  for (const file of policyFilePaths(policy)) {
+  for (const file of policyFilePaths(policy).filter(mayExist)) {
     if (inside(normalize.path(file))) return true;
     let entry = resolve(file);
     for (let depth = 0; ; depth++) {
