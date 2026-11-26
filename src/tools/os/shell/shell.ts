@@ -29,7 +29,7 @@ import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.j
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
 import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
 import { activePolicy } from "../../../policy/policy-active.js";
-import { policyCallRefusal, policyCallAsks } from "../../../policy/policy-enforce.js";
+import { createPolicyEvaluation } from "../../../policy/policy-enforce.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
@@ -313,6 +313,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // reset --hard`, `sudo`): the operator approved a directory of work,
     // not those, so it goes to the gate too, where a worker's refuse
     // policy hands it back as a step for the operator (ATO-1223).
+    const organization = ctx.organizationPolicy ?? createPolicyEvaluation(activePolicy(), cwd);
+    const organizationRefusal = organization.refusal("os.shell.run", { cmd, args: execArgs }, cwd);
+    if (organizationRefusal !== null) throw new Error(organizationRefusal);
     const dangerous = isDangerousGuardRule(guardVerdict.rule);
     const commandSegments = shellRuleSegments(cmd, execArgs, useShell);
     const commandUnreadable = shellRunsUnreadableScript(cmd, execArgs, useShell);
@@ -347,7 +350,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // but a saved deny rule still stops it: it goes to the gate, which
     // refuses it on the rule before any level, grant or prompt
     // (ATO-1332). Ask and allow rules keep to the gated path.
-    const organizationAsk = policyCallAsks(activePolicy(), "os.shell.run", { cmd, args: execArgs });
+    const organizationAsk = organization.asks("os.shell.run", { cmd, args: execArgs });
     const deniedBySavedRule =
       guardVerdict.action === "allow" &&
       options.approvalRequired &&
@@ -438,7 +441,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       pinned === undefined
         ? resolveShellSpawn(cmd, execArgs, useShell)
         : { command: pinned.file, args: pinned.argv.slice(1), windowsVerbatimArguments: false };
-    const actualRefusal = policyCallRefusal(activePolicy(), "os.shell.run", { cmd: spawnSpec.command, args: spawnSpec.args }, cwd);
+    const actualRefusal = pinned === undefined ? organization.shellSpawnRefusal(cmd, execArgs, spawnSpec.command, spawnSpec.args, cwd) : organization.refusal("os.shell.run", { cmd: spawnSpec.command, args: spawnSpec.args }, cwd);
     if (actualRefusal !== null) throw new Error(actualRefusal);
     if (pinned !== undefined) for (const url of shellNetworkUrls(spawnSpec.command, spawnSpec.args).keys()) if (!urls.has(url)) await requirePolicyWebUrl(options, "os.shell.run", url, ctx);
     const facts: ShellCommandFacts = {

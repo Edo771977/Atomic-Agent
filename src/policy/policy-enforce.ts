@@ -77,20 +77,53 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
   return { decision: verdict.effect, rule };
 }
 
-/** The model-facing refusal for a tool call the policy denies, or null. */
-export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unknown): boolean {
-  return verdictFor(policy, toolCallTarget(tool, args))?.effect === "ask";
-}
-
-/** The model-facing refusal for a tool call the policy denies, or null. */
-export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir)): string | null {
+function shellAnalysisForCall(): typeof analyzeShellRules {
   const analyses = new Map<string, ReturnType<typeof analyzeShellRules>>();
-  const analyze: typeof analyzeShellRules = (cmd, rest, useShell, dialect) => {
+  return (cmd, rest, useShell, dialect) => {
     const key = JSON.stringify([cmd, rest, useShell, dialect]);
     let value = analyses.get(key);
     if (value === undefined) { value = analyzeShellRules(cmd, rest, useShell, dialect); analyses.set(key, value); }
     return value;
   };
+}
+
+/** One explicit invocation scope; never stored in a session or reused by invoke. */
+export function createPolicyEvaluation(policy: EffectivePolicy, workingDir: string) {
+  const baseAnalyze = shellAnalysisForCall();
+  const aliases = new Map<string, ReturnType<typeof analyzeShellRules>>();
+  const analysisKey = (cmd: string, args: readonly string[], shell: boolean, dialect?: string) => JSON.stringify([cmd, args, shell, dialect]);
+  const analyze: typeof analyzeShellRules = (cmd, args, shell, dialect) => aliases.get(analysisKey(cmd, args, shell, dialect)) ?? baseAnalyze(cmd, args, shell, dialect);
+  const normalizers = new Map<string, EditPathNormalizer>();
+  const inspections = new Map<string, string | null>();
+  return {
+    refusal(tool: string, args: Record<string, unknown>, cwd = workingDir): string | null {
+      const relevant = tool === "os.shell.run" ? { cmd: args.cmd, args: coerceShellArgs(args.args) ?? [], cwd: args.cwd ?? cwd } : args;
+      const key = JSON.stringify([tool, relevant, cwd]);
+      if (inspections.has(key)) return inspections.get(key)!;
+      let normalize = normalizers.get(cwd);
+      if (normalize === undefined) { normalize = createEditPathNormalizer(cwd); normalizers.set(cwd, normalize); }
+      const refusal = policyCallRefusal(policy, tool, args, cwd, normalize, analyze);
+      inspections.set(key, refusal); return refusal;
+    },
+    asks: (tool: string, args: Record<string, unknown>) => policyCallAsks(policy, tool, args, analyze),
+    shellSpawnRefusal(cmd: string, args: readonly string[], file: string, argv: readonly string[], cwd = workingDir): string | null {
+      if (policy.rules.length > 0) {
+        const original = analyze(cmd, args, needsShellInterpretation(cmd, args));
+        aliases.set(analysisKey(file, argv, needsShellInterpretation(file, argv)), { ...original, segments: [[file, ...argv], ...original.segments] });
+      }
+      return this.refusal("os.shell.run", { cmd: file, args: [...argv] }, cwd);
+    },
+  };
+}
+
+/** The model-facing refusal for a tool call the policy denies, or null. */
+export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unknown, analyze = analyzeShellRules): boolean {
+  if (policy.rules.length === 0) return false;
+  return verdictFor(policy, toolCallTarget(tool, args, analyze))?.effect === "ask";
+}
+
+/** The model-facing refusal for a tool call the policy denies, or null. */
+export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir), analyze = shellAnalysisForCall()): string | null {
   const target = policy.rules.length === 0 && (tool === "os.shell.run" || tool === "verify.run") ? null : toolCallTarget(tool, args, analyze);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);

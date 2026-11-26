@@ -19,9 +19,11 @@ import type { ToolRole } from "./tool-roles.js";
 import type { FileReadVersions } from "./os/fs/fs-read-freshness.js";
 import { fileStem, type ToolOutputSpill } from "./tool-output-spill.js";
 import { activePolicy } from "../policy/policy-active.js";
-import { policyCallRefusal } from "../policy/policy-enforce.js";
+import { policyCallRefusal, createPolicyEvaluation } from "../policy/policy-enforce.js";
 
 export interface ToolContext {
+  /** Internal, fresh for this invocation; never a saved grant or session decision. */
+  organizationPolicy?: ReturnType<typeof createPolicyEvaluation>;
   workspaceSkills?: import("../skills/workspace-skills.js").WorkspaceSkills;
   modelMode?: "local" | "cloud";
   /**
@@ -283,6 +285,7 @@ export class ToolRegistry {
     ctx: ToolContext,
   ): Promise<CompressedToolResult> {
     const tool = this.get(name);
+    ctx = { ...ctx, organizationPolicy: createPolicyEvaluation(activePolicy(), ctx.workingDir) };
     // An alias shape the tool reads (`argument-aliases.ts`: `os.fs.move`
     // `{paths, destination}`) is rewritten here, before any wrapper
     // (read scope) sees the call, and the result's last line says how
@@ -298,7 +301,7 @@ export class ToolRegistry {
       // before dispatch; anything that cannot be coerced is passed
       // through untouched so the tool reports its own error.
       const runArgs = coerceToolArgs(name, aliased?.args ?? args);
-      const policy = policyCallRefusal(activePolicy(), name, runArgs, ctx.workingDir);
+      const policy = ctx.organizationPolicy!.refusal(name, runArgs);
       if (policy !== null) throw new Error(policy);
       // Read taint first (a read inside a constrained folder narrows the
       // session's policy), then the egress guard against that narrowed
