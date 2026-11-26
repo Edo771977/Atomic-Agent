@@ -82,6 +82,7 @@ export function buildOsFsMoveTool(
           // A new destination cannot be stat'ed yet. Carry the source's
           // directory kind so policy checks its possible destination children.
           policyDirectories: plan.filter(move => move.folder).flatMap(move => [move.source, move.dest]),
+          policyMoves: plan.filter(move => move.folder).map(move => ({ from: move.source, to: move.dest })),
           sessionId: ctx.sessionId,
           tool: NAME,
           reason: describeMoves(plan),

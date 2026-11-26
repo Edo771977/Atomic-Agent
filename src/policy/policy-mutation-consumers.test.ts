@@ -23,7 +23,7 @@ describe("actual mutation paths across consumers", () => {
     await expect(requireFsApproval({ approvals: gate, approvalRequired: false }, { kind: "write", tool, sessionId: "fixture", paths: [join(root, "blocked.txt")], workingDir: root, reason: "synthetic consumer plan" }, new AbortController().signal)).rejects.toThrow(/policy/);
   });
   it("directory operations consider denied descendants and ancestors", async () => {
-    const dir = join(root, "P"); mkdirSync(dir); deny(`${dir.replace(/\\/g, "/")}/*.txt`);
+    const dir = join(root, "P"); mkdirSync(dir); writeFileSync(join(dir, "blocked.txt"), "fixture"); deny(`${dir.replace(/\\/g, "/")}/*.txt`);
     const gate = new ApprovalGate({ level: 5, emit: () => undefined });
     for (const path of [dir, root]) await expect(requireFsApproval({ approvals: gate, approvalRequired: false }, { kind: "trash", tool: "os.fs.trash", sessionId: "fixture", paths: [path], workingDir: root, reason: "synthetic directory plan" }, new AbortController().signal)).rejects.toThrow(/policy/);
   });

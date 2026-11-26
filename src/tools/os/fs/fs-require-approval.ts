@@ -99,6 +99,8 @@ export interface FsApprovalRequest {
   policyPaths?: readonly string[];
   /** Directory entries, including directories not created yet. */
   policyDirectories?: readonly string[];
+  /** Source-to-destination mapping for directory descendants in a move. */
+  policyMoves?: readonly { from: string; to: string }[];
   sessionId: string;
   tool: string;
   reason: string;
@@ -190,7 +192,7 @@ export async function requireFsApproval(
   signal: AbortSignal,
 ): Promise<FsApprovalOutcome> {
   const mutation = checkPolicyMutation(activePolicy(), request.tool, request.policyPaths ?? request.paths, request.workingDir,
-    request.policyDirectories ?? (request.kind === "extract" ? request.paths : []));
+    request.policyDirectories ?? (request.kind === "extract" ? request.paths : []), request.policyMoves);
   if (mutation.refusal !== null) throw new Error(mutation.refusal);
   // The project's saved rules live in the workspace, but editing them
   // changes what the agent may do next. An extract never matches by file
