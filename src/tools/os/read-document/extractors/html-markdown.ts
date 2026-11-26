@@ -32,7 +32,7 @@ const PARAGRAPH_CLOSERS = new Set([
   "pre", "search", "section", "summary", "table", "ul", "xmp",
 ]);
 const INLINE_ELEMENTS = new Set([
-  "abbr", "acronym", "b", "bdi", "bdo", "big", "cite", "code", "del", "dfn", "em", "i",
+  "a", "abbr", "acronym", "b", "bdi", "bdo", "big", "cite", "code", "del", "dfn", "em", "i",
   "ins", "kbd", "label", "mark", "q", "s", "samp", "small", "span", "strike", "strong",
   "sub", "sup", "time", "tt", "u", "var",
 ]);
@@ -423,8 +423,12 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (omittedDepth || !HTML_TAG.test(name)) return;
       if (!recognizeSelfClosing) {
         // The parser can leave a paragraph on its stack when an inline
-        // wrapper intervenes. Serialize its implicit HTML closing tag.
-        if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name)) closeEmittedFrom(openParagraph);
+        // wrapper intervenes. Close it here only while still in its inline
+        // scope. Closing through a cell or row would move text out of it.
+        if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name) &&
+            emitted.slice(openParagraph + 1, -1).every((tag) => !tag || INLINE_ELEMENTS.has(tag))) {
+          closeEmittedFrom(openParagraph);
+        }
         if (openAnchor >= 0 && name === "a") closeOpenAnchor();
       }
       if (limit) return;
