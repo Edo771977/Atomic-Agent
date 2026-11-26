@@ -35,7 +35,7 @@ import {
   type UrlSendSites,
 } from "./url-data-guard.js";
 import { offlineRefusal } from "../../../llm/offline-network.js";
-import { assertPolicyWebUrl } from "../../../policy/policy-web.js";
+import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
 
 export type { HttpMethod } from "./http-request-fetch.js";
 export { parseCurlOutput } from "./http-request-fetch.js";
@@ -84,7 +84,7 @@ export function buildOsHttpRequestTool(
         );
       }
       const args = parseArgs(rawArgs, httpCfg.defaultTimeoutMs);
-      assertPolicyWebUrl(args.url, ctx.workingDir);
+      await requirePolicyWebUrl(options, "os.http.request", args.url, ctx);
       // ATO-1084: refused before approval, DNS or curl while offline.
       const offline = offlineRefusal(args.urlObj, "os.http.request");
       if (offline) {
@@ -168,7 +168,7 @@ export function buildOsHttpRequestTool(
               hostAllowed(hostname, httpCfg.hostAllowlist),
             authorizeRedirect: async (url) => {
               const target = url.toString();
-              assertPolicyWebUrl(target, ctx.workingDir);
+              await requirePolicyWebUrl(options, "os.http.request", target, ctx);
               const refused = offlineRefusal(target, "os.http.request");
               if (refused) throw refused;
               if (httpCfg.approvalMode === "never") return;

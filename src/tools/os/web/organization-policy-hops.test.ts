@@ -7,6 +7,7 @@ import * as transport from "./http-request-fetch.js";
 import { USER_CONFIG_DEFAULTS, type WebCrawlConfig } from "../../../config/index.js";
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import type { runCommand } from "../../../sandbox/command-runner.js";
+import { recordingGate } from "../../browser/browser-gate-test-helpers.js";
 
 const origin = "https://fixture.test";
 const restricted = `${origin}/restricted`;
@@ -27,6 +28,18 @@ function fakeSite(redirect: boolean) {
 }
 afterEach(() => { installPolicy(null); vi.restoreAllMocks(); });
 describe("organization policy on every web destination", () => {
+  it("requires an organization ask at a redirect even with HTTP approvalMode never", async () => {
+    installPolicy({ sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "webfetch", resource: `${restricted}*`, effect: "ask" }] });
+    const { options, prompts } = recordingGate(false);
+    let continued = false;
+    vi.spyOn(transport, "executeGuardedHttpRequest").mockImplementation(async (_url, _args, deps) => {
+      await deps.authorizeRedirect?.(new URL(restricted)); continued = true;
+      return {} as never;
+    });
+    await buildOsHttpRequestTool({ ...options, approvalRequired: false, config: { http: { ...USER_CONFIG_DEFAULTS.http, enabled: true, approvalMode: "never" } } }).run({ url: `${origin}/` }, ctx).catch(() => undefined);
+    expect(prompts).toHaveLength(1);
+    expect(continued).toBe(false);
+  });
   it.each(["tool", "raw"])("refuses fetch redirects in %s mode without an approval adapter", async mode => {
     setup(); const site = fakeSite(true);
     if (mode === "tool") expect((await buildOsWebFetchTool({ runCommand: site.run, lookup }).run({ url: `${origin}/` }, ctx)).status).toBe("error");

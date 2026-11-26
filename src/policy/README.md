@@ -75,6 +75,8 @@ Web patterns normalize scheme/host case, IDN to ASCII punycode, trailing host do
 
 Web fetch and HTTP request check every redirect destination before the next transport call, independently of approval mode. Crawl uses the same raw-page checks for links, robots and sitemaps; cached pages and their final URLs are checked again before use.
 
+`os.http.request` applies both policy `ask` and `deny` to the initial URL and each redirect, even with `http.approvalMode: never`. `os.web.fetch` and crawl retain upstream's read-only semantics: policy `deny` is enforced at every hop; policy `ask` alone does not create a prompt for a raw/read-only fetch. Their independent URL-data and outside-content approval checks remain in place where an approval adapter is supplied. Use `deny` for a mandatory read restriction.
+
 HTTP(S) destinations extracted by the fork's shell URL scanner (curl/wget and explicit Git URLs, including verification stdin) also receive `webfetch`; a shell allow never substitutes for that decision. Structured clone/fetch/pull resolve configured Git URLs (including `insteadOf`) using read-only Git queries before the network command. A web `ask` requires a fresh decision even after a command pin or full-trust grant. This is the scanner's documented perimeter: a URL computed inside an arbitrary program, internal client redirects, an SSH/non-HTTP transport, or a shell Git remote name whose URL is not in argv is not a complete webfetch trace. Use shell/network egress restrictions for that perimeter.
 
 `edit` is enforced on structured tools' actual mutation plans. Shell writes remain governed by shell rules, the fork's write/secret scanner and sandbox; `edit` is not a general filesystem monitor for arbitrary shell code.
