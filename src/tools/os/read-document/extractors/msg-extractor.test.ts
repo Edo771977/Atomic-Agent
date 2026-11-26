@@ -464,6 +464,27 @@ describe("msg extractor", () => {
     expect(result.text).toBe("Date: Tue, 17 Nov 2026 08:00:00 +0000\nSubject: Hi");
   });
 
+  it("shares one body budget across one hundred embedded Outlook messages", async () => {
+    const attachments = Array.from({ length: 100 }, (_, n) => ({
+      name: "__attach_version1.0_#" + n.toString(16).padStart(8, "0"),
+      children: [
+        props(8, [[0x3705, 0x0003, long(5)]]),
+        {
+          name: "__substg1.0_3701000D",
+          children: [props(24, []), str(0x0037, "Child " + n),
+            { name: b(0x1013), data: Buffer.from("<p>Embedded body " + n + " " + "x".repeat(125_000) + "</p>") }],
+        },
+      ],
+    }));
+    const { buffer } = buildCfb([str(0x1000, "Parent body"), ...attachments], 4096);
+    const result = await msgExtractor({ data: buffer, sourcePath: "fixture.msg", maxBytes: 1024 * 1024 });
+    expect(result.text.startsWith("Parent body")).toBe(true);
+    expect(result.text.includes("Embedded body 0")).toBe(true);
+    expect(result.text.includes("Embedded body 99")).toBe(false);
+    expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(1024 * 1024);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/Outlook.*budget/i));
+  });
+
   it("keeps going with a warning when one property stream is corrupt", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const off = buffer.indexOf(Buffer.from(`${u(0x0037)}\0`, "utf16le"));

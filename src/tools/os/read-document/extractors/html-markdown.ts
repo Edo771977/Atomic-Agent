@@ -38,7 +38,7 @@ const INLINE_ELEMENTS = new Set([
 ]);
 const HTML_SOURCE_CHARS = 768 * 1024;
 const HTML_OUTPUT_CHARS = 576 * 1024;
-const HTML_PLAIN_CHARS = 384 * 1024;
+export const HTML_PLAIN_CHARS = 384 * 1024;
 const HTML_FORMAT_DEPTH = 128;
 const HTML_FORMAT_NODES = 30_000;
 const HTML_WHITESPACE_RUN = 128;
@@ -541,6 +541,7 @@ export function boundedHtmlToMarkdown(
   warnings: string[],
   xhtml = isXhtml(html),
   budget?: FragmentBudget,
+  plainLimit = budget?.maxOutputBytes ?? HTML_PLAIN_CHARS,
 ): HtmlMarkdown {
   const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
   let limit = prepared?.limit;
@@ -570,11 +571,10 @@ export function boundedHtmlToMarkdown(
   };
   // Parse up to a fresh item's allowance; the caller accounts for framing
   // and decides whether the item fits in the current output window.
-  const plainLimit = budget?.maxOutputBytes ?? HTML_PLAIN_CHARS;
   const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, plainLimit);
   warnings.push(limit
     ? `HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`
     : "HTML formatting budget exhausted. Showing plain text with formatting omitted.");
-  if (cut && !budget) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
+  if (cut && plainLimit === HTML_PLAIN_CHARS) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
   return { title: prepared?.title, text, ...(cut && { truncated: true }) };
 }
