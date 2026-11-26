@@ -34,7 +34,7 @@ describe("real shell pipeline with a fake executor", () => {
       await expect(registry.invoke("os.shell.run", { cmd }, { sessionId: "fixture", workingDir: process.cwd(), stepIndex: 0, signal: new AbortController().signal })).rejects.toThrow("synthetic executor reached");
       expect(scan).toHaveBeenCalledTimes(loaded ? 1 : 0);
       const elapsedMs = performance.now() - start;
-      console.info(JSON.stringify({ fixture: cmd.split(" ")[0], bytes: cmd.length, loaded, elapsedMs }));
+      console.info(JSON.stringify({ fixture: cmd.split(" ")[0], bytes: cmd.length, mode, loaded, elapsedMs }));
       // Wall-clock samples are recorded; deterministic work counts are the regression contract.
     } } finally { rmSync(root, { recursive: true, force: true }); }
   });
