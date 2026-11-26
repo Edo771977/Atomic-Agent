@@ -42,3 +42,5 @@ A provider rejection that identifies an invalid sampling setting stops failover 
 ## Validation
 
 `npx vitest run src/llm`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
+
+The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../../docs/reviews/b4b-subscription-signin.md).

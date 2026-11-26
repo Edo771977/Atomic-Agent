@@ -160,6 +160,8 @@ A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candid
 
   See [#79](https://github.com/Edo771977/atomic-agent/pull/79), [#82](https://github.com/Edo771977/atomic-agent/pull/82), [#85](https://github.com/Edo771977/atomic-agent/pull/85) and [#89](https://github.com/Edo771977/atomic-agent/pull/89).
 
+The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../reviews/b4b-subscription-signin.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
