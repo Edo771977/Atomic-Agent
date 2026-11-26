@@ -12,6 +12,10 @@ describe("web URL and host policy identities", () => {
     ["example.test:443", "https://example.test/path", true],
     ["*.EXAMPLE.test", "http://a.example.test:8080/PATH", true],
     ["https://example.test/Case/*", "https://example.test/case/a", false],
+    ["https://example.test/a", "https://example.test/%61", false],
+    ["https://example.test/a/b", "https://example.test/a//b", false],
+    ["https://example.test/a/b", "https://example.test/a%2Fb", false],
+    ["https://example.test/b", "https://example.test/a/../b", true],
   ])("%s on %s has denied=%s", (resource, url, denied) => {
     const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "webfetch", resource: resource as string, effect: "deny" }] };
     expect(policyCallRefusal(policy, "os.web.fetch", { url }) !== null).toBe(denied);
