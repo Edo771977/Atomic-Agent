@@ -17,16 +17,17 @@ describe("embedded atomic-agent MCP stdio child", () => {
     const script = "import {mcpServerCommand} from './src/cli/mcp-server-command.ts'; process.exitCode=await mcpServerCommand(['--allow-exec','--tool','os.shell.run','--cwd',process.env.ATOMIC_AGENT_STATE_DIR]);";
     try {
       for (const effect of [null, "deny", "ask"] as const) {
-        if (effect !== null) writeFileSync(join(root, "policy.json"), JSON.stringify({ rules: [{ action: "shell", resource: "node *", effect }] }));
+        if (effect !== null) writeFileSync(join(root, "policy.json"), JSON.stringify({ rules: [{ action: "shell", resource: effect === "ask" ? "echo*" : "node *", effect }] }));
         const transport = new StdioClientTransport({ command: process.execPath, args: ["--import", "tsx", "--input-type=module", "-e", script], env, stderr: "pipe", cwd: process.cwd() });
         let stderr = ""; transport.stderr?.on("data", data => { stderr += String(data); });
         const client = new Client({ name: "fixture", version: "1" });
         try {
           await client.connect(transport);
           expect((await client.listTools()).tools.map(tool => tool.name)).toContain("os_shell_run");
-          const result = await client.callTool({ name: "os_shell_run", arguments: { cmd: process.execPath, args: ["--version"] } });
+          const result = await client.callTool({ name: "os_shell_run", arguments: effect === "ask" ? { cmd: "echo", args: ["fixture"] } : { cmd: process.execPath, args: ["--version"] } });
           expect(Boolean(result.isError), stderr).toBe(effect !== null);
           if (effect !== null) expect(JSON.stringify(result)).toMatch(/policy|approval/i);
+          if (effect === "ask") expect(JSON.stringify(result)).toContain("an MCP client cannot show");
         } finally { await client.close(); await transport.close(); }
       }
     } finally { rmSync(root, { recursive: true, force: true }); }
