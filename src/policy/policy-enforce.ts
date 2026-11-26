@@ -1,3 +1,5 @@
+import { matchPolicyGlob } from "./policy-glob.js";
+import { programName } from "../tools/os/shell-command-guard/command-segments.js";
 import { changesPolicyChildMetadata } from "./policy-child-env-guard.js";
 /**
  * The admin policy turned into the answers each integration point needs.
@@ -12,7 +14,7 @@ import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-client
 import { analyzeShellRules } from "../tools/os/shell/org-shell-analysis.js";
 import { coerceShellArgs, needsShellInterpretation } from "../tools/os/shell/shell-interpretation.js";
 import { findShellStateSecrets } from "../tools/read-scope/state-secrets.js";
-import { shellWriteTargets, execWriteTargets } from "../tools/os/shell-command-guard/write-targets.js";
+import { shellWriteTargets, execWriteTargets, type WriteTargetScope } from "../tools/os/shell-command-guard/write-targets.js";
 import {
   describePolicyRule,
   evaluatePolicy,
@@ -167,9 +169,17 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     });
     if (touchesPolicy(policy, named, cwd, false, normalize)) return true;
     const args = coerceShellArgs(command.args) ?? [];
-    const scope = { recursive: [] as string[], placed: [] as string[] };
+    const segments = analyze(command.cmd, args, needsShellInterpretation(command.cmd, args)).segments;
+    const readsTree = segments.some(words => /^(?:tar|zip|7z|7za|rar|cpio|rg)$/.test(programName(words[0] ?? "")) || programName(words[0] ?? "") === "grep" && words.slice(1).some(arg => /^-[A-Za-z]*[rR]/.test(arg) || arg === "--recursive"));
+    if (readsTree && touchesPolicy(policy, [...named, ...segments.flatMap(words => words.slice(1).filter(word => word && !word.startsWith("-")))], cwd, true, normalize)) return true;
+    const words = segments.flatMap(segment => segment.slice(1));
+    for (const pattern of words.filter(word => /[*?]/.test(word))) {
+      if (files.filter(normalize.mayExist).some(file => matchPolicyGlob(normalize.pattern(pattern), normalize.path(file)) !== false)) return true;
+    }
+    const scope: WriteTargetScope = { recursive: [], placed: [] };
     const writes = needsShellInterpretation(command.cmd, args) ? shellWriteTargets([command.cmd, ...args].join(" "), cwd, scope) : execWriteTargets(command.cmd, args, cwd, scope);
-    return touchesPolicy(policy, [...writes, ...scope.recursive, ...scope.placed], cwd, true, normalize);
+    const literalWrites = needsShellInterpretation(command.cmd, args) ? [] : (scope.patterns ?? []).filter(pattern => !/[?*]/.test(pattern));
+    return touchesPolicy(policy, [...writes, ...literalWrites, ...scope.recursive, ...scope.placed], cwd, true, normalize);
   });
   if (shellTouchesPolicy || touchesPolicy(policy, readPaths, workingDir, false, normalize) ||
       touchesPolicy(policy, target?.action === "edit" ? target.resources : [], workingDir, true, normalize)) {
