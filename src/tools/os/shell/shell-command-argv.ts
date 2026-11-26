@@ -1,4 +1,4 @@
-import { shellSyntax } from "./shell-rule-syntax.js";
+import { shellSyntax, UNKNOWN_SHELL_WORD } from "./shell-rule-syntax.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   NESTED_SHELL_PROGRAMS,
@@ -136,12 +136,14 @@ export function shellRuleSegments(cmd: string, execArgs: readonly string[], useS
 function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number }): string[][] {
   if (--state.remaining < 0) { state.unreadable = true; return []; }
   const inner = withoutWrappers(words);
+  if (inner[0]?.includes(UNKNOWN_SHELL_WORD)) state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
   const lines = nestedShellScripts(words, state);
   if (inner.length > 1 && programName(inner[0]!) === "eval") lines.push({ line: inner.slice(1).join(" "), dialect: "posix" });
   const nested = lines.flatMap(({ line, dialect }) => {
+    if (line.includes(UNKNOWN_SHELL_WORD)) { state.unreadable = true; return []; }
     const syntax = shellSyntax(line, dialect); state.unreadable ||= syntax.unreadable;
     return syntax.segments.flatMap(w => expandSegment(w, depth + 1, state));
   });

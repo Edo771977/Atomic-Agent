@@ -396,11 +396,11 @@ function argvHasPrefix(
   prefix: readonly string[],
   restrictive = false,
 ): boolean {
-  if (argv === undefined || argv.length < prefix.length) return false;
+  if (argv === undefined || argv.length < prefix.length && !(restrictive && argv.some(word => word.includes("\0")))) return false;
   return prefix.every((token, i) =>
     i === 0
       ? (restrictive ? programName(argv[0]!) === programName(token) : commandName(argv[0]!) === commandName(token))
-      : argv[i] === token,
+      : restrictive && argv.slice(1, i + 1).some(word => word.includes("\0")) || argv[i] === token,
   );
 }
 

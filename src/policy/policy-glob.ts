@@ -25,6 +25,11 @@ export function globMatches(pattern: string, value: string): boolean {
 /** Whether some descendant can match; null is an exhausted comparison budget. */
 export function globMayMatchDescendant(pattern: string, directory: string): boolean | null {
   const prefix = directory.replace(/\/$/, "") + "/";
+  return globMayMatchPrefix(pattern, prefix);
+}
+
+/** Whether some completion of a known prefix can match the pattern. */
+export function globMayMatchPrefix(pattern: string, prefix: string): boolean | null {
   if (prefix.length > MAX_POLICY_RESOURCE_LENGTH || pattern.length > MAX_PATTERN_LENGTH) return null;
   let steps = 0;
   const closure = (states: Set<number>) => {

@@ -1,4 +1,5 @@
-import { globMatches, matchPolicyGlob, MAX_POLICY_RESOURCE_LENGTH } from "./policy-glob.js";
+import { globMatches, matchPolicyGlob, globMayMatchPrefix, MAX_POLICY_RESOURCE_LENGTH } from "./policy-glob.js";
+import { UNKNOWN_SHELL_WORD } from "../tools/os/shell/shell-rule-syntax.js";
 import type { McpAllowlist, PolicyAction, PolicyEffect, PolicyRule } from "./policy-schema.js";
 import { normalizeWebPattern, webResourceForms, canonicalWebEndpoint } from "./policy-web-identity.js";
 
@@ -107,7 +108,9 @@ function evaluateOne(
   let last: SourcedPolicyRule | null = null;
   for (const rule of rules) {
     if (rule.action !== action) continue;
-    const match = matchPolicyGlob(rule.resource, resource);
+    const unknown = action === "shell" ? resource.indexOf(UNKNOWN_SHELL_WORD) : -1;
+    if (unknown !== -1 && rule.effect === "allow") continue;
+    const match = unknown === -1 ? matchPolicyGlob(rule.resource, resource) : globMayMatchPrefix(rule.resource, resource.slice(0, unknown));
     if (match === false || match === null && rule.effect === "allow") continue;
     if (rule.effect === "deny") return { effect: "deny", rule, resource };
     last = rule;

@@ -1,6 +1,9 @@
 import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import { liftSubstitutions } from "../shell-command-guard/command-substitution.js";
 
+/** Internal analysis marker, never an argv to execute (NUL cannot be a shell word). */
+export const UNKNOWN_SHELL_WORD = "\0";
+
 /** Bounded static syntax facts, never an interpreter and never alias/profile loading. */
 export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; unreadable: boolean } {
   if (line.length > 128 * 1024 || depth >= 8) return { segments: [], unreadable: true };
@@ -30,12 +33,11 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     if (token.kind === "redirect") { redirected = true; continue; }
     if (token.kind !== "word") { redirected = false; flush(); continue; }
     if (redirected) { redirected = false; continue; }
-    if (token.dynamic) unreadable = true;
     if (dialect !== "cmd" && (token.text === "{" || token.text === "}")) {
       if (token.text === "{" && words.length > 0) unreadable = true;
       flush(); continue;
     }
-    words.push(token.text);
+    words.push(token.dynamic && !(dialect === "posix" && token.text === "[") ? (/^[A-Za-z_][A-Za-z0-9_]*=/.exec(token.text)?.[0] ?? "") + UNKNOWN_SHELL_WORD : token.text);
   }
   flush();
   for (const inner of lifted?.inner ?? []) {
