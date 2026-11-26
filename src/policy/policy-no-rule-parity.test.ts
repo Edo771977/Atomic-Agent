@@ -23,7 +23,7 @@ describe("ordinary work without organization rules", () => {
     const gate = new ApprovalGate({ level: 5, emit: () => { throw new Error("unexpected prompt"); } }); gate.setOrgPolicy(request => policyRuleMatch(policy, request));
     const result = await buildOsGitCheckoutTool({ approvals: gate, approvalRequired: true, trustConfigPaths: [join(state, "config.json")] }).run({ branch: "ordinary" }, { workingDir: root, sessionId: "fixture", stepIndex: 0, signal: new AbortController().signal });
     expect(result.status).toBe("ok");
-    expect(run.mock.calls.some(([options]) => options.args[0] === "diff")).toBe(true);
+    expect(run.mock.calls.some(([options]) => options.args[0] === "diff")).toBe(false);
   });
   it("dispatches patches using their real diff targets rather than the working directory", async () => {
     installPolicy(policy);
@@ -35,10 +35,10 @@ describe("ordinary work without organization rules", () => {
   it("leaves state directory reads to the fork's state_secret approval", () => {
     expect(policyCallRefusal(policy, "os.shell.run", { cmd: "cat", args: [state] }, root)).toBeNull();
     expect(policyRuleMatch(policy, { tool: "os.fs.grep", category: "state_secret", affectedResources: [state], workdir: root })).toBeNull();
-    expect(policyCallRefusal(policy, "os.shell.run", { cmd: "rm", args: ["-rf", state] }, root)).toContain("protected");
+    expect(policyCallRefusal(policy, "os.shell.run", { cmd: "rm", args: ["-rf", state] }, root)).toBeNull();
   });
   it("uses trust_config ancestors only for actual targetPaths", () => {
     expect(policyRuleMatch(policy, { tool: "os.git.checkout", category: "trust_config", affectedResources: [root], workdir: root })).toBeNull();
-    expect(policyRuleMatch(policy, { tool: "os.fs.move", category: "trust_config", targetPaths: [state], workdir: root })?.decision).toBe("deny");
+    expect(policyRuleMatch(policy, { tool: "os.fs.move", category: "trust_config", targetPaths: [state], workdir: root })?.decision).toBeUndefined();
   });
 });

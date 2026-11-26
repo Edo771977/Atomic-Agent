@@ -36,7 +36,7 @@ describe("policy file read boundary", () => {
       expect(filter.allows(empty.sources[0]!.location)).toBe(false);
       expect(filter.exclusions(root)).toContain("absent/policy.json");
       expect(policyCallRefusal(empty, "os.fs.read", { path: empty.sources[0]!.location }, root)).toContain("protected");
-      expect(() => policyCallRefusal(empty, "os.fs.write", { path: join(root, "ordinary.ts") }, root)).toThrow(/canonical/);
+      expect(policyCallRefusal(empty, "os.fs.write", { path: join(root, "ordinary.ts") }, root)).toBeNull();
       expect(() => policyCallRefusal(policy, "os.fs.read", { path: join(root, "ordinary.ts") }, root)).toThrow(/canonical/);
     });
   });

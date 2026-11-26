@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ToolRegistry } from "../tools/tool-registry.js";
@@ -98,10 +98,13 @@ describe("fork organization policy boundaries", () => {
     expect(answer.approved).toBe(false);
   });
   it("recognized shell reads and replacements of policy use the secret/state scanner even outside runtime dispatch", () => {
-    const p = loadLocalPolicy({ stateDir: process.cwd(), env: {}, readText: () => null });
-    const path = p.sources[0]!.location;
-    expect(policyCallRefusal(p, "os.shell.run", { cmd: "cat", args: [path] }, process.cwd())).toContain("protected");
-    expect(policyCallRefusal(p, "os.shell.run", { cmd: `echo '{}' > \"${path}\"` }, process.cwd())).toContain("protected");
+    const root = mkdtempSync(join(tmpdir(), "policy-existing-boundary-"));
+    const path = join(root, "policy.json"); writeFileSync(path, "{}");
+    try {
+      const p = loadLocalPolicy({ stateDir: root, env: {}, readText: file => file === path ? "{}" : null });
+      expect(policyCallRefusal(p, "os.shell.run", { cmd: "cat", args: [path] }, root)).toContain("protected");
+      expect(policyCallRefusal(p, "os.shell.run", { cmd: `echo '{}' > "${path}"` }, root)).toContain("protected");
+    } finally { rmSync(root, { recursive: true, force: true }); }
   });
   it("Fusion contract checks refuse deny even when an embedder turns approvals off", async () => {
     installPolicy(policy("shell", "node forbidden*"));

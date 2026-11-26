@@ -10,14 +10,14 @@ describe("protected policy entries in a Git mutation tree", () => {
     const file = join(tmpdir(), ...Array.from({ length: 300 }, () => "nested"), "policy.json");
     const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "system", location: file, state: "loaded" }] };
     let scans = 0;
-    expect(() => policyMayIntersectTree(policy, root, path => { scans++; return path; })).toThrow(/limit/i);
+    expect(() => policyMayIntersectTree(policy, root, path => { scans++; return path; }, () => true)).toThrow(/limit/i);
     expect(scans).toBeLessThanOrEqual(260);
   });
   it("retains the entry of a policy symlink whose fake canonical target is outside the tree", () => {
     const root = join(tmpdir(), "policy-tree-fixture");
     const file = join(root, "policy.json");
     const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "system", location: file, state: "loaded" }] };
-    expect(policyMayIntersectTree(policy, root, path => path === file ? join(tmpdir(), "outside", "policy.json") : path)).toBe(true);
+    expect(policyMayIntersectTree(policy, root, path => path === file ? join(tmpdir(), "outside", "policy.json") : path, () => true)).toBe(true);
   });
   it("finds a containing directory entry through a fake outer alias", () => {
     const root = join(tmpdir(), "policy-tree-fixture");
@@ -25,7 +25,7 @@ describe("protected policy entries in a Git mutation tree", () => {
     const file = join(alias, "linked-directory", "policy.json");
     const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "system", location: file, state: "loaded" }] };
     const canonical = (path: string) => path === alias ? root : path === dirname(file) || path === file ? join(tmpdir(), "outside", "policy.json") : path;
-    expect(policyMayIntersectTree(policy, root, canonical)).toBe(true);
+    expect(policyMayIntersectTree(policy, root, canonical, () => true)).toBe(true);
   });
   it("does not require a checkout plan for unrelated protected policy paths", () => {
     const root = join(tmpdir(), "policy-tree-fixture");
