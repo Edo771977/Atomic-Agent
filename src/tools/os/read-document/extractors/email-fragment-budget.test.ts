@@ -7,7 +7,7 @@ it("limits cumulative conversions across the parts of one MIME message", async (
   const forwarded = "--outer\r\nContent-Type: message/rfc822\r\n\r\n" +
     "Subject: Forwarded\r\nContent-Type: text/html\r\n\r\n<p>Inner copy</p>\r\n";
   const message = 'Content-Type: multipart/mixed; boundary="outer"\r\n\r\n' +
-    html("First fixture") + forwarded.repeat(80) + html("TAILX") + "--outer--";
+    html("First fixture") + forwarded.repeat(130) + html("TAILX") + "--outer--";
   const result = await emlExtractor({ data: Buffer.from(message), sourcePath: "fixture.eml" });
   expect(result.text).toContain("## First fixture");
   expect(result.text).toContain("Inner copy");

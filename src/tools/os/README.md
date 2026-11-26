@@ -36,7 +36,7 @@ Root index intentionally composes and exports registrations in the previous orde
 
 ### EPUB and MIME document reads
 
-Each EPUB chapter slice and each MIME message (`.eml` or a message in an `.mbox`) has a shared extraction budget of 128 fragments and 16 MiB of fragment input. The reader warns when it skips the remaining fragments. For EPUB, use `pagesFrom` to resume at the first skipped chapter or a later one.
+Each EPUB chapter slice and each MIME message (`.eml` or a message in an `.mbox`) has a shared extraction budget of 128 chapters or displayed text parts and 16 MiB of fragment input. MIME attachments are listed independently of the text budget. The reader warns when it skips the remaining fragments. For EPUB, use `pagesFrom` to resume at the first skipped chapter or a later one.
 
 ### Outlook document reads
 

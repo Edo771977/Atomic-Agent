@@ -220,6 +220,25 @@ function decodeTransfer(body: string, encoding: string | undefined): Uint8Array 
   return Buffer.from(body, "latin1");
 }
 
+function attachmentSize(body: string, encoding: string | undefined): number {
+  const enc = (encoding ?? "").trim().toLowerCase();
+  if (enc === "base64") {
+    let digits = 0;
+    for (const [run] of body.matchAll(/[A-Za-z0-9+/]+|=/g)) {
+      if (run === "=") break;
+      digits += run.length;
+    }
+    return Math.floor(digits * 3 / 4);
+  }
+  if (enc === "quoted-printable") {
+    const joined = body.replace(/=\r?\n/g, "");
+    let size = joined.length;
+    for (const _ of joined.matchAll(/=[\da-f]{2}/gi)) size -= 2;
+    return size;
+  }
+  return body.length;
+}
+
 // -------------------------------------------------------------- rendering
 
 function renderMessage(raw: string, depth: number, warnings: string[], budget = new FragmentBudget()): string {
@@ -231,7 +250,7 @@ function renderMessage(raw: string, depth: number, warnings: string[], budget = 
   }
   const attachments: string[] = [];
   const body = renderPart(part, depth, warnings, attachments, budget).trim();
-  if (depth === 0 && budget.exhausted) warnings.push("MIME fragment budget exhausted; remaining parts were skipped");
+  if (depth === 0 && budget.exhausted) warnings.push("MIME text fragment budget exhausted; remaining text parts were skipped");
   const out = [lines.join("\n"), body];
   if (attachments.length > 0) {
     out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
@@ -248,21 +267,18 @@ function renderPart(
 ): string {
   const type = parseStructuredHeader(part.headers.get("content-type") ?? "text/plain");
   const mime = type.value || "text/plain";
-  const boundary = mime.startsWith("multipart/") ? type.params.boundary : undefined;
-  // Child bodies count individually. A transfer-encoded forwarded
-  // message also costs decoding work before its children are available.
-  if (!budget.take(boundary ? 0 : part.body.length)) return "";
   if (depth > MAX_DEPTH) {
     warnings.push(`MIME nesting deeper than ${MAX_DEPTH} levels was cut`);
     return "";
   }
   const disposition = parseStructuredHeader(part.headers.get("content-disposition"));
-  const filename = decodeHeaderWords(
-    disposition.params.filename ?? type.params.name ?? "",
-  );
+  const attached = disposition.value === "attachment";
+  const encoding = part.headers.get("content-transfer-encoding");
 
-  if (mime.startsWith("multipart/")) {
+  if (mime.startsWith("multipart/") && !attached) {
+    const boundary = type.params.boundary;
     if (!boundary) {
+      if (!budget.take(part.body.length)) return "";
       warnings.push(`${mime} without a boundary; shown as text`);
       return decodeBytes(Buffer.from(part.body, "latin1")).text;
     }
@@ -272,13 +288,14 @@ function renderPart(
       let html: Part | undefined;
       let last: Part | undefined;
       for (const child of rawChildren) {
-        last = splitPart(child);
-        if (isAttachment(last)) continue;
-        const childMime = partMime(last);
-        if (childMime === "text/plain") {
-          plain = last;
-          break;
+        const candidate = splitPart(child);
+        if (isAttachment(candidate)) {
+          renderPart(candidate, depth + 1, warnings, attachments, budget);
+          continue;
         }
+        last = candidate;
+        const childMime = partMime(last);
+        if (childMime === "text/plain") plain ??= last;
         if (childMime === "text/html") html ??= last;
       }
       const pick = plain ?? html ?? last;
@@ -288,26 +305,25 @@ function renderPart(
     for (const child of rawChildren) {
       const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget).trim();
       if (text) chunks.push(text);
-      if (budget.exhausted) break;
     }
     return chunks.join("\n\n");
   }
 
-  const bytes = decodeTransfer(part.body, part.headers.get("content-transfer-encoding"));
-
-  if (mime === "message/rfc822" && disposition.value !== "attachment") {
+  if (mime === "message/rfc822" && !attached) {
+    const bytes = decodeTransfer(part.body, encoding);
     const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget);
     return `--- attached message ---\n${nested}`;
   }
 
   const isText = mime === "text/plain" || mime === "text/html";
-  if (!isText || disposition.value === "attachment") {
-    const label = filename || "(unnamed)";
-    attachments.push(`${label} (${mime}, ${formatSize(bytes.byteLength)})`);
+  if (!isText || attached) {
+    const label = decodeHeaderWords(disposition.params.filename ?? type.params.name ?? "") || "(unnamed)";
+    attachments.push(`${label} (${mime}, ${formatSize(attachmentSize(part.body, encoding))})`);
     return "";
   }
 
-  const decoded = decodeBytes(bytes, type.params.charset);
+  if (!budget.take(part.body.length)) return "";
+  const decoded = decodeBytes(decodeTransfer(part.body, encoding), type.params.charset);
   if (decoded.warning) warnings.push(decoded.warning);
   const text = decoded.text.replace(/\r\n?/g, "\n");
   return mime === "text/html" ? boundedHtmlToMarkdown(text, warnings).text : text;
