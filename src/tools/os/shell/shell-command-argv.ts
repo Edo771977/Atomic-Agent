@@ -141,6 +141,8 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   // These install deferred code or change subsequent command resolution.
   // Never execute the fixture or consult the operator's shell state.
   if (/^(?:trap|hash|source|\.)$/.test(programName(inner[0] ?? ""))) state.unreadable = true;
+  const program = programName(inner[0] ?? "");
+  if (STDIN_INTERPRETER_RE.test(program) && inner.slice(1).some(arg => INLINE_CODE_FLAG_RE.test(arg)) || /^(?:g?awk|sed)$/.test(program)) state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }

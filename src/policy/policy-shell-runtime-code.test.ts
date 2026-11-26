@@ -4,6 +4,10 @@ import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { matchRules, type ApprovalRule } from "../approval/approval-rules.js";
 
 describe("runtime shell definitions", () => {
+  it.each([["python3", "-c", "print('fixture')"], ["node", "--eval=void 0"], ["perl", "-e", "1"], ["ruby", "-e", "1"], ["php", "-r", "echo 1;"], ["awk", "{print $0}"], ["sed", "-e", "s/a/b/"]])("classifies inline code in %s without interpreting it", (cmd, ...args) => {
+    expect(analyzeShellRules(cmd, args, false).unreadable).toBe(true);
+    expect(analyzeShellRules("printf", [cmd, ...args], false).unreadable).toBe(false);
+  });
   it.each(["trap 'ordinary' EXIT", "hash -p /fixture/ordinary named", "source /fixture/ordinary.sh"])("keeps %s opaque to restrictive rules", line => {
     const analysis = analyzeShellRules("bash", ["-c", line], false);
     expect(analysis.unreadable).toBe(true);
