@@ -1,6 +1,7 @@
 import { withFreshPrivacyVault } from "../../privacy/index.js";
 import { PrivacyVault } from "../../privacy/index.js";
 import { maySendApiKeyVariableToUrl } from "../../config/resolve-llm-api-key.js";
+import { requiresJudgeApiKey } from "./judge-endpoint.js";
 import type { KnownSecret } from "../../error-reporting/secret-detector.js";
 import { isLocalServerUrl } from "../../llm/provider/openai/local-server-url.js";
 import { addPrivacyInstructions, maskOpenAiBody } from "../../llm/provider/openai/openai-privacy-shield.js";
@@ -113,7 +114,7 @@ export function resolveJudgeConfig(
     if (!model) return { error: `the judge at ${baseUrl} needs a model: set ATOMIC_AGENT_JUDGE_MODEL or pass --judge-model` };
     const openRouterAllowed = maySendApiKeyVariableToUrl("OPENROUTER_API_KEY", baseUrl);
     const apiKey = env.ATOMIC_AGENT_JUDGE_API_KEY ?? (openRouterAllowed ? env.OPENROUTER_API_KEY : undefined) ?? null;
-    if (requiresApiKey(baseUrl) && !apiKey) {
+    if (requiresJudgeApiKey(baseUrl) && !apiKey) {
       return { error: `the judge at ${baseUrl} needs an API key: set ATOMIC_AGENT_JUDGE_API_KEY${openRouterAllowed ? " (or OPENROUTER_API_KEY)" : ""}` };
     }
     return { kind: "http", baseUrl, model, apiKey, timeoutMs };
@@ -338,13 +339,4 @@ function chatCompletionsUrl(baseUrl: string): string {
   if (/\/chat\/completions$/.test(baseUrl)) return baseUrl;
   if (/\/v\d+$/.test(baseUrl)) return `${baseUrl}/chat/completions`;
   return `${baseUrl}/v1/chat/completions`;
-}
-
-function requiresApiKey(baseUrl: string): boolean {
-  try {
-    const host = new URL(baseUrl).hostname;
-    return !(host === "localhost" || host === "127.0.0.1" || host === "[::1]" || host.endsWith(".local"));
-  } catch {
-    return false;
-  }
 }

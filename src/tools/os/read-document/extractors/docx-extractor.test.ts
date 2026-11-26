@@ -1,7 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import JSZip from "jszip";
 
 import { docxExtractor } from "./docx-extractor.js";
 
@@ -10,6 +11,19 @@ const FIXTURE_PATH = resolve(
 );
 
 describe("docxExtractor", () => {
+  it("validates a DOCX with stored media without regenerating its buffer", async () => {
+    const zip = await JSZip.loadAsync(await readFile(FIXTURE_PATH));
+    zip.file("word/media/fixture.bin", Buffer.alloc(128 * 1024, 41), { compression: "STORE" });
+    const data = await zip.generateAsync({ type: "nodebuffer" });
+    const regenerate = vi.spyOn(JSZip.prototype, "generateAsync");
+    try {
+      const result = await docxExtractor({ data, sourcePath: FIXTURE_PATH });
+      expect(result.text).toContain("Document Title");
+      expect(regenerate).not.toHaveBeenCalled();
+    } finally {
+      regenerate.mockRestore();
+    }
+  });
   it("extracts headings as markdown with body paragraphs", async () => {
     const data = await readFile(FIXTURE_PATH);
     const result = await docxExtractor({ data, sourcePath: FIXTURE_PATH });
