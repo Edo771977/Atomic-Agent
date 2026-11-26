@@ -27,6 +27,12 @@ const inline = [
 ] as const;
 
 describe("personal rules retain main interpreter decisions independently of organization analysis", () => {
+  it.each([["node.exe", "--version"], ["node", "\0"]])("keeps main's literal saved-prefix identity for %j", (...words) => {
+    const match = matchRules([{ id: "fixture", source: "user", createdAt: "", category: "shell", decision: "deny", commandPrefix: ["node", "fixture"] }], {
+      tool: "os.shell.run", category: "shell", commandSegments: [words],
+    });
+    expect(match).toBeNull();
+  });
   it.each([...ordinary, ...inline])("does not broaden an unrelated saved rule for %j", (cmd, ...args) => {
     for (const decision of ["deny", "ask"] as const) {
       const match = matchRules([{ id: "fixture", source: "user", createdAt: "", category: "shell", commandPrefix: ["unrelated-fixture"], decision }], {
