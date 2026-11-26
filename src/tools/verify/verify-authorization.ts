@@ -190,11 +190,11 @@ export async function authorizeVerifyBatch(
     }
     const policySpec = spec.cmd === undefined && kind === "command" && typeof spec.command === "string" ? { ...spec, kind, cmd: spec.command } : { ...spec, kind };
     const actual = parseVerifyRunArgs(policySpec);
-    const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", policySpec, project);
-    if (policyRefusal !== null) throw new Error(policyRefusal);
     const actualCwd = resolveVerifyCwd(ctx.workingDir, actual.cwd, true);
     const guard = guardVerifyRun(actual, actualCwd, options.shellPolicy);
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);
+    const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", policySpec, project);
+    if (policyRefusal !== null) throw new Error(policyRefusal);
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
     const cwd = resolveVerifyCwd(project, logical.cwd, true);
     const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
