@@ -109,7 +109,7 @@ export function createPolicyEvaluation(policy: EffectivePolicy, workingDir: stri
     },
     asks: (tool: string, args: Record<string, unknown>) => policyCallAsks(policy, tool, args, analyze),
     shellSpawnRefusal(cmd: string, args: readonly string[], file: string, argv: readonly string[], cwd = workingDir): string | null {
-      if (policy.rules.length > 0) {
+      if (policy.rules.length > 0 || policy.sources.some(source => source.state === "loaded") || policyFiles(policy).some((normalizers.get(cwd) ?? createEditPathNormalizer(cwd)).mayExist)) {
         const original = analyze(cmd, args, needsShellInterpretation(cmd, args));
         aliases.set(analysisKey(file, argv, needsShellInterpretation(file, argv)), { ...original, segments: [[file, ...argv], ...original.segments] });
       }
