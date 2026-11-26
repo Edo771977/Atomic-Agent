@@ -244,3 +244,5 @@ Child process environment filtering depends on the launcher. The shell builder n
 ## OS sandbox for commands
 
 The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.
+
+La terza revisione B1 della policy (#246) ripristina il parser delle regole personali di main e separa la classificazione prudente dell'organizzazione. Le opzioni degli interpreti terminano allo script/modulo o `--`; stdin e descrittori conservano il rifiuto prudente. Le operazioni senza file policy esistenti mantengono la parità del fork, mentre Git add/commit e pull valutano piani effettivi. Gli ask organizzativi valgono anche sui comandi sicuri. Metadati dei figli e hash sono un contratto applicativo: il file di sistema richiede autorità OS; aggiornamenti anche equivalenti di file/cache richiedono il riavvio del padre. Per limiti linguistici, script su file, hard link e sandbox/egress vedere la [guida policy](../../src/policy/README.md).
