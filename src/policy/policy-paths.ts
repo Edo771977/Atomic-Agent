@@ -10,6 +10,24 @@ interface PolicyPathFs {
 }
 const policyPathFs: PolicyPathFs = { realpath: realpathSync, lstat: lstatSync, readlink: readlinkSync };
 
+/** Cache filesystem facts for one operation, including missing ancestors. */
+export function createPolicyCanonicalizer(fs: PolicyPathFs = policyPathFs): (path: string) => string {
+  const memo = <T>(read: (path: string) => T) => {
+    const cache = new Map<string, { value: T } | { error: unknown }>();
+    return (path: string): T => {
+      let result = cache.get(path);
+      if (result === undefined) {
+        try { result = { value: read(path) }; } catch (error) { result = { error }; }
+        cache.set(path, result);
+      }
+      if ("error" in result) throw result.error;
+      return result.value;
+    };
+  };
+  const scoped: PolicyPathFs = { realpath: memo(fs.realpath), lstat: memo(fs.lstat), readlink: memo(fs.readlink) };
+  return memo(path => canonicalPolicyPath(path, scoped));
+}
+
 export function canonicalPolicyPath(path: string, fs: PolicyPathFs = policyPathFs): string {
   let current = resolve(path);
   const suffix: string[] = [];
@@ -42,7 +60,7 @@ export function policyFilePaths(policy: EffectivePolicy): string[] {
 }
 
 /** Include link entries as well as referents: replacing an ancestor can relocate a policy. */
-export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string, canonicalize = canonicalPolicyPath): boolean {
+export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string, canonicalize = createPolicyCanonicalizer()): boolean {
   const normalize = createEditPathNormalizer(process.cwd(), process.platform, canonicalize);
   const root = normalize.path(treeRoot).replace(/\/$/, "");
   const inside = (path: string) => path === root || path.startsWith(`${root}/`);
@@ -62,7 +80,7 @@ export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string
 
 /** Patterns and resources share one identity; caches last only for this evaluation. */
 export function createEditPathNormalizer(workingDir = process.cwd(), platform: NodeJS.Platform = process.platform,
-  canonicalize: (path: string) => string = platform === process.platform ? canonicalPolicyPath : path => path) {
+  canonicalize: (path: string) => string = platform === process.platform ? createPolicyCanonicalizer() : path => path) {
   const api = platform === "win32" ? win32 : posix;
   const cache = new Map<string, string>();
   const fold = (value: string) => {
@@ -88,7 +106,7 @@ export function createEditPathNormalizer(workingDir = process.cwd(), platform: N
 }
 
 /** One read operation: canonicalize each path once, without retaining decisions across calls. */
-export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = canonicalPolicyPath) {
+export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = createPolicyCanonicalizer()) {
   const canonical = new Map<string, string>();
   const real = (path: string): string => {
     const absolute = resolve(path);
@@ -101,6 +119,7 @@ export function policyFileReadFilter(policy: EffectivePolicy, canonicalize = can
   };
   const key = (path: string) => process.platform === "win32" || process.platform === "darwin" ? real(path).toLowerCase() : real(path);
   const files = policyFilePaths(policy);
+  if (files.length === 0) return { files, exclusions: (_root: string): string[] => [], allows: (_path: string) => true };
   const protectedKeys = new Set(files.map(key));
   const exclusions = (root: string) => [...new Set(files.flatMap(file => [relative(resolve(root), resolve(file)), relative(real(root), real(file))])
     .filter(path => !isAbsolute(path) && path !== ".." && !path.startsWith("../") && !path.startsWith("..\\")).map(path => path.replace(/\\/g, "/")))];

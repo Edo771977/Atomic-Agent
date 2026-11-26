@@ -3,11 +3,12 @@ import { resolve } from "node:path";
 import { describePolicyRule, evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
 import { policyCallRefusal } from "./policy-enforce.js";
 import { globMayMatchDescendant } from "./policy-glob.js";
-import { createEditPathNormalizer } from "./policy-paths.js";
+import { createEditPathNormalizer, policyFilePaths } from "./policy-paths.js";
 
 /** Actual mutation plans, independent of the caller's tool name or approval category. */
 export function checkPolicyMutation(policy: EffectivePolicy, tool: string, paths: readonly string[], workingDir: string, directoryPaths: readonly string[] = []) {
   if (paths.length === 0) return { refusal: null, ask: false };
+  if (!policy.rules.some(rule => rule.action === "edit" && rule.effect !== "allow") && policyFilePaths(policy).length === 0) return { refusal: null, ask: false };
   const normalize = createEditPathNormalizer(workingDir);
   const forms = (path: string) => [normalize.path(path)];
   const normalizedPolicy = { ...policy, rules: policy.rules.map(rule => rule.action === "edit" ? { ...rule, resource: normalize.pattern(rule.resource) } : rule) };

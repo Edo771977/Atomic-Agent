@@ -4,8 +4,8 @@
  * match shaped like one of its saved rules.
  */
 import type { ApprovalRule, RuleMatch } from "../approval/approval-rules.js";
-import { dirname, resolve, relative, isAbsolute, sep } from "node:path";
-import { canonicalPolicyPath as canonicalPath, policyFilePaths as policyFiles, createEditPathNormalizer } from "./policy-paths.js";
+import { dirname, relative, isAbsolute, sep } from "node:path";
+import { policyFilePaths as policyFiles, createEditPathNormalizer } from "./policy-paths.js";
 import { READ_TOOL_TARGETS, verifyRunShellCalls } from "../tools/read-scope/read-scope-targets.js";
 import { shellNetworkUrls } from "../tools/os/shell-command-guard/network-clients.js";
 import { shellRuleSegments } from "../tools/os/shell/shell-command-argv.js";
@@ -24,11 +24,11 @@ import { gateRequestTarget, toolCallTarget, type PolicyGateRequest, type PolicyT
 /** Even an approval cannot authorize the agent to replace its own policy. */
 function touchesPolicy(policy: EffectivePolicy, paths: readonly string[], workingDir = process.cwd(), ancestors = false): boolean {
   const protectedPaths = policyFiles(policy);
-  return paths.some(path => protectedPaths.some(file => {
-    const target = canonicalPath(resolve(workingDir, path));
-    const protectedFile = canonicalPath(resolve(file));
-    const normalize = (value: string) => process.platform === "win32" || process.platform === "darwin" ? value.toLowerCase() : value;
-    const offset = relative(normalize(target), normalize(protectedFile));
+  if (paths.length === 0 || protectedPaths.length === 0) return false;
+  const normalize = createEditPathNormalizer(workingDir);
+  const protectedFiles = protectedPaths.map(normalize.path);
+  return paths.some(path => protectedFiles.some(file => {
+    const offset = relative(normalize.path(path), file);
     return offset === "" || ancestors && !isAbsolute(offset) && offset !== ".." && !offset.startsWith(`..${sep}`);
   }));
 }
