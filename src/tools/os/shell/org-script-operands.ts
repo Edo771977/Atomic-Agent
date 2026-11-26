@@ -2,6 +2,36 @@ import { programName, NESTED_SHELL_PROGRAMS, scanNestedShellOptions } from "../s
 
 export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string };
 
+/** Linear selector scan; does not interpret replacement text or compile a regex. */
+function sedExternalCommand(script: string): boolean {
+  let i = 0;
+  const delimited = (delimiter: string) => {
+    while (i < script.length) {
+      const char = script[i++];
+      if (char === "\\") i++;
+      else if (char === delimiter) return;
+    }
+  };
+  while (i < script.length) {
+    while (i < script.length && /[\s\d$,!]/.test(script[i]!)) i++;
+    if (script[i] === "/") { i++; delimited("/"); continue; }
+    const command = script[i++];
+    if (command === "e" || command === "{") return true;
+    if (command === "s" && i < script.length) {
+      const delimiter = script[i++]!;
+      delimited(delimiter); delimited(delimiter);
+      while (i < script.length && !/[;\n\s]/.test(script[i]!)) {
+        const flag = script[i++];
+        if (flag === "e") return true;
+        if (flag === "w") break;
+      }
+    }
+    while (i < script.length && !/[;\n]/.test(script[i]!)) { if (script[i] === "\\") i++; i++; }
+    i++;
+  }
+  return false;
+}
+
 /** Descriptor identities cannot be inferred from a different stdin payload. */
 export function scriptStream(operand: string | undefined): "stdin" | "unknown" | null {
   if (operand === "-" || operand === "/dev/stdin" || /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\/0$/.test(operand ?? "")) return "stdin";
@@ -50,7 +80,7 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       continue;
     }
     // External-command extensions are not the ordinary text-processing DSL.
-    const opaque = scripts.some(script => name === "sed" ? /(?:^|[;\n])\s*e(?:\s|$)|s(.).*\1.*\1[^;\n]*e/.test(script) : /\bsystem\s*\(|\|/.test(script));
+    const opaque = scripts.some(script => name === "sed" ? sedExternalCommand(script) : /\bsystem\s*\(|\|/.test(script));
     return opaque ? { kind: "inline" } : file !== undefined ? { kind: "file", operand: file } : { kind: "none" };
   }
   for (let i = 0; i < args.length; i++) {

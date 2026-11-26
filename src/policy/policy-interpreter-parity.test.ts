@@ -27,6 +27,7 @@ const inline = [
   ["perl", "-I", "/fixture", "-we1"],
   ["ruby", "-I", "/fixture", "-e1"],
   ["sed", "-e", "e fixture"],
+  ["sed", "-e", "1e fixture"],
   ["awk", "BEGIN { system(\"fixture\") }"],
   ["awk", "--source=BEGIN { system(\"fixture\") }"],
   ["sed", "-f", "fixture.sed", "-e", "e fixture"],
