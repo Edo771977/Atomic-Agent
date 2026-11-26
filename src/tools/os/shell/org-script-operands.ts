@@ -42,17 +42,16 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       if (arg === "--") { if (scripts.length === 0 && file === undefined) scripts.push(args[++i] ?? ""); break; }
       if (/^(?:-f|--file)$/.test(arg)) { file = args[++i]; continue; }
       if (/^(?:-f.|--file=)/.test(arg)) { file = arg.replace(/^(?:-f|--file=)/, ""); continue; }
-      if (/^(?:-e|--expression)$/.test(arg)) { scripts.push(args[++i] ?? ""); continue; }
-      if (/^(?:-e.|--expression=)/.test(arg)) { scripts.push(arg.replace(/^(?:-e|--expression=)/, "")); continue; }
+      if (/^(?:-e|--expression|--source)$/.test(arg)) { scripts.push(args[++i] ?? ""); continue; }
+      if (/^(?:-e.|--expression=|--source=)/.test(arg)) { scripts.push(arg.replace(/^(?:-e|--expression=|--source=)/, "")); continue; }
       if (/^(?:-v|--assign|-F|--field-separator)$/.test(arg) && name !== "sed") { i++; continue; }
       if (arg.startsWith("-")) continue;
       if (scripts.length === 0 && file === undefined) scripts.push(arg);
-      break;
+      continue;
     }
-    if (file !== undefined) return { kind: "file", operand: file };
     // External-command extensions are not the ordinary text-processing DSL.
     const opaque = scripts.some(script => name === "sed" ? /(?:^|[;\n])\s*e(?:\s|$)|s(.).*\1.*\1[^;\n]*e/.test(script) : /\bsystem\s*\(|\|/.test(script));
-    return { kind: opaque ? "inline" : "none" };
+    return opaque ? { kind: "inline" } : file !== undefined ? { kind: "file", operand: file } : { kind: "none" };
   }
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
@@ -66,8 +65,12 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
       if (/^(?:-r|--require|--import|--input-type|--loader|--experimental-loader|--conditions|--inspect-port)$/.test(arg)) i++;
     } else if (name === "perl" || name === "ruby") {
-      if (/^-[^-]*[eE]/.test(arg)) return { kind: "inline" };
-      if (/^(?:-I|-M|-m|-r|-C|-F)$/.test(arg)) i++;
+      const valueFlags = name === "perl" ? "IMmFi" : "IrCFEKTW";
+      for (let j = 1; j < arg.length && arg[1] !== "-"; j++) {
+        const flag = arg[j]!;
+        if (flag === "e" || name === "perl" && flag === "E") return { kind: "inline" };
+        if (valueFlags.includes(flag)) { if (j === arg.length - 1) i++; break; }
+      }
     } else if (name === "php") {
       if (/^-r/.test(arg)) return { kind: "inline" };
       if (arg === "-f") return { kind: "file", operand: args[i + 1] };

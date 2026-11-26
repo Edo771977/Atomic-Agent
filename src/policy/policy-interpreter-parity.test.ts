@@ -12,6 +12,10 @@ const ordinary = [
   ["node", "--check", "fixture.js"],
   ["node", "--", "fixture.js", "-e", "data"],
   ["perl", "-Mstrict", "fixture.pl", "-e1"],
+  ["perl", "-Mfeature", "fixture.pl"],
+  ["perl", "-I/fixture", "fixture.pl"],
+  ["ruby", "-rdelegate", "fixture.rb"],
+  ["ruby", "-E", "UTF-8", "fixture.rb"],
   ["ruby", "-r", "fixture", "fixture.rb", "-e1"],
   ["sed", "-n", "-e", "s/a/b/p", "fixture.txt"],
   ["awk", "{ print $1 }", "fixture.txt"],
@@ -24,10 +28,12 @@ const inline = [
   ["ruby", "-I", "/fixture", "-e1"],
   ["sed", "-e", "e fixture"],
   ["awk", "BEGIN { system(\"fixture\") }"],
+  ["awk", "--source=BEGIN { system(\"fixture\") }"],
+  ["sed", "-f", "fixture.sed", "-e", "e fixture"],
 ] as const;
 
 describe("personal rules retain main interpreter decisions independently of organization analysis", () => {
-  it.each([["node.exe", "--version"], ["node", "\0"]])("keeps main's literal saved-prefix identity for %j", (...words) => {
+  it.each([["node.exe", "fixture"], ["node", "\0"]])("keeps main's literal saved-prefix identity for %j", (...words) => {
     const match = matchRules([{ id: "fixture", source: "user", createdAt: "", category: "shell", decision: "deny", commandPrefix: ["node", "fixture"] }], {
       tool: "os.shell.run", category: "shell", commandSegments: [words],
     });
