@@ -192,6 +192,11 @@ function escapeMarkup(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
+function usableUrlAttribute(value: string | undefined): value is string {
+  return Boolean(value && Buffer.byteLength(value, "utf8") <= HTML_ATTRIBUTE_BYTES &&
+    !/^data:/i.test(value.replace(/[\t\r\n]/g, "").trim()));
+}
+
 function openingTag(name: string, attributes: Record<string, string>): string {
   let result = `<${name}`;
   for (const field of ATTRIBUTES.get(name) ?? []) {
@@ -200,7 +205,7 @@ function openingTag(name: string, attributes: Record<string, string>): string {
     const oversize = Buffer.byteLength(value, "utf8") > HTML_ATTRIBUTE_BYTES;
     if (field === "href" || field === "src") {
       // With no URL, an anchor retains its text and an image keeps its alt.
-      if (oversize || /^data:/i.test(value.replace(/[\t\r\n]/g, "").trim())) continue;
+      if (!usableUrlAttribute(value)) continue;
     }
     if (field === "start" && !/^-?\d{1,8}$/.test(value)) continue;
     if (field === "colspan" && !/^[1-9]\d{0,3}$/.test(value)) continue;
@@ -229,6 +234,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let whitespaceRun = 0;
   let inText = false;
   let renderedDepth = 0;
+  let openAnchor = -1;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
 
@@ -240,6 +246,22 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     if (cost > HTML_SOURCE_CHARS - length) return stop("size");
     parts.push(text);
     length += cost;
+  };
+  const closeTag = (tag: string) => {
+    if (tag === "a") openAnchor = -1;
+    renderedDepth--;
+    append(`</${tag}>`);
+  };
+  const closeOpenAnchor = () => {
+    // HTML treats a new anchor as the end of an open one. Close its
+    // rendered descendants too so the serialized fragment stays balanced.
+    const anchor = openAnchor;
+    for (let i = emitted.length - 2; i >= anchor && !limit; i--) {
+      const tag = emitted[i];
+      if (!tag) continue;
+      closeTag(tag);
+      emitted[i] = undefined;
+    }
   };
   // The parser can deliver a single run in several callbacks, especially
   // across entity references. Tags do not reset it; visible text does.
@@ -287,6 +309,16 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
       emitted.push(undefined);
       if (omittedDepth || !HTML_TAG.test(name)) return;
+      if (name === "a" && !recognizeSelfClosing && openAnchor >= 0) closeOpenAnchor();
+      if (limit) return;
+      // Font and unstyled spans carry no structure in Markdown. Named
+      // anchors still close a previous link but do not wrap following text.
+      if (name === "font") {
+        flattened.depth ||= depth > HTML_FORMAT_DEPTH;
+        return;
+      }
+      if (!recognizeSelfClosing &&
+          (name === "span" || (name === "a" && !usableUrlAttribute(attributes.href)))) return;
       if (name === "br") {
         if (whitespaceRun >= HTML_WHITESPACE_RUN) return;
         whitespaceRun++;
@@ -303,12 +335,6 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         if (name === "td" || name === "th" || name === "tr") append(" ");
         return;
       }
-      // Font attributes are discarded, so these wrappers contribute no
-      // Markdown structure and must not hide an otherwise shallow link.
-      if (name === "font") {
-        flattened.depth ||= depth > HTML_FORMAT_DEPTH;
-        return;
-      }
       const isVoid = VOID_ELEMENTS.has(name);
       if (!isVoid && renderedDepth >= HTML_FORMAT_DEPTH) {
         flattened.depth = true;
@@ -317,6 +343,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (!isVoid) {
         renderedDepth++;
         emitted[emitted.length - 1] = name;
+        if (name === "a" && !recognizeSelfClosing) openAnchor = emitted.length - 1;
       }
       append(openingTag(name, attributes));
     },
@@ -327,8 +354,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (omittedDepth === depth) omittedDepth = 0;
       const tag = emitted.pop();
       if (tag) {
-        renderedDepth--;
-        append(`</${tag}>`);
+        closeTag(tag);
       } else if (!omittedDepth && tables > 1 && (name === "td" || name === "th" || name === "tr")) {
         append(" ");
       }
