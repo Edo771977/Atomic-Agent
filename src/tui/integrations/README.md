@@ -14,3 +14,5 @@ Telegram setup/pairing is delegated to [telegram](../telegram/README.md), not co
 ## Checks and limits
 
 `npx vitest run src/tui/integrations/ src/tui/telegram/`. Tests use injected/mocked operations and temporary config; no real credential submission or service registration is required. Run `npm run lint`, `npm run typecheck:tests` and `npm run imports:check` after changing interfaces; `npm run docs:check` for navigation.
+
+The B4d Monid integrations row (#1573) is deferred: a configured server named monid selects a foreign origin for the branded sign-in entry point. The generic MCP catalog entry is unchanged. [Review and reopening requirements](../../../docs/reviews/b4d-monid.md).

@@ -8,3 +8,5 @@ Owns integration descriptors, live settings and secret-resolution bridges. Keep 
 Entry point: [integration-registry.ts](integration-registry.ts). Read the root instruction route and the underlying domain instructions before cross-domain changes.
 
 Checks: `npx vitest run src/integrations` when tests are present; `npm run lint`; `npm run docs:check`.
+
+The B4d Monid integrations row (#1573) is deferred: a configured server named monid selects a foreign origin for the branded sign-in entry point. The generic MCP catalog entry is unchanged. [Review and reopening requirements](../../docs/reviews/b4d-monid.md).
