@@ -1,5 +1,5 @@
 import type { DocumentFormat, Extractor, ExtractResult } from "./extractor-types.js";
-import { htmlToMarkdown } from "./html-markdown.js";
+import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes } from "./text-decode.js";
 
 /**
@@ -291,7 +291,7 @@ function renderPart(
   const decoded = decodeBytes(bytes, type.params.charset);
   if (decoded.warning) warnings.push(decoded.warning);
   const text = decoded.text.replace(/\r\n?/g, "\n");
-  return mime === "text/html" ? htmlToMarkdown(text).text : text;
+  return mime === "text/html" ? boundedHtmlToMarkdown(text, warnings).text : text;
 }
 
 function partMime(part: Part): string {

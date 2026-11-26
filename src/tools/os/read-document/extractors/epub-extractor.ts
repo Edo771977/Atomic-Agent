@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 
 import type { Extractor } from "./extractor-types.js";
-import { htmlToMarkdown } from "./html-markdown.js";
+import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes, sniffHtmlCharset } from "./text-decode.js";
 import {
   nodeAttr,
@@ -77,7 +77,7 @@ export const epubExtractor: Extractor = async (input) => {
       const bytes = await file.async("uint8array");
       const decoded = decodeBytes(bytes, sniffHtmlCharset(bytes));
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
-      const { text } = htmlToMarkdown(decoded.text);
+      const { text } = boundedHtmlToMarkdown(decoded.text, warnings);
       if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
       else if (text.length > 0) chunks.push(text);
       extracted.push(n);

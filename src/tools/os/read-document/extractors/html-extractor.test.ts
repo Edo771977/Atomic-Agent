@@ -51,7 +51,8 @@ describe("htmlExtractor", () => {
     const result = await run("<p>Visible fixture</p>" + "<div>".repeat(depth) + "nested" + "</div>".repeat(depth));
     expect(performance.now() - start).toBeLessThan(2_000);
     expect(result.text).toContain("Visible fixture");
-    expect(result.warnings.join("\n")).toMatch(/HTML.*depth.*content.*omitted/i);
+    expect(result.text).toContain("nested");
+    expect(result.warnings.join("\n")).toMatch(/HTML.*depth.*plain text/i);
   });
   it("renders the body as markdown and drops scripts, styles and head", async () => {
     const result = await run(
