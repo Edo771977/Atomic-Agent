@@ -155,7 +155,7 @@ export async function gateBrowserAction(
   }
   const targetUrl = element ? actionTargetUrl(request.kind, element) : null;
   if (targetUrl !== null) {
-    if (/^(?:javascript|mailto):/i.test(targetUrl)) {
+    if (/^(?:javascript|mailto|tel|blob|data):/i.test(targetUrl)) {
       // These activate an element rather than opening a Chrome page.
       // The ordinary action/secret gate below still applies.
       const refusal = policyCallRefusal(activePolicy(), "os.web.fetch", { url: targetUrl });

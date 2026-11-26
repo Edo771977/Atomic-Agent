@@ -5,7 +5,7 @@ import { installPolicy } from "../../policy/policy-active.js";
 
 afterEach(() => installPolicy(null));
 describe("profile actions without a web navigation", () => {
-  it.each(["javascript:void(0)", "mailto:fixture@example.test"])("retains click and submit for %s", async target => {
+  it.each(["javascript:void(0)", "mailto:fixture@example.test", "tel:+390000000", "blob:https://fixture.test/id", "data:text/plain,fixture"])("retains click and submit for %s", async target => {
     for (const kind of ["click", "type_enter"] as const) {
       const backend = new GateBackend();
       backend.element = facts({ href: target, formAction: target, inForm: true, isSubmit: true, name: "Continue" });
@@ -17,4 +17,10 @@ describe("profile actions without a web navigation", () => {
       installPolicy(null);
     }
   });
+  it.each(["file:///fixture.txt", "chrome://settings"])("retains profile refusal for %s", async target => {
+    const backend = new GateBackend(); backend.element = facts({ href: target });
+    const { options } = recordingGate(true);
+    expect((await gateBrowserAction(backend, options, { blockedDomains: [], allowedDomains: [], userProfile: true }, { tool: "browser.click", kind: "click", ref: "e1" }, GATE_CTX))?.status).toBe("error");
+  });
+
 });
