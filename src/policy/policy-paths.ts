@@ -68,7 +68,8 @@ export function policyMayIntersectTree(policy: EffectivePolicy, treeRoot: string
   for (const file of policyFilePaths(policy)) {
     if (inside(normalize.path(file))) return true;
     let entry = resolve(file);
-    for (;;) {
+    for (let depth = 0; ; depth++) {
+      if (depth >= 256) throw new Error("Protected policy ancestor resolution limit exceeded");
       const parent = dirname(entry);
       const name = process.platform === "win32" || process.platform === "darwin" ? basename(entry).toLowerCase() : basename(entry);
       if (inside(`${normalize.path(parent).replace(/\/$/, "")}/${name}`)) return true;

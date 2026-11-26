@@ -5,6 +5,14 @@ import { policyMayIntersectTree } from "./policy-paths.js";
 import type { EffectivePolicy } from "./policy-evaluator.js";
 
 describe("protected policy entries in a Git mutation tree", () => {
+  it("refuses an indeterminate ancestor chain beyond the per-call depth limit", () => {
+    const root = join(tmpdir(), "unrelated-policy-tree-fixture");
+    const file = join(tmpdir(), ...Array.from({ length: 300 }, () => "nested"), "policy.json");
+    const policy: EffectivePolicy = { rules: [], mcpAllowlists: [], sources: [{ kind: "system", location: file, state: "loaded" }] };
+    let scans = 0;
+    expect(() => policyMayIntersectTree(policy, root, path => { scans++; return path; })).toThrow(/limit/i);
+    expect(scans).toBeLessThanOrEqual(260);
+  });
   it("retains the entry of a policy symlink whose fake canonical target is outside the tree", () => {
     const root = join(tmpdir(), "policy-tree-fixture");
     const file = join(root, "policy.json");

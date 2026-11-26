@@ -63,7 +63,7 @@ These are application checks plus the existing optional OS sandbox, not isolatio
 
 Point reads compare the exact canonical file. Listing or searching an ancestor (home, `/etc`, a filesystem root) is not a policy-file read; grep, glob and code-map exclude the protected files within those trees. Ancestor containment is retained for mutations that could replace or remove a policy. Canonical read decisions are scoped to one operation and are never retained after it.
 
-Diff refuses either protected input before reading; structural code search/rewrite exclude protected paths before launching ast-grep and discard protected returned matches. Canonical identities resolve symlinks, including missing final targets, with a 256-step limit; an indeterminate path refuses the operation. Hard links are outside this path-based mechanism: a different hard-link name is not recognized as the same inode. Protect policy directories with administrator ownership and the existing OS sandbox where available.
+Diff refuses either protected input before reading; structural code search/rewrite exclude protected paths before launching ast-grep and discard protected returned matches. Canonical identities resolve symlinks, including missing final targets, with a 256-step limit; protected-entry ancestor scans also stop after 256 levels. An indeterminate path refuses the operation. Hard links are outside this path-based mechanism: a different hard-link name is not recognized as the same inode. Protect policy directories with administrator ownership and the existing OS sandbox where available.
 
 ## Not done yet
 
