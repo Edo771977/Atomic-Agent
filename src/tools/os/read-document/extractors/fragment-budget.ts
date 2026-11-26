@@ -17,7 +17,7 @@ export class FragmentBudget {
 
   constructor(maxBytes = DEFAULT_DOCUMENT_MAX_BYTES) {
     this.maxOutputBytes = maxBytes;
-    this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 4));
+    this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 5));
     this.#workLimit = Math.min(MAX_RENDER_WORK, Math.max(128 * 1024, Math.floor(maxBytes * 0.3)));
   }
 

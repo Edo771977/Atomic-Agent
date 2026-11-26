@@ -36,7 +36,7 @@ Root index intentionally composes and exports registrations in the previous orde
 
 ### EPUB and MIME document reads
 
-Each EPUB, EML, or MBOX read budgets input, body text, and HTML formatting separately. The body text budget follows `maxBytes`. The formatting budget follows `maxBytes` within a fixed range and charges serialized tags, attributes and 16 units per node. After that budget runs out, subsequent HTML fragments are rendered as plain text. MIME attachments in the messages read are listed independently of the text budget. Use `pagesFrom` to resume at the chapter, displayed MIME body part, or MBOX message named in the warning. In EML, `pagesTo` also applies to displayed body parts, and alternative representations of the same content count as one part.
+Each EPUB, EML, or MBOX read budgets fragment input, returned text, and HTML formatting separately. `maxBytes` covers the displayed text, including headers, markers, separators, and attachment listings. Fragment input is limited to five times `maxBytes` within 16–64 MiB. HTML formatting starts with 30% of `maxBytes` in work units, within 128 Ki–3 Mi units, and charges serialized tags, attributes and 16 units per node. This keeps multiple ordinary tables or link-rich sections formatted while allowing long runs of dense HTML to continue in plain text with a warning. Taking a smaller page range gives the selected fragments a fresh formatting budget. Use the warning's `pagesFrom` value to continue. An item deferred for space can be read on the next call. An item already shown as a truncated prefix is followed by the next item on continuation. In EML, `pagesTo` also applies to displayed body parts, and alternative representations of the same content count as one part.
 
 ### Outlook document reads
 
