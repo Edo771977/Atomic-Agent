@@ -117,5 +117,5 @@ export function buildMcpStdioEnv(
     if (INHERITED.has(key.toUpperCase())) env[key] = value;
   }
   if (serverEnv) Object.assign(env, serverEnv);
-  return Object.fromEntries(Object.entries(markAgentToolChild(env)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
+  return Object.fromEntries(Object.entries(markAgentToolChild(env, base)).filter((entry): entry is [string, string] => typeof entry[1] === "string"));
 }

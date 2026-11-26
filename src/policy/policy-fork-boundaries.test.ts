@@ -45,12 +45,12 @@ describe("fork organization policy boundaries", () => {
     expect(await policyCommand(["show", "--json"], { load, write, writeErr: () => undefined })).toBe(1);
     expect(load).not.toHaveBeenCalled(); expect(write).not.toHaveBeenCalled();
   });
-  it("a tool child cannot start an independent runtime with a replacement state directory", async () => {
+  it("a tool child retains system restrictions with a replacement state directory", async () => {
     vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
-    const readText = vi.fn(() => null);
-    expect(() => loadLocalPolicy({ stateDir: "replacement", env: {}, readText })).toThrow(/operator|tool child/i);
-    await expect(loadPolicy({ stateDir: "replacement", env: {}, readText })).rejects.toThrow(/operator|tool child/i);
-    expect(readText).not.toHaveBeenCalled();
+    const readText = vi.fn((path: string) => path.includes("AtomicAgent") || path.includes("atomic-agent/policy.json") ? JSON.stringify({ rules: [{ action: "shell", effect: "deny" }] }) : null);
+    for (const p of [loadLocalPolicy({ stateDir: "replacement", env: {}, readText }), await loadPolicy({ stateDir: "replacement", env: {}, readText })]) {
+      expect(policyCallRefusal(p, "os.shell.run", { cmd: "fixture" })).toContain("policy");
+    }
   });
   it.each(["os.web.search", "mcp.corp.read", "os.fs.write"])("direct registry invocation cannot bypass deny for %s", async tool => {
     installPolicy(policy(tool === "os.web.search" ? "websearch" : tool.startsWith("mcp.") ? "mcp" : "edit"));

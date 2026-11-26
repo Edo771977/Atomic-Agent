@@ -125,13 +125,12 @@ describe("loadPolicy with ATOMIC_POLICY_URL", () => {
     expect(policy.sources.at(-1)).toMatchObject({ kind: "url", state: "unreachable", error: "Organization policy download or document unavailable" });
   });
 
-  it("still loads when the cache cannot be written", async () => {
+  it("refuses fresh remote policy when the cache cannot be persisted for children", async () => {
     const fetchText = vi.fn(async () => JSON.stringify({ rules: [rule("*", "ask")] }));
-    const policy = await loadPolicy({
+    await expect(loadPolicy({
       stateDir: STATE, platform: "linux", env: { ATOMIC_POLICY_URL: URL_ }, fetchText,
       readText: () => null, writeText: () => { throw new Error("EACCES"); },
-    });
-    expect(policy.rules).toHaveLength(1);
+    })).rejects.toThrow(/cache/i);
   });
 
   it("does not fetch when the variable is unset or blank", async () => {

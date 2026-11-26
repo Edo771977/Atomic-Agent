@@ -1,6 +1,6 @@
 import { mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { systemPolicyPath } from "../config/org-policy-paths.js";
+import { dirname, join, resolve } from "node:path";
+import { systemPolicyPath, POLICY_STATE_DIR_ENV, POLICY_SYSTEM_PATH_ENV } from "../config/org-policy-paths.js";
 import { writeOwnerOnlyFileAtomicSync } from "../config/owner-only-file.js";
 import { offlineRefusal } from "../llm/offline-network.js";
 import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
@@ -139,9 +139,6 @@ export function mergePolicySources(loaded: readonly LoadedPolicySource[]): Effec
 }
 
 function withDefaults(deps: PolicyLoaderDeps) {
-  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || deps.env?.[AGENT_TOOL_CHILD_ENV] !== undefined) {
-    throw new PolicyFormatError("Only the operator may load organization policy; an agent tool child cannot start a separate policy context");
-  }
   return {
     ...deps,
     platform: deps.platform ?? process.platform,
@@ -176,6 +173,26 @@ function policyUrl(env: NodeJS.ProcessEnv, local: readonly LoadedPolicySource[])
 export function loadLocalPolicy(deps: PolicyLoaderDeps): EffectivePolicy {
   const d = withDefaults(deps);
   const loaded = localSources(d);
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || d.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    const inherited = process.env[POLICY_STATE_DIR_ENV] ?? d.env[POLICY_STATE_DIR_ENV];
+    const admin = process.env[POLICY_SYSTEM_PATH_ENV] ?? d.env[POLICY_SYSTEM_PATH_ENV];
+    if (admin && resolve(admin) !== resolve(systemPolicyPath(d.platform, d.env))) loaded.push(readFileSource("system", admin, d.readText));
+    const roots = new Set([resolve(d.stateDir), ...(inherited ? [resolve(inherited)] : [])]);
+    for (const root of roots) {
+      if (root !== resolve(d.stateDir)) loaded.push(readFileSource("user", userPolicyPath(root), d.readText));
+      const raw = d.readText(join(root, POLICY_CACHE_FILE));
+      if (raw === null) continue;
+      try {
+        const cache = JSON.parse(raw) as CacheEntry;
+        validatePolicyUrl(cache.url);
+        if (typeof cache.fetchedAt !== "string") throw new Error("missing cache timestamp");
+        loaded.push({ status: { kind: "url", location: redactPolicyUrl(cache.url), state: "cached", fetchedAt: cache.fetchedAt }, file: parsePolicyFile(cache.policy) });
+      } catch { throw new PolicyFormatError("Organization policy cache could not be loaded by tool child"); }
+    }
+    // Multiple inherited contexts may share a source kind. Ignoring allows
+    // makes their union at least as restrictive, never an override channel.
+    return mergePolicySources(loaded.map(source => source.file ? { ...source, file: { ...source.file, rules: source.file.rules.filter(rule => rule.effect !== "allow") } } : source));
+  }
   const url = policyUrl(d.env, loaded);
   if (url !== undefined) loaded.push(fromCache(d, url));
   return mergePolicySources(loaded);
@@ -188,6 +205,7 @@ export function loadLocalPolicy(deps: PolicyLoaderDeps): EffectivePolicy {
  * than the timeout: the upstream remote availability fallback is retained.
  */
 export async function loadPolicy(deps: PolicyLoaderDeps): Promise<EffectivePolicy> {
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined || deps.env?.[AGENT_TOOL_CHILD_ENV] !== undefined) return loadLocalPolicy(deps);
   const d = withDefaults(deps);
   const loaded = localSources(d);
   const url = policyUrl(d.env, loaded);
@@ -213,7 +231,7 @@ async function fetchSource(d: ReturnType<typeof withDefaults>, target: PolicyUrl
     const entry: CacheEntry = { url, fetchedAt, policy: raw };
     (d.writeText ?? defaultWriteText)(join(d.stateDir, POLICY_CACHE_FILE), `${JSON.stringify(entry, null, 2)}\n`);
   } catch {
-    // An unwritable cache only costs the offline fallback next time.
+    throw new PolicyFormatError("Organization policy cache could not be persisted for tool children");
   }
   return {
     status: { kind: "url", location: redactPolicyUrl(url), namedBy: target.namedBy, state: "loaded", fetchedAt },
