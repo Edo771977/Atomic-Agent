@@ -58,6 +58,7 @@ export class FragmentBudget {
       return false;
     }
     this.#work += work;
+    this.#formattingLimited = this.#work === this.#workLimit;
     return true;
   }
 

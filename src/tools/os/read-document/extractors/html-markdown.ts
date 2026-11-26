@@ -298,6 +298,8 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let anchorHasLabel = false;
   let firstAnchorBlock = -1;
   let openParagraph = -1;
+  let openBlocks = 0;
+  let paragraphBlocks = 0;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
 
@@ -330,6 +332,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       firstAnchorBlock = -1;
     }
     if (tag === "p") openParagraph = -1;
+    if (!INLINE_ELEMENTS.has(tag)) openBlocks--;
     renderedDepth--;
     append(`</${tag}>`);
   };
@@ -433,8 +436,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         // The parser can leave a paragraph on its stack when an inline
         // wrapper intervenes. Close it here only while still in its inline
         // scope. Closing through a cell or row would move text out of it.
-        if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name) &&
-            emitted.slice(openParagraph + 1, -1).every((tag) => !tag || INLINE_ELEMENTS.has(tag))) {
+        if (openParagraph >= 0 && openBlocks === paragraphBlocks && PARAGRAPH_CLOSERS.has(name)) {
           closeEmittedFrom(openParagraph);
         }
         if (openAnchor >= 0 && name === "a") closeOpenAnchor();
@@ -479,6 +481,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       }
       if (!isVoid) {
         renderedDepth++;
+        if (!INLINE_ELEMENTS.has(name)) openBlocks++;
         emitted[emitted.length - 1] = name;
         if (name === "a" && !recognizeSelfClosing) {
           openAnchor = emitted.length - 1;
@@ -487,7 +490,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         } else if (openAnchor >= 0 && firstAnchorBlock < 0 && !INLINE_ELEMENTS.has(name)) {
           firstAnchorBlock = parts.length;
         }
-        if (name === "p" && !recognizeSelfClosing) openParagraph = emitted.length - 1;
+        if (name === "p" && !recognizeSelfClosing) {
+          openParagraph = emitted.length - 1;
+          paragraphBlocks = openBlocks;
+        }
       }
       append(openingTag(name, attributes));
     },
@@ -517,7 +523,9 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
   const markup = parts.join("");
-  const work = markup.length - textMarkupLength + 16 * nodes;
+  const markupWork = markup.length - textMarkupLength + 16 * nodes;
+  // A failed preparation also scanned the source before pausing.
+  const work = limit ? Math.max(markupWork, Math.min(html.length, parser.endIndex + 1)) : markupWork;
   return { markup, title, limit, flattened, work, preWhitespaceTrimmed };
 }
 
@@ -535,7 +543,8 @@ export function boundedHtmlToMarkdown(
 ): HtmlMarkdown {
   const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
   let limit = prepared?.limit;
-  if (prepared && !limit && (!budget || budget.takeWork(prepared.work))) {
+  const canRender = prepared && (!budget || budget.takeWork(prepared.work));
+  if (prepared && !limit && canRender) {
     try {
       let wideTable = false;
       const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)
