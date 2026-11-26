@@ -55,8 +55,12 @@ class HtmlFormatLimit extends Error {
 // tsconfig intentionally does not include browser DOM types.
 interface MarkdownNode {
   readonly nodeName: string;
+  readonly nodeType: number;
+  readonly nodeValue: string | null;
   readonly parentNode: MarkdownNode | null;
   readonly childNodes: ArrayLike<MarkdownNode>;
+  readonly isCode?: boolean;
+  readonly flankingWhitespace: { leading: string; trailing: string };
 }
 
 function parentTable(node: object): MarkdownNode | undefined {
@@ -94,7 +98,7 @@ function attribute(node: object, name: string): string | null {
   return (node as { getAttribute(name: string): string | null }).getAttribute(name);
 }
 
-function makeTurndown(textChars: number, flattenWideTable: () => void): TurndownService {
+function makeTurndown(flattenWideTable: () => void): TurndownService {
   const td = new TurndownService({
     headingStyle: "atx",
     codeBlockStyle: "fenced",
@@ -150,20 +154,22 @@ function makeTurndown(textChars: number, flattenWideTable: () => void): Turndown
     },
   };
   const tableRules = new Map([["TD", cellRule], ["TH", cellRule], ["TR", rowRule], ["TABLE", tableRule]]);
+  const escape = td.escape.bind(td);
   td.remove(["button", "input", "select", "textarea"]);
   td.addRule("imageWithoutUrl", {
     filter: node => (node as unknown as MarkdownNode).nodeName === "IMG" && !attribute(node, "src"),
-    replacement: (_content, node) => td.escape(attribute(node, "alt") ?? ""),
+    replacement: (_content, node) => escape(attribute(node, "alt") ?? ""),
   });
-  let spent = textChars;
+  let spent = 0;
   const charge = (amount: number) => {
     spent += amount;
     if (spent > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
   };
-  const escape = td.escape.bind(td);
+  // Turndown collapses whitespace before passing text here. Count its
+  // escaped text instead of charging source indentation as output.
   td.escape = (text) => {
     const result = escape(text);
-    charge(Math.max(0, result.length - text.length));
+    charge(result.length);
     return result;
   };
   // Turndown resolves each rule before recursing into its children. Wrap
@@ -173,13 +179,20 @@ function makeTurndown(textChars: number, flattenWideTable: () => void): Turndown
   rules.forNode = (node) => {
     const element = node as unknown as MarkdownNode;
     if (element.nodeName === "TABLE") widths.set(element, outerRowWidth(element));
+    // Text within <code> bypasses Turndown's escape hook.
+    if (element.isCode) {
+      for (const child of Array.from(element.childNodes)) {
+        if (child.nodeType === 3) charge(child.nodeValue?.length ?? 0);
+      }
+    }
     // Empty cells also need a delimiter. Turndown's blank rule would omit it.
     const rule = tableRules.get(element.nodeName) ?? ruleFor(node);
     const replace = rule.replacement;
     if (!replace) return rule;
     return { ...rule, replacement(content, target, options) {
       const result = replace.call(rule, content, target, options);
-      charge(2 + Math.max(0, result.length - content.length));
+      const { leading, trailing } = element.flankingWhitespace;
+      charge(leading.length + trailing.length + Math.max(0, result.length - content.length));
       return result;
     } };
   };
@@ -233,7 +246,6 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let nodes = 0;
   let quotes = 0;
   let tables = 0;
-  let textChars = 0;
   let whitespaceRun = 0;
   let inText = false;
   let renderedDepth = 0;
@@ -376,14 +388,13 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           inText = true;
         }
         if (bounded.length > HTML_SOURCE_CHARS - length) return stop("size");
-        textChars += bounded.length;
         append(escapeMarkup(bounded), bounded.length);
       }
     },
   }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
-  return { markup: parts.join(""), title, limit, textChars, flattened };
+  return { markup: parts.join(""), title, limit, flattened };
 }
 
 function isXhtml(html: string): boolean {
@@ -398,7 +409,7 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
   if (!limit) {
     try {
       let wideTable = false;
-      const text = makeTurndown(prepared.textChars, () => { wideTable = true; }).turndown(prepared.markup)
+      const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)
         .split("\n").map(line => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
       if (text.length > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
       if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
