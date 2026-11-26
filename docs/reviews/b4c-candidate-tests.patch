@@ -1,0 +1,48 @@
+diff --git a/src/cli/b4c-candidate.test.ts b/src/cli/b4c-candidate.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/cli/b4c-candidate.test.ts
+@@ -0,0 +1,20 @@
++import { mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, expect, it, vi } from "vitest";
++import { composioCommand } from "./composio-command.js";
++
++const dirs: string[] = [];
++afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
++it("a marked child cannot list connected accounts or disclose their personal names", async () => {
++  const dir = mkdtempSync(join(tmpdir(), "b4c-child-")); dirs.push(dir);
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  const listConnected = vi.fn(async () => [{ id: "ca_private", toolkit: "gmail", status: "ACTIVE", displayName: "b4c-personal@example.test" }]);
++  let output = "";
++  await composioCommand(["accounts", "list", "--connected", "--json"], {
++    configPath: join(dir, "config.json"), listConnected,
++    write: text => { output += text; }, writeErr: text => { output += text; },
++  });
++  expect(listConnected).not.toHaveBeenCalled();
++  expect(output).not.toContain("b4c-personal@example.test");
++});
+diff --git a/src/prompt/b4c-candidate.test.ts b/src/prompt/b4c-candidate.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/prompt/b4c-candidate.test.ts
+@@ -0,0 +1,18 @@
++import { expect, it } from "vitest";
++import { buildStablePrefix } from "./stable-prefix.js";
++
++it("keeps stable prefix bytes identical after an account default changes", () => {
++  const input = {
++    toolDescriptors: [{ name: "mcp.composio.COMPOSIO_SEARCH_TOOLS", summary: "Search", argsSchema: "{}" }],
++    capabilities: { platform: "linux", arch: "x64", browserChannel: "none", workingDir: "/fixture", hasClipboard: false, hasWmctrl: false, hasNotifications: false },
++    skillCatalog: [],
++  };
++  const accounts = [
++    { toolkit: "gmail", alias: "work", isDefault: true },
++    { toolkit: "gmail", alias: "home", isDefault: false },
++  ];
++  const before = buildStablePrefix({ ...input, composioAccounts: accounts });
++  const after = buildStablePrefix({ ...input, composioAccounts: accounts.map(a => ({ ...a, isDefault: !a.isDefault })) });
++  expect(before).toContain("Composio");
++  expect(Buffer.from(after).equals(Buffer.from(before))).toBe(true);
++});
