@@ -207,7 +207,7 @@ function findExecCommands(words: readonly string[]): string[][] {
 /** Interpreters that, with no script of their own, run what comes on stdin. */
 const STDIN_INTERPRETER_RE = /^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/;
 /** `python3 -c`, `-m`, `node -e` / `-p`, `perl -E`, `php -r`: the code is on the line. */
-const INLINE_CODE_FLAG_RE = /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/;
+const INLINE_CODE_FLAG_RE = /^-[A-Za-z]*[cemrEp]|^--(?:eval|print)(?:=|$)/;
 
 /** PowerShell: `-Command -`, `-File -`, a bare `-`, or no script at all reads stdin. */
 const POWERSHELL_RE = /^(?:pwsh|powershell)(?:\.exe)?$/i;
