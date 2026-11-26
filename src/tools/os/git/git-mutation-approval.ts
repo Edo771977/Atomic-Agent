@@ -192,7 +192,7 @@ async function metadataPaths(repoRoot: string): Promise<string[]> {
 /** Remote Git commands mutate local metadata too; the ordinary git_remote gate stays separate. */
 export async function authorizeGitPolicyMutation(options: FsDangerousToolOptions, tool: string, repoRoot: string, paths: readonly string[], ctx: { workingDir: string; sessionId?: string; signal: AbortSignal }): Promise<void> {
   const metadata = await metadataPaths(repoRoot);
-  const mutation = checkPolicyMutation(activePolicy(), tool, [...metadata, ...paths], ctx.workingDir, [...metadata, ...paths]);
+  const mutation = checkPolicyMutation(activePolicy(), tool, [...metadata, ...paths], ctx.workingDir, [...metadata]);
   if (mutation.refusal !== null) throw new Error(mutation.refusal);
   if (mutation.ask) {
     if (ctx.sessionId === undefined) throw new Error("Organization policy requires a session for a Git mutation decision");

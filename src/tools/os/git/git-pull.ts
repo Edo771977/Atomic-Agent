@@ -1,3 +1,5 @@
+import { needsGitPolicyPlan, gitPlanPaths } from "./git-policy-plan.js";
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import {
@@ -68,14 +70,22 @@ export function buildOsGitPullTool(
         },
         ctx.signal,
       );
-      const result = await runGitRemote(options, {
-        sessionId: ctx.sessionId,
-        repo: repoRoot,
-        workingDir: ctx.workingDir,
-        args,
-        signal: ctx.signal,
-        timeoutMs: NETWORK_TIMEOUT_MS,
-      });
+      let result;
+      if (needsGitPolicyPlan(repoRoot)) {
+        // Fetch writes metadata only. Its URL/data approvals stay in runGitRemote.
+        const fetched = await runGitRemote(options, { sessionId: ctx.sessionId, repo: repoRoot, workingDir: ctx.workingDir,
+          args: ["fetch", NO_PROGRESS, remote, ...(branch ? [branch] : [])], signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
+        if (fetched.exitCode !== 0) return gitFailureResult(TOOL, fetched, { remote, branch, rebase, repoRoot });
+        const probe = { repo: repoRoot, workingDir: ctx.workingDir, signal: ctx.signal };
+        const pinned = await runGit({ ...probe, args: ["rev-parse", "--verify", "FETCH_HEAD^{commit}"] });
+        if (pinned.exitCode !== 0 || pinned.timedOut || pinned.truncated || !/^[a-f0-9]{40,64}$/i.test(pinned.stdout.trim())) throw new Error("Cannot pin fetched Git revision for organization policy");
+        const revision = pinned.stdout.trim();
+        const paths = await gitPlanPaths(probe, repoRoot, ["diff", "--name-only", "--no-renames", "-z", "HEAD", revision, "--"]);
+        await authorizeGitPolicyMutation(options, TOOL, repoRoot, paths, ctx);
+        result = await runGit({ ...probe, args: rebase ? ["rebase", revision] : ["merge", "--ff-only", revision], timeoutMs: NETWORK_TIMEOUT_MS });
+      } else {
+        result = await runGitRemote(options, { sessionId: ctx.sessionId, repo: repoRoot, workingDir: ctx.workingDir, args, signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
+      }
       if (result.exitCode !== 0) {
         return gitFailureResult(TOOL, result, { remote, branch, rebase, repoRoot });
       }
