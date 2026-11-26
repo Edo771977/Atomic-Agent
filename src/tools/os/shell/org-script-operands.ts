@@ -1,4 +1,5 @@
 import { programName, NESTED_SHELL_PROGRAMS, scanNestedShellOptions } from "../shell-command-guard/command-segments.js";
+import { posix } from "node:path";
 
 export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string };
 
@@ -68,6 +69,7 @@ function awkExternalCommand(script: string): boolean {
 
 /** Descriptor identities cannot be inferred from a different stdin payload. */
 export function scriptStream(operand: string | undefined): "stdin" | "unknown" | null {
+  if (operand?.startsWith("/")) operand = posix.normalize(operand);
   if (operand === "-" || operand === "/dev/stdin" || /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\/0$/.test(operand ?? "")) return "stdin";
   return /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\//.test(operand ?? "") || operand?.includes("\0") ? "unknown" : null;
 }
