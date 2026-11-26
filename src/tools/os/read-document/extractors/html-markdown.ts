@@ -417,6 +417,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (name === "br") {
         if (whitespaceRun >= HTML_WHITESPACE_RUN) return;
         whitespaceRun++;
+      } else if (name === "hr" ||
+          (name === "img" && (usableUrlAttribute(attributes.src) || /[^\s\u0085]/u.test(attributes.alt ?? "")))) {
+        // A visible void element separates otherwise consecutive breaks.
+        whitespaceRun = 0;
       }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
