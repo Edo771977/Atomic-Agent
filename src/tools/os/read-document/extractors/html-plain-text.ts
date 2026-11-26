@@ -1,60 +1,71 @@
-import { Tokenizer } from "htmlparser2";
+import { Parser, Tokenizer } from "htmlparser2";
 
 const BLOCK = new Set([
   "blockquote", "br", "div", "h1", "h2", "h3", "h4", "h5", "h6", "hr",
   "li", "p", "pre", "section", "table", "td", "th", "tr",
 ]);
+const VOID = new Set(["area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"]);
 
-/** Read text iteratively, even after the formatting parser reaches its depth limit. */
-export function readBoundedHtmlText(html: string, hiddenTags: ReadonlySet<string>, budget: number) {
+/** htmlparser2 uses array shifts for its HTML stack. Bound that work on deeply malformed input. */
+export const HTML_PARSER_DEPTH = 2_048;
+
+function textCollector(budget: number) {
   const parts: string[] = [];
   let length = 0;
   let cut = false;
-  let hidden: string | undefined;
-  let hiddenDepth = 0;
-  let tag = "";
-  const append = (text: string) => {
+  function append(value: string): boolean {
     const room = budget - length;
-    if (room > 0 && text.length) parts.push(text.slice(0, room));
-    length += Math.min(room, text.length);
-    if (text.length > room) {
-      cut = true;
-      scan.pause();
+    if (room > 0 && value.length) parts.push(value.slice(0, room));
+    length += Math.min(room, value.length);
+    cut ||= value.length > room;
+    return cut;
+  }
+  function edge(name: string): boolean {
+    return BLOCK.has(name) && length > 0 && !parts.at(-1)?.endsWith("\n") && append("\n");
+  }
+  return { append, edge, result: () => ({ text: parts.join("").trim(), cut }) };
+}
+
+type TextCollector = ReturnType<typeof textCollector>;
+
+/** The extreme-depth path keeps a stack with O(1) pushes and matching-tag lookups. */
+function readDeepText(html: string, hiddenTags: ReadonlySet<string>, output: TextCollector): void {
+  const stack: Array<{ name: string; previous: number | undefined }> = [];
+  const top = new Map<string, number>();
+  let hiddenAt: number | undefined;
+  let name = "";
+  let stopped = false;
+  const stop = () => { stopped = true; scan.pause(); };
+  const close = (index: number) => {
+    while (stack.length > index) {
+      const frame = stack.pop()!;
+      if (frame.previous === undefined) top.delete(frame.name);
+      else top.set(frame.name, frame.previous);
     }
-  };
-  const gap = () => {
-    if (length && !parts.at(-1)?.endsWith("\n")) append("\n");
+    if (hiddenAt !== undefined && hiddenAt >= index) hiddenAt = undefined;
   };
   const open = (selfClosing: boolean) => {
-    // A body opening also ends an omitted, implicitly closed HTML head.
-    if (tag === "body" && hidden === "head") {
-      hidden = undefined;
-      hiddenDepth = 0;
+    if (name === "body" && hiddenAt !== undefined && stack[hiddenAt]?.name === "head") close(hiddenAt);
+    if (!selfClosing && !VOID.has(name)) {
+      if (hiddenAt === undefined && (name === "title" || hiddenTags.has(name))) hiddenAt = stack.length;
+      const previous = top.get(name);
+      top.set(name, stack.length);
+      stack.push({ name, previous });
     }
-    if (hidden) {
-      if (tag === hidden) hiddenDepth++;
-    } else if (tag !== "embed" && !(selfClosing && tag === "svg") &&
-        (tag === "title" || hiddenTags.has(tag))) {
-      hidden = tag;
-      hiddenDepth = 1;
-    } else if (BLOCK.has(tag)) {
-      gap();
-    }
+    if (hiddenAt === undefined && output.edge(name)) stop();
   };
   const scan: Tokenizer = new Tokenizer({ decodeEntities: true }, {
-    onopentagname(start, end) { tag = html.slice(start, end).toLowerCase(); },
+    onopentagname(start, end) { name = html.slice(start, end).toLowerCase(); },
     onopentagend() { open(false); },
     onselfclosingtag() { open(true); },
     onclosetag(start, end) {
-      const name = html.slice(start, end).toLowerCase();
-      if (hidden) {
-        if (name === hidden && --hiddenDepth === 0) hidden = undefined;
-      } else if (BLOCK.has(name)) {
-        gap();
-      }
+      const tag = html.slice(start, end).toLowerCase();
+      const index = top.get(tag);
+      if (index !== undefined) close(index);
+      if (hiddenAt === undefined && output.edge(tag)) stop();
     },
-    ontext(start, end) { if (!hidden && !cut) append(html.slice(start, end)); },
-    ontextentity(codepoint) { if (!hidden && !cut) append(String.fromCodePoint(codepoint)); },
+    ontext(start, end) { if (!stopped && hiddenAt === undefined && output.append(html.slice(start, end))) stop(); },
+    ontextentity(codepoint) { if (!stopped && hiddenAt === undefined && output.append(String.fromCodePoint(codepoint))) stop(); },
     onattribname() {},
     onattribdata() {},
     onattribend() {},
@@ -66,6 +77,44 @@ export function readBoundedHtmlText(html: string, hiddenTags: ReadonlySet<string
     onend() {},
   });
   scan.write(html);
-  if (!cut) scan.end();
-  return { text: parts.join("").trim(), cut };
+  if (!stopped) scan.end();
+}
+
+/** Stream normal HTML so implied closes end hidden regions with their parents. */
+export function readBoundedHtmlText(html: string, hiddenTags: ReadonlySet<string>, budget: number) {
+  const output = textCollector(budget);
+  let depth = 0;
+  let hiddenDepth = 0;
+  let deep = false;
+  let stopped = false;
+  const stop = () => { stopped = true; parser.pause(); };
+  const parser: Parser = new Parser({
+    onopentag(name) {
+      if (stopped) return;
+      if (++depth > HTML_PARSER_DEPTH) {
+        deep = true;
+        stop();
+        return;
+      }
+      if (!hiddenDepth && (name === "title" || hiddenTags.has(name))) hiddenDepth = depth;
+      if (!hiddenDepth && output.edge(name)) stop();
+    },
+    onclosetag(name) {
+      if (stopped) return;
+      if (hiddenDepth === depth) hiddenDepth = 0;
+      if (!hiddenDepth && output.edge(name)) stop();
+      depth--;
+    },
+    ontext(text) {
+      if (!stopped && !hiddenDepth && output.append(text)) stop();
+    },
+  }, { decodeEntities: true, recognizeSelfClosing: true });
+  for (let offset = 0; offset < html.length && !stopped; offset += 16_384) {
+    parser.write(html.slice(offset, offset + 16_384));
+  }
+  if (!stopped) parser.end();
+  if (!deep) return output.result();
+  const deepOutput = textCollector(budget);
+  readDeepText(html, hiddenTags, deepOutput);
+  return deepOutput.result();
 }
