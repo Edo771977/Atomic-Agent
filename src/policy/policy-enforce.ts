@@ -45,6 +45,10 @@ function protectedPolicyMatch(tool: string): RuleMatch {
   return { decision: "deny", rule: { id: "org-policy:protected-file", decision: "deny", tool, createdAt: "", source: "user", note: "Only the operator may inspect or change organization policy files outside agent tools" } };
 }
 
+function opaqueShellReason(target: PolicyTarget | null): string {
+  return target?.action === "shell" && target.unreadable === true ? " The complete command or script could not be inspected; this restrictive rule applies conservatively." : "";
+}
+
 function verdictFor(policy: EffectivePolicy, target: PolicyTarget | null, workingDir?: string, normalize = createEditPathNormalizer(workingDir)): PolicyVerdict | null {
   if (target === null || policy.rules.length === 0) return null;
   if (target.action === "edit") {
@@ -66,7 +70,8 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
   if ((request.category === "trust_config" || request.category === "state_secret") &&
       (touchesPolicy(policy, request.targetPaths ?? [], request.workdir, request.category === "trust_config", normalize) ||
        touchesPolicy(policy, request.affectedResources ?? [], request.workdir, false, normalize))) return protectedPolicyMatch(request.tool);
-  const verdict = verdictFor(policy, gateRequestTarget(request, normalize), request.workdir, normalize);
+  const target = gateRequestTarget(request, normalize);
+  const verdict = verdictFor(policy, target, request.workdir, normalize);
   if (verdict === null || verdict.effect === "allow") return null;
   const rule: ApprovalRule = {
     id: `org-policy:${verdict.rule.source}:${verdict.rule.index + 1}`,
@@ -74,7 +79,7 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
     tool: request.tool,
     createdAt: "",
     source: "user",
-    note: describePolicyRule(verdict.rule),
+    note: describePolicyRule(verdict.rule) + opaqueShellReason(target),
   };
   return { decision: verdict.effect, rule };
 }
@@ -189,7 +194,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const verdict = verdictFor(policy, target, workingDir, normalize);
   if (verdict?.effect !== "deny") return null;
   return (
-    `${tool} was not run: blocked by your organization's policy (${describePolicyRule(verdict.rule)}).\n` +
+    `${tool} was not run: blocked by your organization's policy (${describePolicyRule(verdict.rule)}).${opaqueShellReason(target)}\n` +
     "This rule was set by an administrator, not a tool failure: do not retry the same call or " +
     "try another way to do the same thing; tell the user it is not allowed here."
   );
