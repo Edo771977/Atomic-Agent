@@ -296,7 +296,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let renderedDepth = 0;
   let openAnchor = -1;
   let anchorOpening = -1;
-  let anchorHasLabel = false;
+  let anchorHasPrefix = false;
   let firstAnchorBlock = -1;
   let openParagraph = -1;
   let openBlocks = 0;
@@ -315,9 +315,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   };
   const appendText = (text: string) => {
     if (!text) return;
-    if (openAnchor >= 0 && firstAnchorBlock < 0 && !anchorHasLabel && /[^\s\u0085]/u.test(text)) {
-      anchorHasLabel = true;
-    }
+    if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = true;
     if (!inText && /[^\s\u0085]/u.test(text)) {
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       inText = true;
@@ -349,7 +347,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     if (firstAnchorBlock >= 0) {
       // Leave intervening blocks intact and preserve the linked text
       // before the first block. Reuse its output slot to avoid splicing.
-      if (anchorHasLabel) {
+      if (anchorHasPrefix) {
         if (length + 4 > HTML_SOURCE_CHARS) return stop("size");
         parts[firstAnchorBlock] = "</a>" + parts[firstAnchorBlock];
         length += 4;
@@ -458,7 +456,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           (name === "img" && (usableUrlAttribute(attributes.src) || /[^\s\u0085]/u.test(attributes.alt ?? "")))) {
         // A visible void element separates otherwise consecutive breaks.
         whitespaceRun = 0;
-        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasLabel = true;
+        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = true;
       }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
@@ -487,7 +485,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         if (name === "a" && !recognizeSelfClosing) {
           openAnchor = emitted.length - 1;
           anchorOpening = parts.length;
-          anchorHasLabel = false;
+          anchorHasPrefix = false;
         } else if (openAnchor >= 0 && firstAnchorBlock < 0 && !INLINE_ELEMENTS.has(name)) {
           firstAnchorBlock = parts.length;
         }
