@@ -159,7 +159,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const args = inner.slice(1);
   if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
   if (/^g?make$/.test(program) && args.some((arg, index) => /^(?:--eval(?:=|$)|(?:SHELL|\.SHELLFLAGS)=|--(?:file|makefile)=-$)/.test(arg) || /^(?:-f|--file|--makefile)$/.test(arg) && args[index + 1] === "-")) state.unreadable = true;
-  if (/^(?:vim|vimdiff|nvim|ex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
+  if (/^(?:vi|[rg]?vim(?:diff)?|[rg]?view|nvim(?:diff)?|nview|evim|eview|ex|gex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
   if (program === "tar" && args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg))) state.unreadable = true;
   if (NESTED_SHELL_PROGRAMS.includes(program) && (words.some(word => /^(?:BASH_ENV|ENV|ZDOTDIR|SHELLOPTS|BASHOPTS)=/.test(word)) || args.some(arg => /^(?:--rcfile|--init-file)(?:=|$)/.test(arg)))) state.unreadable = true;
   if (["inline", "unknown"].includes(interpreterScript(inner)?.kind ?? "")) state.unreadable = true;
