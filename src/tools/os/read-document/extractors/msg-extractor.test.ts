@@ -347,6 +347,12 @@ describe("msg extractor", () => {
     expect(result.text.length).toBeLessThan(1024 * 1024);
     expect(result.warnings.join("\n")).toMatch(/HTML.*truncat/i);
   });
+  it("caps preformatted runs in its HTML body and keeps the following text", async () => {
+    const html = Buffer.from("<pre>Start" + " ".repeat(1600) + "TAILX</pre>");
+    const result = await extract(buildCfb([{ name: b(0x1013), data: html }]).buffer);
+    expect(result.text).toMatch(/Start {1,256}TAILX/);
+  });
+
   it("preserves the end of a two MiB UTF-16 message body", async () => {
     const body = "a".repeat(1024 * 1024 - 12) + "\nfixture-end";
     const result = await extract(buildCfb([str(0x1000, body)]).buffer);

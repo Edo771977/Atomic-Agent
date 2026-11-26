@@ -29,6 +29,7 @@ const HTML_OUTPUT_CHARS = 576 * 1024;
 const HTML_PLAIN_CHARS = 384 * 1024;
 const HTML_FORMAT_DEPTH = 128;
 const HTML_FORMAT_NODES = 30_000;
+const HTML_WHITESPACE_RUN = 128;
 const HTML_QUOTE_DEPTH = 32;
 const HTML_TABLE_DEPTH = 64;
 const HTML_TABLE_COLUMNS = 64;
@@ -225,6 +226,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let quotes = 0;
   let tables = 0;
   let textChars = 0;
+  let whitespaceRun = 0;
   let inText = false;
   let renderedDepth = 0;
   const emitted: Array<string | undefined> = [];
@@ -238,6 +240,37 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     if (cost > HTML_SOURCE_CHARS - length) return stop("size");
     parts.push(text);
     length += cost;
+  };
+  // The parser can deliver a single run in several callbacks, especially
+  // across entity references. Tags do not reset it; visible text does.
+  const whitespace = /[\s\u0085]/u;
+  const textRuns = /[\s\u0085]+|[^\s\u0085]+/gu;
+  const limitWhitespace = (text: string): string => {
+    if (text.length === 1) {
+      if (!whitespace.test(text)) {
+        whitespaceRun = 0;
+        return text;
+      }
+      if (whitespaceRun === HTML_WHITESPACE_RUN) return "";
+      whitespaceRun++;
+      return text;
+    }
+    const chunks: string[] = [];
+    textRuns.lastIndex = 0;
+    for (let match = textRuns.exec(text); match; match = textRuns.exec(text)) {
+      const run = match[0];
+      if (!whitespace.test(run[0]!)) {
+        whitespaceRun = 0;
+        chunks.push(run);
+        continue;
+      }
+      const allowed = Math.min(run.length, HTML_WHITESPACE_RUN - whitespaceRun);
+      if (allowed > 0) {
+        whitespaceRun += allowed;
+        chunks.push(run.slice(0, allowed));
+      }
+    }
+    return chunks.join("");
   };
   const parser: Parser = new Parser({
     onopentag(name, attributes) {
@@ -254,6 +287,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (!omittedDepth && (name === "title" || DROP_ELEMENTS.has(name))) omittedDepth = depth;
       emitted.push(undefined);
       if (omittedDepth || !HTML_TAG.test(name)) return;
+      if (name === "br") {
+        if (whitespaceRun >= HTML_WHITESPACE_RUN) return;
+        whitespaceRun++;
+      }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
         flattened.quotes = true;
@@ -303,13 +340,15 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (limit) return;
       if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
       if (!omittedDepth) {
-        if (!inText && /\S/.test(text)) {
+        const bounded = limitWhitespace(text);
+        if (!bounded) return;
+        if (!inText && /[^\s\u0085]/u.test(bounded)) {
           if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
           inText = true;
         }
-        if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
-        textChars += text.length;
-        append(escapeMarkup(text), text.length);
+        if (bounded.length > HTML_SOURCE_CHARS - length) return stop("size");
+        textChars += bounded.length;
+        append(escapeMarkup(bounded), bounded.length);
       }
     },
   }, { decodeEntities: true, recognizeSelfClosing });
