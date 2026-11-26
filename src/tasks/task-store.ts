@@ -6,6 +6,7 @@ import { dirname } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import type { LlmFailureCategory } from "../llm/reliability/index.js";
+import { sessionIdError } from "../session/session-id.js";
 import {
   currentTurnOwnerProbe,
   databaseIdentity,
@@ -1288,6 +1289,8 @@ function validateSessionId(raw: string | null): string | null {
       "sessionId must be non-empty when provided",
     );
   }
+  const error = sessionIdError(trimmed);
+  if (error !== null) throw new TaskValidationError("sessionId", error);
   return trimmed;
 }
 

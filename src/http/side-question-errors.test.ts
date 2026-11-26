@@ -16,7 +16,7 @@ const post = async (token: string | undefined, body: unknown) => {
 
 it("replaces provider failures with a fixed 502 message for named callers", async () => {
   h = await startTestHarness({ apiKey: owner, namedTokens: () => [{ name: "fixture", role: "member", sha256: hashHttpToken(named), createdAt: "" }] });
-  vi.spyOn(h.runtime, "askSideQuestion").mockResolvedValue({ ok: false, reason: "provider failed with SYNTHETIC-SECRET in chat private-id" });
+  vi.spyOn(h.runtime, "askSideQuestion").mockResolvedValue({ ok: false, kind: "failed", reason: "provider failed with SYNTHETIC-SECRET in chat private-id" });
   const response = await post(named, { question: "hello" });
   expect(response.status).toBe(502);
   expect(JSON.parse(response.text).error.message).toBe("The model could not answer the side question");

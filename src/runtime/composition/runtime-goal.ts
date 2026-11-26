@@ -1,4 +1,5 @@
 import { getConfig } from "../../config/index.js";
+import { withFreshPrivacyVault } from "../../privacy/index.js";
 import type { RunTurnResult } from "../../agent/agent-contract.js";
 import type { LlmStreamParams } from "../../agent/step/step-contract.js";
 import {
@@ -124,7 +125,7 @@ export function createRuntimeGoalRunner(deps: RuntimeGoalDeps) {
       slotId: slotManager.sideCallSlotId(),
       serverTemplate: getConfig().localModels.useServerTemplate !== "off",
     });
-    const result = await llmComplete({ ...request, signal: context.signal });
+    const result = await withFreshPrivacyVault(() => llmComplete({ ...request, signal: context.signal }));
     return extractGoalJudgeText(result);
   };
 
