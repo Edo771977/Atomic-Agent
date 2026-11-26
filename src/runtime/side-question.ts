@@ -157,7 +157,7 @@ export function extractSideAnswerText(
 
 export type SideQuestionResult =
   | { readonly ok: true; readonly text: string }
-  | { readonly ok: false; readonly reason: string };
+  | { readonly ok: false; readonly kind: "invalid" | "cancelled" | "timeout" | "failed"; readonly reason: string };
 
 export interface SideQuestionDeps {
   complete: (
@@ -197,14 +197,15 @@ export async function askSideQuestion(
   deps: SideQuestionDeps,
 ): Promise<SideQuestionResult> {
   const text = question.trim();
-  if (text.length === 0) return { ok: false, reason: "nothing to ask" };
+  if (text.length === 0) return { ok: false, kind: "invalid", reason: "nothing to ask" };
   if (text.length > SIDE_QUESTION_MAX_INPUT_CHARS) {
     return {
       ok: false,
+      kind: "invalid",
       reason: `too long for a side question (over ${SIDE_QUESTION_MAX_INPUT_CHARS} characters)`,
     };
   }
-  if (deps.signal?.aborted) return { ok: false, reason: "cancelled" };
+  if (deps.signal?.aborted) return { ok: false, kind: "cancelled", reason: "cancelled" };
   const abort = new AbortController();
   deps.pending?.add(abort);
   const onCallerAbort = (): void => abort.abort();
@@ -221,15 +222,15 @@ export async function askSideQuestion(
     const answer = extractSideAnswerText(result);
     if (answer.length === 0) {
       deps.onError?.(new Error("the model returned no answer"));
-      return { ok: false, reason: "the model returned no answer" };
+      return { ok: false, kind: "failed", reason: "the model returned no answer" };
     }
     return { ok: true, text: answer };
   } catch (err) {
     deps.onError?.(err);
     if (abort.signal.aborted) {
-      return { ok: false, reason: timedOut ? "timed out" : "cancelled" };
+      return { ok: false, kind: timedOut ? "timeout" : "cancelled", reason: timedOut ? "timed out" : "cancelled" };
     }
-    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    return { ok: false, kind: "failed", reason: err instanceof Error ? err.message : String(err) };
   } finally {
     clearTimeout(timer);
     deps.signal?.removeEventListener("abort", onCallerAbort);

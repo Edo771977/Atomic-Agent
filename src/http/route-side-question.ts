@@ -32,7 +32,8 @@ import {
  *
  * `400` for a bad body, a blank question or one over the length limit,
  * `501` when the runtime offers no side question, `502` when the model
- * failed or answered nothing, `504` on the deadline. A client that
+ * failed or answered nothing, `503` for an explicitly cancelled completion,
+ * `504` on the deadline. A client that
  * disconnects aborts the call.
  */
 export function createSideQuestionHandler(): HttpHandler {
@@ -90,11 +91,11 @@ export function createSideQuestionHandler(): HttpHandler {
         sendJson(res, 200, { text: result.text });
         return;
       }
-      if (result.reason === "cancelled") {
+      if (result.kind === "cancelled") {
         sendError(res, 503, openaiError("The completion was cancelled", "server_error", null, "completion_cancelled"));
         return;
       }
-      const status = result.reason === "timed out" ? 504 : 502;
+      const status = result.kind === "timeout" ? 504 : 502;
       const message = status === 502 && isNamedCaller(ctx) ? "The model could not answer the side question" : result.reason;
       sendError(res, status, openaiError(message, "server_error"));
     } finally { release(); }
