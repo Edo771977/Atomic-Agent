@@ -21,6 +21,7 @@ type LoadedZipEntry = JSZip.JSZipObject & {
 export async function loadBoundedOfficeZip(
   data: Buffer,
   maxBytes = MAX_OFFICE_UNCOMPRESSED_BYTES,
+  partSizes?: Map<string, number>,
 ): Promise<JSZip> {
   const zip = await JSZip.loadAsync(data);
   const parts: Array<{ entry: LoadedZipEntry; part: CompressedPart }> = [];
@@ -29,7 +30,10 @@ export async function loadBoundedOfficeZip(
   for (const entry of Object.values(zip.files) as LoadedZipEntry[]) {
     if (entry.dir) continue;
     const part = entry._data;
-    if (part === "") continue; // JSZip canonicalizes empty entries.
+    if (part === "") {
+      partSizes?.set(entry.name, 0);
+      continue; // JSZip canonicalizes empty entries.
+    }
     if (!part || part instanceof Promise || !Number.isSafeInteger(part.uncompressedSize) || part.uncompressedSize < 0 ||
         !(part.compressedContent instanceof Uint8Array)) {
       throw new Error("Office package has invalid ZIP size information");
@@ -59,6 +63,7 @@ export async function loadBoundedOfficeZip(
     } catch {
       throw new Error(`Office package part ${JSON.stringify(entry.name)} exceeds or does not match its uncompressed size`);
     }
+    partSizes?.set(entry.name, part.uncompressedSize);
   }
   return zip;
 }
