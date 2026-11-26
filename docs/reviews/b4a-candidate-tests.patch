@@ -1,0 +1,33 @@
+diff --git a/src/config/b4a-candidate.test.ts b/src/config/b4a-candidate.test.ts
+new file mode 100644
+--- /dev/null
++++ b/src/config/b4a-candidate.test.ts
+@@ -0,0 +1,28 @@
++import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, expect, it, vi } from "vitest";
++import { readSavedSecret, saveSecret } from "./secret-access.js";
++
++const dirs: string[] = [];
++afterEach(() => { vi.unstubAllEnvs(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
++function fixture() {
++  const dir = mkdtempSync(join(tmpdir(), "b4a-candidate-")); dirs.push(dir);
++  writeFileSync(join(dir, ".env"), "FIXTURE_API_KEY=b4a_private_sentinel_8d23f6\n");
++  return dir;
++}
++it("control: the operator can read the fixture key", () => {
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "");
++  expect(readSavedSecret(fixture(), "FIXTURE_API_KEY")).toMatchObject({ value: "b4a_private_sentinel_8d23f6" });
++});
++it("a marked agent child cannot read the saved key", () => {
++  const dir = fixture(); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  let observed: unknown;
++  try { observed = readSavedSecret(dir, "FIXTURE_API_KEY"); } catch { observed = "refused"; }
++  expect(JSON.stringify(observed)).not.toContain("b4a_private_sentinel_8d23f6");
++});
++it("a marked agent child cannot delete the saved key", () => {
++  const dir = fixture(); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  try { saveSecret(dir, "FIXTURE_API_KEY", null); } catch { /* refusal is acceptable */ }
++  expect(existsSync(join(dir, ".env")) ? readFileSync(join(dir, ".env"), "utf8") : "").toContain("b4a_private_sentinel_8d23f6");
++});

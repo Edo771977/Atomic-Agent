@@ -79,3 +79,5 @@ Read [compatibility](docs/compatibility.md) for schema/default/migration changes
 ## Validation
 
 `npx vitest run src/config`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
+
+The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../../docs/reviews/b4a-1671.md).
