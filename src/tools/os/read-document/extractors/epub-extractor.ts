@@ -77,7 +77,9 @@ export const epubExtractor: Extractor = async (input) => {
       const bytes = await file.async("uint8array");
       const decoded = decodeBytes(bytes, sniffHtmlCharset(bytes));
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
-      const { text } = boundedHtmlToMarkdown(decoded.text, warnings, true);
+      const chapterWarnings: string[] = [];
+      const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true);
+      warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
       if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
       else if (text.length > 0) chunks.push(text);
       extracted.push(n);

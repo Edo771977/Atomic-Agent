@@ -38,6 +38,11 @@ async function makeEpub(options: { encrypted?: boolean; opening?: string } = {})
 }
 
 describe("epubExtractor", () => {
+  it("identifies the chapter when a wide table is flattened", async () => {
+    const data = await makeEpub({ opening: "<table><tr>" + "<td>cell</td>".repeat(65) + "</tr></table>" });
+    const result = await epubExtractor({ data, sourcePath: "b.epub" });
+    expect(result.warnings).toContainEqual(expect.stringMatching(/^chapter 1:.*table width/i));
+  });
   it("preserves links after XHTML self-closing page markers", async () => {
     const markers = Array.from({ length: 300 }, (_, i) =>
       `<span epub:type="pagebreak" id="p${i}"/><p><a href="https://example.test/${i}">Link</a></p>`).join("");
