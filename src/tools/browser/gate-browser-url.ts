@@ -110,10 +110,11 @@ export async function gateBrowserUrl(
     await requireApproval({ ...dangerous, approvalRequired: true }, { sessionId: ctx.sessionId, tool, category: "http", reason: "Organization policy requires a decision for this destination", affectedResources: [url] }, ctx.signal, true);
   }
   if (policy.userProfile && !isUserProfileUrl(url)) {
+    const destination = /^file:/i.test(url) ? "destination is a local file" : /^chrome:/i.test(url) ? "destination is a Chrome internal page" : "destination is not an http(s) page";
     return compressToolResult({
       tool,
       status: "error",
-      output: `${tool}: in your own Chrome the agent opens only http(s) pages. chrome://, file:// and other browser pages (saved passwords, settings, history, local files) are off limits.`,
+      output: `${tool}: this ${destination}, which the agent cannot open in your own Chrome. Choose an http(s) page; local files, saved passwords, settings and history are off limits.`,
       details: { url, reason: "user_profile_nonweb" },
     });
   }

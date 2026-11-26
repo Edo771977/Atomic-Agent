@@ -20,7 +20,10 @@ describe("profile actions without a web navigation", () => {
   it.each(["file:///fixture.txt", "chrome://settings"])("retains profile refusal for %s", async target => {
     const backend = new GateBackend(); backend.element = facts({ href: target });
     const { options } = recordingGate(true);
-    expect((await gateBrowserAction(backend, options, { blockedDomains: [], allowedDomains: [], userProfile: true }, { tool: "browser.click", kind: "click", ref: "e1" }, GATE_CTX))?.status).toBe("error");
+    const result = await gateBrowserAction(backend, options, { blockedDomains: [], allowedDomains: [], userProfile: true }, { tool: "browser.click", kind: "click", ref: "e1" }, GATE_CTX);
+    expect(result?.status).toBe("error");
+    expect(result?.summary).toContain(target.startsWith("file:") ? "destination is a local file" : "destination is a Chrome internal page");
+    expect(result?.summary).toContain("http(s)");
   });
 
 });
