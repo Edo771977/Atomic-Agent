@@ -146,6 +146,11 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   // Never execute the fixture or consult the operator's shell state.
   if (/^(?:trap|hash)$/.test(programName(inner[0] ?? ""))) state.unreadable = true;
   const program = programName(inner[0] ?? "");
+  const args = inner.slice(1);
+  if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
+  if (/^(?:g?make|vim|vimdiff|nvim|ex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
+  if (program === "tar" && args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg))) state.unreadable = true;
+  if (NESTED_SHELL_PROGRAMS.includes(program) && (words.some(word => /^(?:BASH_ENV|ENV|ZDOTDIR|SHELLOPTS|BASHOPTS)=/.test(word)) || args.some(arg => /^(?:--rcfile|--init-file)(?:=|$)/.test(arg)))) state.unreadable = true;
   if (["inline", "unknown"].includes(interpreterScript(inner)?.kind ?? "")) state.unreadable = true;
   if (scriptInput(inner) === "unknown" || interpreterScript(inner)?.kind === "file" && scriptInput(inner) === "stdin" || NESTED_SHELL_PROGRAMS.includes(program) && !scanNestedShellOptions(inner.slice(1), program).readsStdin && scriptInput(inner) === "stdin") state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
