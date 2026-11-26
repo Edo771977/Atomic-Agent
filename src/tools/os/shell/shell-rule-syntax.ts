@@ -21,7 +21,7 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
       while (["if", "then", "elif", "else", "while", "until", "do", "!", "coproc"].includes(command[0] ?? "")) command = command.slice(1);
       if (["done", "fi", "esac", "in"].includes(command[0] ?? "")) return;
     }
-    if (/^(?:alias|unalias|function|set-alias|new-alias|invoke-expression|iex|\.|--%)$/i.test(command[0] ?? "")) unreadable = true;
+    if (/^(?:alias|unalias|function|set-alias|new-alias|invoke-expression|iex|--%)$/i.test(command[0] ?? "") || command[0] === "." && dialect !== "posix") unreadable = true;
     if (dialect === "cmd" && /^(?:if|for|start)$/i.test(command[0] ?? "")) unreadable = true;
     // A bare PowerShell name may be an alias/function supplied by a profile.
     // Keep canonical Verb-Noun commands and qualified executables readable;

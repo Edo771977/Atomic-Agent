@@ -13,21 +13,55 @@ function sedExternalCommand(script: string): boolean {
     }
   };
   while (i < script.length) {
-    while (i < script.length && /[\s\d$,!]/.test(script[i]!)) i++;
+    while (i < script.length && /[\s\d$,!;{}]/.test(script[i]!)) i++;
     if (script[i] === "/") { i++; delimited("/"); continue; }
     const command = script[i++];
-    if (command === "e" || command === "{") return true;
+    if (command === "e") return true;
     if (command === "s" && i < script.length) {
       const delimiter = script[i++]!;
       delimited(delimiter); delimited(delimiter);
-      while (i < script.length && !/[;\n\s]/.test(script[i]!)) {
+      while (i < script.length && !/[;{}\n\s]/.test(script[i]!)) {
         const flag = script[i++];
         if (flag === "e") return true;
         if (flag === "w") break;
       }
     }
-    while (i < script.length && !/[;\n]/.test(script[i]!)) { if (script[i] === "\\") i++; i++; }
+    while (i < script.length && !/[;{}\n]/.test(script[i]!)) { if (script[i] === "\\") i++; i++; }
     i++;
+  }
+  return false;
+}
+
+/** Distinguish logical OR/regex/string pipes from awk's external pipes. */
+function awkExternalCommand(script: string): boolean {
+  let i = 0, operand = true;
+  const quoted = (delimiter: string): boolean => {
+    while (i < script.length) {
+      const char = script[i++];
+      if (char === "\\") i++;
+      else if (char === delimiter) return true;
+    }
+    return false;
+  };
+  while (i < script.length) {
+    const char = script[i++]!;
+    if (/\s/.test(char)) continue;
+    if (char === "#") { while (i < script.length && script[i] !== "\n") i++; continue; }
+    if (char === '"' || char === "/" && operand) {
+      if (!quoted(char)) return true;
+      operand = false; continue;
+    }
+    if (char === "|") { if (script[i] !== "|") return true; i++; operand = true; continue; }
+    if (char === "@") return true;
+    if (/[A-Za-z_]/.test(char)) {
+      const start = i - 1;
+      while (i < script.length && /[A-Za-z_0-9]/.test(script[i]!)) i++;
+      const word = script.slice(start, i);
+      if (word === "system" && /^\s*\(/.test(script.slice(i))) return true;
+      operand = /^(?:print|printf|return|getline)$/.test(word); continue;
+    }
+    if (/[0-9.]/.test(char)) { operand = false; continue; }
+    operand = !/[)\]]/.test(char);
   }
   return false;
 }
@@ -80,7 +114,7 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       continue;
     }
     // External-command extensions are not the ordinary text-processing DSL.
-    const opaque = scripts.some(script => name === "sed" ? sedExternalCommand(script) : /\bsystem\s*\(|\|/.test(script));
+    const opaque = scripts.some(script => name === "sed" ? sedExternalCommand(script) : awkExternalCommand(script));
     return opaque ? { kind: "inline" } : file !== undefined ? { kind: "file", operand: file } : { kind: "none" };
   }
   for (let i = 0; i < args.length; i++) {
@@ -97,11 +131,12 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
     } else if (name === "node") {
       if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
       const option = arg.split("=", 1)[0]!;
-      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout"];
+      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit"];
+      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1] ?? "")) return { kind: "inline" };
       if (values.includes(option)) { if (!arg.includes("=")) i++; continue; }
       if (/^-r./.test(arg)) continue;
       if (/^(?:-v|--version|--help)$/.test(arg)) return { kind: "none" };
-      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
+      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
     } else if (name === "perl" || name === "ruby") {
       if (arg.startsWith("--")) {
         if (name === "ruby" && ["--encoding", "--external-encoding", "--internal-encoding"].includes(arg.split("=", 1)[0]!)) { if (!arg.includes("=")) i++; continue; }
