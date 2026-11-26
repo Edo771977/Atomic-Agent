@@ -1,5 +1,6 @@
 import { buildJudgeMessages } from "./build-judge-prompt.js";
 import { maySendApiKeyVariableToUrl } from "../../src/config/resolve-llm-api-key.js";
+import { requiresJudgeApiKey } from "../../src/skills/eval/judge-endpoint.js";
 import type {
   JudgeClient,
   JudgeConfig,
@@ -46,7 +47,7 @@ export function loadJudgeConfigFromEnv(): JudgeConfig | null {
     (openRouterAllowed ? process.env.OPENROUTER_API_KEY : undefined) ??
     process.env.ATOMIC_AGENT_JUDGE_API_KEY ??
     null;
-  if (requiresApiKey(baseUrl) && !apiKey) {
+  if (requiresJudgeApiKey(baseUrl) && !apiKey) {
     process.stderr.write(
       `[eval] judge disabled: ${baseUrl} requires an API key. ` +
         (openRouterAllowed ? "Set OPENROUTER_API_KEY or ATOMIC_AGENT_JUDGE_API_KEY, " : "Set ATOMIC_AGENT_JUDGE_API_KEY, ") +
@@ -143,20 +144,6 @@ function resolveChatCompletionsUrl(baseUrl: string): string {
   return `${trimmed}/v1/chat/completions`;
 }
 
-function requiresApiKey(baseUrl: string): boolean {
-  try {
-    const url = new URL(baseUrl);
-    if (url.hostname === "localhost" || url.hostname === "127.0.0.1") {
-      return false;
-    }
-    if (url.hostname.endsWith(".local")) return false;
-    return true;
-  } catch {
-    // Malformed URL — let the HTTP layer surface the error rather than
-    // silently disabling the judge.
-    return false;
-  }
-}
 
 function isOpenRouterHost(url: string): boolean {
   try {
