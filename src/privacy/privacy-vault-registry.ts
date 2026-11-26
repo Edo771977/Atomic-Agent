@@ -22,10 +22,10 @@ const AUXILIARY_PREFIXES = new Set([
   "link-gen", "vote", "note-reconcile", "btw", "title", "enhance", "learn",
 ]);
 
-/** Only a known auxiliary prefix denotes an owner; colons in chat IDs are literal. */
+/** Slash is reserved for internal archive keys: sessionIdError rejects it in chat IDs. */
 function auxiliaryOwner(id: string): string | null {
-  const colon = id.indexOf(":");
-  return colon > 0 && AUXILIARY_PREFIXES.has(id.slice(0, colon)) ? id.slice(colon + 1) : null;
+  const separator = id.indexOf("/");
+  return separator > 0 && AUXILIARY_PREFIXES.has(id.slice(0, separator)) ? id.slice(separator + 1) : null;
 }
 
 function pruneClosed(ids: Map<string, number>, now: number): void {
