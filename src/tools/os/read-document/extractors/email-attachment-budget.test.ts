@@ -49,12 +49,12 @@ it("lists all 140 attachments and keeps the following message body", async () =>
   expect(result.warnings).toEqual([]);
 });
 
-it("keeps listing attachments after the text budget is exhausted", async () => {
+it("keeps listing attachments that fit after a text part is deferred", async () => {
   const result = await email([
-    textPart("Earlier text"),
-    textPart("Skipped body"),
+    textPart("Earlier text ".repeat(3)),
+    textPart("Skipped body ".repeat(6)),
     attachment("after.pdf", "application/pdf", "file"),
-  ], 12);
+  ], 88);
   expect(result.text).not.toContain("Skipped body");
   expect(result.text).toContain("after.pdf (application/pdf, 4 B)");
   expect(result.warnings).toContainEqual(expect.stringMatching(/MIME.*budget.*skipped/i));

@@ -233,6 +233,7 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
 export interface HtmlMarkdown {
   text: string;
   title?: string;
+  truncated?: boolean;
 }
 
 function escapeMarkup(value: string): string {
@@ -555,7 +556,7 @@ export function boundedHtmlToMarkdown(
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
       if (prepared.preWhitespaceTrimmed) warnings.push("Long runs of preformatted whitespace were trimmed; the next line's indentation was retained.");
       if (wideTable) warnings.push(`HTML table width exceeded ${HTML_TABLE_COLUMNS} columns. Only the wide table was flattened.`);
-      return { text: budget ? budget.includeText(text) : text, title: prepared.title };
+      return { text, title: prepared.title };
     } catch (error) {
       if (!(error instanceof HtmlFormatLimit)) throw error;
       limit = error.limit;
@@ -567,13 +568,13 @@ export function boundedHtmlToMarkdown(
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
   };
-  // Input was already charged by the container. Limit this streaming
-  // pass by the remaining output room instead of charging the source twice.
-  const plainLimit = budget?.textRemaining ?? HTML_PLAIN_CHARS;
+  // Parse up to a fresh item's allowance; the caller accounts for framing
+  // and decides whether the item fits in the current output window.
+  const plainLimit = budget?.maxOutputBytes ?? HTML_PLAIN_CHARS;
   const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, plainLimit);
   warnings.push(limit
     ? `HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`
     : "HTML formatting budget exhausted. Showing plain text with formatting omitted.");
   if (cut && !budget) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
-  return { title: prepared?.title, text: budget ? budget.includeText(text, cut) : text };
+  return { title: prepared?.title, text, ...(cut && { truncated: true }) };
 }

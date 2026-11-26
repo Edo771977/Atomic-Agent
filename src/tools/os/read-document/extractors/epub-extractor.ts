@@ -1,7 +1,7 @@
 import { posix } from "node:path";
 
 import type { Extractor } from "./extractor-types.js";
-import { FragmentBudget } from "./fragment-budget.js";
+import { FragmentBudget, FragmentOutput } from "./fragment-budget.js";
 import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes, sniffHtmlCharset } from "./text-decode.js";
 import {
@@ -66,6 +66,9 @@ export const epubExtractor: Extractor = async (input) => {
   }
 
   const budget = new FragmentBudget(input.maxBytes);
+  const output = new FragmentOutput(budget.maxOutputBytes);
+  const title = output.append(head.join("\n"));
+  if (title) chunks.push(title);
   let next = start;
   for (; next <= end; next++) {
     if (extracted.length >= maxPages) break;
@@ -84,21 +87,21 @@ export const epubExtractor: Extractor = async (input) => {
       const decoded = decodeBytes(bytes, sniffHtmlCharset(bytes));
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
       const chapterWarnings: string[] = [];
-      const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
+      const { text, truncated } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
       if (accepted < size) budget.noteTruncation();
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
-      if (budget.exhausted && !text) break;
-      if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
-      else if (text.length > 0) chunks.push(text);
-      extracted.push(n);
-      if (budget.exhausted) break;
+      const item = separators ? `--- chapter ${n} ---\n${text}` : text;
+      const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, truncated || accepted < size);
+      if (shown.text) chunks.push(shown.text);
+      if (shown.status !== "deferred") extracted.push(n);
+      if (output.stopped || budget.exhausted) break;
     } catch (err) {
       warnings.push(`chapter ${n}: failed to parse (${(err as Error).message})`);
     }
   }
   const remaining = end - next + 1;
-  if (budget.exhausted) {
-    warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom)`);
+  if (budget.exhausted || output.stopped) {
+    warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom=${next})`);
   } else if (remaining > 0) {
     warnings.push(
       `stopped at maxPages=${maxPages}; ${remaining} more chapter(s) not read (use pagesFrom)`,
@@ -107,11 +110,11 @@ export const epubExtractor: Extractor = async (input) => {
 
   return {
     format: "epub",
-    text: [head.join("\n"), ...chunks].filter((c) => c.length > 0).join("\n\n").trim(),
+    text: chunks.join("").trim(),
     pageCount: total,
     pagesExtracted: extracted,
     warnings,
-    ...(budget.exhausted && { truncated: true }),
+    ...((budget.exhausted || output.truncated) && { truncated: true }),
   };
 };
 

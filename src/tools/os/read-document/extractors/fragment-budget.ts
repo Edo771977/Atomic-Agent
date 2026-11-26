@@ -9,15 +9,14 @@ export class FragmentBudget {
   #parts = 0;
   #bytes = 0;
   #work = 0;
-  #text = 0;
   #exhausted = false;
   #formattingLimited = false;
-  readonly #textLimit: number;
+  readonly maxOutputBytes: number;
   readonly #inputLimit: number;
   readonly #workLimit: number;
 
   constructor(maxBytes = DEFAULT_DOCUMENT_MAX_BYTES) {
-    this.#textLimit = maxBytes;
+    this.maxOutputBytes = maxBytes;
     this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 4));
     this.#workLimit = Math.min(MAX_RENDER_WORK, Math.max(128 * 1024, Math.floor(maxBytes * 0.3)));
   }
@@ -26,17 +25,12 @@ export class FragmentBudget {
     return this.#exhausted;
   }
 
-  get textRemaining(): number {
-    return this.#textLimit - this.#text;
-  }
-
   get canFormat(): boolean {
     return !this.#formattingLimited;
   }
 
   canTake(bytes: number): boolean {
-    return !this.#exhausted && this.#parts < MAX_FRAGMENTS &&
-      (this.textRemaining > 0 || bytes === 0) && bytes <= this.#inputLimit - this.#bytes;
+    return !this.#exhausted && this.#parts < MAX_FRAGMENTS && bytes <= this.#inputLimit - this.#bytes;
   }
 
   take(bytes: number): number | undefined {
@@ -62,24 +56,60 @@ export class FragmentBudget {
     return true;
   }
 
-  includeText(value: string, cut = false): string {
-    const limit = this.textRemaining;
+  noteTruncation(): void {
+    this.#exhausted = true;
+  }
+}
+
+/** Account for the bytes actually displayed, including framing and metadata. */
+export class FragmentOutput {
+  #used = 0;
+  #hasItem = false;
+  truncated = false;
+  stopped = false;
+
+  constructor(readonly limit: number) {}
+
+  get remaining(): number {
+    return this.limit - this.#used;
+  }
+
+  append(value: string): string {
+    const limit = this.remaining;
     const size = Buffer.byteLength(value);
     if (size <= limit) {
-      this.#text += size;
-      this.#exhausted ||= cut;
+      this.#used += size;
       return value;
     }
-    this.#exhausted = true;
+    this.truncated = true;
     if (limit === 0) return "";
     const bytes = Buffer.from(value);
     let end = limit;
     while ((bytes[end]! & 0xc0) === 0x80) end--;
-    this.#text += end;
+    this.#used += end;
     return bytes.toString("utf8", 0, end);
   }
 
-  noteTruncation(): void {
-    this.#exhausted = true;
+  appendItem(prefix: string, value: string, clipped = false): {
+    text: string;
+    status: "complete" | "deferred" | "partial";
+  } {
+    const prefixBytes = Buffer.byteLength(prefix);
+    const valueBytes = Buffer.byteLength(value);
+    const size = prefixBytes + valueBytes;
+    const fitsFresh = !clipped && Buffer.byteLength(prefix.trimStart()) + valueBytes <= this.limit;
+    if (this.#hasItem && size > this.remaining && (fitsFresh || this.remaining <= prefixBytes)) {
+      this.stopped = this.truncated = true;
+      return { text: "", status: "deferred" };
+    }
+    const partial = clipped || size > this.remaining;
+    const text = this.append(prefix + value);
+    this.#hasItem = true;
+    if (partial) this.stopped = this.truncated = true;
+    return { text, status: partial ? "partial" : "complete" };
+  }
+
+  stop(): void {
+    this.stopped = this.truncated = true;
   }
 }
