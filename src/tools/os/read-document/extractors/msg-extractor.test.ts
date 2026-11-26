@@ -151,7 +151,7 @@ function buildCfb(children: Node[], sectorSize = SECTOR): Built {
   }
   // Mini FAT, mini stream, big streams.
   miniFat.forEach((v, i) => out.writeUInt32LE(v, at(miniFatStart) + i * 4));
-  for (let i = miniFat.length; i < miniFatSectors * (SECTOR / 4); i++) {
+  for (let i = miniFat.length; i < miniFatSectors * (sectorSize / 4); i++) {
     out.writeUInt32LE(FREE, at(miniFatStart) + i * 4);
   }
   miniStream.copy(out, at(miniStreamStart));
@@ -266,6 +266,13 @@ describe("cfb reader", () => {
     const dir = cfb.child(cfb.root, "dir")!;
     expect(dir.type).toBe("storage");
     expect(cfb.read(cfb.child(dir, "large")!)).toEqual(large);
+  });
+
+  it("pads the unused mini-FAT entries through the end of a v4 sector", () => {
+    const sectorSize = 4096;
+    const { buffer } = buildCfb([{ name: "Small", data: Buffer.from("fixture") }], sectorSize);
+    const sector = buffer.readUInt32LE(0x3c);
+    expect(buffer.readUInt32LE((sector + 2) * sectorSize - 4)).toBe(FREE);
   });
 
   it("rejects files that are not compound files", () => {
