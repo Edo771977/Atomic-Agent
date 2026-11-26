@@ -289,7 +289,7 @@ function renderPart(
       if (!budget.take(part.body.length)) return "";
       warnings.push(`${mime} without a boundary; shown as text`);
       const text = decodeBytes(Buffer.from(part.body, "latin1")).text;
-      return budget.takeWork(text.length) ? text : "";
+      return budget.includeText(text);
     }
     const rawChildren = splitMultipart(part.body, boundary);
     if (mime === "multipart/alternative") {
@@ -307,7 +307,11 @@ function renderPart(
         if (childMime === "text/plain") plain ??= last;
         if (childMime === "text/html") html ??= last;
       }
-      const pick = plain ?? html ?? last;
+      if (plain && html && budget.canTake(plain.body.length)) {
+        const text = renderPart(plain, depth + 1, warnings, attachments, budget);
+        if (text.trim() || budget.exhausted) return text;
+      }
+      const pick = html ?? plain ?? last;
       return pick ? renderPart(pick, depth + 1, warnings, attachments, budget) : "";
     }
     const chunks: string[] = [];
@@ -336,7 +340,7 @@ function renderPart(
   if (decoded.warning) warnings.push(decoded.warning);
   const text = decoded.text.replace(/\r\n?/g, "\n");
   if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget).text;
-  return budget.takeWork(text.length) ? text : "";
+  return budget.includeText(text);
 }
 
 function partMime(part: Part): string {

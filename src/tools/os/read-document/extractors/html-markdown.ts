@@ -509,25 +509,20 @@ export function boundedHtmlToMarkdown(
   xhtml = isXhtml(html),
   budget?: FragmentBudget,
 ): HtmlMarkdown {
-  const prepared = prepareHtml(html, xhtml);
-  // Short tags still require DOM allocation and traversal. Charge both
-  // markup and nodes before starting a conversion in a document container.
-  const work = prepared.markup.length + 16 * prepared.nodes;
-  if (budget && !budget.takeWork(work)) return { text: "" };
-  let limit = prepared.limit;
-  if (!limit) {
+  const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
+  let limit = prepared?.limit;
+  if (prepared && !limit && (!budget || budget.takeWork(prepared.markup.length + 16 * prepared.nodes))) {
     try {
       let wideTable = false;
       const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)
         .split("\n").map(line => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
       if (text.length > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
-      if (budget && !budget.takeWork(Math.max(0, text.length - work))) return { text: "" };
       if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
       if (prepared.flattened.quotes) warnings.push(`HTML quotations beyond ${HTML_QUOTE_DEPTH} levels were flattened locally.`);
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
       if (prepared.preWhitespaceTrimmed) warnings.push("Long runs of preformatted whitespace were trimmed; the next line's indentation was retained.");
       if (wideTable) warnings.push(`HTML table width exceeded ${HTML_TABLE_COLUMNS} columns. Only the wide table was flattened.`);
-      return { text, title: prepared.title };
+      return { text: budget ? budget.includeText(text) : text, title: prepared.title };
     } catch (error) {
       if (!(error instanceof HtmlFormatLimit)) throw error;
       limit = error.limit;
@@ -539,9 +534,13 @@ export function boundedHtmlToMarkdown(
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
   };
-  if (budget && !budget.takeWork(Math.min(html.length, HTML_PLAIN_CHARS))) return { text: "" };
-  const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, HTML_PLAIN_CHARS);
-  warnings.push(`HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`);
-  if (cut) warnings.push(`HTML plain text was truncated at ${HTML_PLAIN_CHARS} characters.`);
-  return { title: prepared.title, text };
+  // Input was already charged by the container. Limit this streaming
+  // pass by the remaining output room instead of charging the source twice.
+  const plainLimit = budget?.textRemaining ?? HTML_PLAIN_CHARS;
+  const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, plainLimit);
+  warnings.push(limit
+    ? `HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`
+    : "HTML formatting budget exhausted. Showing plain text with formatting omitted.");
+  if (cut && !budget) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
+  return { title: prepared?.title, text: budget ? budget.includeText(text, cut) : text };
 }

@@ -83,11 +83,12 @@ export const epubExtractor: Extractor = async (input) => {
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
       const chapterWarnings: string[] = [];
       const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
-      if (budget.exhausted) break;
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
+      if (budget.exhausted && !text) break;
       if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
       else if (text.length > 0) chunks.push(text);
       extracted.push(n);
+      if (budget.exhausted) break;
     } catch (err) {
       warnings.push(`chapter ${n}: failed to parse (${(err as Error).message})`);
     }
