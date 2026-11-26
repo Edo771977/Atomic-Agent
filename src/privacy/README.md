@@ -16,6 +16,8 @@ The archive lives in process memory. Chat deletion, including incognito close, d
 
 Outside `withFreshPrivacyVault`, calls to `privacyVaultForRequest("consolidator")` share the registry archive. The fixed partition alone does not provide per-call isolation; callers must enter the fresh scope before invoking the provider.
 
+Internal ownership resolves recursively: `reflection/title/X` belongs to `title/X` and to chat `X`. Releasing or forgetting `X` clears those descendants, and its tombstone also covers future nested keys. A colon-containing chat ID such as `reflection:title:X` is an opaque leaf and is never reinterpreted as an internal key.
+
 Skill reviews use a fresh archive for each provider call. `learn:<id>` remains only the routing partition in `runtime-experience-review.ts`; it is not pinned in or released from the registry and cannot borrow a real chat's archive.
 
 The detector reads the fork's current [known credentials](../runtime/runtime-known-secrets.ts) and uses the shared credential masker to detect them. Existing tool-output and error-report scrubbing continue to run independently. Values already redacted from tool output remain redacted.

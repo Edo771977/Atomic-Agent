@@ -28,6 +28,11 @@ function auxiliaryOwner(id: string): string | null {
   return separator > 0 && AUXILIARY_PREFIXES.has(id.slice(0, separator)) ? id.slice(separator + 1) : null;
 }
 
+/** Each step removes a trusted internal prefix; a real chat ID is an opaque leaf. */
+function* archiveOwners(id: string): Generator<string> {
+  for (let current: string | null = id; current !== null; current = auxiliaryOwner(current)) yield current;
+}
+
 function pruneClosed(ids: Map<string, number>, now: number): void {
   for (const [id, expires] of ids) {
     if (expires > now) break;
@@ -39,9 +44,10 @@ function isClosed(id: string): boolean {
   const now = performance.now();
   pruneClosed(closedSessions, now);
   pruneClosed(closedWorkers, now);
-  const owner = auxiliaryOwner(id);
-  return closedSessions.has(id) || closedWorkers.has(id)
-    || (owner !== null && (closedSessions.has(owner) || closedWorkers.has(owner)));
+  for (const owner of archiveOwners(id)) {
+    if (closedSessions.has(owner) || closedWorkers.has(owner)) return true;
+  }
+  return false;
 }
 
 function markClosed(id: string, worker = id.startsWith("s-w-")): void {
@@ -210,7 +216,9 @@ export function releasePrivacyVault(sessionId: string): void {
 
 function dropDerivedVaults(id: string): void {
   for (const key of vaults.keys()) {
-    if (key === id || auxiliaryOwner(key) === id) vaults.delete(key);
+    for (const owner of archiveOwners(key)) {
+      if (owner === id) { vaults.delete(key); break; }
+    }
   }
 }
 
