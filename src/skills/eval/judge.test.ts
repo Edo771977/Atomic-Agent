@@ -19,6 +19,11 @@ const llm = {
 };
 
 describe("resolveJudgeConfig", () => {
+  it.each(["localhost.", "judge.localhost"])("allows a keyless judge at %s without sending a reserved key", host => {
+    const env = { OPENROUTER_API_KEY: "fixture-openrouter" };
+    expect(resolveJudgeConfig({ url: `http://${host}:9090`, model: "fixture" }, llm, null, env))
+      .toMatchObject({ kind: "http", apiKey: null });
+  });
   it("only uses the OpenRouter environment key at OpenRouter or loopback", () => {
     const env = { OPENROUTER_API_KEY: "synthetic-openrouter-key", ATOMIC_AGENT_JUDGE_MODEL: "fixture" };
     const gateway = "https://judge.example.test/v1";
