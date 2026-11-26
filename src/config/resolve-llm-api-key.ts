@@ -1,6 +1,7 @@
+import { DEFAULT_AIMLAPI_BASE } from "../llm/provider/aimlapi/aimlapi-endpoint.js";
 import { hasUnresolvedWildcardDnsAddress } from "../llm/provider/openai/local-server-url.js";
 import { isOtherComputerOnNetworkUrl } from "../llm/provider/openai/network-server-address.js";
-import { isLoopbackUrl } from "../llm/provider/url-host.js";
+import { classifiableHostOf, isLoopbackUrl } from "../llm/provider/url-host.js";
 import { describeMalformedApiKey } from "./api-key-shape.js";
 import type { UserLlmProviderEntry } from "./llm-config.js";
 
@@ -67,7 +68,6 @@ export function resolveLlmProviderApiKeyWithSource(
     if (!mayUseKeyVariable(entry, entry.apiKeyEnvVar)) return done();
     return fromEnv(entry.apiKeyEnvVar);
   }
-  if (entry.kind === "aimlapi") return fromEnv("AIMLAPI_API_KEY");
   const native = NATIVE_KEY_DEFAULTS.get(entry.kind);
   if (native) return mayReceiveDefaultKey(entry.baseUrl, native.origin) ? fromEnv(native.name) : done();
   if (
@@ -87,25 +87,43 @@ export function resolveLlmProviderApiKeyWithSource(
 }
 
 /**
- * The shared variable that holds a key this entry would use if the shared
- * key were sent to its endpoint, when it is not (`maySendSharedOpenAiKey`):
- * an `openai-compatible` entry with no `apiKey` and no `apiKeyEnvVar` of
- * its own, aimed at plain http:// off this machine or at another computer
- * on the network. `undefined` otherwise. Readiness checks use it to say why
- * a set OPENAI_API_KEY does not count for that entry.
+ * The OpenAI or shared compatible variable withheld from this destination.
  */
 export function sharedOpenAiKeyNotSent(
-  entry: Pick<UserLlmProviderEntry, "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">,
+  entry: Pick<LlmApiKeyEntry, "kind" | "baseUrl" | "apiKey" | "apiKeyEnvVar">,
 ): string | undefined {
   if (entry.apiKey && describeMalformedApiKey(entry.apiKey) === null) return undefined;
   if (entry.apiKeyEnvVar) {
-    return !mayUseKeyVariable(entry, entry.apiKeyEnvVar) && process.env[entry.apiKeyEnvVar]
+    return OPENAI_KEY_VARIABLES.has(entry.apiKeyEnvVar.toUpperCase()) &&
+      !mayUseKeyVariable(entry, entry.apiKeyEnvVar) && process.env[entry.apiKeyEnvVar]
       ? entry.apiKeyEnvVar : undefined;
   }
   if (entry.kind !== "openai-compatible" && entry.kind !== "qwen-openai-compatible") return undefined;
   const shared = sharedOpenAiKey();
   if (shared === undefined || (maySendSharedOpenAiKey(entry.baseUrl) && (shared.name === "OPENAI_COMPAT_API_KEY" || mayReceiveOpenAiKey(entry.baseUrl)))) return undefined;
   return shared.name;
+}
+
+/** The primary native variable reserved for a different destination. */
+export function blockedNativeKeyVariable(
+  entry: Pick<LlmApiKeyEntry, "kind" | "baseUrl" | "apiKeyEnvVar">,
+): string | undefined {
+  const name = entry.apiKeyEnvVar || NATIVE_KEY_DEFAULTS.get(entry.kind)?.name;
+  if (name && NATIVE_KEY_DESTINATIONS.has(name.toUpperCase()) && !mayUseKeyVariable(entry, name)) {
+    return name;
+  }
+  return undefined;
+}
+
+/** The name of the configured or default primary key withheld by the origin guard. */
+export function nativeKeyNotSent(entry: Omit<LlmApiKeyEntry, "id">): string | undefined {
+  if (entry.apiKey && describeMalformedApiKey(entry.apiKey) === null) return undefined;
+  const native = blockedNativeKeyVariable(entry);
+  return native && process.env[native] ? native : undefined;
+}
+
+export function providerKeyNotSent(entry: Omit<LlmApiKeyEntry, "id">): string | undefined {
+  return sharedOpenAiKeyNotSent(entry) ?? nativeKeyNotSent(entry);
 }
 
 /** The shared per-kind variables, in the order they are read. */
@@ -132,10 +150,16 @@ function sharedOpenAiKey(): { readonly name: string; readonly value: string } | 
 const OPENAI_ORIGIN = "https://api.openai.com";
 
 const NATIVE_KEY_DEFAULTS = new Map([
+  ["aimlapi", { origin: DEFAULT_AIMLAPI_BASE, name: "AIMLAPI_API_KEY" }],
   ["anthropic", { origin: "https://api.anthropic.com", name: "ANTHROPIC_API_KEY" }],
   ["gemini", { origin: "https://generativelanguage.googleapis.com", name: "GEMINI_API_KEY" }],
   ["openrouter", { origin: "https://openrouter.ai", name: "OPENROUTER_API_KEY" }],
 ]);
+
+const NATIVE_KEY_DESTINATIONS = new Map(
+  [...NATIVE_KEY_DEFAULTS]
+    .map(([kind, { name, origin }]) => [name, { kind, origin }] as const),
+);
 
 /** The variables that usually hold the operator's real OpenAI key (ATO-1703). */
 export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
@@ -143,18 +167,21 @@ export const OPENAI_KEY_VARIABLES: ReadonlySet<string> = new Set([
   "ATOMIC_AGENT_OPENAI_API_KEY",
 ]);
 
-/** Why the destination-bound OpenAI key was withheld, without its value. */
-export function describeOpenAiKeyDestination(name: string): string | null {
-  return OPENAI_KEY_VARIABLES.has(name.toUpperCase())
-    ? `${name} is not sent to this server. OpenAI keys go only to api.openai.com or loopback.`
-    : null;
+/** Why a reserved variable was withheld, without its value. */
+export function describeProviderKeyDestination(name: string): string | null {
+  const canonical = name.toUpperCase();
+  if (OPENAI_KEY_VARIABLES.has(canonical)) {
+    return `${name} is not sent to this server. OpenAI keys go only to api.openai.com or loopback.`;
+  }
+  const native = NATIVE_KEY_DESTINATIONS.get(canonical);
+  return native ? `${name} is not sent to this server. ${name} is reserved for ${native.origin} or loopback.` : null;
 }
 
 /**
  * ATO-1703: whether `OPENAI_API_KEY` / `ATOMIC_AGENT_OPENAI_API_KEY` may be
  * sent to a compat entry's `baseUrl`. Only OpenAI's own API and this
- * machine qualify, by literal loopback address: a `*.localhost` name can
- * still be answered by the network's DNS. No `baseUrl` answers `true`: the
+ * machine qualify. Reserved keys accept literal localhost, 127/8, ::1
+ * and IPv4-mapped 127/8. No `baseUrl` answers `true`: the
  * compat providers refuse to start without one, so nothing is sent, and
  * callers that look a key up before the address is known keep working.
  * Anything unparsable gets nothing.
@@ -173,20 +200,31 @@ function mayReceiveDefaultKey(baseUrl: string | undefined, officialOrigin: strin
   }
   if (url.protocol !== "http:" && url.protocol !== "https:") return false;
   if (url.origin === officialOrigin) return true;
-  const host = url.hostname.toLowerCase();
-  return host === "localhost" || host === "[::1]" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host);
+  // Unlike the readiness classifier, the credential guard must not
+  // treat a name with a DNS root dot as the literal localhost address.
+  if (url.hostname === "localhost" || url.hostname === "[::1]") return true;
+  const host = classifiableHostOf(baseUrl);
+  if (host === null || !/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return false;
+  // The general host classifier also unwraps routed IPv6 prefixes.
+  return !url.hostname.startsWith("[") || /^\[::ffff:[0-9a-f]+:[0-9a-f]+\]$/i.test(url.hostname);
 }
 
 /**
- * Whether `entry` may read its key from the variable `name`. Only the
- * OpenAI variables are restricted: they go to OpenAI or this machine, and
- * never to a native kind (OpenRouter, Gemini, ...), whose host is not OpenAI.
+ * Reserved vendor variable names belong to the vendor's API or loopback.
+ * With no explicit URL, a native kind supplies its own default origin.
  */
 function mayUseKeyVariable(
   entry: { readonly kind?: string; readonly baseUrl?: string },
   name: string,
 ): boolean {
-  if (!OPENAI_KEY_VARIABLES.has(name.toUpperCase())) return true;
+  const canonical = name.toUpperCase();
+  const native = NATIVE_KEY_DESTINATIONS.get(canonical);
+  if (native !== undefined) {
+    return entry.baseUrl
+      ? mayReceiveDefaultKey(entry.baseUrl, native.origin)
+      : entry.kind === native.kind;
+  }
+  if (!OPENAI_KEY_VARIABLES.has(canonical)) return true;
   if (entry.baseUrl !== undefined && entry.baseUrl.length > 0) {
     return mayReceiveOpenAiKey(entry.baseUrl);
   }
@@ -195,6 +233,11 @@ function mayUseKeyVariable(
     entry.kind === "openai-compatible" ||
     entry.kind === "qwen-openai-compatible"
   );
+}
+
+/** Whether an explicitly selected environment key may be sent to an HTTP endpoint. */
+export function maySendApiKeyVariableToUrl(name: string, baseUrl: string): boolean {
+  return mayUseKeyVariable({ baseUrl }, name);
 }
 
 /**
@@ -236,8 +279,8 @@ export function resolveExtraApiKeys(
   env: NodeJS.ProcessEnv = process.env,
   options: {
     /**
-     * `false` reads every named variable, the OpenAI ones included, for
-     * callers that only mask values in output and never send them.
+     * Despite the historical name, `false` reads every reserved variable
+     * for callers that only mask values in output and never send them.
      */
     readonly scopeOpenAiKey?: boolean;
   } = {},

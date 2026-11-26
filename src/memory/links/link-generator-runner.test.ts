@@ -1,4 +1,4 @@
-import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-fixture.js";
+import { assertAuxiliaryArchive } from "../../privacy/auxiliary-isolation-test-helpers.js";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";

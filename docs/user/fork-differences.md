@@ -135,6 +135,10 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
   - the transcript was cleared;
   - the send failed.
 
+## A2A protocol
+
+A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candidate's task projection does not enforce the fork's chat visibility and disconnecting a blocking caller leaves its task running. The flag and both routes remain unavailable, with no new public exception or role permission. [HTTP review](../../src/http/README.md)
+
 ## Chat rollback (rewind)
 
 - **A partial restore keeps the way back.** If any file fails, the rollback answers `409 restore_failed`, with `partial: true` and the lists of restored, deleted and failed files. The chat is not cut and the checkpoint copies are kept, so it can be retried ([#78](https://github.com/Edo771977/atomic-agent/pull/78)).
@@ -165,6 +169,10 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 - **Runtime-written changes and replies.** The runtime writes the changed lines, replies are compact while tasks are green, and a syntax pass runs before delegation ([#10](https://github.com/Edo771977/atomic-agent/pull/10)).
 - **Verified delivery.** Only green tasks merge under isolation ([#11](https://github.com/Edo771977/atomic-agent/pull/11)). Verified candidate delivery has rollback, artifact evidence and measured routing ([#16](https://github.com/Edo771977/atomic-agent/pull/16), [#17](https://github.com/Edo771977/atomic-agent/pull/17), [#22](https://github.com/Edo771977/atomic-agent/pull/22), [#25](https://github.com/Edo771977/atomic-agent/pull/25)). Its recovery command is `atomic-agent fusion recover`.
 
+## ACP editor protocol
+
+The editor-launched ACP command from upstream #1646 remains deferred in B3. Its full three-commit branch was reviewed: the candidate admits marked tool children and guesses worker approval ownership from the sole busy chat. Upstream also supports persistent allow-always grants from editor replies. The fork exposes no ACP command or listener pending reliable attribution and preservation of its operator confirmation rules. [HTTP review](../../src/http/README.md)
+
 ## Setup and measurement
 
 - **`atomic-agent setup fusion`.** One step from install to "cloud plans, local executes" ([#13](https://github.com/Edo771977/atomic-agent/pull/13)).
@@ -174,6 +182,10 @@ For everyday use, see the [Fusion projects guide](fusion-projects.md).
 - **Windows.**
   - Fixes found in real Windows test runs: native Anthropic provider, verified prices and the local runtime ([#18](https://github.com/Edo771977/atomic-agent/pull/18), [#20](https://github.com/Edo771977/atomic-agent/pull/20), [#21](https://github.com/Edo771977/atomic-agent/pull/21), [#23](https://github.com/Edo771977/atomic-agent/pull/23), [#31](https://github.com/Edo771977/atomic-agent/pull/31), [#36](https://github.com/Edo771977/atomic-agent/pull/36)).
   - A Windows core CI gate.
+
+## MCP over HTTP
+
+The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
 
 ## Folder constraints for confidential data
 

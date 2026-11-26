@@ -2,9 +2,9 @@ import {
   OpenAiProvider,
   type OpenAiProviderOptions,
 } from "../openai/openai-provider.js";
+import { DEFAULT_AIMLAPI_BASE } from "./aimlapi-endpoint.js";
 
-/** Root without `/v1` — {@link OpenAiProvider} appends `/v1/chat/completions`. */
-export const DEFAULT_AIMLAPI_BASE = "https://api.aimlapi.com";
+export { DEFAULT_AIMLAPI_BASE } from "./aimlapi-endpoint.js";
 
 /** Strips a trailing `/v1` so paths are not doubled (`/v1/v1/...`). */
 export { normalizeOpenAiBaseUrl as normalizeAimlapiBaseUrl } from "../openai/normalize-openai-base-url.js";

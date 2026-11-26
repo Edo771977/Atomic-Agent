@@ -700,6 +700,23 @@ describe("saveProviderWizardToConfig", () => {
       expect(built.entry).toMatchObject({ kind: "anthropic", baseUrl: "https://messages-gw.corp.example" });
     });
 
+    it("saves a typed gateway key under its own name without replacing the vendor key", () => {
+      process.env.ANTHROPIC_API_KEY = "synthetic-original-key";
+      upsertLlmProvider({
+        id: "claude-gw-fixture", kind: "anthropic", baseUrl: "https://messages-gw.example.test",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      });
+      resetConfigCache();
+      const wizard = { ...configure("claude-gw-fixture", "openai-compatible", "anthropic"), apiKeyBuffer: "synthetic-gateway-key" };
+      const variable = networkComputerKeyEnvVar("claude-gw-fixture");
+      onTestFinished(() => { delete process.env[variable]; });
+      expect(envHintForWizard(wizard)).toBe(variable);
+      const built = saveProviderWizardToConfig(wizard);
+      expect(built.entry.apiKeyEnvVar).toBe(variable);
+      expect(resolveLlmProviderApiKey(built.entry)).toBe("synthetic-gateway-key");
+      expect(process.env.ANTHROPIC_API_KEY).toBe("synthetic-original-key");
+    });
+
     it("an openai-compatible entry on api.anthropic.com moves to the native kind", () => {
       process.env.ANTHROPIC_API_KEY = "sk-ant";
       upsertLlmProvider({

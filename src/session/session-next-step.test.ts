@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-test-helpers.js";
 
 it("does not restore another next-step call's placeholder", async () => {
   expect(await generateNextStep(session([ASKED, ANSWERED]), { slotId: () => 1, complete: async p => {

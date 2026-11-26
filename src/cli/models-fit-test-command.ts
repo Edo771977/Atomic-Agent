@@ -20,6 +20,7 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { getConfig } from "../config/index.js";
+import { describeProviderKeyDestination, maySendApiKeyVariableToUrl } from "../config/resolve-llm-api-key.js";
 import {
   createAgentTaskRunner,
   createFitJudge,
@@ -70,6 +71,10 @@ export function parseFitTestArgs(args: string[]): FitTestArgs | { error: string 
   if (modelIds.length > MAX_MODELS) return { error: `--models takes at most ${MAX_MODELS} models` };
   const judgeUrl = readCliOption(args, "--judge-url");
   if (!judgeUrl) return { error: "--judge-url is required: the judge reads your prompts, so choose where they go" };
+  const judgeKeyEnv = readCliOption(args, "--judge-key-env") ?? null;
+  if (judgeKeyEnv !== null && !maySendApiKeyVariableToUrl(judgeKeyEnv, judgeUrl)) {
+    return { error: `--judge-key-env uses a reserved name. ${describeProviderKeyDestination(judgeKeyEnv)} Use a variable dedicated to this judge.` };
+  }
   const timeoutRaw = readCliOption(args, "--timeout");
   const timeoutS = timeoutRaw === undefined ? DEFAULT_TIMEOUT_S : Number(timeoutRaw);
   if (!Number.isInteger(timeoutS) || timeoutS <= 0) return { error: "--timeout needs a whole number of seconds" };
@@ -78,7 +83,7 @@ export function parseFitTestArgs(args: string[]): FitTestArgs | { error: string 
     modelIds,
     judgeUrl,
     judgeModel: readCliOption(args, "--judge-model") ?? "judge",
-    judgeKeyEnv: readCliOption(args, "--judge-key-env") ?? null,
+    judgeKeyEnv,
     timeoutMs: timeoutS * 1000,
     outPath: readCliOption(args, "--out") ? resolve(readCliOption(args, "--out") as string) : null,
     json: args.includes("--json"),

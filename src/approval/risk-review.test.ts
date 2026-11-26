@@ -1,4 +1,4 @@
-import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-fixture.js";
+import { assertAuxiliaryArchive } from "../privacy/auxiliary-isolation-test-helpers.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalRequest } from "./approval-gate.js";
 import {

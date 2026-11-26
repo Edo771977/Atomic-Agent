@@ -38,6 +38,40 @@ describe("SessionStore", () => {
     expect(loaded!.worldSnapshot).toBeNull();
   });
 
+  it("projects goals only from the most recent sessions and excludes incognito", () => {
+    const goal = { status: "paused", marker: "synthetic goal" };
+    for (const [id, updatedAt] of [["old", 1], ["public", 2], ["incognito", 3], ["no-goal", 4]] as const) {
+      const state = createEmptySessionState({
+        id, workingDir: tmp,
+        metadata: id === "no-goal" ? {} : { goal, otherMetadata: "fixture" },
+        ...(id === "incognito" ? { incognito: store.newIncognitoMark() } : {}),
+      });
+      store.save({ ...state, updatedAt });
+    }
+    expect(store.listRecentGoals(3)).toEqual([{ id: "public", metadata: { goal } }]);
+  });
+
+  it("keeps goal refresh time bounded by the recent window with a larger archive", () => {
+    const db = new DatabaseCtor(join(tmp, "sessions.sqlite"));
+    const payload = JSON.stringify({ metadata: {}, turns: ["x".repeat(32 * 1024)] });
+    const insert = db.prepare("INSERT INTO sessions (id, working_dir, status, created_at, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?)");
+    try {
+      db.transaction(() => {
+        for (let row = 0; row < 640; row++) insert.run(`fixture-${row}`, tmp, "idle", row, row, payload);
+      })();
+      const measure = (limit: number) => {
+        const start = performance.now();
+        for (let probe = 0; probe < 6; probe++) store.listRecentGoals(limit);
+        return performance.now() - start;
+      };
+      const all = measure(640);
+      const window = measure(50);
+      expect(window).toBeLessThan(all * 0.6);
+    } finally {
+      db.close();
+    }
+  });
+
   it("round-trips loadedTools on the session payload", () => {
     const initial = createEmptySessionState({
       id: "s-tools",
