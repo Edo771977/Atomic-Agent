@@ -461,7 +461,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         return;
       }
       const isVoid = VOID_ELEMENTS.has(name);
-      if (!isVoid && renderedDepth >= HTML_FORMAT_DEPTH) {
+      // HTML anchors cannot overlap, so a link in flattened markup needs
+      // at most one extra level. Breaks already take the void-element path.
+      const maxDepth = name === "a" && !recognizeSelfClosing ? HTML_FORMAT_DEPTH + 1 : HTML_FORMAT_DEPTH;
+      if (!isVoid && renderedDepth >= maxDepth) {
         flattened.depth = true;
         return;
       }
