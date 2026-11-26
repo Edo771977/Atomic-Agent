@@ -14,6 +14,8 @@ import {
 import { parseRewriterOutput } from "./query-rewriter-parser.js";
 import { createHeuristicGate, type RewriterGate } from "./rewriter-gate.js";
 
+export const REWRITER_SESSION_PREFIX = "rewriter:";
+
 /**
  * v2.5 query rewriter (Phase A) — runner.
  *
@@ -194,7 +196,7 @@ export function createQueryRewriterRunner(
             // provider refusing the rewriter's request flipped the TURN's
             // sticky override, and the next main step went to the next
             // link (often a local server that is not running).
-            sessionId: `rewriter:${input.sessionId}`,
+            sessionId: `${REWRITER_SESSION_PREFIX}${input.sessionId}`,
             budgetOwnerSessionId: input.sessionId,
             signal: ac.signal,
           })),

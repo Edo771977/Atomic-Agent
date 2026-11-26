@@ -16,6 +16,8 @@ import {
 } from "./vote-parser.js";
 import { VoteStore, VoteValidationError } from "./vote-store.js";
 
+export const VOTE_SESSION_PREFIX = "vote:";
+
 /**
  * Memory-v2 phase 7a. Fire-and-forget runner that asks the
  * reflection LLM to vote on items surfaced in the current turn,
@@ -259,7 +261,7 @@ export function createVoteRunner(deps: VoteRunnerDeps): VoteRunner {
         grammar: VOTE_GRAMMAR,
         responseFormat: VOTE_RESPONSE_FORMAT,
         slotId: resolveSlotId(deps.reflectionSlotId),
-        sessionId: `vote:${input.sessionId}`,
+        sessionId: `${VOTE_SESSION_PREFIX}${input.sessionId}`,
         signal: controller.signal,
       }));
       if (controller.signal.aborted) {
