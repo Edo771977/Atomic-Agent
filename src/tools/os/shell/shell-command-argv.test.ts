@@ -127,6 +127,8 @@ describe("shellRunsUnreadableScript", () => {
     "cat x.py | python3",
     "cat x.js | node -",
     "sh < run.sh",
+    "cat x | python3 -c 'import sys'",
+    "cat x | python3 -m json.tool",
   ])("flags %s", (line) => {
     expect(shellRunsUnreadableScript(line, [], true)).toBe(true);
   });
@@ -134,15 +136,13 @@ describe("shellRunsUnreadableScript", () => {
   it.each([
     "ls | grep x",
     "echo hi | sh -c 'cat'",
-    "cat x | python3 -c 'import sys'",
-    "cat x | python3 -m json.tool",
     "bash run.sh < input.txt",
     "sh",
   ])("does not flag %s", (line) => {
     expect(shellRunsUnreadableScript(line, [], true)).toBe(false);
   });
 
-  it("never flags a direct exec: it has no stdin", () => {
+  it("does not flag a bare direct shell without code or stdin", () => {
     expect(shellRunsUnreadableScript("sh", [], false)).toBe(false);
   });
 });

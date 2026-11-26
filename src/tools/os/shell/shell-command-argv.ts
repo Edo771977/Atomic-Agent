@@ -245,8 +245,9 @@ function readsScriptFromStdin(words: readonly string[]): boolean {
 }
 
 /**
- * Whether the call runs a script no rule can read
- * (`ApprovalRequest.commandUnreadable`): a shell or an interpreter with
+ * Whether the call runs code no shell rule can read, including inline
+ * non-shell interpreters, deferred definitions and indeterminate programs
+ * (`ApprovalRequest.commandUnreadable`), or a shell/interpreter with
  * no script of its own, on a subshell line that feeds it through a pipe,
  * a redirect or a heredoc (`printf 'rm -rf x' | sh`, `sh < run.sh`,
  * `curl … | python3`). The command has no stdin otherwise, so a bare
