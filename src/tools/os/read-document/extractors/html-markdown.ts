@@ -265,6 +265,12 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let quotes = 0;
   let tables = 0;
   let whitespaceRun = 0;
+  let preDepth = 0;
+  let preSpaces = 0;
+  let prePrefix = "";
+  let preLastBreak = -1;
+  let preIndent = "";
+  let preWhitespaceTrimmed = false;
   let inText = false;
   let renderedDepth = 0;
   let openAnchor = -1;
@@ -281,6 +287,15 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     if (cost > HTML_SOURCE_CHARS - length) return stop("size");
     parts.push(text);
     length += cost;
+  };
+  const appendText = (text: string) => {
+    if (!text) return;
+    if (!inText && /[^\s\u0085]/u.test(text)) {
+      if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
+      inText = true;
+    }
+    if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
+    append(escapeMarkup(text), text.length);
   };
   const closeTag = (tag: string) => {
     if (tag === "a") {
@@ -315,45 +330,68 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     }
     closeEmittedFrom(openAnchor);
   };
-  // The parser can deliver a single run in several callbacks, especially
-  // across entity references. Tags do not reset it; visible text does.
+  // A preformatted run retains a bounded prefix and the indentation after
+  // its last line break, even when entities split the run across callbacks.
+  const keepPreWhitespace = (spaces: string) => {
+    prePrefix += spaces.slice(0, HTML_WHITESPACE_RUN - prePrefix.length);
+    const lineBreak = Math.max(spaces.lastIndexOf("\n"), spaces.lastIndexOf("\r"));
+    if (lineBreak >= 0) {
+      preLastBreak = preSpaces + lineBreak;
+      preIndent = spaces.slice(lineBreak + 1, lineBreak + 1 + HTML_WHITESPACE_RUN);
+    } else if (preLastBreak >= 0) {
+      preIndent += spaces.slice(0, HTML_WHITESPACE_RUN - preIndent.length);
+    }
+    preSpaces += spaces.length;
+  };
+  const finishPreWhitespace = (): string => {
+    let kept = prePrefix;
+    if (preSpaces > HTML_WHITESPACE_RUN && preLastBreak >= 0) {
+      kept = preLastBreak < prePrefix.length
+        ? prePrefix.slice(0, preLastBreak + 1) + preIndent
+        : prePrefix + "\n" + preIndent;
+    }
+    preWhitespaceTrimmed ||= kept.length < preSpaces;
+    prePrefix = "";
+    preSpaces = 0;
+    preLastBreak = -1;
+    preIndent = "";
+    return kept;
+  };
   const whitespace = /[\s\u0085]/u;
   const textRuns = /[\s\u0085]+|[^\s\u0085]+/gu;
-  const limitWhitespace = (text: string): string => {
-    if (text.length === 1) {
-      if (!whitespace.test(text)) {
-        whitespaceRun = 0;
-        return text;
-      }
-      if (whitespaceRun === HTML_WHITESPACE_RUN) return "";
-      whitespaceRun++;
-      return text;
+  const limitRun = (run: string): string => {
+    if (!whitespace.test(run[0]!)) {
+      whitespaceRun = 0;
+      return preDepth && preSpaces ? finishPreWhitespace() + run : run;
     }
+    if (preDepth) {
+      keepPreWhitespace(run);
+      return "";
+    }
+    const allowed = Math.min(run.length, HTML_WHITESPACE_RUN - whitespaceRun);
+    whitespaceRun += allowed;
+    return run.slice(0, allowed);
+  };
+  const limitWhitespace = (text: string): string => {
+    if (text.length === 1) return limitRun(text);
     const chunks: string[] = [];
     textRuns.lastIndex = 0;
     for (let match = textRuns.exec(text); match; match = textRuns.exec(text)) {
-      const run = match[0];
-      if (!whitespace.test(run[0]!)) {
-        whitespaceRun = 0;
-        chunks.push(run);
-        continue;
-      }
-      const allowed = Math.min(run.length, HTML_WHITESPACE_RUN - whitespaceRun);
-      if (allowed > 0) {
-        whitespaceRun += allowed;
-        chunks.push(run.slice(0, allowed));
-      }
+      const bounded = limitRun(match[0]);
+      if (bounded) chunks.push(bounded);
     }
     return chunks.join("");
   };
   const parser: Parser = new Parser({
     onopentag(name, attributes) {
+      if (!limit && preSpaces) appendText(finishPreWhitespace());
       if (limit) return;
       inText = false;
       depth++;
       if (!VOID_ELEMENTS.has(name) && depth > HTML_PARSER_DEPTH) return stop("depth");
       if (name === "blockquote") quotes++;
       if (name === "table") tables++;
+      if (name === "pre") preDepth++;
       if (name === "title" && rawTitle === undefined) {
         titleDepth = depth;
         rawTitle = "";
@@ -409,6 +447,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       append(openingTag(name, attributes));
     },
     onclosetag(name) {
+      if (!limit && preSpaces) appendText(finishPreWhitespace());
       if (limit) return;
       inText = false;
       if (titleDepth === depth) titleDepth = 0;
@@ -421,26 +460,18 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       }
       if (name === "blockquote") quotes--;
       if (name === "table") tables--;
+      if (name === "pre") preDepth--;
       depth--;
     },
     ontext(text) {
       if (limit) return;
       if (titleDepth) rawTitle += text.slice(0, HTML_TITLE_CHARS - (rawTitle?.length ?? 0));
-      if (!omittedDepth) {
-        const bounded = limitWhitespace(text);
-        if (!bounded) return;
-        if (!inText && /[^\s\u0085]/u.test(bounded)) {
-          if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
-          inText = true;
-        }
-        if (bounded.length > HTML_SOURCE_CHARS - length) return stop("size");
-        append(escapeMarkup(bounded), bounded.length);
-      }
+      if (!omittedDepth) appendText(limitWhitespace(text));
     },
   }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
-  return { markup: parts.join(""), title, limit, flattened, nodes };
+  return { markup: parts.join(""), title, limit, flattened, nodes, preWhitespaceTrimmed };
 }
 
 function isXhtml(html: string): boolean {
@@ -471,6 +502,7 @@ export function boundedHtmlToMarkdown(
       if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
       if (prepared.flattened.quotes) warnings.push(`HTML quotations beyond ${HTML_QUOTE_DEPTH} levels were flattened locally.`);
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
+      if (prepared.preWhitespaceTrimmed) warnings.push("Long runs of preformatted whitespace were trimmed; the next line's indentation was retained.");
       if (wideTable) warnings.push(`HTML table width exceeded ${HTML_TABLE_COLUMNS} columns. Only the wide table was flattened.`);
       return { text, title: prepared.title };
     } catch (error) {
