@@ -1,5 +1,5 @@
 import { shellRuleSegments as scriptSourceSegments } from "./org-shell-analysis.js";
-import { scriptInput } from "./org-script-operands.js";
+import { interpreterScript, scriptInput } from "./org-script-operands.js";
 import type { ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   invocationsOf,
@@ -200,7 +200,12 @@ function readsScriptFromStdin(words: readonly string[]): boolean {
   const name = programName(head);
   const args = words.slice(1);
   if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
-  return scriptInput(words) === "stdin";
+  if (scriptInput(words) === "stdin") return true;
+  // Unknown option semantics must retain main's conservative stdin fallback.
+  if (interpreterScript(words)?.kind !== "unknown" || !/^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/.test(name)) return false;
+  if (args.some(arg => /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/.test(arg))) return false;
+  const operand = args.find(arg => arg === "-" || !arg.startsWith("-"));
+  return operand === undefined || operand === "-";
 }
 
 /**
