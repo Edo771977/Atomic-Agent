@@ -264,7 +264,8 @@ function renderPart(
   if (mime.startsWith("multipart/")) {
     if (!boundary) {
       warnings.push(`${mime} without a boundary; shown as text`);
-      return decodeBytes(Buffer.from(part.body, "latin1")).text;
+      const text = decodeBytes(Buffer.from(part.body, "latin1")).text;
+      return budget.takeWork(text.length) ? text : "";
     }
     const rawChildren = splitMultipart(part.body, boundary);
     if (mime === "multipart/alternative") {
@@ -310,7 +311,8 @@ function renderPart(
   const decoded = decodeBytes(bytes, type.params.charset);
   if (decoded.warning) warnings.push(decoded.warning);
   const text = decoded.text.replace(/\r\n?/g, "\n");
-  return mime === "text/html" ? boundedHtmlToMarkdown(text, warnings).text : text;
+  if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget).text;
+  return budget.takeWork(text.length) ? text : "";
 }
 
 function partMime(part: Part): string {

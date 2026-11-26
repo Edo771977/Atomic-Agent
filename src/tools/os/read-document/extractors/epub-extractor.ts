@@ -67,14 +67,11 @@ export const epubExtractor: Extractor = async (input) => {
 
   const budget = new FragmentBudget();
   let next = start;
-  for (let n = start; n <= end; n++) {
+  for (; next <= end; next++) {
     if (extracted.length >= maxPages) break;
+    const n = next;
     const href = pkg.spine[n - 1]!;
-    if (!budget.take(partSizes.get(href) ?? 0)) {
-      warnings.push(`EPUB chapter budget exhausted at chapter ${n}; remaining chapters were skipped (use pagesFrom)`);
-      break;
-    }
-    next = n + 1;
+    if (!budget.take(partSizes.get(href) ?? 0)) break;
     const file = zip.file(href);
     if (!file) {
       warnings.push(`chapter ${n}: ${href} missing from the archive`);
@@ -85,7 +82,8 @@ export const epubExtractor: Extractor = async (input) => {
       const decoded = decodeBytes(bytes, sniffHtmlCharset(bytes));
       if (decoded.warning) warnings.push(`chapter ${n}: ${decoded.warning}`);
       const chapterWarnings: string[] = [];
-      const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true);
+      const { text } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
+      if (budget.exhausted) break;
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
       if (separators) chunks.push(`--- chapter ${n} ---\n${text}`);
       else if (text.length > 0) chunks.push(text);
@@ -95,7 +93,9 @@ export const epubExtractor: Extractor = async (input) => {
     }
   }
   const remaining = end - next + 1;
-  if (remaining > 0 && !budget.exhausted) {
+  if (budget.exhausted) {
+    warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom)`);
+  } else if (remaining > 0) {
     warnings.push(
       `stopped at maxPages=${maxPages}; ${remaining} more chapter(s) not read (use pagesFrom)`,
     );

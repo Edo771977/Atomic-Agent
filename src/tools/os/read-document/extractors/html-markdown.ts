@@ -1,5 +1,6 @@
 import { Parser } from "htmlparser2";
 import TurndownService from "turndown";
+import type { FragmentBudget } from "./fragment-budget.js";
 import { HTML_PARSER_DEPTH, readBoundedHtmlText } from "./html-plain-text.js";
 
 /**
@@ -400,7 +401,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   }, { decodeEntities: true, recognizeSelfClosing });
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
-  return { markup: parts.join(""), title, limit, flattened };
+  return { markup: parts.join(""), title, limit, flattened, nodes };
 }
 
 function isXhtml(html: string): boolean {
@@ -409,8 +410,17 @@ function isXhtml(html: string): boolean {
     || /<html\b[^>]*\sxmlns\s*=\s*["']http:\/\/www\.w3\.org\/1999\/xhtml["']/i.test(intro);
 }
 
-export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = isXhtml(html)): HtmlMarkdown {
+export function boundedHtmlToMarkdown(
+  html: string,
+  warnings: string[],
+  xhtml = isXhtml(html),
+  budget?: FragmentBudget,
+): HtmlMarkdown {
   const prepared = prepareHtml(html, xhtml);
+  // Short tags still require DOM allocation and traversal. Charge both
+  // markup and nodes before starting a conversion in a document container.
+  const work = prepared.markup.length + 16 * prepared.nodes;
+  if (budget && !budget.takeWork(work)) return { text: "" };
   let limit = prepared.limit;
   if (!limit) {
     try {
@@ -418,6 +428,7 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
       const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)
         .split("\n").map(line => line.trimEnd()).join("\n").replace(/\n{3,}/g, "\n\n").trim();
       if (text.length > HTML_OUTPUT_CHARS) throw new HtmlFormatLimit("output");
+      if (budget && !budget.takeWork(Math.max(0, text.length - work))) return { text: "" };
       if (prepared.flattened.depth) warnings.push(`HTML structure beyond depth ${HTML_FORMAT_DEPTH} was flattened locally.`);
       if (prepared.flattened.quotes) warnings.push(`HTML quotations beyond ${HTML_QUOTE_DEPTH} levels were flattened locally.`);
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
@@ -434,6 +445,7 @@ export function boundedHtmlToMarkdown(html: string, warnings: string[], xhtml = 
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
   };
+  if (budget && !budget.takeWork(Math.min(html.length, HTML_PLAIN_CHARS))) return { text: "" };
   const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, HTML_PLAIN_CHARS);
   warnings.push(`HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`);
   if (cut) warnings.push(`HTML plain text was truncated at ${HTML_PLAIN_CHARS} characters.`);
