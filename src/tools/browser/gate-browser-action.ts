@@ -1,6 +1,7 @@
 import { gateBrowserUrl } from "./gate-browser-url.js";
 import { activePolicy } from "../../policy/policy-active.js";
 import { policyCallRefusal } from "../../policy/policy-enforce.js";
+import { requirePolicyWebUrl } from "../../policy/policy-web.js";
 import {
   compressToolResult,
   type CompressedToolResult,
@@ -154,8 +155,16 @@ export async function gateBrowserAction(
   }
   const targetUrl = element ? actionTargetUrl(request.kind, element) : null;
   if (targetUrl !== null) {
-    const refused = await gateBrowserUrl(dangerous, policy, request.tool, targetUrl, ctx);
-    if (refused !== null) return refused;
+    if (/^(?:javascript|mailto):/i.test(targetUrl)) {
+      // These activate an element rather than opening a Chrome page.
+      // The ordinary action/secret gate below still applies.
+      const refusal = policyCallRefusal(activePolicy(), "os.web.fetch", { url: targetUrl });
+      if (refusal !== null) return compressToolResult({ tool: request.tool, status: "error", output: refusal, details: { reason: "organization_policy" } });
+      await requirePolicyWebUrl(dangerous, request.tool, targetUrl, ctx);
+    } else {
+      const refused = await gateBrowserUrl(dangerous, policy, request.tool, targetUrl, ctx);
+      if (refused !== null) return refused;
+    }
   }
 
   const verdict = classifyBrowserAction(request.kind, element);
