@@ -179,7 +179,9 @@ function nestedShellScripts(words: readonly string[], state: { unreadable: boole
   const scripts: Array<{ line: string; dialect: ShellDialect }> = [];
   const inner = withoutWrappers(words), name = programName(inner[0] ?? "");
   if (NESTED_SHELL_PROGRAMS.includes(name)) {
-    for (const line of scanNestedShellOptions(inner.slice(1), name).scripts) if (line.trim() !== "") scripts.push({ line, dialect: "posix" });
+    const options = scanNestedShellOptions(inner.slice(1), name);
+    if (options.runsCommand && options.scripts.length === 0) state.unreadable = true;
+    for (const line of options.scripts) if (line.trim() !== "") scripts.push({ line, dialect: "posix" });
   }
   if (name === "npx" || name === "npm" && inner[1] === "exec") {
     for (let i = name === "npm" ? 2 : 1; i < inner.length; i++) {
