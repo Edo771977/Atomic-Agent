@@ -197,6 +197,40 @@ export function lexShellLine(
     }
     // POSIX command substitution; PowerShell's escape character.
     if (c === "`") return incomplete();
+    if (dialect === "posix" && c === "$" && line[i + 1] === "'") {
+      openQuote(line[i + 2]);
+      let j = i + 2;
+      for (;;) {
+        const d = line[j];
+        if (d === undefined) return incomplete();
+        if (d === "'") break;
+        if (d !== "\\") { word += d; j += 1; continue; }
+        const next = line[j + 1];
+        if (next === undefined) return incomplete();
+        if ("\\'\"".includes(next)) { word += next; j += 2; continue; }
+        const digits = next === "x" ? /^[0-9a-f]{1,2}/i.exec(line.slice(j + 2))?.[0]
+          : next === "u" ? /^[0-9a-f]{1,4}/i.exec(line.slice(j + 2))?.[0]
+          : next === "U" ? /^[0-9a-f]{1,8}/i.exec(line.slice(j + 2))?.[0] : undefined;
+        if (digits !== undefined) {
+          const code = Number.parseInt(digits, 16);
+          // Unknown/control/locale-dependent encodings cannot name a known program.
+          if (code < 32 || code > 126) dynamic = true;
+          else word += String.fromCodePoint(code);
+          j += 2 + digits.length;
+          continue;
+        }
+        dynamic = true;
+        j += 2;
+      }
+      i = j + 1;
+      continue;
+    }
+    if (dialect === "posix" && c === "$" && line[i + 1] === '"') {
+      // Locale translation is not known to the approval parser.
+      dynamic = true;
+      i += 1;
+      continue;
+    }
     if (singleQuotes && c === "'") {
       const end = line.indexOf("'", i + 1);
       if (end === -1) return incomplete();
