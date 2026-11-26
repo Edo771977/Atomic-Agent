@@ -113,3 +113,14 @@ it.each(["eml", "mbox", "epub"] as const)(
   },
 );
 
+it("leaves a partially displayed EPUB chapter out of pagesExtracted", async () => {
+  const result = await epubExtractor({
+    data: await book(["Partial chapter " + "x".repeat(800)]),
+    sourcePath: "fixture.epub",
+    maxBytes: 300,
+  });
+  expect(result.text).toContain("Partial chapter");
+  expect(result.truncated).toBe(true);
+  expect(result.pagesExtracted).toEqual([]);
+});
+

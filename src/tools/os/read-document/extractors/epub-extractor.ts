@@ -94,7 +94,7 @@ export const epubExtractor: Extractor = async (input) => {
       const item = separators ? `--- chapter ${n} ---\n${text}` : text;
       const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, truncated || accepted < size);
       if (shown.text) chunks.push(shown.text);
-      if (shown.status !== "deferred") extracted.push(n);
+      if (shown.status === "complete") extracted.push(n);
       partialChapter = shown.status === "partial";
       if (output.stopped || budget.exhausted) break;
     } catch (err) {
