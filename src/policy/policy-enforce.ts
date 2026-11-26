@@ -1,3 +1,4 @@
+import { changesPolicyChildMetadata } from "./policy-child-env-guard.js";
 /**
  * The admin policy turned into the answers each integration point needs.
  * Approval logic stays in `src/approval/`: the gate only receives a rule
@@ -94,6 +95,13 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);
   const commands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? verifyRunShellCalls(object) : [];
+  if (policy.rules.length > 0 || policy.sources.some(source => source.state === "loaded") || policyFiles(policy).some(normalize.mayExist)) {
+    for (const command of commands) {
+      if (typeof command.cmd !== "string") continue;
+      const args = coerceShellArgs(command.args) ?? [];
+      if (changesPolicyChildMetadata(command.cmd, args, needsShellInterpretation(command.cmd, args))) return `${tool} was not run: inherited organization policy metadata is reserved for the operator.`;
+    }
+  }
   if (policy.rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
