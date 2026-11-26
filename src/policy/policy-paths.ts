@@ -1,13 +1,39 @@
-import { realpathSync } from "node:fs";
+import { realpathSync, lstatSync, readlinkSync } from "node:fs";
 import { basename, dirname, join, resolve, relative, isAbsolute, posix, win32 } from "node:path";
 import { homedir } from "node:os";
 import type { EffectivePolicy } from "./policy-evaluator.js";
 
-export function canonicalPolicyPath(path: string): string {
-  try { return realpathSync(path); } catch {
-    const parent = dirname(path);
-    return parent === path ? path : resolve(canonicalPolicyPath(parent), basename(path));
+interface PolicyPathFs {
+  realpath(path: string): string;
+  lstat(path: string): { isSymbolicLink(): boolean };
+  readlink(path: string): string;
+}
+const policyPathFs: PolicyPathFs = { realpath: realpathSync, lstat: lstatSync, readlink: readlinkSync };
+
+export function canonicalPolicyPath(path: string, fs: PolicyPathFs = policyPathFs): string {
+  let current = resolve(path);
+  const suffix: string[] = [];
+  const seen = new Set<string>();
+  for (let steps = 0; steps < 256; steps++) {
+    try { return resolve(fs.realpath(current), ...suffix); } catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new Error("Cannot resolve canonical policy path");
+    }
+    try {
+      if (fs.lstat(current).isSymbolicLink()) {
+        if (seen.has(current)) throw new Error("Cannot resolve canonical policy link cycle");
+        seen.add(current);
+        current = resolve(dirname(current), fs.readlink(current));
+        continue;
+      }
+    } catch (error) {
+      if (!["ENOENT", "ENOTDIR"].includes((error as NodeJS.ErrnoException).code ?? "")) throw new Error("Cannot resolve canonical policy path");
+    }
+    const parent = dirname(current);
+    if (parent === current) return resolve(current, ...suffix);
+    suffix.unshift(basename(current));
+    current = parent;
   }
+  throw new Error("Canonical policy path resolution limit exceeded");
 }
 
 export function policyFilePaths(policy: EffectivePolicy): string[] {
