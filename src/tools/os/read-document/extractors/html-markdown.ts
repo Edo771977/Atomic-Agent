@@ -31,6 +31,11 @@ const PARAGRAPH_CLOSERS = new Set([
   "header", "hgroup", "hr", "li", "listing", "main", "menu", "nav", "ol", "p", "plaintext",
   "pre", "search", "section", "summary", "table", "ul", "xmp",
 ]);
+const INLINE_ELEMENTS = new Set([
+  "abbr", "acronym", "b", "bdi", "bdo", "big", "cite", "code", "del", "dfn", "em", "i",
+  "ins", "kbd", "label", "mark", "q", "s", "samp", "small", "span", "strike", "strong",
+  "sub", "sup", "time", "tt", "u", "var",
+]);
 const HTML_SOURCE_CHARS = 768 * 1024;
 const HTML_OUTPUT_CHARS = 576 * 1024;
 const HTML_PLAIN_CHARS = 384 * 1024;
@@ -263,6 +268,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let inText = false;
   let renderedDepth = 0;
   let openAnchor = -1;
+  let openAnchorMarkup = -1;
   let openParagraph = -1;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
@@ -277,7 +283,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     length += cost;
   };
   const closeTag = (tag: string) => {
-    if (tag === "a") openAnchor = -1;
+    if (tag === "a") {
+      openAnchor = -1;
+      openAnchorMarkup = -1;
+    }
     if (tag === "p") openParagraph = -1;
     renderedDepth--;
     append(`</${tag}>`);
@@ -289,6 +298,22 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       closeTag(tag);
       emitted[i] = undefined;
     }
+  };
+  const closeOpenAnchor = () => {
+    for (let i = emitted.length - 2; i > openAnchor; i--) {
+      const tag = emitted[i];
+      if (tag && !INLINE_ELEMENTS.has(tag)) {
+        // An overlapping anchor is invalid. Unwrap the outer link
+        // so its blocks remain open around the inner link.
+        parts[openAnchorMarkup] = "";
+        emitted[openAnchor] = undefined;
+        openAnchor = -1;
+        openAnchorMarkup = -1;
+        renderedDepth--;
+        return;
+      }
+    }
+    closeEmittedFrom(openAnchor);
   };
   // The parser can deliver a single run in several callbacks, especially
   // across entity references. Tags do not reset it; visible text does.
@@ -340,7 +365,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         // The parser can leave a paragraph on its stack when an inline
         // wrapper intervenes. Serialize its implicit HTML closing tag.
         if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name)) closeEmittedFrom(openParagraph);
-        if (openAnchor >= 0 && name === "a") closeEmittedFrom(openAnchor);
+        if (openAnchor >= 0 && name === "a") closeOpenAnchor();
       }
       if (limit) return;
       // Font and unstyled spans carry no structure in Markdown. Named
@@ -375,7 +400,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       if (!isVoid) {
         renderedDepth++;
         emitted[emitted.length - 1] = name;
-        if (name === "a" && !recognizeSelfClosing) openAnchor = emitted.length - 1;
+        if (name === "a" && !recognizeSelfClosing) {
+          openAnchor = emitted.length - 1;
+          openAnchorMarkup = parts.length;
+        }
         if (name === "p" && !recognizeSelfClosing) openParagraph = emitted.length - 1;
       }
       append(openingTag(name, attributes));
