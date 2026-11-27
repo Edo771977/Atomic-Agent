@@ -1672,11 +1672,12 @@ function chatServerTarget(dataDir: string, port?: number): { pid: number; port: 
   const core = (() => {
     try {
       return JSON.parse(readFileSync(coreSessionPath(dataDir, "chat"), "utf-8")) as
-        { pid?: unknown; port?: unknown; api_key?: unknown };
+        { pid?: unknown; port?: unknown; api_key?: unknown; awaitingExit?: unknown };
     } catch {
       return null;
     }
   })();
+  if (core?.awaitingExit === true) return null;
   if (core && typeof core.pid === "number" && typeof core.port === "number") {
     return { pid: core.pid, port: core.port, apiKey: typeof core.api_key === "string" ? core.api_key : null };
   }
