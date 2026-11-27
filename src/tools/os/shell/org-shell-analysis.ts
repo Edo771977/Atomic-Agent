@@ -1,5 +1,5 @@
 import { interpreterScript, scriptInput, scriptStream } from "./org-script-operands.js";
-import { receivesShellInput, shellSyntax, UNKNOWN_SHELL_WORD, type ShellInput } from "./shell-rule-syntax.js";
+import { shellInputSource, shellSyntax, UNKNOWN_SHELL_WORD, type ShellInput } from "./shell-rule-syntax.js";
 import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
   NESTED_SHELL_PROGRAMS,
@@ -193,7 +193,8 @@ function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
 
 interface InputContext { hasStdin: boolean; stdinScript?: string }
 function segmentInput(input: ShellInput | undefined, inherited: InputContext): InputContext {
-  return receivesShellInput(input) ? { hasStdin: true } : inherited;
+  const source = shellInputSource(input);
+  return source === "empty" ? { hasStdin: false } : source === "stream" ? { hasStdin: true } : inherited;
 }
 
 function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string; nodeOptions?: string }, input: InputContext): string[][] {

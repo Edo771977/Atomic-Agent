@@ -83,13 +83,13 @@ describe("organization Node stdin follows the receiving command", () => {
   }
 });
 
-function routingCases(family: string, lines: readonly string[], opaque = true) {
+function routingCases(family: string, lines: readonly string[], opaque = true, verifyInput = false) {
   describe(family, () => {
     for (const level of [1, 5] as const) for (const effect of ["deny", "ask"] as const) for (const surface of ["shell", "verify"] as const) {
       it.each(lines)(`${effect}/${level}/${surface}: %s`, async line => {
         vi.stubEnv("NODE_OPTIONS", undefined);
         const analysis = analyzeShellRules(line, [], true, "posix", "/work");
-        const target = surface === "verify" ? toolCallTarget("verify.run", { cmd: "bash", args: ["-c", line], cwd: "/work" })! : { resources: analysis.segments.map(words => words.join(" ")), unreadable: analysis.unreadable };
+        const target = surface === "verify" ? toolCallTarget("verify.run", { cmd: "bash", args: ["-c", line], cwd: "/work", ...(verifyInput ? { stdin: "fixture" } : {}) })! : { resources: analysis.segments.map(words => words.join(" ")), unreadable: analysis.unreadable };
         const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "shell", resource: "unrelated-fixture*", effect }] };
         expect(evaluatePolicy(policy, "shell", target.resources, target)?.effect ?? null).toBe(opaque ? effect : null);
         let prompts = 0;
@@ -196,3 +196,19 @@ describe("R9 Node25 direct verification argv", () => {
     });
   }
 });
+
+routingCases("R9 known null input overrides inherited streams", [
+  "node --fixture-boolean x.js < /dev/null",
+  "printf fixture | node --fixture-boolean x.js < /dev/null",
+  "exec < /dev/null; node --fixture-boolean x.js",
+  "exec 3< /dev/null; exec 0<&3; node --fixture-boolean x.js",
+  "sh -c 'node --fixture-boolean x.js' < /dev/null",
+  "printf fixture | sh -c 'node --fixture-boolean x.js' < /dev/null",
+  "exec < fixture; node --fixture-boolean x.js < /dev/null",
+  'exec < /dev/null; echo "$(node --fixture-boolean x.js)"',
+  "cat <(node --fixture-boolean x.js) < /dev/null",
+], false, true);
+routingCases("R9 real streams supersede known null input", [
+  "exec < /dev/null; printf fixture | node --fixture-boolean x.js",
+  "exec < /dev/null; exec < fixture; node --fixture-boolean x.js",
+]);

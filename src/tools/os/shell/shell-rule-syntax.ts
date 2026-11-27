@@ -1,16 +1,18 @@
 import { lexShellLine, type ShellDialect, type ShellToken } from "../shell-command-guard/shell-line-lexer.js";
 import { liftSubstitutions } from "../shell-command-guard/command-substitution.js";
+import { posix } from "node:path";
 
 /** Internal analysis marker, never an argv to execute (NUL cannot be a shell word). */
 export const UNKNOWN_SHELL_WORD = "\0";
 
 /** References retain trailing group redirections without rescanning its commands. */
-export interface ShellInput { parent?: ShellInput; redirected?: true }
-export function receivesShellInput(input: ShellInput | undefined): boolean {
+export interface ShellInput { parent?: ShellInput; redirected?: true; empty?: true }
+export function shellInputSource(input: ShellInput | undefined): "stream" | "empty" | "inherit" {
   for (let depth = 0; input !== undefined; depth++, input = input.parent) {
-    if (input.redirected || depth >= 256) return true;
+    if (input.empty) return "empty";
+    if (input.redirected || depth >= 256) return "stream";
   }
-  return false;
+  return "inherit";
 }
 
 /** Bounded static syntax facts, never an interpreter and never alias/profile loading. */
@@ -101,7 +103,8 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0, inhe
     if (redirected) {
       const op = redirectToken!;
       const source = /^(?:<&|>&)$/.test(op.operator ?? "") && /^\d+$/.test(token.text) && !token.dynamic
-        ? frame().local.get(Number(token.text)) ?? { redirected: true as const } : { redirected: true as const };
+        ? frame().local.get(Number(token.text)) ?? { redirected: true as const }
+        : op.operator === "<" && !token.dynamic && posix.normalize(token.text) === "/dev/null" ? { empty: true as const } : { redirected: true as const };
       const fd = op.fd ?? op.inputFd;
       if (fd !== undefined) frame().local.set(fd, source);
       if (fd === 0) { frame().current.parent = source; delete frame().current.redirected; }
