@@ -1,0 +1,126 @@
+diff --git "a/src\\import\\hermes\\b6a-candidate.test.ts" "b/src\\import\\hermes\\b6a-candidate.test.ts"
+new file mode 100644
+index 000000000..25f3bd7c8
+--- /dev/null
++++ "b/src\\import\\hermes\\b6a-candidate.test.ts"
+@@ -0,0 +1,120 @@
++import { spawnSync } from "node:child_process";
++import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { isAbsolute, join } from "node:path";
++import { afterEach, beforeEach, expect, it, vi } from "vitest";
++import { ensureUserConfigFileSync } from "../../config/index.js";
++import { getTrustConfigPaths } from "../../config/config-file.js";
++import { buildMcpStdioEnv } from "../../mcp/mcp-stdio-env.js";
++import { HermesImporter } from "./hermes-importer.js";
++import { buildHermesPluginMcpServer, defaultPythonCommand, discoverHermesPlugins, hermesShimInstallPath, installHermesShim, resolveTrustedPlugins } from "./hermes-plugins.js";
++
++let root: string;
++let sourceDir: string;
++let stateDir: string;
++let configFile: string;
++beforeEach(() => {
++  root = mkdtempSync(join(tmpdir(), "b6a-review-"));
++  sourceDir = join(root, "hermes"); stateDir = join(root, "state"); configFile = join(stateDir, "config.json");
++  plugin("safe");
++});
++afterEach(() => { vi.unstubAllEnvs(); rmSync(root, { recursive: true, force: true }); });
++function plugin(key: string, home = sourceDir, name = key) {
++  const dir = join(home, "plugins", key);
++  mkdirSync(dir, { recursive: true });
++  writeFileSync(join(dir, "plugin.yaml"), `name: ${name}\n`);
++  writeFileSync(join(dir, "__init__.py"), "def register(ctx):\n    pass\n");
++  return dir;
++}
++function importer(trustedPlugins: string[]) {
++  return new HermesImporter({ source: {} as never, sessionStore: {} as never, taskStore: {} as never,
++    stateDir, maxAttempts: 3, workingDirFallback: root, sourceDir, userConfigFile: configFile, trustedPlugins,
++    installShim: dir => installHermesShim(dir, join(process.cwd(), "assets/hermes-plugin-bridge/hermes_mcp_shim.py")) });
++}
++function runImport(trustedPlugins: string[]) {
++  return importer(trustedPlugins).run({ options: ["plugins"], execute: true, overwrite: false });
++}
++it("control: import without trust installs no plugin", () => {
++  runImport([]); expect(ensureUserConfigFileSync(configFile).mcp.servers).toEqual([]);
++});
++it("requires a human TUI decision rather than a CLI trust string", () => {
++  runImport(["safe"]); expect(ensureUserConfigFileSync(configFile).mcp.servers).toEqual([]);
++});
++it("refuses plugin registration by ATOMIC_AGENT_TOOL_CHILD", () => {
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  try { runImport(["safe"]); } catch { /* refusal may throw */ }
++  expect(ensureUserConfigFileSync(configFile).mcp.servers).toEqual([]);
++});
++it("refuses shim replacement by ATOMIC_AGENT_TOOL_CHILD", () => {
++  const dest = installHermesShim(stateDir, join(process.cwd(), "assets/hermes-plugin-bridge/hermes_mcp_shim.py"));
++  const original = readFileSync(dest, "utf8");
++  const replacement = join(root, "replacement.py"); writeFileSync(replacement, "# harmless replacement\n");
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  try { installHermesShim(stateDir, replacement); } catch { /* refusal may throw */ }
++  expect(readFileSync(dest, "utf8")).toBe(original);
++});
++it("protects the shim from writes through the fork trust inventory", () => {
++  const dest = hermesShimInstallPath(stateDir);
++  const paths = getTrustConfigPaths({ stateDir, userConfigFile: configFile, localModelsDataDir: join(root, "models") });
++  expect(paths.some(p => dest === p || ((p.endsWith("/") || p.endsWith("\\")) && dest.startsWith(p)))).toBe(true);
++});
++it("puts the child marker in the actual shared MCP environment", () => {
++  const env = buildMcpStdioEnv(undefined, { PATH: "fixture", ATOMIC_AGENT_TOOL_CHILD: "1", ATOMIC_POLICY_URL: "https://policy.invalid", ATOMIC_AGENT_API_KEY: "synthetic" });
++  expect(env).not.toHaveProperty("ATOMIC_POLICY_URL"); expect(env).not.toHaveProperty("ATOMIC_AGENT_API_KEY");
++  expect(env.ATOMIC_AGENT_TOOL_CHILD).toBe("1");
++});
++it.each(["linux", "darwin", "win32"] as const)("selects an absolute Python interpreter on %s", platform => {
++  expect(isAbsolute(defaultPythonCommand(platform))).toBe(true);
++});
++it("does not execute a changed plugin under its saved trust", () => {
++  runImport(["safe"]);
++  const server = ensureUserConfigFileSync(configFile).mcp.servers[0];
++  expect(server?.transport.kind).toBe("stdio");
++  if (!server || server.transport.kind !== "stdio") throw new Error("missing control server");
++  const marker = join(root, "changed-code-ran.txt");
++  const dir = join(sourceDir, "plugins", "safe");
++  writeFileSync(join(dir, "__init__.py"), `from pathlib import Path\nPath(${JSON.stringify(marker)}).write_text('changed', encoding='utf-8')\ndef register(ctx):\n    pass\n`);
++  const python = process.env.B6_REVIEW_PYTHON;
++  if (!python || !isAbsolute(python)) throw new Error("Set B6_REVIEW_PYTHON to an absolute Python 3 executable");
++  const child = spawnSync(python, server.transport.args ?? [], { cwd: dir, env: buildMcpStdioEnv(server.env), input: '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}\n', encoding: "utf8", timeout: 5000 });
++  expect(child.error).toBeUndefined(); expect(child.status, child.stderr).toBe(0);
++  expect(child.stdout).toContain('"serverInfo"');
++  expect(existsSync(marker)).toBe(false);
++});
++it("does not transfer trust to the same key in another home", () => {
++  const first = discoverHermesPlugins(sourceDir);
++  expect(resolveTrustedPlugins(first, ["safe"]).trustedKeys.has("safe")).toBe(true);
++  const other = join(root, "other"); plugin("safe", other);
++  expect(resolveTrustedPlugins(discoverHermesPlugins(other), ["safe"]).trustedKeys.size).toBe(0);
++});
++it("control: a unique folder key wins over another manifest with that name", () => {
++  plugin("other", sourceDir, "safe");
++  expect([...resolveTrustedPlugins(discoverHermesPlugins(sourceDir), ["safe"]).trustedKeys]).toEqual(["safe"]);
++});
++it("control: ambiguous manifest names do not receive trust", () => {
++  plugin("one", sourceDir, "alias"); plugin("two", sourceDir, "alias");
++  expect(resolveTrustedPlugins(discoverHermesPlugins(sourceDir), ["alias"]).trustedKeys.size).toBe(0);
++});
++it("refuses an author-chosen path-like trust alias", () => {
++  plugin("other", sourceDir, "category/../safe");
++  expect(resolveTrustedPlugins(discoverHermesPlugins(sourceDir), ["category/../safe"]).trustedKeys.size).toBe(0);
++});
++it("refuses a case-only author alias for a different folder", () => {
++  plugin("other", sourceDir, "SAFE");
++  expect(resolveTrustedPlugins(discoverHermesPlugins(sourceDir), ["SAFE"]).trustedKeys.size).toBe(0);
++});
++it.skipIf(process.platform === "win32")("refuses a plugin whose executable file is a symlink outside its folder", () => {
++  const external = join(root, "outside"); mkdirSync(external);
++  writeFileSync(join(external, "__init__.py"), "def register(ctx):\n    pass\n");
++  const dir = plugin("linked"); rmSync(join(dir, "__init__.py"));
++  symlinkSync(join(external, "__init__.py"), join(dir, "__init__.py"), "file");
++  expect(resolveTrustedPlugins(discoverHermesPlugins(sourceDir), ["linked"]).trustedKeys.size).toBe(0);
++});
++it("control: builder uses the shared stdio environment and default approval", () => {
++  const p = discoverHermesPlugins(sourceDir)[0]; if (!p) throw new Error("missing fixture");
++  const built = buildHermesPluginMcpServer(p, { shimPath: hermesShimInstallPath(stateDir), hermesHome: sourceDir });
++  expect(built.kind).toBe("server");
++  if (built.kind !== "server") throw new Error("missing server");
++  expect(built.server.approval).toBeUndefined();
++  expect(buildMcpStdioEnv(built.server.env, { OPENAI_API_KEY: "synthetic" })).not.toHaveProperty("OPENAI_API_KEY");
++});

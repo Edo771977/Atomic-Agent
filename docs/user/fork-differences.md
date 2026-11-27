@@ -197,6 +197,10 @@ The editor-launched ACP command from upstream #1646 remains deferred in B3. Its 
 
 The B4c Composio account CLI/TUI import (#1687/#1688) is deferred: connected accounts are readable from a marked child, and account selection changes the stable prompt prefix. Existing ATO-548 configuration and session pins are unchanged. [Review and reopening requirements](../reviews/b4c-composio-accounts.md).
 
+## Hermes Python plugins
+
+The upstream #1639 Python-to-MCP bridge remains deferred in B6a. CLI trust strings do not provide the fork's TUI confirmation, content identity or child write protection; changed plugin code executes without renewed trust. No bridge or shim is shipped. [Review and reproducible tests](../reviews/b6a-hermes-bridge.md).
+
 ## MCP over HTTP
 
 The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
