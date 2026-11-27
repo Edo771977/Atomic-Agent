@@ -10,5 +10,14 @@
   ],
   "testedCommit": "c404acf178e289b680c3f480f8b8af6475a39ca1",
   "finalSourceCommit": "1f01d56684849f31b83bec13bb33085638d40990",
-  "productionIndexSha256": "ee515f0d14fe2ddfe2678605aa35cc44ff21bc94fd69a2d17dc29b07887c8886"
+  "productionIndexSha256": "ee515f0d14fe2ddfe2678605aa35cc44ff21bc94fd69a2d17dc29b07887c8886",
+  "finalValidatedSourceCommit": "79e97d2a062db6e7804faad09ce4b318e8a33ed6",
+  "subsequentProductionChanged": [],
+  "subsequentTestsChanged": [
+    "src/agent-profiles/settings-import.test.ts",
+    "src/tools/fusion/fusion-delegate.test.ts"
+  ],
+  "laterMainChecked": "5da6478ff7b0d134994cec73fdce142ccad729e7",
+  "laterMainOnlyDocumentation": true,
+  "laterMainMergeTreeSucceeded": true
 }

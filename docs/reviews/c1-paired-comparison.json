@@ -1,0 +1,43 @@
+{
+  "baseline": {
+    "total": 299,
+    "passed": 32,
+    "failed": 2,
+    "skipped": 265,
+    "failedSuites": 2,
+    "success": false
+  },
+  "candidate": {
+    "total": 299,
+    "passed": 33,
+    "failed": 1,
+    "skipped": 265,
+    "failedSuites": 1,
+    "success": false
+  },
+  "common": [
+    {
+      "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+      "name": "measures exactly the complete unchanged future branch-set copy (Git=true)",
+      "status": "failed",
+      "failures": [
+        "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/branch-workspace-copy-plan.test.ts:20:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+        "Error: ENOTEMPTY: directory not empty, rmdir '<temporary-fixture>/copies/atag-fusion-86c36d-F61Dqx'"
+      ]
+    }
+  ],
+  "additional": [],
+  "baselineOnly": [
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for untracked payload",
+      "status": "failed",
+      "failures": [
+        "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+        "Error: ENOTEMPTY: directory not empty, rmdir '<temporary-fixture>/copies/atag-fusion-b95ba6-PHrc4I/ignore-policy'"
+      ]
+    }
+  ],
+  "baselineFailuresOutsideCandidateSelection": [],
+  "newC1Tests": []
+}
