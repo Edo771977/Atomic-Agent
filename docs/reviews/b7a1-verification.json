@@ -1,0 +1,102 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "upstream": [
+    {
+      "sha": "1570a8140c53f2d987ca813dd1fa9a8542ab6ccc",
+      "parents": "2a994e63a3307e91e28470df0b69bc3a27288cc4",
+      "subject": "Memory history: journal eviction, dedup merges, consolidation, lessons and procedures (ATO-1059)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    },
+    {
+      "sha": "5fa2a2dec6a0f49bedc01c29b50826619fca0632",
+      "parents": "1570a8140c53f2d987ca813dd1fa9a8542ab6ccc",
+      "subject": "Use an unknown kind in the memory history query test (ATO-1059)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    }
+  ],
+  "disposition": "deferred; no upstream/production code imported",
+  "checks": [
+    {
+      "command": "npm ci",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 1
+    },
+    {
+      "command": "focused",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0,
+      "rerun": "types-lf"
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-lf"
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-final"
+    }
+  ],
+  "reports": {
+    "absence": {
+      "counts": {
+        "numTotalTests": 4,
+        "numPassedTests": 4,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/http/memory-housekeeping-deferred.test.ts :: B7a1 deferred housekeeping restore keeps lesson history unavailable",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/memory-housekeeping-deferred.test.ts :: B7a1 deferred housekeeping restore keeps procedure history unavailable",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/memory-housekeeping-deferred.test.ts :: B7a1 deferred housekeeping restore keeps housekeeping mutation methods absent from the note owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/memory-housekeeping-deferred.test.ts :: B7a1 deferred housekeeping restore retains the existing history scopes without enabling new restore kinds",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "candidateAuditLog": "(node:80120) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\r\n(Use `node --trace-warnings ...` to show where the warning was created)\r\n✖ merge restore retains the absorbed constraint scope (0.9627ms)\r\n✖ merge restore retains disabled state (0.1636ms)\r\n✖ disabled memory performs no restoration (0.3619ms)\r\nℹ tests 3\r\nℹ suites 0\r\nℹ pass 0\r\nℹ fail 3\r\nℹ cancelled 0\r\nℹ skipped 0\r\nℹ todo 0\r\nℹ duration_ms 271.6481\r\n\r\n✖ failing tests:\r\n\r\ntest at docs\\reviews\\b7a1-candidate.mjs:25:1\r\n✖ merge restore retains the absorbed constraint scope (0.9627ms)\r\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n  + actual - expected\r\n  \r\n  + undefined\r\n  - '{\"key\":\"private-folder\",\"allowedProviders\":[\"local\"],\"allowedEgress\":[]}'\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a1-candidate.mjs:25:71)\r\n      at Test.runInAsyncScope (node:async_hooks:226:14)\r\n      at Test.run (node:internal/test_runner/test:1402:25)\r\n      at Test.start (node:internal/test_runner/test:1262:17)\r\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {\r\n    generatedMessage: true,\r\n    code: 'ERR_ASSERTION',\r\n    actual: undefined,\r\n    expected: '{\"key\":\"private-folder\",\"allowedProviders\":[\"local\"],\"allowedEgress\":[]}',\r\n    operator: 'strictEqual',\r\n    diff: 'simple'\r\n  }\r\n\r\ntest at docs\\reviews\\b7a1-candidate.mjs:26:1\r\n✖ merge restore retains disabled state (0.1636ms)\r\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n  \r\n  undefined !== 123\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a1-candidate.mjs:26:56)\r\n      at Test.runInAsyncScope (node:async_hooks:226:14)\r\n      at Test.run (node:internal/test_runner/test:1402:25)\r\n      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)\r\n      at Test.postRun (node:internal/test_runner/test:1542:19)\r\n      at Test.run (node:internal/test_runner/test:1467:12)\r\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {\r\n    generatedMessage: true,\r\n    code: 'ERR_ASSERTION',\r\n    actual: undefined,\r\n    expected: 123,\r\n    operator: 'strictEqual',\r\n    diff: 'simple'\r\n  }\r\n\r\ntest at docs\\reviews\\b7a1-candidate.mjs:27:1\r\n✖ disabled memory performs no restoration (0.3619ms)\r\n  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n  + actual - expected\r\n  \r\n  + {\r\n  +   content: 'folded sentinel',\r\n  +   createdAt: 1,\r\n  +   id: 1,\r\n  +   sessionId: 'ordinary',\r\n  +   source: 'agent',\r\n  +   tags: [],\r\n  +   updatedAt: 1,\r\n  +   workingDir: 'private-folder'\r\n  + }\r\n  - undefined\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a1-candidate.mjs:27:59)\r\n      at Test.runInAsyncScope (node:async_hooks:226:14)\r\n      at Test.run (node:internal/test_runner/test:1402:25)\r\n      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)\r\n      at Test.postRun (node:internal/test_runner/test:1542:19)\r\n      at Test.run (node:internal/test_runner/test:1467:12)\r\n      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {\r\n    generatedMessage: true,\r\n    code: 'ERR_ASSERTION',\r\n    actual: { id: 1, content: 'folded sentinel', createdAt: 1, updatedAt: 1, source: 'agent', sessionId: 'ordinary', workingDir: 'private-folder', tags: [] },\r\n    expected: undefined,\r\n    operator: 'strictEqual',\r\n    diff: 'simple'\r\n  }\r\n",
+  "finalStaticChecks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "finalStaticChecksAllPassed": true,
+  "operatorBoundaryAuditLog": "✖ a child with an inherited owner key cannot restore a person-deleted note (497.0079ms)\r\nℹ tests 1\r\nℹ suites 0\r\nℹ pass 0\r\nℹ fail 1\r\nℹ cancelled 0\r\nℹ skipped 0\r\nℹ todo 0\r\nℹ duration_ms 865.2003\r\n\r\n✖ failing tests:\r\n\r\ntest at docs\\reviews\\b7a1-operator-boundary.mjs:15:1\r\n✖ a child with an inherited owner key cannot restore a person-deleted note (497.0079ms)\r\n  AssertionError [ERR_ASSERTION]: an inherited owner key is not a person-mediated restore decision\r\n  + actual - expected\r\n  \r\n    {\r\n  +   restored: true,\r\n  +   status: 200\r\n  -   restored: false,\r\n  -   status: 403\r\n    }\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a1-operator-boundary.mjs:32:12)\r\n      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\r\n      at async Test.run (node:internal/test_runner/test:1409:7)\r\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {\r\n    generatedMessage: false,\r\n    code: 'ERR_ASSERTION',\r\n    actual: { status: 200, restored: true },\r\n    expected: { status: 403, restored: false },\r\n    operator: 'deepStrictEqual',\r\n    diff: 'simple'\r\n  }\r\n"
+}
