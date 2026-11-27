@@ -88,6 +88,8 @@ C3b keeps upstream #1642 and its follow-up fixes deferred with C3a. No /api/impo
 
 C3c keeps the dependent terminal facts step (#1661) deferred. Its candidate checks every fact by default and Enter can save facts outside the only displayed page. The existing import form has no facts review until the predecessor services and explicit unchecked approval flow are established. [TUI audit](../reviews/c3c-tui-facts.md).
 
+C3d keeps the first-run export hint (#1670) deferred because it points to that absent facts step. The hint itself is informational and starts no import or memory write; it can return once the preceding chain is ready. [Onboarding controls](../reviews/c3d-onboarding.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
