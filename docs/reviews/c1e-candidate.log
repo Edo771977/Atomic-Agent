@@ -18,9 +18,9 @@
 test at docs\reviews\c1e-candidate.mjs:45:1
 ✖ safety: a hard spend ceiling refuses a cloud leg whose cost cannot be accounted (84.6798ms)
   AssertionError [ERR_ASSERTION]: an unpriced paid worker must not start under a hard cap
-  
+
   1 !== 0
-  
+
       at TestContext.<anonymous> (<review>\docs\reviews\c1e-candidate.mjs:49:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
@@ -35,9 +35,9 @@ test at docs\reviews\c1e-candidate.mjs:45:1
 test at docs\reviews\c1e-candidate.mjs:53:1
 ✖ safety: other sessions cannot evict an active turn's hard child count (0.9224ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
+
   0 !== 24
-  
+
       at TestContext.<anonymous> (<review>\docs\reviews\c1e-candidate.mjs:58:10)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1402:25)

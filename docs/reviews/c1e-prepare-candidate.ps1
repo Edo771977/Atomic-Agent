@@ -8,6 +8,11 @@ $origin = git -C $RepoRoot remote get-url origin
 $upstream = git -C $RepoRoot remote get-url upstream
 if ($origin -ne 'https://github.com/Edo771977/Atomic-Agent.git' -or
     $upstream -ne 'https://github.com/AtomicBot-ai/atomic-agent.git') { throw 'Unexpected remotes.' }
+git -C $RepoRoot cat-file -e '2794bdf005a2708db87a6b0e864e2ac631b20294^{commit}' 2>$null
+if ($LASTEXITCODE -ne 0) {
+  git -C $RepoRoot fetch upstream 2794bdf005a2708db87a6b0e864e2ac631b20294
+  if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the review chain.' }
+}
 # Intrinsic upstream audit: the parent of C1e, already containing C1a-C1d.
 # This checkout is never the fork's integration/PR branch.
 git -C $RepoRoot worktree add --detach $Destination 3ee5204d9720d3ec3a330eed6455d4dd65aaa694
