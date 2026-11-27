@@ -274,3 +274,5 @@ The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval,
 ## OS sandbox for commands
 
 The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.
+
+Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client requests unrestricted network even without consent and while offline. An enabled port needs host grants enforced on the server process, folder egress and protected-path inventories. Existing MCP stdio stays outside this command wrapper. macOS already has a Seatbelt command backend with host loopback retained; Windows has no backend. No production behavior changes. [Review and reproducible tests](../reviews/b6b-mcp-sandbox.md).
