@@ -523,6 +523,33 @@ describe("msg extractor", () => {
     expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
   });
 
+  it.each([
+    ["small plain", "plain", 100, 512, undefined],
+    ["capped plain", "plain", 600, 512, "shared"],
+    ["small HTML", "html", 100, 512, undefined],
+    ["capped Markdown", "html", 600, 512, "shared"],
+    ["Markdown output cap", "html", 620_000, 1_000_000, "HTML"],
+    ["HTML body cap", "html", 820_000, 1_000_000, "HTML"],
+    ["shared fallback cap", "html", 820_000, 200_000, "shared"],
+    ["complete node-limit fallback", "dense", 15_010, 1_000_000, undefined],
+  ] as const)("reports the actual truncation cause in a single-body MSG (%s)", async (_name, format, length, maxBytes, cause) => {
+    const content = "Body start " + "x".repeat(length);
+    const property = format === "plain" ? str(0x1000, content) :
+      { name: b(0x1013), data: Buffer.from(format === "dense" ? "<p>Row</p>".repeat(length) : "<p>" + content + "</p>") };
+    const data = buildCfb([property], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "body.msg", maxBytes });
+    expect(result.truncated === true).toBe(cause !== undefined);
+    const cutWarnings = result.warnings.filter((warning) => /truncat/i.test(warning));
+    if (cause === "HTML") {
+      expect(cutWarnings).toContainEqual(expect.stringMatching(/HTML.*393216.*characters/i));
+      expect(cutWarnings.some((warning) => /shared extraction budget/i.test(warning))).toBe(false);
+    } else if (cause === "shared") {
+      expect(cutWarnings).toContainEqual(expect.stringMatching(/Outlook.*shared extraction budget/i));
+    } else {
+      expect(cutWarnings).toEqual([]);
+    }
+  });
+
   it("keeps going with a warning when one property stream is corrupt", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const off = buffer.indexOf(Buffer.from(`${u(0x0037)}\0`, "utf16le"));

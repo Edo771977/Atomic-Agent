@@ -80,9 +80,11 @@ export const msgExtractor: Extractor = async (input) => {
   }
   const budget = new FragmentBudget(input.maxBytes);
   const output = new FragmentOutput(budget.maxOutputBytes);
-  const text = renderMessage({ cfb, warnings, budget, output }, cfb.root, HEADER_TOP, 0);
-  const truncated = budget.exhausted || output.truncated;
-  if (truncated) warnings.push("Outlook document text was truncated by the shared extraction budget.");
+  const htmlBody = { truncated: false };
+  const text = renderMessage({ cfb, warnings, budget, output, htmlBody }, cfb.root, HEADER_TOP, 0);
+  const sharedTruncated = budget.exhausted || output.truncated;
+  if (sharedTruncated) warnings.push("Outlook document text was truncated by the shared extraction budget.");
+  const truncated = sharedTruncated || htmlBody.truncated;
   return { format: "msg", text: text.trim(), warnings: [...new Set(warnings)], ...(truncated && { truncated: true }) };
 };
 
@@ -91,6 +93,7 @@ interface MessageReader {
   warnings: string[];
   budget: FragmentBudget;
   output: FragmentOutput;
+  htmlBody: { truncated: boolean };
 }
 
 interface MessageCtx extends MessageReader {
@@ -309,9 +312,12 @@ function readBody(ctx: MessageCtx, outerBody: boolean): string {
   if (html) {
     const body = takeBody(ctx, html);
     if (!body) return "";
-    const result = boundedHtmlToMarkdown(body, ctx.warnings, undefined, ctx.budget,
-      Math.min(ctx.output.remaining, HTML_PLAIN_CHARS), outerBody);
-    if (result.truncated) ctx.output.truncated = true;
+    const plainLimit = Math.min(ctx.output.remaining, HTML_PLAIN_CHARS);
+    const result = boundedHtmlToMarkdown(body, ctx.warnings, undefined, ctx.budget, plainLimit, outerBody);
+    if (result.truncated) {
+      if (plainLimit === HTML_PLAIN_CHARS) ctx.htmlBody.truncated = true;
+      else ctx.output.truncated = true;
+    }
     return result.text;
   }
 
