@@ -32,7 +32,7 @@ it("shows a bounded prefix of a first part larger than the input budget", async 
   const result = await emlExtractor({ data: Buffer.from(raw), sourcePath: "mail.eml", maxBytes: 32 });
   expect(result.text.startsWith("Log begins")).toBe(true);
   expect(result.text.length).toBe(32);
-  expect(result.warnings).toContainEqual(expect.stringMatching(/part 1.*pagesFrom/i));
+  expect(result.warnings).toContainEqual(expect.stringMatching(/part 1 was truncated/i));
 });
 
 it("does not claim an mbox message that ran out of body capacity", async () => {

@@ -428,7 +428,7 @@ describe("os.fs.read_document dispatcher", () => {
     await writeFile(path, "Content-Type: text/plain\r\n\r\nA clipped message");
     const result = await tool.run({ path, maxBytes: 8 }, makeCtx(dir));
     expect(result.details.truncated).toBe(true);
-    expect(result.details.warnings).toContainEqual(expect.stringMatching(/part 1.*pagesFrom/i));
+    expect(result.details.warnings).toContainEqual(expect.stringMatching(/part 1 was truncated/i));
   });
 
   it("rejects non-files (directories)", async () => {

@@ -45,10 +45,13 @@ export const emlExtractor: Extractor = async (input) => {
   };
   const text = renderMessage(raw, 0, warnings, budget, output, "", range);
   if (range.partial !== undefined) {
-    warnings.push(`MIME part ${range.partial} was truncated. Use pagesFrom=${range.partial + 1} to continue with the next part.`);
+    const continuation = range.partial < range.seen
+      ? ` Use pagesFrom=${range.partial + 1} to continue with the next part.`
+      : "";
+    warnings.push(`MIME part ${range.partial} was truncated.${continuation}`);
   } else if (range.resumeAt !== undefined) {
     warnings.push(output.framingLimited
-      ? `MIME headers and framing leave no room for body text within maxBytes. Increase maxBytes and use pagesFrom=${range.resumeAt} to retry this part.`
+      ? `No body text was shown because the MIME headers and framing leave no room within maxBytes. Increase maxBytes and use pagesFrom=${range.resumeAt} to retry this part.`
       : `MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
   }
   if (input.pagesFrom !== undefined && range.start > range.seen) {
@@ -93,7 +96,7 @@ export const mboxExtractor: Extractor = async (input) => {
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
     if (message.framingLimited) {
       output.stop();
-      warnings.push(`MBOX headers leave no room for message text within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
+      warnings.push(`No message text was shown because the MBOX headers leave no room within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
       break;
     }
     if (budget.exhausted && !message.partialItem) {
@@ -105,7 +108,8 @@ export const mboxExtractor: Extractor = async (input) => {
     const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, message.truncated);
     if (shown.text) chunks.push(shown.text);
     if (shown.status === "partial") {
-      warnings.push(`MBOX message ${n} was truncated. Use pagesFrom=${n + 1} to continue with the next message.`);
+      const continuation = n < total ? ` Use pagesFrom=${n + 1} to continue with the next message.` : "";
+      warnings.push(`MBOX message ${n} was truncated.${continuation}`);
       break;
     }
     if (shown.status === "deferred") {

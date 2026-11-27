@@ -104,9 +104,10 @@ export const epubExtractor: Extractor = async (input) => {
   }
   const remaining = end - next + 1;
   if (partialChapter) {
-    warnings.push(`EPUB chapter ${next} was truncated. Use pagesFrom=${next + 1} to continue with the next chapter.`);
+    const continuation = next < total ? ` Use pagesFrom=${next + 1} to continue with the next chapter.` : "";
+    warnings.push(`EPUB chapter ${next} was truncated.${continuation}`);
   } else if (output.framingLimited) {
-    warnings.push(`The EPUB title or chapter marker leaves no room for chapter text within maxBytes. Increase maxBytes and use pagesFrom=${next} to retry this chapter.`);
+    warnings.push(`No chapter text was shown because the EPUB title or chapter marker leaves no room within maxBytes. Increase maxBytes and use pagesFrom=${next} to retry this chapter.`);
   } else if (budget.exhausted || output.stopped) {
     warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom=${next})`);
   } else if (remaining > 0) {
