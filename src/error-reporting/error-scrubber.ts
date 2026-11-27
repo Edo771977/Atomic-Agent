@@ -214,6 +214,7 @@ const SAFE_CODE_RE = /^[A-Z][A-Z0-9_]*$/;
 const SAFE_UPSTREAM_ERROR_TYPES = new Set([
   "invalid_request_error", "authentication_error", "permission_error",
   "not_found_error", "rate_limit_error", "api_error", "overloaded_error", "server_error",
+  "exceed_context_size_error", "unavailable_error", "not_supported_error", "insufficient_quota",
 ]);
 
 /** Depth cap on every `cause` walk in this module — longer is a cycle. */

@@ -47,4 +47,4 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 
 B7a3 reads Google array-form error bodies and status alongside the fork's param field. This preserves invalid-sampling failover behavior; only closed-vocabulary refusal details reach reporting. [Review](../../docs/reviews/b7a3-provider-refusals.md).
 
-Local provider errors retain their parsed type for local handling. External refusal reports admit only the [closed type vocabulary](../error-reporting/README.md); for example `exceed_context_size_error` stays local and is omitted from report tags.
+Local provider errors retain their parsed type for local handling. External refusal reports admit only the [closed type vocabulary](../error-reporting/README.md); including the reviewed fixed literals `exceed_context_size_error`, `unavailable_error`, `not_supported_error` and `insufficient_quota`. Arbitrary provider types stay local.
