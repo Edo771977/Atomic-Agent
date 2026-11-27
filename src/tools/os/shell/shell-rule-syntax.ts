@@ -75,7 +75,7 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0, inhe
     if (token.kind === "word" && token.span) {
       while (placementIndex < placements.length && placements[placementIndex]!.start < token.span[1]) {
         const placement = placements[placementIndex++]!;
-        if (placement.start >= token.span[0] && !placement.process) substitutionInputs[placement.index] = frame().current;
+        if (placement.start >= token.span[0]) substitutionInputs[placement.index] = placement.process === "out" ? { redirected: true } : frame().current;
       }
     }
     if (token.kind === "separator" && token.newline && pendingPipe) continue;

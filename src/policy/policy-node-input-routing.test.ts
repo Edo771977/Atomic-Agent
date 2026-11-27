@@ -168,3 +168,14 @@ routingCases("R9 command substitution output is not input", [
   'cat < fixture; echo "$(node --fixture-boolean x.js)"',
   'echo "$(node --fixture-boolean x.js)"; printf fixture | cat',
 ], false);
+
+routingCases("R9 process substitutions inherit input", [
+  "printf fixture | cat <(node --fixture-boolean x.js)",
+  "exec < fixture; cat <(node --fixture-boolean x.js)",
+  "cat <(node --fixture-boolean x.js) < fixture",
+  "printf fixture > >(node --fixture-boolean x.js)",
+]);
+routingCases("R9 process producer without input stays ordinary", [
+  "cat <(node --fixture-boolean x.js) | cat",
+  "cat < fixture; cat <(node --fixture-boolean x.js)",
+], false);
