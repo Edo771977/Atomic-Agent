@@ -9,7 +9,8 @@ const part = (body: string) => "--parts\r\nContent-Type: text/plain\r\n\r\n" + b
 const compose = (items: string[], header = "") => Buffer.from(header +
   'Content-Type: multipart/mixed; boundary="parts"\r\n\r\n' + items.join("") + "--parts--");
 const wrapped = (message: string) => "--parts\r\nContent-Type: message/rfc822\r\n\r\n" + message + "\r\n";
-const bodies = Array.from({ length: 20 }, (_, n) => part("BODY-" + (n + 1) + "-TAIL"));
+const largeBody = "x".repeat(3000);
+const bodies = Array.from({ length: 20 }, (_, n) => part("BODY-" + (n + 1) + "-TAIL" + (n === 0 ? largeBody : "")));
 const envelope = "From sender@example.test Fri Nov 27 00:00:00 2026\n";
 
 async function book(title: string, body: string) {
@@ -30,7 +31,7 @@ it.each([1000, 1600])("keeps the same EML part when recipients exhaust %i bytes"
 });
 
 it("defers the same forwarded body when its headers consume the EML window", async () => {
-  const data = compose([wrapped(recipients + "Content-Type: text/plain\r\n\r\nForwarded body"), ...bodies]);
+  const data = compose([wrapped(recipients + "Content-Type: text/plain\r\n\r\nForwarded body" + largeBody), ...bodies]);
   const options = { data, sourcePath: "fixture.eml", maxBytes: 1000 };
   const result = await emlExtractor(options);
   expect(result.warnings).toContainEqual(expect.stringMatching(/headers.*maxBytes.*pagesFrom=1/i));
@@ -38,7 +39,7 @@ it("defers the same forwarded body when its headers consume the EML window", asy
 });
 
 it("keeps the same EPUB chapter when its title consumes the window", async () => {
-  const data = await book("Title " + "x".repeat(1600), "Chapter body");
+  const data = await book("Title " + "x".repeat(1600), "Chapter body" + largeBody);
   const options = { data, sourcePath: "fixture.epub", maxBytes: 1000 };
   const result = await epubExtractor(options);
   expect(result.pagesExtracted).toEqual([]);
@@ -48,7 +49,7 @@ it("keeps the same EPUB chapter when its title consumes the window", async () =>
 
 it("keeps the same MBOX message when its headers consume the window", async () => {
   const options = {
-    data: Buffer.from(envelope + recipients + "Content-Type: text/plain\r\n\r\nFirst message"),
+    data: Buffer.from(envelope + recipients + "Content-Type: text/plain\r\n\r\nFirst message" + largeBody),
     sourcePath: "fixture.mbox",
     maxBytes: 1000,
   };

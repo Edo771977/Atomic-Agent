@@ -25,7 +25,7 @@ it.each(["eml", "mbox", "epub"] as const)("does not suggest an out-of-range curs
 
 it("explains an empty window when the header leaves no room for the body", async () => {
   const data = Buffer.from("To: " + "reader@example.test, ".repeat(75) +
-    "\r\nContent-Type: text/plain\r\n\r\nVisible body");
+    "\r\nContent-Type: text/plain\r\n\r\nVisible body" + "x".repeat(3000));
   const result = await emlExtractor({ data, sourcePath: "fixture.eml", maxBytes: 1000 });
   expect(result.text).toBe("");
   expect(result.warnings).toContainEqual(expect.stringMatching(/no body text was shown.*headers.*maxBytes.*pagesFrom=1/i));

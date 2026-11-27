@@ -93,12 +93,19 @@ export class FragmentOutput {
     return bytes.toString("utf8", 0, end);
   }
 
-  appendItem(prefix: string, value: string, clipped = false): {
+  appendItem(prefix: string, value: string, clipped = false, compactPrefix = prefix): {
     text: string;
     status: "complete" | "deferred" | "partial";
   } {
-    const prefixBytes = Buffer.byteLength(prefix);
     const valueBytes = Buffer.byteLength(value);
+    let prefixBytes = Buffer.byteLength(prefix);
+    if (!clipped && prefix !== compactPrefix && prefixBytes + valueBytes > this.limit) {
+      const compactBytes = Buffer.byteLength(compactPrefix);
+      if (compactBytes + valueBytes <= this.limit) {
+        prefix = compactPrefix;
+        prefixBytes = compactBytes;
+      }
+    }
     const size = prefixBytes + valueBytes;
     if (valueBytes > 0 && size > this.remaining &&
         this.remaining - prefixBytes < Buffer.byteLength(String.fromCodePoint(value.codePointAt(0)!))) {

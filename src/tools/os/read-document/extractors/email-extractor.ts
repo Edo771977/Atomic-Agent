@@ -128,8 +128,9 @@ export const mboxExtractor: Extractor = async (input) => {
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
-    const item = separators ? `--- message ${n} ---\n${text}` : text;
-    const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, message.truncated);
+    const marker = separators ? `--- message ${n} ---\n` : "";
+    const separator = chunks.length && (marker || text) ? "\n\n" : "";
+    const shown = output.appendItem(separator + marker, text, message.truncated, separator);
     if (shown.text) chunks.push(shown.text);
     if (message.attachmentListingLimited && shown.status !== "deferred") {
       output.truncated = true;
@@ -413,7 +414,8 @@ function renderTextPart(
   const clipped = rendered.truncated || accepted < bodySize;
   if (accepted < bodySize) budget.noteTruncation();
   if (!text && !clipped) return "";
-  const shown = output.appendItem(prefix, text, clipped);
+  const separator = prefix.match(/^\n*/)?.[0] ?? "";
+  const shown = output.appendItem(prefix, text, clipped, separator);
   if (range && shown.status === "partial") range.partial = part;
   if (range && shown.status === "deferred") range.resumeAt = part;
   return shown.text;

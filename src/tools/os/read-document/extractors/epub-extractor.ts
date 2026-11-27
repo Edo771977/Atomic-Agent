@@ -67,8 +67,7 @@ export const epubExtractor: Extractor = async (input) => {
 
   const budget = new FragmentBudget(input.maxBytes);
   const output = new FragmentOutput(budget.maxOutputBytes);
-  const title = output.append(head.join("\n"));
-  if (title) chunks.push(title);
+  const title = head.join("\n");
   let next = start;
   let partialChapter = false;
   for (; next <= end; next++) {
@@ -92,8 +91,9 @@ export const epubExtractor: Extractor = async (input) => {
       if (accepted < size) budget.noteTruncation();
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
       const marker = separators ? `--- chapter ${n} ---\n` : "";
-      const prefix = (chunks.length && (marker || text) ? "\n\n" : "") + marker;
-      const shown = output.appendItem(prefix, text, truncated || accepted < size);
+      const separator = chunks.length && (marker || text) ? "\n\n" : "";
+      const titlePrefix = chunks.length === 0 && title ? title + (marker || text ? "\n\n" : "") : separator;
+      const shown = output.appendItem(titlePrefix + marker, text, truncated || accepted < size, separator + marker);
       if (shown.text) chunks.push(shown.text);
       if (shown.status === "complete") extracted.push(n);
       partialChapter = shown.status === "partial";
@@ -102,6 +102,7 @@ export const epubExtractor: Extractor = async (input) => {
       warnings.push(`chapter ${n}: failed to parse (${(err as Error).message})`);
     }
   }
+  if (!chunks.length && title) chunks.push(output.append(title));
   const remaining = end - next + 1;
   if (partialChapter) {
     const continuation = next < total ? ` Use pagesFrom=${next + 1} to continue with the next chapter.` : "";
