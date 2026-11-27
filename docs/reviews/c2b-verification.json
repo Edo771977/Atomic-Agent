@@ -1,0 +1,90 @@
+{
+  "base": "50b6d96012d5b12eb0f2c02cd1467d5a195adb17",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "npmCi": {
+    "exit": 0,
+    "lockfileChanged": false
+  },
+  "staticChecks": [
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T13:18:35.9847934+01:00"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T13:18:50.6318438+01:00"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T13:18:54.8743856+01:00",
+      "initialExit": 1,
+      "finalEvidence": "c2b-typecheck-tests-final.log",
+      "note": "Corrected native to native_tools in the new test; no production change or new debt allowance."
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T13:19:29.5552724+01:00"
+    }
+  ],
+  "focused": {
+    "command": "npx vitest run src/session src/http src/runtime src/config src/llm --maxWorkers=8",
+    "exit": 1,
+    "counts": {
+      "numTotalTests": 8047,
+      "numPassedTests": 8028,
+      "numFailedTests": 13,
+      "numPendingTests": 6
+    },
+    "newTestsPassed": 3
+  },
+  "candidate": {
+    "upstream": [
+      "5635a685a69e8a9396f286a65e15eb462bf6ee60",
+      "e3bece095181a0ba104b27d214f1bff1df064657",
+      "207685fa984328d304460a347433c7ba4ad781d3"
+    ],
+    "cherryPickX": true,
+    "finalSafetyAssertions": {
+      "passed": 5,
+      "failed": 7
+    },
+    "originalControlsPassed": 16,
+    "absenceRed": {
+      "failed": 3
+    },
+    "absenceGreen": {
+      "passed": 3
+    }
+  },
+  "initialAttempts": [
+    "The new test initially used an invalid transport label. It was corrected before the final typecheck and repeated red/green runs; no debt allowances were added.",
+    "The first full-main and focused-C2b runs used two workers and were stopped; their partial logs remain outside the PR. Final main/C2b full runs both use eight workers with no exclusions.",
+    "Targeted control command construction first hit the Windows command-line length limit; direct node execution of Vitest then ran the same 54-name selection. No test timeout was raised."
+  ],
+  "productionCodeChanged": false,
+  "c2aPullRequest": "https://github.com/Edo771977/Atomic-Agent/pull/282",
+  "fullSuite": {
+    "command": "npm test -- --maxWorkers=8",
+    "mainCounts": {
+      "numTotalTests": 31656,
+      "numPassedTests": 30831,
+      "numFailedTests": 165,
+      "numPendingTests": 660
+    },
+    "c2bCounts": {
+      "numTotalTests": 31659,
+      "numPassedTests": 30794,
+      "numFailedTests": 205,
+      "numPendingTests": 660
+    },
+    "sameNamedFailures": 151,
+    "initialAdditionalFailures": 54,
+    "mainFailuresThatDidNotFailHere": 14,
+    "unresolvedAdditionalFailures": 0,
+    "newTestsPassed": 3
+  }
+}

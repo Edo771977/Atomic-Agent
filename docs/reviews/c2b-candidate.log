@@ -1,0 +1,152 @@
+✖ C2b: offline suppresses the separate endpoint even on loopback (15.0436ms)
+✖ C2b: a local-only provider policy refuses a nonlocal suggestion endpoint (0.7289ms)
+✖ C2b: the endpoint honors the allowed provider hosts (0.4895ms)
+✖ C2b: Privacy Shield masks the transmitted text on both HTTP-400 attempts (0.571ms)
+✖ C2b: malformed environment keys are rejected by the validated credential path (0.2429ms)
+✖ C2b: URL userinfo cannot become an endpoint credential (0.453ms)
+✖ C2b: a reflected credential never reaches logs after the no-thinking retry (0.4418ms)
+✔ C2b control: the HTTP-400 retry drops thinking and preserves the intended key (0.3102ms)
+✔ C2b control: remote incognito requests are skipped by runtime (0.15ms)
+✔ C2b control: model output stays bounded data and never becomes a transcript tool (1.0237ms)
+✔ C2b control: endpoint errors settle the auxiliary call without throwing (0.1395ms)
+✔ C2b control: runtime deadline aborts an endpoint that honors its signal (15005.9217ms)
+ℹ tests 12
+ℹ suites 0
+ℹ pass 5
+ℹ fail 7
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 16815.8345
+
+✖ failing tests:
+
+test at docs\reviews\c2b-candidate.mjs:38:1
+✖ C2b: offline suppresses the separate endpoint even on loopback (15.0436ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  1 !== 0
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:41:67)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:44:1
+✖ C2b: a local-only provider policy refuses a nonlocal suggestion endpoint (0.7289ms)
+  AssertionError [ERR_ASSERTION]: raw fetch bypassed the configured provider policy
+
+  1 !== 0
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:47:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:49:1
+✖ C2b: the endpoint honors the allowed provider hosts (0.4895ms)
+  AssertionError [ERR_ASSERTION]: raw fetch bypassed the configured host allow-list
+
+  1 !== 0
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:53:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:55:1
+✖ C2b: Privacy Shield masks the transmitted text on both HTTP-400 attempts (0.571ms)
+  AssertionError [ERR_ASSERTION]: the first request and retry transmitted a known credential in conversation text
+
+  true !== false
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:61:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:65:1
+✖ C2b: malformed environment keys are rejected by the validated credential path (0.2429ms)
+  AssertionError [ERR_ASSERTION]: raw environment value became a bearer key
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:67:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:69:1
+✖ C2b: URL userinfo cannot become an endpoint credential (0.453ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   apiKey: null,
+  +   model: null,
+  +   url: 'https://audit:password@example.invalid/v1/chat/completions'
+  + }
+  - null
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:70:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { url: 'https://audit:password@example.invalid/v1/chat/completions', model: null, apiKey: null },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c2b-candidate.mjs:72:1
+✖ C2b: a reflected credential never reaches logs after the no-thinking retry (0.4418ms)
+  AssertionError [ERR_ASSERTION]: unfiltered endpoint error reached a logger sink
+
+  true !== false
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-b7a5-20261127\atomic-c2b-candidate-20261127\docs\reviews\c2b-candidate.mjs:76:10)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
