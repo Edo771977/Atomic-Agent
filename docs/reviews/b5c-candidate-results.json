@@ -1,0 +1,56 @@
+{
+  "fixture": "synthetic credentials, fake IMAP and HTTP transports; no real messages, accounts, connections or calls",
+  "candidate": "b5c-candidate.test.ts",
+  "tests": [
+    {
+      "test": "keeps the unapproved dialer and Twilio credential reader absent",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: ../telephony/index.ts: expected true to be false // Object.is equality\n    at <candidate>/src/http/b5c-twilio-deferred.test.ts:8:62\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+      ]
+    },
+    {
+      "test": "does not expose Twilio configuration, calls, status or inbound webhook routes",
+      "status": "passed"
+    },
+    {
+      "test": "control: incomplete user credentials keep calls off",
+      "status": "passed"
+    },
+    {
+      "test": "refuses to reveal the token to a marked tool child",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected { ok: true, config: { \u2026(4) } } to match object { ok: false }\n(5 matching properties omitted from actual)\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1283:10)\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<workspace>/atomic-b5-review-20261127/node_modules/chai/index.js:1737:25)\n    at <candidate>/src/tasks/b5c-candidate.test.ts:11:180\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+      ]
+    },
+    {
+      "test": "does not dial without per-call approval: normal",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:\n\n  1st vi.fn() call:\n\n    Array [\n      \"https://api.twilio.com/2010-04-01/Accounts/AC11111111111111111111111111111111/Calls.json\",\n      Object {\n        \"body\": \"To=%2B15550002222&From=%2B15550001111&Twiml=%3C%3Fxml+version%3D%221.0%22+encoding%3D%22UTF-8%22%3F%3E%3CResponse%3E%3CSay%3Esynthetic+call%3C%2FSay%3E%3C%2FResponse%3E&Timeout=30\",\n        \"headers\": Object {\n          \"accept\": \"application/json\",\n          \"authorization\": \"Basic QUMxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTpzeW50aGV0aWMtdG9rZW4tYjVj\",\n          \"content-type\": \"application/x-www-form-urlencoded\",\n        },\n        \"method\": \"POST\",\n      },\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1467:10)\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<workspace>/atomic-b5-review-20261127/node_modules/chai/index.js:1737:25)\n    at <candidate>/src/tasks/b5c-candidate.test.ts:18:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "does not dial without per-call approval: offline",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:\n\n  1st vi.fn() call:\n\n    Array [\n      \"https://api.twilio.com/2010-04-01/Accounts/AC11111111111111111111111111111111/Calls.json\",\n      Object {\n        \"body\": \"To=%2B15550002222&From=%2B15550001111&Twiml=%3C%3Fxml+version%3D%221.0%22+encoding%3D%22UTF-8%22%3F%3E%3CResponse%3E%3CSay%3Esynthetic+call%3C%2FSay%3E%3C%2FResponse%3E&Timeout=30\",\n        \"headers\": Object {\n          \"accept\": \"application/json\",\n          \"authorization\": \"Basic QUMxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTpzeW50aGV0aWMtdG9rZW4tYjVj\",\n          \"content-type\": \"application/x-www-form-urlencoded\",\n        },\n        \"method\": \"POST\",\n      },\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1467:10)\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<workspace>/atomic-b5-review-20261127/node_modules/chai/index.js:1737:25)\n    at <candidate>/src/tasks/b5c-candidate.test.ts:18:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "does not dial without per-call approval: tool-child",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:\n\n  1st vi.fn() call:\n\n    Array [\n      \"https://api.twilio.com/2010-04-01/Accounts/AC11111111111111111111111111111111/Calls.json\",\n      Object {\n        \"body\": \"To=%2B15550002222&From=%2B15550001111&Twiml=%3C%3Fxml+version%3D%221.0%22+encoding%3D%22UTF-8%22%3F%3E%3CResponse%3E%3CSay%3Esynthetic+call%3C%2FSay%3E%3C%2FResponse%3E&Timeout=30\",\n        \"headers\": Object {\n          \"accept\": \"application/json\",\n          \"authorization\": \"Basic QUMxMTExMTExMTExMTExMTExMTExMTExMTExMTExMTExMTpzeW50aGV0aWMtdG9rZW4tYjVj\",\n          \"content-type\": \"application/x-www-form-urlencoded\",\n        },\n        \"method\": \"POST\",\n      },\n    ]\n\n\nNumber of calls: 1\n\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1467:10)\n    at Proxy.<anonymous> (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<workspace>/atomic-b5-review-20261127/node_modules/chai/index.js:1737:25)\n    at <candidate>/src/tasks/b5c-candidate.test.ts:18:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "does not leak Basic authorization through an echoed transport error",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected 'TelephonyError: Twilio not reachable:\u2026' not to contain 'QUMxMTExMTExMTExMTExMTExMTExMTExMTExM\u2026'\n    at <candidate>/src/tasks/b5c-candidate.test.ts:24:29\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    }
+  ]
+}

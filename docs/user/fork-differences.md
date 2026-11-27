@@ -247,6 +247,10 @@ Child process environment filtering depends on the launcher. The shell builder n
 - [#47](https://github.com/Edo771977/atomic-agent/issues/47): the desktop line and its project card.
 - [#80](https://github.com/Edo771977/atomic-agent/issues/80): the Windows acceptance checks for the rollback and milestone fixes.
 
+## Phone calls
+
+The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval, offline and child credential refusal; encoded Basic authorization can escape through errors. Upstream provides no incoming-call or signature-verification slice in this commit. [Evidence and reopening tests](../reviews/b5c-twilio.md).
+
 ## OS sandbox for commands
 
 The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.
