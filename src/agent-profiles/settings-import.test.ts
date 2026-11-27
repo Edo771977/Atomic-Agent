@@ -19,3 +19,20 @@ it("C1d: loads fresh settings on each profile load", () => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it("C1d: rejects unknown or forbidden profile tools with a diagnostic", () => {
+  const root = mkdtempSync(join(tmpdir(), "c1d-tool-admission-"));
+  try {
+    for (const tools of [["os.fs.read", "unknown.tool"], ["memory.notes.store"], ["os.*"], ["Not A Tool"]]) {
+      const profiles = loadAgentProfiles({
+        workingDir: root, stateDir: root, configFile: join(root, "config.json"), startupTrust: undefined,
+        settingsProfiles: () => ({ review: { prompt: "Review", tools } }),
+        toolPolicy: { names: ["os.fs.read", "os.screen.click", "memory.notes.store"], allows: name => name === "os.fs.read" },
+      });
+      expect(profiles.get("review")).toBeUndefined();
+      expect(profiles.diagnostics.join("\n")).toMatch(/review.*rejected.*tool/i);
+    }
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
