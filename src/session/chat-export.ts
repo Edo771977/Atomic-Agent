@@ -138,6 +138,23 @@ function inlineText(tokens: readonly Token[]): string {
   }).join("");
 }
 
+/** Column-zero fences close list context; inner runs cannot close this fence. */
+function literalMarkdownBlock(block: string): string {
+  const firstBreak = block.indexOf("\n"), lastBreak = block.lastIndexOf("\n");
+  const opening = block.slice(0, firstBreak);
+  if (firstBreak >= 3 && lastBreak > firstBreak && /^`+$/.test(opening)
+    && block.slice(lastBreak + 1) === opening) {
+    const body = block.slice(firstBreak + 1, lastBreak);
+    let longestBodyRun = 0;
+    for (const run of body.matchAll(/`+/g)) longestBodyRun = Math.max(longestBodyRun, run[0].length);
+    if (longestBodyRun < opening.length) return block;
+  }
+  let longest = 2;
+  for (const run of block.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+  const fence = "`".repeat(longest + 1);
+  return `\n\n${fence}\n${block}\n${fence}\n\n`;
+}
+
 /** Mask both source forms and the inline presentation of each parsed block. */
 export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
   const known = options.knownSecrets ?? knownSecretsFromEnv();
@@ -167,7 +184,7 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
       if (possibleKey() || maskSecrets(projected, known) !== projected) return redactedMarker("complex-markdown");
       // Literal code cannot join inline nodes, and keeps adversarial markup out
       // of the document renderer's inline parser as well as our own parser.
-      return block.split("\n").map(line => line.length ? "    " + line : line).join("\n");
+      return literalMarkdownBlock(block);
     }
     // Source projection already handles delimiter/entity-only known values.
     // Code spans trim boundary spaces; breaks and cells can join visible text.
