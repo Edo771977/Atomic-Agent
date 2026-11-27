@@ -333,3 +333,7 @@ Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client req
 La sesta revisione B1 usa selettori espliciti per il codice Node, compreso NODE_OPTIONS, e mantiene ordinari i flag lunghi operativi. Make legge gruppi corti e abbreviazioni GNU univoche; /dev/null e uno script vuoto per Make e shell. Il reset che rimuove i metadati registrati da una policy locale caricata e intenzionalmente rifiutato, con indicazioni per conservare le variabili ereditate. La guida esplicita limiti sed e differenze personali stdin.
 
 La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy organizzativa e distingue valori separati, reporter data: e stdin ambiguo, anche tramite NODE_OPTIONS e verify. Il parser personale mantiene le proprie tabelle. I glob letterali in --allow-fs-* vanno quotati per conservare la prudenza del lexer condiviso. Make, reset dell'ambiente e /dev/null mantengono i contratti verificati.
+
+## C1 worker sessions
+
+C1a imports upstream #1722 (`69dc95c37`) with `cherry-pick -x`. Depth is added without dropping the fork's original operator request or provider/egress/host policy stamp. Only depth becomes required on a read stamp. [Review](../reviews/c1a-worker-depth.md).

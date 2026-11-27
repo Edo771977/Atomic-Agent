@@ -143,3 +143,5 @@ Export file writes share [the destination guard](chat-export-file.ts): state, tr
 Known export secrets are also matched through a conservative Unicode/Markdown presentation projection: compatibility forms, invisible/control characters, escapes and emphasis/code delimiters cannot reassemble a key. Original source ranges are replaced; unrelated formatting stays intact. All renderers receive the same known values. PDF masks joined, encoded paragraph and code text before wrapping, including the encoded equivalents of known values.
 
 C2a keeps upstream #1570 deferred: previous-replies and restore-previous-reply routes are unavailable until archive bounds, strict normalization, incognito storage and shared turn ownership are established. [Candidate evidence and reopening tests](../../docs/reviews/c2a-previous-replies.md).
+
+C1a adds worker depth to [fusion-worker-session.ts](fusion-worker-session.ts): operator sessions read as 0, legacy workers as 1, and child workers increment the parent depth. The stamp keeps the fork's full operator request and provider/egress/host restrictions. Depth is metadata, not permission to delegate; it does not enable subagent.run.

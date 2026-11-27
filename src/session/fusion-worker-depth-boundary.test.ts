@@ -19,8 +19,6 @@ describe("C1a worker depth preserves fork boundaries", () => {
     expect(workers.readFusionWorkerMeta(metadata)).toMatchObject({
       depth: 4, providerPolicy: { allowedProviders: [], allowedEgress: [] },
     });
-    expect(workers).toHaveProperty("childFusionWorkerDepth");
-    const childDepth = (workers as unknown as { childFusionWorkerDepth(value: typeof metadata): number }).childFusionWorkerDepth;
-    expect(childDepth(metadata)).toBe(5);
+    expect(workers.childFusionWorkerDepth(metadata)).toBe(5);
   });
 });

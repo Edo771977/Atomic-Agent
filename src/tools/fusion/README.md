@@ -236,3 +236,5 @@ Recovery validates canonical filesystem names as well as journal spelling. NTFS 
 
 An ancestor outside the selected project may be a junction or NTFS short name. An absolute journal under the caller's project spelling or the canonical project root is accepted by mapping its validated relative name into the canonical root. The journal itself is never canonicalized through internal links: `.atomic-agent` and `fusion-merge` must still be real directories, an outside journal is refused, and the journal header must name the canonical project.
 `worker-workspace.ts` prepares local workers with skills from the current session folder after a folder switch, through the existing project trust gate; project instruction loading remains cloud-only.
+
+C1a stamps ordinary Fusion workers and escalation replacements at depth 1. Their original-input and provider-policy guards remain unchanged.

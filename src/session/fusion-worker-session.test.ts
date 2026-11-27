@@ -25,10 +25,10 @@ describe("fusion worker sessions", () => {
   it("carries the operator's whole request for the worker's input guard", () => {
     const withRequest = { ...meta, operatorRequest: "Clean sales.csv" };
     const session = createFusionWorkerSession({ workingDir: "/work", meta: withRequest });
-    expect(readFusionWorkerMeta(session.metadata)).toEqual(withRequest);
+    expect(readFusionWorkerMeta(session.metadata)).toEqual({ ...withRequest, depth: 1 });
     expect(
       readFusionWorkerMeta({ [FUSION_WORKER_METADATA_KEY]: { ...meta, operatorRequest: 7 } }),
-    ).toEqual(meta);
+    ).toEqual({ ...meta, depth: 1 });
   });
 
   it("keeps the stamped egress classes of its parent's policy (issue #33)", () => {
