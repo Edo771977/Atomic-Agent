@@ -63,12 +63,13 @@ const RULE_WRAPPERS: Readonly<Record<string, readonly string[]>> = {
  * shared with the guard's browser-bypass layer) skip their value too, so
  * `sudo -u root rm` reads as `rm`, not `root`.
  */
-function withoutWrappers(input: readonly string[], observe?: (words: string[]) => void): string[] {
+function withoutWrappers(input: readonly string[], observe?: (words: string[]) => void, environment?: (assignment: string | null) => void): string[] {
   const words = [...input];
   let i = 0;
   while (i < words.length) {
     const word = words[i]!;
     if (ENV_ASSIGNMENT_RE.test(word)) {
+      environment?.(word);
       i += 1;
       continue;
     }
@@ -82,6 +83,7 @@ function withoutWrappers(input: readonly string[], observe?: (words: string[]) =
     while (i < words.length) {
       const next = words[i]!;
       if (name === "env" && ENV_ASSIGNMENT_RE.test(next)) {
+        environment?.(next);
         i += 1;
         continue;
       }
@@ -99,6 +101,12 @@ function withoutWrappers(input: readonly string[], observe?: (words: string[]) =
         break;
       }
       if (!next.startsWith("-")) break;
+      if (name === "env") {
+        if (next === "--ignore-environment" || next === "-i" || next === "-") environment?.(null);
+        if (next === "-u" || next === "--unset") environment?.(`${words[i + 1] ?? ""}=`);
+        else if (next.startsWith("--unset=")) environment?.(`${next.slice(8)}=`);
+        else if (/^-u./.test(next)) environment?.(`${next.slice(2)}=`);
+      }
       i += valueFlags.includes(next) ? 2 : 1;
     }
     if (name === "flock" && words.slice(wrapperStart + 1).some(word => word === "-c" || word === "--command")) return words.slice(wrapperStart);
@@ -138,7 +146,7 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  */
 export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix", cwd = process.cwd()): { segments: string[][]; unreadable: boolean } {
   const syntax = useShell ? shellSyntax([cmd, ...execArgs].join(" "), dialect) : { segments: [[cmd, ...execArgs]], unreadable: false };
-  const state = { unreadable: syntax.unreadable, remaining: 2048, cwd };
+  const state = { unreadable: syntax.unreadable, remaining: 2048, cwd, nodeOptions: process.env.NODE_OPTIONS };
   if (useShell && /[|<]/.test([cmd, ...execArgs].join(" ")) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) state.unreadable = true;
   const segments = syntax.segments.flatMap(words => expandSegment(words, 0, state));
   return { segments, unreadable: state.unreadable };
@@ -181,15 +189,33 @@ function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
   return args.some(arg => /^(?:SHELL|\.SHELLFLAGS)=/.test(arg));
 }
 
-function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string }): string[][] {
+function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string; nodeOptions?: string }): string[][] {
   if (--state.remaining < 0) { state.unreadable = true; return []; }
-  const inner = withoutWrappers(words);
+  let nodeOptions = state.nodeOptions;
+  const updateOptions = (assignment: string | null) => {
+    if (assignment === null) nodeOptions = undefined;
+    else if (assignment.startsWith("NODE_OPTIONS=")) nodeOptions = assignment.slice(13);
+  };
+  const inner = withoutWrappers(words, undefined, updateOptions);
   if (inner[0]?.includes(UNKNOWN_SHELL_WORD)) state.unreadable = true;
   // These install deferred code or change subsequent command resolution.
   // Never execute the fixture or consult the operator's shell state.
   if (/^(?:trap|hash)$/.test(programName(inner[0] ?? ""))) state.unreadable = true;
   const program = programName(inner[0] ?? "");
   const args = inner.slice(1);
+  if (program === "export") {
+    for (const assignment of args) updateOptions(assignment);
+    state.nodeOptions = nodeOptions;
+  } else if (program === "unset" && args.includes("NODE_OPTIONS")) state.nodeOptions = undefined;
+  else if (words.every(word => ENV_ASSIGNMENT_RE.test(word))) state.nodeOptions = nodeOptions;
+  if (program === "node" && nodeOptions) {
+    const tokens = nodeOptions.length <= 128 * 1024 && !nodeOptions.includes(UNKNOWN_SHELL_WORD) ? lexShellLine(nodeOptions, "posix") : null;
+    if (tokens === null || tokens.some(token => token.kind !== "word" || token.dynamic)) state.unreadable = true;
+    else {
+      const optionWords = tokens.map(token => token.kind === "word" ? token.text : "");
+      if (["inline", "unknown"].includes(interpreterScript([inner[0]!, ...optionWords, ...args], state.cwd)?.kind ?? "")) state.unreadable = true;
+    }
+  }
   if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
   if (/^g?make$/.test(program) && makeScriptIsOpaque(args, state.cwd)) state.unreadable = true;
   if (/^(?:vi|[rg]?vim(?:diff)?|[rg]?view|nvim(?:diff)?|nview|evim|eview|ex|gex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
@@ -203,13 +229,16 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
   const lines = nestedShellScripts(words, state);
   if (inner.length > 1 && programName(inner[0]!) === "eval") lines.push({ line: inner.slice(1).join(" "), dialect: "posix" });
+  const nestedState = { ...state, nodeOptions };
   const nested = lines.flatMap(({ line, dialect }) => {
-    if (line.includes(UNKNOWN_SHELL_WORD)) { state.unreadable = true; return []; }
-    const syntax = shellSyntax(line, dialect); state.unreadable ||= syntax.unreadable;
-    if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) state.unreadable = true;
-    return syntax.segments.flatMap(w => expandSegment(w, depth + 1, state));
+    if (line.includes(UNKNOWN_SHELL_WORD)) { nestedState.unreadable = true; return []; }
+    const syntax = shellSyntax(line, dialect); nestedState.unreadable ||= syntax.unreadable;
+    if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) nestedState.unreadable = true;
+    return syntax.segments.flatMap(w => expandSegment(w, depth + 1, nestedState));
   });
-  const executed = findExecCommands(inner).flatMap(w => expandSegment(w, depth + 1, state));
+  const executed = findExecCommands(inner).flatMap(w => expandSegment(w, depth + 1, nestedState));
+  state.unreadable ||= nestedState.unreadable;
+  state.remaining = nestedState.remaining;
   return [...listed, ...nested, ...executed];
 }
 
