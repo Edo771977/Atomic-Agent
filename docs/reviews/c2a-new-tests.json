@@ -1,0 +1,37 @@
+[
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps both previous-reply routes and their scopes absent",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to owner without reading or writing sessions",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to admin without reading or writing sessions",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to operator without reading or writing sessions",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to member without reading or writing sessions",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to viewer without reading or writing sessions",
+    "status": "passed"
+  },
+  {
+    "file": "http/previous-replies-deferred.test.ts",
+    "name": "keeps archived replies unavailable to anonymous without reading or writing sessions",
+    "status": "passed"
+  }
+]

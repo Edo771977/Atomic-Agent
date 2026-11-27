@@ -1,0 +1,17 @@
+[
+  {
+    "file": "runtime/composition/next-step-endpoint-deferred.test.ts",
+    "name": "keeps the deferred endpoint implementation and environment settings absent",
+    "status": "passed"
+  },
+  {
+    "file": "runtime/composition/next-step-endpoint-deferred.test.ts",
+    "name": "ignores the deferred endpoint http://127.0.0.1:8081/v1 and uses the established model seam",
+    "status": "passed"
+  },
+  {
+    "file": "runtime/composition/next-step-endpoint-deferred.test.ts",
+    "name": "ignores the deferred endpoint https://suggestions.invalid/v1 and uses the established model seam",
+    "status": "passed"
+  }
+]

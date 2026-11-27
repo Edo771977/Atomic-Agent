@@ -1,0 +1,112 @@
+{
+  "base": "50b6d9601",
+  "mainCounts": {
+    "numTotalTests": 31656,
+    "numPassedTests": 30831,
+    "numFailedTests": 165,
+    "numPendingTests": 660
+  },
+  "candidateCounts": {
+    "numTotalTests": 8047,
+    "numPassedTests": 8028,
+    "numFailedTests": 13,
+    "numPendingTests": 6
+  },
+  "sameFailures": [
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "does not store a bearer token accidentally supplied as a name",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) never writes over a broken file",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) refuses a duplicate name and a bad name",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) remove drops one token and reports an unknown name",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) two tokens never come out the same",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/http/scoped-auth.test.ts",
+      "test": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+      "test": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "test": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "test": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "mainStatus": "failed"
+    },
+    {
+      "file": "src/runtime/project-trust.test.ts",
+      "test": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "mainStatus": "failed"
+    }
+  ],
+  "additionalFailures": [
+    {
+      "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+      "test": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+      "mainStatus": "passed",
+      "mainPairedRecheckStatus": "passed",
+      "c2bPairedRecheckStatus": "passed"
+    }
+  ],
+  "mainFailuresNotFailedHere": [
+    {
+      "file": "src/session/session-worktree.test.ts",
+      "test": "session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions",
+      "mainStatus": "failed"
+    }
+  ],
+  "notObservedOnMain": [
+    {
+      "file": "src/runtime/composition/next-step-endpoint-deferred.test.ts",
+      "test": "ignores the deferred endpoint http://127.0.0.1:8081/v1 and uses the established model seam",
+      "mainStatus": null
+    },
+    {
+      "file": "src/runtime/composition/next-step-endpoint-deferred.test.ts",
+      "test": "ignores the deferred endpoint https://suggestions.invalid/v1 and uses the established model seam",
+      "mainStatus": null
+    },
+    {
+      "file": "src/runtime/composition/next-step-endpoint-deferred.test.ts",
+      "test": "keeps the deferred endpoint implementation and environment settings absent",
+      "mainStatus": null
+    }
+  ],
+  "nameNormalization": "Path separators and the checkout root in parameterized names are normalized; no tests are excluded.",
+  "unresolvedAdditionalFailures": []
+}

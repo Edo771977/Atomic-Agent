@@ -1,0 +1,341 @@
+[atomic-agent] created default config at C:\Users\edoar\AppData\Local\Temp\c2a-audit-config-FthPJo\config.json
+✔ C2a: each route has the fork permission, including admin restore (0.8692ms)
+✖ C2a: one archived answer cannot retain two MiB (4.3592ms)
+✖ C2a: ten archived answers have a session-wide byte budget (3.8569ms)
+✖ C2a: normalization drops missing reply timestamp (1.2811ms)
+✖ C2a: normalization drops object reasoning (0.4168ms)
+✖ C2a: normalization drops tool-bearing reply (0.3157ms)
+✖ C2a: normalization drops non-finite replacement timestamp (0.1796ms)
+✖ C2a: normalization drops steered prompt (0.1612ms)
+✖ C2a: normalization does not retain unrecognized nested archive fields (4.3262ms)
+✖ C2a: incognito does not add archived answers to the database (550.6924ms)
+✖ C2a: restore acquires the turn controller rather than only checking isBusy (99.2362ms)
+✔ C2a control: private and unknown IDs are indistinguishable for named tokens (203.4286ms)
+✔ C2a control: restore preserves prior cloud journal bytes and excludes archived alternatives (3.3536ms)
+✔ C2a control: deletion removes the session and its archived answer (53.3684ms)
+ℹ tests 14
+ℹ suites 0
+ℹ pass 4
+ℹ fail 10
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 2788.0319
+
+✖ failing tests:
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:40:1
+✖ C2a: one archived answer cannot retain two MiB (4.3592ms)
+  AssertionError [ERR_ASSERTION]: the complete two-MiB answer was retained without a byte budget
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:42:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:45:1
+✖ C2a: ten archived answers have a session-wide byte budget (3.8569ms)
+  AssertionError [ERR_ASSERTION]: the count cap still retains more than two MiB for one session
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:48:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:57:4
+✖ C2a: normalization drops missing reply timestamp (1.2811ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: 30,
+  +       reply: {
+  +         kind: 'assistant_reply',
+  +         text: 'old answer'
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10 }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:57:4
+✖ C2a: normalization drops object reasoning (0.4168ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: 30,
+  +       reply: {
+  +         at: 20,
+  +         kind: 'assistant_reply',
+  +         reasoning: {
+  +           unvalidated: 'payload'
+  +         },
+  +         text: 'old answer'
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10 }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:57:4
+✖ C2a: normalization drops tool-bearing reply (0.3157ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: 30,
+  +       reply: {
+  +         at: 20,
+  +         kind: 'assistant_reply',
+  +         text: 'old answer',
+  +         toolsRan: true
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10 }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:57:4
+✖ C2a: normalization drops non-finite replacement timestamp (0.1796ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: Infinity,
+  +       reply: {
+  +         at: 20,
+  +         kind: 'assistant_reply',
+  +         text: 'old answer'
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10 }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:57:4
+✖ C2a: normalization drops steered prompt (0.1612ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     steered: true,
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: 30,
+  +       reply: {
+  +         at: 20,
+  +         kind: 'assistant_reply',
+  +         text: 'old answer'
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:59:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10, steered: true }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:61:1
+✖ C2a: normalization does not retain unrecognized nested archive fields (4.3262ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+    assert.ok(Buffer.byteLength(JSON.stringify(normalized.previousReplies ?? null)) < 2 * 1024 * 1024)
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:64:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:66:1
+✖ C2a: incognito does not add archived answers to the database (550.6924ms)
+  AssertionError [ERR_ASSERTION]: incognito archive is on disk
+  + actual - expected
+
+  + {
+  +   priorQuestions: 0,
+  +   prompt: {
+  +     at: 10,
+  +     kind: 'user',
+  +     text: 'question'
+  +   },
+  +   replies: [
+  +     {
+  +       replacedAt: 1795781808265,
+  +       reply: {
+  +         at: 20,
+  +         kind: 'assistant_reply',
+  +         text: 'PRIVATE-ARCHIVED-ANSWER'
+  +       }
+  +     }
+  +   ]
+  + }
+  - undefined
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:75:14)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: { prompt: { kind: 'user', text: 'question', at: 10 }, priorQuestions: 0, replies: [ [Object] ] },
+    expected: undefined,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\..\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:79:1
+✖ C2a: restore acquires the turn controller rather than only checking isBusy (99.2362ms)
+  AssertionError [ERR_ASSERTION]: successful mutation never acquired the per-session turn lock
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c2a-20261127\docs\reviews\c2a-candidate.mjs:91:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }

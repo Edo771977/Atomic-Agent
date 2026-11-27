@@ -1,0 +1,100 @@
+{
+  "base": "50b6d96012d5b12eb0f2c02cd1467d5a195adb17",
+  "sameNamedFailures": [
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "does not store a bearer token accidentally supplied as a name"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) never writes over a broken file"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) refuses a duplicate name and a bad name"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) remove drops one token and reports an unknown name"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "test": "http token store (ATO-583) two tokens never come out the same"
+    },
+    {
+      "file": "src/http/scoped-auth.test.ts",
+      "test": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request"
+    },
+    {
+      "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+      "test": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "test": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "test": "cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+    },
+    {
+      "file": "src/runtime/project-trust.test.ts",
+      "test": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it"
+    }
+  ],
+  "initialAdditionalFailures": [
+    {
+      "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+      "test": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+      "mainSelectedStatus": "passed",
+      "mainRerunStatus": "passed",
+      "c2aRerunStatus": "passed"
+    }
+  ],
+  "unresolvedAdditionalFailures": [],
+  "newTests": [
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps both previous-reply routes and their scopes absent",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to owner without reading or writing sessions",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to admin without reading or writing sessions",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to operator without reading or writing sessions",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to member without reading or writing sessions",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to viewer without reading or writing sessions",
+      "status": "passed"
+    },
+    {
+      "file": "http/previous-replies-deferred.test.ts",
+      "name": "keeps archived replies unavailable to anonymous without reading or writing sessions",
+      "status": "passed"
+    }
+  ]
+}
