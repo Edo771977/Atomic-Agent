@@ -47,7 +47,9 @@ export const emlExtractor: Extractor = async (input) => {
   if (range.partial !== undefined) {
     warnings.push(`MIME part ${range.partial} was truncated. Use pagesFrom=${range.partial + 1} to continue with the next part.`);
   } else if (range.resumeAt !== undefined) {
-    warnings.push(`MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
+    warnings.push(output.framingLimited
+      ? `MIME headers and framing leave no room for body text within maxBytes. Increase maxBytes and use pagesFrom=${range.resumeAt} to retry this part.`
+      : `MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
   }
   if (input.pagesFrom !== undefined && range.start > range.seen) {
     warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
@@ -89,6 +91,11 @@ export const mboxExtractor: Extractor = async (input) => {
     if (extracted.length >= maxPages) break;
     const message = new FragmentOutput(output.limit);
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
+    if (message.framingLimited) {
+      output.stop();
+      warnings.push(`MBOX headers leave no room for message text within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
+      break;
+    }
     if (budget.exhausted && !message.partialItem) {
       output.stop();
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);

@@ -91,8 +91,9 @@ export const epubExtractor: Extractor = async (input) => {
       const { text, truncated } = boundedHtmlToMarkdown(decoded.text, chapterWarnings, true, budget);
       if (accepted < size) budget.noteTruncation();
       warnings.push(...chapterWarnings.map(warning => `chapter ${n}: ${warning}`));
-      const item = separators ? `--- chapter ${n} ---\n${text}` : text;
-      const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, truncated || accepted < size);
+      const marker = separators ? `--- chapter ${n} ---\n` : "";
+      const prefix = (chunks.length && (marker || text) ? "\n\n" : "") + marker;
+      const shown = output.appendItem(prefix, text, truncated || accepted < size);
       if (shown.text) chunks.push(shown.text);
       if (shown.status === "complete") extracted.push(n);
       partialChapter = shown.status === "partial";
@@ -104,6 +105,8 @@ export const epubExtractor: Extractor = async (input) => {
   const remaining = end - next + 1;
   if (partialChapter) {
     warnings.push(`EPUB chapter ${next} was truncated. Use pagesFrom=${next + 1} to continue with the next chapter.`);
+  } else if (output.framingLimited) {
+    warnings.push(`The EPUB title or chapter marker leaves no room for chapter text within maxBytes. Increase maxBytes and use pagesFrom=${next} to retry this chapter.`);
   } else if (budget.exhausted || output.stopped) {
     warnings.push(`EPUB chapter budget exhausted at chapter ${next}; remaining chapters were skipped (use pagesFrom=${next})`);
   } else if (remaining > 0) {

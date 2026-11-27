@@ -68,6 +68,7 @@ export class FragmentOutput {
   truncated = false;
   stopped = false;
   partialItem = false;
+  framingLimited = false;
 
   constructor(readonly limit: number) {}
 
@@ -98,6 +99,12 @@ export class FragmentOutput {
     const prefixBytes = Buffer.byteLength(prefix);
     const valueBytes = Buffer.byteLength(value);
     const size = prefixBytes + valueBytes;
+    if (valueBytes > 0 && size > this.remaining &&
+        this.remaining - prefixBytes < Buffer.byteLength(String.fromCodePoint(value.codePointAt(0)!))) {
+      this.framingLimited = !this.#hasItem;
+      this.stop();
+      return { text: "", status: "deferred" };
+    }
     const fitsFresh = !clipped && Buffer.byteLength(prefix.trimStart()) + valueBytes <= this.limit;
     if (this.#hasItem && size > this.remaining && (fitsFresh || this.remaining <= prefixBytes)) {
       this.stopped = this.truncated = true;
