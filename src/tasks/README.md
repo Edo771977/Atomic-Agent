@@ -53,3 +53,5 @@ Read docs/queue.md and ../scheduler/README.md for schedule/drain edits; ../http/
 
 
 Retry ideas never use incognito tasks, including legacy tasks attached to an incognito chat and when deciding whether a later task supersedes an ordinary failure. A Retry stores `sourceSessionId` separately from its execution `sessionId`, so accepting it still opens a fresh chat. Closing an incognito chat deletes its ideas (including decided history) in the transaction that removes its tasks. Startup, listing and acceptance use the same privacy rule: a Retry whose task is gone must have a recorded source chat that still exists and is ordinary. Private cards are hidden from lists and removed on attempted acceptance or at startup. Existing cards acquire their origin from the task when possible.
+
+The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [B5 review](../../docs/reviews/b5a-imap.md).

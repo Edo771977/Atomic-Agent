@@ -64,6 +64,10 @@ The official installer (`curl … atomicagent.io/install`) and upstream's releas
 
 Everything below exists only in this fork. Links are to the fork's pull requests.
 
+## Mailbox-triggered tasks
+
+The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [Evidence and reopening tests](../reviews/b5a-imap.md).
+
 ## Memory backup and entry controls
 
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
@@ -172,6 +176,10 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 - **The orchestrator as a target.** It can take a task itself, and a replan can split a failed task ([#9](https://github.com/Edo771977/atomic-agent/pull/9)).
 - **Runtime-written changes and replies.** The runtime writes the changed lines, replies are compact while tasks are green, and a syntax pass runs before delegation ([#10](https://github.com/Edo771977/atomic-agent/pull/10)).
 - **Verified delivery.** Only green tasks merge under isolation ([#11](https://github.com/Edo771977/atomic-agent/pull/11)). Verified candidate delivery has rollback, artifact evidence and measured routing ([#16](https://github.com/Edo771977/atomic-agent/pull/16), [#17](https://github.com/Edo771977/atomic-agent/pull/17), [#22](https://github.com/Edo771977/atomic-agent/pull/22), [#25](https://github.com/Edo771977/atomic-agent/pull/25)). Its recovery command is `atomic-agent fusion recover`.
+
+## WhatsApp channel
+
+The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install hooks, inbound text is unframed, and auth/QR paths are outside the protected inventories. No dependency or runtime/turn-controller change is imported. [Evidence and reopening tests](../reviews/b5b-whatsapp.md).
 
 ## ACP editor protocol
 

@@ -1,0 +1,65 @@
+{
+  "base": "6dd01db055bc5b2f0d186f037b1ad10bf4fae28e",
+  "environment": {
+    "platform": "Windows",
+    "node": "v26.13.1",
+    "npm": "11.20.0",
+    "baseline": "main at the same base; original Windows EOL checkout restored to Git blob bytes for documentation checksum validation"
+  },
+  "npmCi": {
+    "exitCode": 0,
+    "foregroundLifecycleOutput": [
+      "> esbuild@0.28.2 postinstall"
+    ],
+    "packageAndLockUnchanged": true
+  },
+  "checks": {
+    "lint": 0,
+    "imports:check": 0,
+    "typecheck:tests": 1
+  },
+  "testTypeDiagnosticsIdenticalToMain": true,
+  "docsCheck": {
+    "exitCode": 0,
+    "output": "> atomic-agent@0.8.0 docs:check\n> node scripts/check-docs.mjs\n\ndocs: 332 active files, 21 instruction files; maximum chain 8659/24576 bytes; links, metadata, pointers and archive coverage passed",
+    "initialCheckoutEolChecksumFailureCorrected": true
+  },
+  "mainFull": {
+    "passed": 30639,
+    "failed": 85,
+    "skipped": 658,
+    "total": 31382
+  },
+  "requiredFocused": {
+    "passed": 5758,
+    "failed": 13,
+    "skipped": 6,
+    "total": 5777
+  },
+  "focusedComparisonByFileAndFullName": {
+    "commonFailingNames": [
+      "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+      "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+      "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+      "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it"
+    ],
+    "additionalFailingNames": [],
+    "mainFailingNamesAbsentFromThisRun": [],
+    "mainSuiteErrors": {},
+    "currentSuiteErrors": {}
+  },
+  "absenceTests": {
+    "src/tasks/b5a-imap-deferred.test.ts :: rejects an IMAP trigger before an unverified message can create a task": "passed",
+    "src/tasks/b5a-imap-deferred.test.ts :: keeps IMAP connection, credential and scheduler entry points absent": "passed"
+  },
+  "productionChanges": []
+}

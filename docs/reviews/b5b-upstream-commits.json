@@ -1,0 +1,11 @@
+{
+  "base": "6dd01db055bc5b2f0d186f037b1ad10bf4fae28e",
+  "disposition": "deferred; no upstream production commits imported",
+  "commits": [
+    {
+      "commit": "7294526df588c40f60fae7873b95dfd248bbb6f4",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "WhatsApp channel through WhatsApp Web pairing (ATO-502)"
+    }
+  ]
+}
