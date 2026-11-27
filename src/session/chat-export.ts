@@ -1,4 +1,5 @@
-import { Marked, type Tokens } from "marked";
+import { Lexer, Marked, type Token, type Tokens } from "marked";
+import { decodeHTML } from "entities";
 
 import {
   knownSecretsFromEnv,
@@ -72,25 +73,22 @@ export interface ChatExportOptions {
 }
 
 /** `text` with every credential the shared detector finds replaced by a marker. */
-export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
-  const known = options.knownSecrets ?? knownSecretsFromEnv();
+function maskPresentationText(text: string, known: readonly KnownSecret[]): string {
   text = maskSecrets(text, known);
   // Match a conservative presentation projection while replacing the original
   // source range: Markdown delimiters/escapes, invisible/control characters and
   // compatibility forms must not hide a key until a renderer joins its pieces.
-  const project = (value: string) => value.normalize("NFKD")
+  const project = (value: string) => decodeReferences(value).normalize("NFKD")
     .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
   const needles = known.map(secret => project(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
   if (needles.length === 0) return maskSecrets(text, known);
   let projected = "";
   const starts: number[] = [];
   const ends: number[] = [];
-  let offset = 0;
-  for (const char of text) {
-    const value = project(char);
-    for (let i = 0; i < value.length; i += 1) { starts.push(offset); ends.push(offset + char.length); }
+  for (const unit of text.matchAll(/&(?:amp;)*(?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]+);|[\s\S]/giu)) {
+    const value = project(unit[0]);
+    for (let i = 0; i < value.length; i += 1) { starts.push(unit.index!); ends.push(unit.index! + unit[0].length); }
     projected += value;
-    offset += char.length;
   }
   const ranges: Array<[number, number]> = [];
   for (const needle of new Set(needles)) {
@@ -107,6 +105,44 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
     consumed = end;
   }
   return maskSecrets(out + text.slice(consumed), known);
+}
+
+/** Decode references for matching only; the original source offsets stay intact. */
+function decodeReferences(text: string): string {
+  for (let depth = 0; depth < 4 && text.includes("&"); depth += 1) {
+    const decoded = decodeHTML(text);
+    if (decoded === text) break;
+    text = decoded;
+  }
+  return text;
+}
+
+/** Text a renderer joins, including nested emphasis and link labels, excluding URLs. */
+function inlineText(tokens: readonly Token[]): string {
+  return tokens.map(token => {
+    if (token.type === "list") return (token as Tokens.List).items.map(item => inlineText(item.tokens)).join("\n");
+    if (token.type === "table") {
+      const table = token as Tokens.Table;
+      return [table.header, ...table.rows].map(row => row.map(cell => inlineText(cell.tokens)).join("\t")).join("\n");
+    }
+    if ("tokens" in token && Array.isArray(token.tokens)) return inlineText(token.tokens);
+    if (token.type === "br") return "\n";
+    return "text" in token && typeof token.text === "string" ? decodeReferences(token.text) : "";
+  }).join("");
+}
+
+/** Mask both source forms and the inline presentation of each parsed block. */
+export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
+  const known = options.knownSecrets ?? knownSecretsFromEnv();
+  text = maskPresentationText(text, known);
+  if (!/[*_`~&\[]/.test(text)) return text;
+  return Lexer.lex(text).map(token => {
+    const shown = inlineText([token]);
+    const masked = maskPresentationText(shown, known);
+    // Only a sensitive block loses inline markup. Keeping the safe plaintext
+    // prevents separate labels/runs from reassembling the key on a later parse.
+    return masked === shown ? token.raw : masked + (/\n*$/.exec(token.raw)?.[0] ?? "");
+  }).join("");
 }
 
 /** The chat's name: its title, else its first prompt cut short, else its id. */
