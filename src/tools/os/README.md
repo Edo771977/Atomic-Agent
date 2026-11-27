@@ -36,7 +36,15 @@ Root index intentionally composes and exports registrations in the previous orde
 
 ### EPUB and MIME document reads
 
-Each EPUB, EML, or MBOX read budgets fragment input, returned text, and HTML formatting separately. `maxBytes` covers the displayed text, including headers, markers, separators, and attachment listings. Fragment input is limited to five times `maxBytes` within 16–64 MiB. HTML formatting starts with 30% of `maxBytes` in work units, within 128 Ki–3 Mi units, and charges serialized tags, attributes and 16 units per node. This keeps multiple ordinary tables or link-rich sections formatted while allowing long runs of dense HTML to continue in plain text with a warning. Taking a smaller page range gives the selected fragments a fresh formatting budget. Use the warning's `pagesFrom` value to continue. An item deferred for space can be read on the next call. An item already shown as a truncated prefix is followed by the next item on continuation. In EML, `pagesTo` also applies to displayed body parts, and alternative representations of the same content count as one part.
+Each EPUB, EML, or MBOX read budgets fragment input, returned text, and HTML formatting separately. `maxBytes` covers the displayed text, including headers, markers, separators, and attachment listings. Fragment input is limited to five times `maxBytes` within 16–64 MiB. HTML formatting starts with 30% of `maxBytes` in work units, within 128 Ki–3 Mi units, and charges serialized tags, attributes and 16 units per node. Taking a smaller page range gives the selected fragments a fresh formatting budget.
+
+Use the warning's `pagesFrom` value to continue. A later item that exceeds the remaining space is deferred to a fresh window. A first item that exceeds the entire window can be shown as a truncated prefix. Optional headers or the book title can be omitted to fit a complete body. In EML, `pagesTo` applies to displayed body parts, and alternative representations count as one body part. If attachment lines are deferred, the attachment warning gives a `pagesFrom` value beyond the body parts to continue through complete lines. Increase `maxBytes` if a single line cannot fit. For MBOX, the attachment warning identifies the message to retry with more space.
+
+#### HTML formatting limits
+
+Wide sibling groups use more of the shared formatting budget. Long lists and sequences of line breaks in containers may switch to plain text earlier, with a warning. Standalone HTML uses a plain-text fallback limited to 384 Ki characters, so a long document can lose its tail after a truncation warning.
+
+Groups below the wide-sibling threshold can still be slow when they follow a long text run or occur at multiple nesting levels. The existing Turndown join cost and retaining the tail of standalone fallback output are tracked in [#279](https://github.com/Edo771977/Atomic-Agent/issues/279).
 
 ### Outlook document reads
 
