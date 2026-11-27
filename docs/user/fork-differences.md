@@ -20,6 +20,8 @@ After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/ato
 
 W1.1 selectively imports upstream #1776 and #1788: a static own-computer persona line and an offline RAM bench fixture. The fork uses a fictional 16 GiB computer described only by computer.json in the temporary workspace; the checker reads captured replies and constants, not host hardware or outside files. The model matrix and profiles remain those of main. No dependencies or install hooks change. Four-mode pre-port byte comparisons and independent-session checks guard the stable prefix. [Verification](../reviews/w11-verification.json).
 
+W1.2 imports only the model-routing regression tests from upstream #1864/#1908 and removes their four resolved type-debt entries (five diagnostics), confirmed by typecheck:tests:reduce on the fork. The escalation test maps upstream turnModel to the existing fork model/pinModel fields. Fork fixture levels, team member selection, receipt attribution and production code are preserved; no C1/B7b prerequisite is imported. Both new tests pass on main and fail under temporary assertion inversions. [Verification](../reviews/w12-verification.json).
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:
