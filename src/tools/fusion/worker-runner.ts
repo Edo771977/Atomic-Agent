@@ -1,47 +1,34 @@
-import { DEFAULT_WORKER_TURN_ORIGIN, type WorkerRunnerCoreDeps, type WorkerRunnerCoreOptions, type FusionWorkerRunnerDepsExtras, type FusionWorkerRunnerOptionsExtras, type WorkerWatchPlan } from "./worker-runner-core.js";
+import { DEFAULT_WORKER_TURN_ORIGIN, type WorkerRunnerCoreDeps, type WorkerRunnerCoreOptions, type FusionWorkerRunnerDepsExtras, type FusionWorkerRunnerOptionsExtras } from "./worker-runner-core.js";
 export { DEFAULT_WORKER_TURN_ORIGIN, type WorkerRunnerCoreDeps, type WorkerRunnerCoreOptions, type WorkerWatchPlan } from "./worker-runner-core.js";
 import { recordRestrictedProjectLessonExposure } from "../../session/project-lesson-exposure.js";
 import { lessonSourceIsRestricted } from "../../prompt/project-lessons-data.js";
-import type { ProjectLessonSource } from "../../session/project-lessons.js";
+
 import { workerProjectLessonBlock } from "./worker-project-lessons.js";
 import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-contract.js";
-import type { ReasoningEffort } from "../../llm/provider/completion-types.js";
-import type { ApprovalGate } from "../../approval/approval-gate.js";
-import type { SessionState } from "../../session/session-state.js";
-import {
-  FUSION_WORKER_DEFAULT_DEPTH,
-  type FusionWorkerMeta,
-} from "../../session/fusion-worker-session.js";
-import type { TurnOrigin } from "../../runtime/turn-controller.js";
+
+
+
+import { FUSION_WORKER_DEFAULT_DEPTH } from "../../session/fusion-worker-session.js";
+
 import type { DelegateTask } from "./delegate-args.js";
 import type { TaskPermit } from "./task-permits.js";
-import type { DelegateContract } from "./contract.js";
+
 import {
   readWorkerQuestion,
   WORKER_NEEDS_INPUT_NOTE,
 } from "./worker-question.js";
-import type { CompletionUsage } from "../../llm/provider/completion-types.js";
-import type { FusionEscalationTarget } from "../../llm/run-mode/index.js";
+
+
 import { completionCostUsd, estimateUsageCostUsd } from "../../llm/provider/usage-cost.js";
-import {
-  describeTrigger,
-  formatAdvisorSteer,
-  formatCost,
-  formatPersonSteer,
-  renderAdvisorPrompt,
-  requestAdvice,
-  type EscalationComplete,
-  type EscalationTrigger,
-  type FusionLiveWorkers,
-} from "./escalation.js";
-import type { WorkerPricing } from "./worker-result.js";
+import { describeTrigger, formatAdvisorSteer, formatCost, formatPersonSteer, renderAdvisorPrompt, requestAdvice, type EscalationTrigger } from "./escalation.js";
+
 import { resolveContractInputs } from "./contract-inputs.js";
 import {
   applyDeclaredFileReport,
   applyNoChangesRule,
   inspectDeclaredFiles,
 } from "./declared-files.js";
-import type { DeclaredInputsRegistry } from "../os/fs/fs-declared-inputs.js";
+
 import { FusionWorkerStopError } from "./fusion-stop-errors.js";
 import {
   renderWorkerBrief,
@@ -58,9 +45,9 @@ import {
   type SlotOccupancy,
   type WorkerTaskResult,
 } from "./worker-result.js";
-import type { StructuredLogger } from "../../tracing/index.js";
+
 import { getConfig } from "../../config/index.js";
-import type { FusionWorkerReasoning } from "../../config/llm-run-mode-config.js";
+
 import { localWorkerReasoningBudgetTokens } from "../../llm/reasoning-budget.js";
 import {
   FUSION_WORKER_APPROVAL_REFUSED,
@@ -68,31 +55,13 @@ import {
   workerToolFilterFor,
   workerRefusalFor,
 } from "./worker-tool-policy.js";
-import type { ToolRole } from "../tool-roles.js";
+
 import { fingerprintToolOutcome } from "../../agent/progress/loop-fingerprints.js";
-import {
-  LOCAL_LEG_UNRESPONSIVE_ERROR,
-  LOCAL_LEG_UNRESPONSIVE_HINT,
-  type LocalHealthAnswer,
-  type LocalLegHealth,
-} from "./local-leg-health.js";
+import { LOCAL_LEG_UNRESPONSIVE_ERROR, LOCAL_LEG_UNRESPONSIVE_HINT } from "./local-leg-health.js";
 import { hasSplitProposal, splitSteer } from "./task-tree.js";
-import {
-  WatchProbeTracker,
-  formatWatchSteer,
-  mergeWatchRecords,
-  renderWatchJudgePrompt,
-  startTaskWatch,
-  type TaskWatch,
-  type WatchClock,
-  type WatchJudgeCall,
-  type WatchProgress,
-} from "./worker-watch.js";
-import type { CheckRunRecorder, ContractCheckRunner } from "./contract-checks.js";
-import {
-  knownSecretsFromEnv,
-  type KnownSecret,
-} from "../../error-reporting/secret-detector.js";
+import { WatchProbeTracker, formatWatchSteer, mergeWatchRecords, renderWatchJudgePrompt, startTaskWatch, type TaskWatch, type WatchProgress } from "./worker-watch.js";
+import type { ContractCheckRunner } from "./contract-checks.js";
+import { knownSecretsFromEnv } from "../../error-reporting/secret-detector.js";
 import {
   SELF_CHECK_GRACE_STEPS,
   SELF_CHECK_MAX_MS,

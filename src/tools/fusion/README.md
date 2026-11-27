@@ -242,3 +242,5 @@ An ancestor outside the selected project may be a junction or NTFS short name. A
 `worker-workspace.ts` prepares local workers with skills from the current session folder after a folder switch, through the existing project trust gate; project instruction loading remains cloud-only.
 
 C1a stamps ordinary Fusion workers and escalation replacements at depth 1. Their original-input and provider-policy guards remain unchanged.
+
+The fork's shared core also carries original-project approval rules, request-budget ownership, workspace trust, declared-input and taint hooks. The core keeps model (the fork per-turn field) and unbounded worker reasoning; the extraction does not replace them with upstream turnModel or remove verification/candidate extensions.

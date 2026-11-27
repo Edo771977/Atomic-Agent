@@ -65,7 +65,7 @@ export interface ExperienceReviewerDeps {
 /** Scheduled turns and Fusion workers skip review; eligible turns only draft. */
 export type ReviewMode = "draft" | "skip";
 
-const SKIPPED_ORIGINS: ReadonlySet<TurnOrigin> = new Set(["scheduler", "fusion"]);
+const SKIPPED_ORIGINS: ReadonlySet<TurnOrigin> = new Set(["scheduler", "fusion", "subagent"]);
 
 /** The review mode for a turn from `origin`; `undefined` is an in-process caller. */
 export function reviewModeForOrigin(origin: TurnOrigin | undefined, _answerChannel?: AnswerChannel): ReviewMode {

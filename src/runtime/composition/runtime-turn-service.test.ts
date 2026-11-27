@@ -349,7 +349,7 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
   });
 
-  it("a per-turn model on a server on this machine is allowed for fusion and subagent turns only (ATO-1669)", async () => {
+  it("a known local server model requires a worker stamp, including for subagent origin (ATO-1669)", async () => {
     const local = resolveLlmConfig(fixture.config).providers[0]!;
     fixture.config.llm = {
       activeTextProvider: "local-llama",
@@ -357,7 +357,7 @@ describe("runtime turn ownership recipes", () => {
       toolTransport: "auto",
       providers: [
         local,
-        { id: "lmstudio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", apiKey: "k", defaultChatModel: "default-model" },
+        { id: "lmstudio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", apiKey: "k", defaultChatModel: "default-model", userModels: [{ id: "role-model" }] },
       ],
     } as never;
     const registry = fixture.providers.providerRegistry;
@@ -367,8 +367,11 @@ describe("runtime turn ownership recipes", () => {
       .rejects.toThrow(/local model, which is shared by all projects/);
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
 
-    await fixture.service.runTurn(session("fusion"), "request", { origin: "fusion", providerId: "lmstudio", model: "role-model" });
-    await fixture.service.runTurn(session("subagent"), "request", { origin: "subagent", providerId: "lmstudio", model: "role-model" });
+    await expect(fixture.service.runTurn(session("spoofed-worker"), "request", { origin: "subagent", providerId: "lmstudio", model: "role-model" })).rejects.toThrow(/local model/);
+    for (const origin of ["fusion", "subagent"] as const) {
+      const worker = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "parent", taskId: origin } });
+      await fixture.service.runTurn(worker, "request", { origin, providerId: "lmstudio", model: "role-model" });
+    }
     expect(fixture.loop.runTurn).toHaveBeenCalledTimes(2);
     expect(fixture.loop.runTurn.mock.calls[1]?.[1]).toMatchObject({ providerId: "lmstudio", model: "role-model" });
   });

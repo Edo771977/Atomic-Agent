@@ -315,3 +315,7 @@ describe("createExperienceReviewer", () => {
     expect(existsSync(join(skillCuratorPaths(root).historyDir, "pdf"))).toBe(false);
   });
 });
+
+it("C1b: a subagent never forms an experience review", () => {
+  expect(reviewModeForOrigin("subagent")).toBe("skip");
+});

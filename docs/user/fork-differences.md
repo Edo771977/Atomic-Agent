@@ -337,3 +337,5 @@ La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy o
 ## C1 worker sessions
 
 C1a imports upstream #1722 (`69dc95c37`) with `cherry-pick -x`. Depth is added without dropping the fork's original operator request or provider/egress/host policy stamp. Only depth becomes required on a read stamp. [Review](../reviews/c1a-worker-depth.md).
+
+C1b imports #1728 (`d08f26746`, `87de14b16`, `34fa9b554`) with cherry-pick -x. The shared runner retains request-budget ownership, original project rules, trust directory, declared-input, taint and verification hooks. Subagent origins skip usage analytics, suggestions and experience formation. Local model overrides still require a real worker stamp and a known configured model.
