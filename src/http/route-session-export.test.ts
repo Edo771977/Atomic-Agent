@@ -73,6 +73,29 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).not.toMatch(/\n- /);
   });
 
+  it("budgets only the requested transcript with tools=0, excluding tool payloads and duplicated context", async () => {
+    const state = seed("ex-projection");
+    const ignored = "ignored context ".repeat(80_000);
+    state.turns = [
+      { kind: "user", text: "short question", at: 1 },
+      ...Array.from({ length: 3_000 }, () => ({ kind: "assistant_tool_call" as const, tool: "os.fs.write", args: { path: "notes.md" }, at: 2 })),
+      { kind: "tool_result", tool: "os.fs.write", status: "ok", summary: ignored, at: 3 },
+      { kind: "assistant_reply", text: "short answer", at: 4 },
+    ];
+    state.cloudContext = { version: 1, turnsThrough: 0, boundaryHash: null, entries: [{ id: "copy", through: 0, turn: { kind: "user", text: ignored } }] };
+    state.loadedSkills = [{ name: "fixture", version: "1", body: ignored, loadedAt: 1 }];
+    harness.runtime.sessionStore.save(state);
+    const response = await get(state.id, "?tools=0");
+    expect(response.status).toBe(200);
+    const body = await response.json() as ExportBody;
+    expect(body.content).toContain("short answer");
+    expect(body.content).not.toContain("ignored context");
+    expect((await get(state.id, "?tools=1")).status).toBe(413);
+    state.turns = [{ kind: "user", text: "x".repeat(1_000_001), at: 1 }];
+    harness.runtime.sessionStore.save(state);
+    expect((await get(state.id, "?tools=0")).status).toBe(413);
+  });
+
   it("answers HTML, a base64 DOCX and a base64 PDF", async () => {
     seed("ex-3");
     const html = (await (await get("ex-3", "?format=html")).json()) as ExportBody;
