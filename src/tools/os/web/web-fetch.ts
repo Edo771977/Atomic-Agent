@@ -520,7 +520,8 @@ export interface FetchRawPageOptions {
    * `.xml.gz` sitemaps). curl writes it to a private temp file and does not
    * decode `Content-Encoding` itself (it only asks for gzip), so the caller
    * unpacks it with its own size cap and a gzip bomb never reaches the disk
-   * at full size. The download is capped at the same 2 MB as text.
+   * at full size. The in-memory read is capped at the same 2 MB as text;
+   * a separate 50 MiB wire/disk guard bounds the download.
    */
   binaryBody?: boolean;
 }

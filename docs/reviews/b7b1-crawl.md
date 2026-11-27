@@ -40,4 +40,20 @@ Before reopening, require the fork browser's pre-request SSRF/egress policy on e
 
 ## Verification
 
-The verification record and failure-name comparisons are attached after the required checks finish.
+`npm ci`, `npm run lint`, `npm run imports:check`, `npm run typecheck:tests` and `npm run docs:check` pass. On the final behavior, the complete web selection passes **517 tests**, and the separate renderer absence script passes **2 controls**. No timeout, skip or quarantine was added.
+
+The required broad command was executed in full:
+
+```text
+npx vitest run src/agent src/policy src/tools src/mcp src/llm src/local-llm src/tui src/http src/runtime
+```
+
+It is **not green**: **24,110 passed, 1,018 failed, 575 skipped**, plus one suite-load error. It overlapped the final corrections: three boundary assertions are the observed red cases for the later no-frame project and unique-DNS-set fixes. All three pass in the final complete web run. The load error names `crawl-js-page.test.ts`, selected before the deliberately deferred JS module/test was removed; it is absent from the final web selection. Neither event is hidden or counted as a green broad run.
+
+The clean pinned-main complete run is **33,928 passed, 1,060 failed, 667 skipped**. The [file/name comparison](b7b1-focused-comparison.json) lists all 950 common failures, 68 additional failures and main-only differences for the selected files. Only checkout roots and slash direction are normalized. Windows restrictions and timing affect subprocess/Git, symlink and local-network fixtures; this does not automatically explain every failure.
+
+The [paired named controls](b7b1-focused-controls.json) rerun every additional assertion with one worker on both main and the candidate; new assertions are explicitly absent on main. The [verification record](b7b1-verification.json) summarizes those outcomes and retains raw report hashes. An isolated retry passing does not change the recorded broad-run failure. The complete `npm test` comparison for the series is also recorded in B7b3. The source base remains `7511497b0`; later main `5da6478ff` has only unrelated documentation/absence-test changes and the virtual merge was clean.
+
+Names still failing only on the candidate in that first paired control receive one [further sequential paired diagnostic](b7b1-diagnostic-controls.json), with complete default-reporter logs for [main](b7b1-diagnostic-main.log) and [the candidate](b7b1-diagnostic-b7b1.log). Original results remain above; the verification summary uses the latest result for each name.
+
+Final named follow-up: **67 of the 68 additional assertions pass on the candidate; one fails on both main and the candidate**. All four discordant names in the first paired control pass on both checkouts in the diagnostic. No candidate-only failure remains in this isolated comparison; the original broad run remains failed.
