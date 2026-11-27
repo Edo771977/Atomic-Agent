@@ -11,7 +11,11 @@ const ORGANIZATION_NODE_VALUES = [...PERSONAL_NODE_VALUES, "-C", "--max-semi-spa
 const PERSONAL_NODE_OPERATIONAL = /^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--experimental-vm-modules|--preserve-symlinks(?:-main)?|--test-only|--(?:experimental-)?permission|--(?:no-)?experimental-require-module|--no-addons|--inspect(?:-brk)?(?:=.*)?)$/;
 // Arity knowledge, not an allowlist: other long flags remain readable without
 // stdin, but their following word cannot prove a file when stdin is supplied.
-const NODE_BOOLEAN_OPTIONS = new Set(["--cpu-prof", "--heap-prof", "--experimental-test-coverage", "--throw-deprecation", "--trace-exit", "--trace-sigint", "--experimental-detect-module", "--harmony", "--frozen-intrinsics", "--no-experimental-fetch", "--zero-fill-buffers", "--watch-preserve-output", "--openssl-legacy-provider", "--experimental-sqlite"]);
+const NODE_BOOLEAN_OPTIONS = new Set(["--cpu-prof", "--heap-prof", "--experimental-test-coverage", "--throw-deprecation", "--trace-exit", "--trace-sigint", "--experimental-detect-module", "--harmony", "--frozen-intrinsics", "--no-experimental-fetch", "--zero-fill-buffers", "--watch-preserve-output", "--openssl-legacy-provider", "--experimental-sqlite", "--trace-gc", "--use-system-ca", "--jitless", "--prof", "--experimental-transform-types", "--test-force-exit"]);
+function nodeBooleanOption(option: string): boolean {
+  const known = (name: string) => PERSONAL_NODE_OPERATIONAL.test(name) || NODE_BOOLEAN_OPTIONS.has(name);
+  return known(option) || option.startsWith("--no-") && known(`--${option.slice(5)}`);
+}
 
 /** Linear selector scan; does not interpret replacement text or compile a regex. */
 function sedExternalCommand(script: string): boolean {
@@ -178,7 +182,7 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd(),
       if (analysis === "organization" && option === "--run") return { kind: "none" };
       nodeInteractive ||= arg === "-i" || option === "--interactive";
       if (/^(?:-v|--version|--help)$/.test(option) && !arg.includes("=")) return { kind: "none" };
-      if (analysis === "organization" && hasStdin && option.startsWith("--") && !arg.includes("=") && value !== undefined && !value.startsWith("-") && !PERSONAL_NODE_OPERATIONAL.test(option) && !NODE_BOOLEAN_OPTIONS.has(option)) return { kind: "unknown" };
+      if (analysis === "organization" && hasStdin && option.startsWith("--") && !arg.includes("=") && value !== undefined && !value.startsWith("-") && !nodeBooleanOption(option)) return { kind: "unknown" };
       // Operational long flags are open-ended. Code-bearing selectors above
       // remain restrictive; unknown short forms still have uncertain boundaries.
       if (analysis === "personal" ? !PERSONAL_NODE_OPERATIONAL.test(arg) : !arg.startsWith("--") && !/^(?:-c|-i)$/.test(arg)) return { kind: "unknown" };

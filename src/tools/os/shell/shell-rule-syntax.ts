@@ -4,14 +4,33 @@ import { liftSubstitutions } from "../shell-command-guard/command-substitution.j
 /** Internal analysis marker, never an argv to execute (NUL cannot be a shell word). */
 export const UNKNOWN_SHELL_WORD = "\0";
 
+/** References retain trailing group redirections without rescanning its commands. */
+export interface ShellInput { parent?: ShellInput; redirected?: true }
+export function receivesShellInput(input: ShellInput | undefined): boolean {
+  for (let depth = 0; input !== undefined; depth++, input = input.parent) {
+    if (input.redirected || depth >= 256) return true;
+  }
+  return false;
+}
+
 /** Bounded static syntax facts, never an interpreter and never alias/profile loading. */
-export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; unreadable: boolean } {
-  if (line.length > 128 * 1024 || depth >= 8) return { segments: [], unreadable: true };
+export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; inputs: ShellInput[]; unreadable: boolean } {
+  if (line.length > 128 * 1024 || depth >= 8) return { segments: [], inputs: [], unreadable: true };
   const lifted = dialect === "posix" ? liftSubstitutions(line, true) : { outer: line, inner: [] };
-  const tokens = lifted === null ? null : lexShellLine(lifted.outer, dialect);
-  if (tokens === null || tokens.length > 16_384) return { segments: [line.slice(0, 4096).split(/\s+/).slice(0, 256)], unreadable: true };
+  const tokens = lifted === null ? null : lexShellLine(lifted.outer, dialect, undefined, true, false, true);
+  if (tokens === null || tokens.length > 16_384) return { segments: [line.slice(0, 4096).split(/\s+/).slice(0, 256)], inputs: [{ redirected: true }], unreadable: true };
   let unreadable = tokens.some((token, index) => token.kind === "open" && tokens[index - 1]?.kind === "word" && tokens[index + 1]?.kind === "close" && tokens[index + 2]?.kind === "word" && (tokens[index + 2] as { text?: string }).text === "{");
   const segments: string[][] = [];
+  const inputs: ShellInput[] = [];
+  type Frame = { kind: string; base: ShellInput; current: ShellInput };
+  const root: ShellInput = {};
+  const frames: Frame[] = [{ kind: "root", base: root, current: { parent: root } }];
+  const frame = () => frames[frames.length - 1]!;
+  const open = (kind: string) => {
+    const base = frame().current;
+    frames.push({ kind, base, current: { parent: base } });
+  };
+  const close = (kind: string) => { if (frames.length > 1 && frame().kind === kind) frames.pop(); };
   let words: string[] = [], redirected = false;
   const flush = () => {
     let command = words; words = [];
@@ -27,22 +46,41 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     // Keep canonical Verb-Noun commands and qualified executables readable;
     // do not guess an alias's target from the operator's machine.
     if (dialect === "powershell" && !/[\\/]/.test(command[0] ?? "") && !/^[A-Za-z]+-[A-Za-z]+$/.test(command[0] ?? "")) unreadable = true;
-    if (command.length > 0) segments.push(command);
+    if (command.length > 0) { segments.push(command); inputs.push(frame().current); }
   };
   for (const token of tokens) {
-    if (token.kind === "redirect") { redirected = true; continue; }
-    if (token.kind !== "word") { redirected = false; flush(); continue; }
+    if (token.kind === "redirect") {
+      if (token.inputFd === 0) frame().current.redirected = true;
+      redirected = true; continue;
+    }
+    if (token.kind !== "word") {
+      redirected = false; flush();
+      if (token.kind === "open") open("paren");
+      else if (token.kind === "close") close("paren");
+      else frame().current = { parent: frame().base, ...(token.pipe ? { redirected: true } : {}) };
+      continue;
+    }
     if (redirected) { redirected = false; continue; }
     if (dialect !== "cmd" && (token.text === "{" || token.text === "}")) {
       if (token.text === "{" && words.length > 0) unreadable = true;
-      flush(); continue;
+      flush();
+      if (token.text === "{") open("brace"); else close("brace");
+      continue;
+    }
+    if (dialect === "posix" && words.length === 0) {
+      if (["for", "select", "while", "until"].includes(token.text)) open("loop");
+      else if (token.text === "if") open("if");
+      else if (token.text === "case") open("case");
+      else if (token.text === "done") close("loop");
+      else if (token.text === "fi") close("if");
+      else if (token.text === "esac") close("case");
     }
     words.push(token.dynamic && !(dialect === "posix" && token.text === "[") ? (/^[A-Za-z_][A-Za-z0-9_]*=/.exec(token.text)?.[0] ?? "") + UNKNOWN_SHELL_WORD : token.text);
   }
   flush();
   for (const inner of lifted?.inner ?? []) {
     const nested = shellSyntax(inner, dialect, depth + 1);
-    segments.push(...nested.segments); unreadable ||= nested.unreadable;
+    segments.push(...nested.segments); inputs.push(...nested.inputs); unreadable ||= nested.unreadable;
   }
-  return { segments, unreadable };
+  return { segments, inputs, unreadable };
 }

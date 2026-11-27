@@ -26,13 +26,15 @@ export interface ShellWord {
  * names a descriptor when that word is digits or `-` (`2>&1`) and a
  * file otherwise (`>&out.log`); `none` reads it (`<`). Literal script
  * input may also be retained by callers that need to inspect it.
+ * Opt-in `inputFd` preserves which descriptor an input operator targets;
+ * consumers that omit input-flow metadata retain their established tokens.
  */
 export type ShellToken =
   | ({ kind: "word" } & ShellWord)
   | { kind: "separator"; pipe?: true }
   | { kind: "open" }
   | { kind: "close" }
-  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string" };
+  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string"; inputFd?: number };
 
 type Operator =
   | Exclude<ShellToken, { kind: "word" }>
@@ -114,6 +116,7 @@ export function lexShellLine(
   home = homedir(),
   keepHeredocs = false,
   recoverPrefix = false,
+  keepInputFlow = false,
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
   const incomplete = (): ShellToken[] | null => {
@@ -134,13 +137,13 @@ export function lexShellLine(
   let quoted = false;
   let dynamic = false;
   /** Set right after `<<`: the next word is a heredoc delimiter. */
-  let pendingHeredoc: { stripTabs: boolean } | null = null;
+  let pendingHeredoc: { stripTabs: boolean; inputFd?: number } | null = null;
 
   const endWord = (): void => {
     if (!inWord) return;
     if (pendingHeredoc !== null) {
       const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false, expandHeredoc: !quoted } : undefined;
-      if (body) tokens.push({ kind: "redirect", writes: "here-string" }, body);
+      if (body) tokens.push({ kind: "redirect", writes: "here-string", ...(keepInputFlow ? { inputFd: pendingHeredoc.inputFd } : {}) }, body);
       heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
@@ -293,18 +296,21 @@ export function lexShellLine(
         continue;
       }
       const redirect = operator.kind === "redirect" || operator.kind === "heredoc";
+      let fd = text.startsWith("<") ? 0 : 1;
       // `2>err.txt`: a word of bare digits right before a redirect is
       // the descriptor it applies to, not a word of the command.
       if (redirect && inWord && !quoted && !dynamic && /^\d+$/.test(word)) {
+        fd = Number(word);
         word = "";
         inWord = false;
       }
       endWord();
       if (pendingHeredoc !== null) return incomplete();
       if (operator.kind === "heredoc") {
-        pendingHeredoc = { stripTabs: operator.stripTabs };
+        pendingHeredoc = { stripTabs: operator.stripTabs, ...(keepInputFlow ? { inputFd: fd } : {}) };
       } else {
-        tokens.push(operator);
+        tokens.push(keepInputFlow && operator.kind === "redirect" && text.startsWith("<") ? { ...operator, inputFd: fd }
+          : keepInputFlow && text === "|" ? { kind: "separator", pipe: true } : operator);
       }
       i += text.length;
       continue;
