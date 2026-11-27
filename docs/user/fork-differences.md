@@ -76,6 +76,10 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 
 The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [Evidence and reopening tests](../reviews/b5a-imap.md).
 
+## Regeneration history
+
+C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answer bytes, accepts malformed archive fields, persists extra history in incognito and restores without acquiring turn ownership. Existing rollback behavior remains available. [Evidence and reopening tests](../reviews/c2a-previous-replies.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).

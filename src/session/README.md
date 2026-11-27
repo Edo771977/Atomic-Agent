@@ -139,3 +139,5 @@ The session records restricted lesson exposure on the first transcript entry of 
 Export file writes share [the destination guard](chat-export-file.ts): state, trust inventories, policy and skill paths are refused in lexical and resolved forms. File links are refused. Ordinary writes use exclusive creation; `--force` replaces via an adjacent owner-only temporary file and rename. Export to a working folder outside agent state.
 
 Known export secrets are also matched through a conservative Unicode/Markdown presentation projection: compatibility forms, invisible/control characters, escapes and emphasis/code delimiters cannot reassemble a key. Original source ranges are replaced; unrelated formatting stays intact. All renderers receive the same known values. PDF masks joined, encoded paragraph and code text before wrapping, including the encoded equivalents of known values.
+
+C2a keeps upstream #1570 deferred: previous-replies and restore-previous-reply routes are unavailable until archive bounds, strict normalization, incognito storage and shared turn ownership are established. [Candidate evidence and reopening tests](../../docs/reviews/c2a-previous-replies.md).
