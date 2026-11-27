@@ -1,0 +1,416 @@
+✖ chatgpt: reject archive parent traversal (18.8398ms)
+✖ chatgpt: reject archive absolute entry (4.79ms)
+✖ chatgpt: reject archive symlink entry (2.5441ms)
+✖ chatgpt: reject an entry above the fork 10 MiB decompressed cap (266.2012ms)
+✖ chatgpt: reject more than the fork 10000 archive entries (565.0933ms)
+✖ chatgpt: reject deeply nested JSON before projection (2.3796ms)
+﹣ chatgpt: a folder does not follow conversations.json outside its root (1.7125ms) # Windows does not grant file symlink creation
+✖ claude: reject archive parent traversal (4.2995ms)
+✖ claude: reject archive absolute entry (3.7481ms)
+✖ claude: reject archive symlink entry (2.6636ms)
+✖ claude: reject an entry above the fork 10 MiB decompressed cap (343.5669ms)
+✖ claude: reject more than the fork 10000 archive entries (558.6089ms)
+✖ claude: reject deeply nested JSON before projection (2.7284ms)
+﹣ claude: a folder does not follow conversations.json outside its root (1.2846ms) # Windows does not grant file symlink creation
+✖ archive total decompressed size is capped at the fork 100 MiB (2218.1256ms)
+✖ JSON byte bound also applies to unpacked folders (23.866ms)
+✖ reader honors the fork protected-input inventory (13.9117ms)
+✖ all seven facts routes have the scopes specified by dc5a4b980 (0.9483ms)
+✖ memory disabled refuses service saves with the actual disabled fork config (433.4748ms)
+✖ scope follows the job into a later person save request (62.6472ms)
+✔ control: unapproved candidates stay out of state files and undo preserves unrelated data (62.3887ms)
+✖ stop settles an in-flight completion even if its transport ignores abort (108.7928ms)
+✔ control: 6edc49563 excludes LAN and remote llama.cpp without consent (0.6043ms)
+✔ control: a guarded provider refuses missing policy and never falls back to cloud (0.8785ms)
+✖ Privacy Shield archive is fresh for every facts run (0.9871ms)
+✔ control: offline guard refuses a remote target and permits loopback (0.2212ms)
+✖ a named token cannot read a different token job (365.1328ms)
+✖ a subprocess with an inherited owner key cannot approve and save (734.1493ms)
+ℹ tests 28
+ℹ suites 0
+ℹ pass 4
+ℹ fail 22
+ℹ cancelled 0
+ℹ skipped 2
+ℹ todo 0
+ℹ duration_ms 8797.4778
+
+✖ failing tests:
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ chatgpt: reject archive parent traversal (18.8398ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ chatgpt: reject archive absolute entry (4.79ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ chatgpt: reject archive symlink entry (2.5441ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:51:3
+✖ chatgpt: reject an entry above the fork 10 MiB decompressed cap (266.2012ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:53:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:55:3
+✖ chatgpt: reject more than the fork 10000 archive entries (565.0933ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:58:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:60:3
+✖ chatgpt: reject deeply nested JSON before projection (2.3796ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:63:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ claude: reject archive parent traversal (4.2995ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ claude: reject archive absolute entry (3.7481ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:47:6
+✖ claude: reject archive symlink entry (2.6636ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:49:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:51:3
+✖ claude: reject an entry above the fork 10 MiB decompressed cap (343.5669ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:53:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:55:3
+✖ claude: reject more than the fork 10000 archive entries (558.6089ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:58:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:60:3
+✖ claude: reject deeply nested JSON before projection (2.7284ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:63:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:73:1
+✖ archive total decompressed size is capped at the fork 100 MiB (2218.1256ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:77:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:79:1
+✖ JSON byte bound also applies to unpacked folders (23.866ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:81:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:83:1
+✖ reader honors the fork protected-input inventory (13.9117ms)
+  AssertionError [ERR_ASSERTION]: Missing expected rejection.
+      at async TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:88:3)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: undefined,
+    operator: 'rejects',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:99:1
+✖ all seven facts routes have the scopes specified by dc5a4b980 (0.9483ms)
+  AssertionError [ERR_ASSERTION]: POST /api/import/facts/start
+  + actual - expected
+
+  + undefined
+  - 'admin'
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:100:58)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: undefined,
+    expected: 'admin',
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:122:1
+✖ memory disabled refuses service saves with the actual disabled fork config (433.4748ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  1 !== 0
+
+      at <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:124:10)
+      at async fixture (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:113:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:126:1
+✖ scope follows the job into a later person save request (62.6472ms)
+  AssertionError [ERR_ASSERTION]: scoped import became globally visible
+  + actual - expected
+
+  + {
+  +   id: 1,
+  +   key: 'job',
+  +   keywords: [],
+  +   nameGrounding: null,
+  +   pinned: true,
+  +   supersededBy: null,
+  +   supersedes: null,
+  +   updatedAt: 1795790494833,
+  +   validFrom: 1795790494833,
+  +   value: 'designer',
+  +   voteScore: 0
+  + }
+  - null
+
+      at <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:130:10)
+      at async fixture (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:113:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: { id: 1, key: 'job', value: 'designer', validFrom: 1795790494833, updatedAt: 1795790494833, pinned: true, keywords: [], supersedes: null, supersededBy: null, voteScore: 0, nameGrounding: null },
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:141:1
+✖ stop settles an in-flight completion even if its transport ignores abort (108.7928ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  false !== true
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:146:16)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:161:1
+✖ Privacy Shield archive is fresh for every facts run (0.9871ms)
+  AssertionError [ERR_ASSERTION]: Expected "actual" not to be reference-equal to "expected":
+
+  PrivacyVault {
+    access: {
+      canRestore: [Function: canRestore],
+      record: [Function: record]
+    },
+    counters: {
+      CARD: 0,
+      EMAIL: 0,
+      IBAN: 0,
+      PHONE: 0,
+      SECRET: 0
+    },
+    known: [Function (anonymous)],
+    lastRequest: 0,
+    maskedRequests: 0
+  }
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:168:12)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [PrivacyVault],
+    expected: [PrivacyVault],
+    operator: 'notStrictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:193:1
+✖ a named token cannot read a different token job (365.1328ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  200 !== 404
+
+      at <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:195:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:184:11)
+      at async fixture (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:113:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 404,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c3b-candidate.mjs:197:1
+✖ a subprocess with an inherited owner key cannot approve and save (734.1493ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+    {
+  +   facts: 1,
+  +   status: 200
+  -   facts: 0,
+  -   status: 403
+    }
+
+      at <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:201:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async <anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:184:11)
+      at async fixture (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c3a-20261127\docs\reviews\c3b-candidate.mjs:113:9)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { status: 200, facts: 1 },
+    expected: { status: 403, facts: 0 },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }

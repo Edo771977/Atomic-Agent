@@ -1,0 +1,92 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "slice": "c3b",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "checks": [
+    {
+      "check": "ci",
+      "exit": 0,
+      "started": "2026-11-27T15:32:40.6029691+01:00",
+      "log": "c3b-ci.log"
+    },
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T15:33:10.6119798+01:00",
+      "log": "c3b-lint.log"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T15:33:29.6265475+01:00",
+      "log": "c3b-imports-check.log"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T15:33:34.8245005+01:00",
+      "log": "c3b-typecheck-tests.log"
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T15:34:20.5830689+01:00",
+      "log": "c3b-docs-check.log",
+      "initialExit": 1,
+      "finalLog": "c3b-docs-final.log",
+      "note": "Added the linked candidate-suite summary before final docs verification."
+    },
+    {
+      "check": "focused",
+      "exit": 1,
+      "started": "2026-11-27T15:34:22.3390487+01:00",
+      "log": "c3b-focused.log"
+    }
+  ],
+  "focused": {
+    "passed": 12388,
+    "failed": 1,
+    "pending": 12,
+    "newTests": [
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/start or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register GET /api/import/facts/jobs/{id} or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/stop or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/save or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register DELETE /api/import/facts/jobs/{id} or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register GET /api/import/facts/receipts or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/receipts/{id}/undo or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred exposes no reader, job service or receipt persistence behind another caller",
+        "status": "passed"
+      }
+    ]
+  },
+  "candidate": {
+    "tests": 28,
+    "passed": 4,
+    "failed": 22,
+    "skipped": 2,
+    "absenceFailed": 8
+  }
+}

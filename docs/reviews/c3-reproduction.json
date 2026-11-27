@@ -1,0 +1,54 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "originalTree": "68925457730e315d2df9d0e50195307fa82cdc92",
+  "reproducedTree": "68925457730e315d2df9d0e50195307fa82cdc92",
+  "upstream": [
+    "d093ba6a44b31206fef888121060fa80472d2b1b",
+    "374fc05f5754eb4ecd8725b4dd6ac1ebecf98a03",
+    "6edc49563e5350944f68a75a8bbe92f550b97b20",
+    "a45ab2986569947a38f9733e2e1f7be0ad4e36de",
+    "e0d2d6dfc6743cf26bea823429298b21e92bc89f",
+    "89aecbec047767d2a15e92ee11812045a7510ef1"
+  ],
+  "npmCiExit": 0,
+  "audit": {
+    "passed": 3,
+    "failed": 3
+  },
+  "copiedAbsenceTests": {
+    "passed": 0,
+    "failed": 14,
+    "pending": 0,
+    "files": [
+      {
+        "file": "src/import/facts-extraction-deferred.test.ts",
+        "failed": [
+          "C3a facts extraction remains deferred exposes no export parser or collector before archive and read-scope review",
+          "C3a facts extraction remains deferred exposes no save or undo API callable with agent-supplied approval IDs",
+          "C3a facts extraction remains deferred exposes no extraction engine before runtime-secret, framing and output-bound checks"
+        ]
+      },
+      {
+        "file": "src/http/import-facts-deferred.test.ts",
+        "failed": [
+          "C3b facts jobs remain deferred does not register POST /api/import/facts/start or grant a scope",
+          "C3b facts jobs remain deferred does not register GET /api/import/facts/jobs/{id} or grant a scope",
+          "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/stop or grant a scope",
+          "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/save or grant a scope",
+          "C3b facts jobs remain deferred does not register DELETE /api/import/facts/jobs/{id} or grant a scope",
+          "C3b facts jobs remain deferred does not register GET /api/import/facts/receipts or grant a scope",
+          "C3b facts jobs remain deferred does not register POST /api/import/facts/receipts/{id}/undo or grant a scope",
+          "C3b facts jobs remain deferred exposes no reader, job service or receipt persistence behind another caller"
+        ]
+      },
+      {
+        "file": "src/tui/import/facts-review-deferred.test.ts",
+        "failed": [
+          "C3c terminal facts review remains deferred has no facts runner that can reach the deferred save service",
+          "C3c terminal facts review remains deferred has no facts view, approval reducer or keys before unchecked review is established",
+          "C3c terminal facts review remains deferred does not attach a facts review to the established import form"
+        ]
+      }
+    ]
+  }
+}
