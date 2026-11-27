@@ -138,7 +138,7 @@ function renderMessage(
 
   const attachments: string[] = [];
   const nested: string[] = [];
-  const intro = [headerLines.join("\n"), readBody(ctx)].filter(Boolean).join("\n\n");
+  const intro = [headerLines.join("\n"), readBody(ctx, depth === 0)].filter(Boolean).join("\n\n");
   const first = output.append(prefix + intro);
   readAttachments(ctx, depth, attachments, nested, first.length > 0);
   const out = first + nested.join("");
@@ -301,7 +301,7 @@ function readRecipients(ctx: MessageCtx): { to: string[]; cc: string[] } {
 
 // ------------------------------------------------------------------ body
 
-function readBody(ctx: MessageCtx): string {
+function readBody(ctx: MessageCtx, outerBody: boolean): string {
   const plain = readString(ctx, PR_BODY);
   if (plain && plain.trim().length > 0) return takeBody(ctx, plain).replace(/\r\n?/g, "\n").trim();
 
@@ -310,7 +310,7 @@ function readBody(ctx: MessageCtx): string {
     const body = takeBody(ctx, html);
     if (!body) return "";
     const result = boundedHtmlToMarkdown(body, ctx.warnings, undefined, ctx.budget,
-      Math.min(ctx.output.remaining, HTML_PLAIN_CHARS));
+      Math.min(ctx.output.remaining, HTML_PLAIN_CHARS), outerBody);
     if (result.truncated) ctx.output.truncated = true;
     return result.text;
   }

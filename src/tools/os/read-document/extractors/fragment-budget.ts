@@ -46,13 +46,13 @@ export class FragmentBudget {
   }
 
   /** Once formatting is exhausted, subsequent fragments can use plain text. */
-  takeWork(work: number): boolean {
-    if (this.#formattingLimited || work > this.#workLimit - this.#work) {
+  takeWork(work: number, wholeDocument = false): boolean {
+    if (!wholeDocument && (this.#formattingLimited || work > this.#workLimit - this.#work)) {
       this.#formattingLimited = true;
       return false;
     }
     this.#work += work;
-    this.#formattingLimited = this.#work === this.#workLimit;
+    this.#formattingLimited = this.#work >= this.#workLimit;
     return true;
   }
 

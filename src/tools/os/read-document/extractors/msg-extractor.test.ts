@@ -485,6 +485,24 @@ describe("msg extractor", () => {
     expect(result.warnings).toContainEqual(expect.stringMatching(/Outlook.*budget/i));
   });
 
+  it.each([1_000_000, 200_000])("keeps links in the outer Outlook body with maxBytes %i", async (maxBytes) => {
+    const html = Buffer.from("<p>" + "<a href='/reference'>Article link</a> ".repeat(5300) + "</p>");
+    const data = buildCfb([{ name: b(0x1013), data: html }], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "wiki.msg", maxBytes });
+    expect(result.text.match(/\[Article link\]\(\/reference\)/g)).toHaveLength(5300);
+    expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(maxBytes);
+  });
+
+  it("keeps a table in the outer Outlook body with a small output allowance", async () => {
+    const html = Buffer.from("<head><style>/*" + "x".repeat(2_260_000) + "*/</style></head>" +
+      "<table><tr><th>Item</th><th>Notes</th></tr>" +
+      "<tr><td>Item</td><td>Note</td></tr>".repeat(1250) + "</table>");
+    const data = buildCfb([{ name: b(0x1013), data: html }], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "outlook-big.msg", maxBytes: 200_000 });
+    expect(result.text).toContain("| --- | --- |");
+    expect(result.text.match(/\| Item \| Note \|/g)).toHaveLength(1250);
+  });
+
   it("keeps going with a warning when one property stream is corrupt", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const off = buffer.indexOf(Buffer.from(`${u(0x0037)}\0`, "utf16le"));

@@ -540,10 +540,11 @@ export function boundedHtmlToMarkdown(
   xhtml = isXhtml(html),
   budget?: FragmentBudget,
   plainLimit = budget?.maxOutputBytes ?? HTML_PLAIN_CHARS,
+  wholeDocument = false,
 ): HtmlMarkdown {
   const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
   let limit = prepared?.limit;
-  const canRender = prepared && (!budget || budget.takeWork(prepared.work));
+  const canRender = prepared && (!budget || budget.takeWork(prepared.work, wholeDocument));
   if (prepared && !limit && canRender) {
     try {
       let wideTable = false;
