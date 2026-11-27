@@ -231,11 +231,11 @@ describe("buildEnvelope", () => {
       category: "transport",
       httpStatus: 400,
       transportHost: "localhost",
-      upstreamErrorType: "exceed_context_size_error",
+      upstreamErrorType: "invalid_request_error",
       frames: [],
     };
     const payload = parseEventPayload(buildEnvelope(DSN, ev, META).body);
-    expect(payload.tags.upstream_error_type).toBe("exceed_context_size_error");
+    expect(payload.tags.upstream_error_type).toBe("invalid_request_error");
   });
 
   it("stamps the upstream detail tags and leaves the fingerprint as it was (ATO-1673)", () => {

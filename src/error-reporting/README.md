@@ -16,3 +16,5 @@ Expected Fusion budget and worker stops are excluded from crash reports by their
 `cli_reason` is a fixed word derived locally for subscription CLI failures (ATO-1679); raw CLI output is never included in that tag.
 
 B7a5 accepts the fixed start_pending liveness reason and reports the existing fixed engine-exit reason for a failed start. No marker content, PID, provider text or log lines enter the new tag.
+
+`upstream_error_type` admits only `invalid_request_error`, `authentication_error`, `permission_error`, `not_found_error`, `rate_limit_error`, `api_error`, `overloaded_error` and `server_error`. Unknown types are omitted even when they look like identifiers; Google array bodies use the same gate.
