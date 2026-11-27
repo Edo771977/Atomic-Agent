@@ -11,6 +11,8 @@ C3b keeps /api/import/facts/* (#1642) unavailable. No scope or capability is add
 
 ## Entry points
 
+C4a defers the four /api/files folder/status routes from upstream #1697. No scope or capability is added. Reopening requires read/admin classification, per-token visibility and person-mediated folder admission that an inherited owner key cannot forge. [Candidate review](../../docs/reviews/c4a-files-index.md).
+
 - [http-server.ts](http-server.ts)
 - [route-sessions.ts](route-sessions.ts)
 - [route-mcp.ts](route-mcp.ts)

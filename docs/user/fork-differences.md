@@ -80,6 +80,12 @@ The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, do
 
 C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answer bytes, accepts malformed archive fields, persists extra history in incognito and restores without acquiring turn ownership. Existing rollback behavior remains available. [Evidence and reopening tests](../reviews/c2a-previous-replies.md).
 
+## Chosen folders and file search
+
+C4a keeps upstream #1697 and its vector-scan, interrupted-scan and grammar follow-ups deferred. No chosen-folder index, /api/files routes or files.search tool is enabled. The candidate bypasses protected-input/session-read boundaries and persists credentials before masking; an inherited owner key can add a folder. Existing filesystem and document tools retain their guards. [Candidate evidence and reopening tests](../reviews/c4a-files-index.md).
+
+C4b also defers upstream #1700 with C4a: no automatic sqlite-vec load or reranker setting is enabled. The candidate loads an unpinned writable package and admits LAN rerankers without provider/egress or secret/privacy handling. Its offline blocking and search fallbacks work; the commit adds no memory retrieval integration. [Native-loader and reranker audit](../reviews/c4b-vec-rerank.md).
+
 ## Facts from a ChatGPT or Claude export
 
 C3a keeps upstream #1584 deferred: approval IDs can be supplied by an agent child, opaque runtime credentials survive collection, and extraction bounds exist only in the prompt. No facts extraction or save API is enabled. [Candidate evidence and reopening tests](../reviews/c3a-user-facts.md).

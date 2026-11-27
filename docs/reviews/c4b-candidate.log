@@ -1,0 +1,116 @@
+✖ loader must reject an unpinned agent-writable sqlite-vec package before executing its JavaScript or requesting a native load (144.8326ms)
+✔ control: missing extension package is an optional failure (3.4081ms)
+✔ control: disabled extension retains existing keyword and semantic fallback (293.5688ms)
+✔ control: false extension retains existing keyword and semantic fallback (84.6109ms)
+✔ control: throws extension retains existing keyword and semantic fallback (88.6553ms)
+✔ control: default reranker is off and a public endpoint is refused (0.4948ms)
+✖ LAN reranker configuration must require remote admission rather than be treated as this computer (0.52ms)
+✖ reranker must enforce the active provider/host/egress constraint before HTTP (17.4788ms)
+✖ detected and runtime-known secrets must be masked before a remote reranker seam (4.0854ms)
+✔ control: failed reranker preserves original order (0.2176ms)
+✔ control: process offline dispatcher blocks a nonlocal reranker before connection (1.0133ms)
+✔ control: offline permits loopback and blocks its redirect to a nonlocal host (13.5314ms)
+✔ control: candidate adds no package dependency, lock change or install script (163.9122ms)
+ℹ tests 13
+ℹ suites 0
+ℹ pass 9
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1469.2162
+
+✖ failing tests:
+
+test at docs\reviews\c4b-candidate.mjs:29:1
+✖ loader must reject an unpinned agent-writable sqlite-vec package before executing its JavaScript or requesting a native load (144.8326ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    {
+  +   executed: true,
+  +   paths: [
+  +     '/C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-c4b-candidate-20261127/node_modules/sqlite-vec/agent-writable-fixture.dll'
+  +   ],
+  +   result: true
+  -   executed: false,
+  -   paths: [],
+  -   result: false
+    }
+  
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4b-20261127\docs\reviews\c4b-candidate.mjs:43:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: { executed: true, paths: [ '/C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-c4b-candidate-20261127/node_modules/sqlite-vec/agent-writable-fixture.dll' ], result: true },
+    expected: { executed: false, paths: [], result: false },
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c4b-candidate.mjs:63:1
+✖ LAN reranker configuration must require remote admission rather than be treated as this computer (0.52ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+  
+    [
+  +   false,
+  +   false,
+  +   false
+  -   true,
+  -   true,
+  -   true
+    ]
+  
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4b-20261127\docs\reviews\c4b-candidate.mjs:65:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [ false, false, false ],
+    expected: [ true, true, true ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c4b-candidate.mjs:68:1
+✖ reranker must enforce the active provider/host/egress constraint before HTTP (17.4788ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  1 !== 0
+  
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4b-20261127\docs\reviews\c4b-candidate.mjs:75:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c4b-candidate.mjs:79:1
+✖ detected and runtime-known secrets must be masked before a remote reranker seam (4.0854ms)
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(!bodies[0].includes(key))
+  
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4b-20261127\docs\reviews\c4b-candidate.mjs:83:89)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: false,
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
