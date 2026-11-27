@@ -19,6 +19,12 @@ function chat(text = "Plan a trip"): SessionState {
 }
 
 describe("/export arguments (ATO-1054)", () => {
+  it.each(["md -notes.md", "md —notes.md", "md –notes.md", "md --", 'md "unfinished', "md 'unfinished", 'md "-notes.md"'])("rejects ambiguous or unfinished path syntax: %s", args => {
+    expect(parseExportCommand(args).error).toBeTruthy();
+  });
+  it("joins path words once after removing an intervening flag", () => {
+    expect(parseExportCommand("md my --force notes.md")).toEqual({ format: "markdown", path: "my notes.md", force: true });
+  });
   it.each(["pdf --force --confirm-incognito chat.pdf", "pdf chat.pdf --force --confirm-incognito", "--force pdf --confirm-incognito chat.pdf"])("accepts flags around the format and path: %s", args => {
     expect(parseExportCommand(args)).toEqual({ format: "pdf", path: "chat.pdf", force: true, incognitoConfirmed: true });
   });

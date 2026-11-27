@@ -88,3 +88,5 @@ Fusion team pickers (issue #37, [fusion-team-picker.ts](fusion-team-picker.ts), 
 Export file writes share [the destination guard](../session/chat-export-file.ts): the actual state/trust inventories, configured skill roots and project instruction roots (.agents/.claude and recognized rule files) are refused in lexical and resolved forms. Ordinary workspace folders named Policies or skills are allowed. File links are refused. Ordinary writes use exclusive creation; `--force` replaces via an adjacent owner-only temporary file and rename. Export to a working folder outside agent state.
 
 `/export` accepts `--force` and `--confirm-incognito` before or after the format and path. Quote paths that contain option-like words; an unknown unquoted option is refused before rendering or writing.
+
+Export path words may not begin with an ASCII hyphen or a long dash, including quoted words and a bare `--`; use an explicit `./` prefix for a literal such filename. Quotes must close. Removing flags joins the remaining path words with one space (`md my --force notes.md` writes `my notes.md`).
