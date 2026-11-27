@@ -264,7 +264,7 @@ describe("rail session list — steering", () => {
 
 describe("rail session list — manual order", () => {
   it("follows tui.sessionRail.order once the operator has arranged the rail", () => {
-    // Stamped: three threads minted in a row may or may not share a
+    // #1913: keep the fork's pinned dates; rows minted in a row may share a
     // millisecond, and the order must not hang on which.
     const stored = [
       { ...spokenTo("s-3", "third"), updatedAt: 3_000 },
