@@ -130,10 +130,10 @@ function inlineText(tokens: readonly Token[]): string {
     if (token.type === "list") return (token as Tokens.List).items.map(item => inlineText(item.tokens)).join("\n");
     if (token.type === "table") {
       const table = token as Tokens.Table;
-      return [table.header, ...table.rows].map(row => row.map(cell => inlineText(cell.tokens)).join("\t")).join("\n");
+      return [table.header, ...table.rows].map(row => row.map(cell => inlineText(cell.tokens)).join("")).join("\n");
     }
     if ("tokens" in token && Array.isArray(token.tokens)) return inlineText(token.tokens);
-    if (token.type === "br") return "\n";
+    if (token.type === "br") return "";
     return "text" in token && typeof token.text === "string" ? decodeReferences(token.text) : "";
   }).join("");
 }
@@ -143,13 +143,13 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
   const known = options.knownSecrets ?? knownSecretsFromEnv();
   // Plain printable ASCII has no presentation transform to project. Controls
   // stay on the slow path because document encoders can remove them.
-  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[\\<]/.test(text)) return maskSecrets(text, known);
+  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[\\<|]/.test(text)) return maskSecrets(text, known);
   text = maskPresentationText(text, known);
-  if (!/[*_`~&\[\\<]/.test(text)) return text;
+  if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(text)) return text;
   const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
   let parserWorkLeft = 32_768;
   return text.split(/(\n[\t ]*\n)/).map(block => {
-    if (!/[*_`~&\[\\<]/.test(block)) return block;
+    if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(block)) return block;
     const projected = projectPresentationText(block);
     const possibleKey = () => needles.some(needle => {
       let at = 0;
@@ -170,8 +170,9 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
       return block.split("\n").map(line => line.length ? "    " + line : line).join("\n");
     }
     // Source projection already handles delimiter/entity-only known values.
-    // Only link/node syntax or a possible normal detector match needs parsing.
-    if (!block.includes("[") && maskSecrets(projected, known) === projected) return block;
+    // Code spans trim boundary spaces; breaks and cells can join visible text.
+    // Their presentation cannot be ruled out by the source-only projection.
+    if (!/[\[`\\|]| {2}\r?\n/.test(block) && maskSecrets(projected, known) === projected) return block;
     parserWorkLeft -= block.length;
     return Lexer.lex(block).map(token => {
       const shown = inlineText([token]);

@@ -19,6 +19,14 @@ function chat(text: string) {
 }
 
 for (const format of ["markdown", "html", "pdf"] as const) {
+  it.each(["ordinary words ", "[x](", "*_`~", "before ` code ` after "])(`${format} handles one million characters within two seconds: %s`, async pattern => {
+    const state = chat(pattern.repeat(Math.ceil(1_000_000 / pattern.length)).slice(0, 1_000_000));
+    const start = performance.now();
+    await exportChat(state, format, options);
+    const elapsed = performance.now() - start;
+    console.info("EXPORT_MILLION " + JSON.stringify({ format, pattern, elapsedMs: elapsed }));
+    expect(elapsed).toBeLessThan(2_000);
+  });
   it.each(["[x](".repeat(12_000), "*_`~".repeat(12_000)])(`${format} bounds repeated link/delimiter syntax (%#)`, async text => {
     const state = chat(text);
     const start = performance.now();

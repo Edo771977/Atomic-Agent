@@ -27,6 +27,13 @@ const variants = [
   ["escape", "sentinel\\_731key"],
   ["emphasis", "sentinel_**731**key"],
   ["code span", "sentinel_`731`key"],
+  ["trimmed code suffix", "sentinel_` 731key `"],
+  ["trimmed code prefix", "` sentinel_ `731key"],
+  ["trimmed code with surrounding text", "before sentinel_` 731key ` after"],
+  ["space hard break", "sentinel_  \n731key"],
+  ["backslash hard break", "sentinel_\\\n731key"],
+  ["adjacent header cells", "| sentinel_ | 731key |\n| --- | --- |\n| safe | safe |"],
+  ["adjacent body cells", "| a | b |\n| --- | --- |\n| sentinel_ | 731key |"],
   ["code block encoding", "```\nsentinel_\u0001731key\n```"],
 ] as const;
 
@@ -48,6 +55,21 @@ async function visible(format: "markdown" | "html" | "docx" | "pdf", body: strin
 }
 
 for (const format of ["markdown", "pdf", "html", "docx"] as const) {
+  it.each([
+    ["trimmed code suffix", "sk-proj-` abcDEFghijkLMN0123456789abcdEF `"],
+    ["trimmed code prefix", "` sk-proj- `abcDEFghijkLMN0123456789abcdEF"],
+    ["surrounding text", "before sk-proj-` abcDEFghijkLMN0123456789abcdEF ` after"],
+    ["space hard break", "sk-proj-  \nabcDEFghijkLMN0123456789abcdEF"],
+    ["backslash hard break", "sk-proj-\\\nabcDEFghijkLMN0123456789abcdEF"],
+    ["adjacent cells", "| a | b |\n| --- | --- |\n| sk-proj- | abcDEFghijkLMN0123456789abcdEF |"],
+  ])(`${format} detects a rendered vendor sentinel without known values: %s`, async (_name, text) => {
+    const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture" });
+    state.turns.push({ kind: "user", text, at: 1 });
+    const file = await exportChat(state, format, { knownSecrets: [] });
+    const shown = decodeHTML(await visible(format, file.body));
+    expect(shown).not.toContain("sk-proj-abcDEFghijkLMN0123456789abcdEF");
+    expect(shown).toContain("redacted");
+  });
   it(`${format} masks a known value with an escaped hyphen`, async () => {
     const value = "sentinel-731key";
     const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture" });
