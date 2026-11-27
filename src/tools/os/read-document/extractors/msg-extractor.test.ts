@@ -516,9 +516,11 @@ describe("msg extractor", () => {
       ],
     }));
     const { buffer } = buildCfb([str(0x1000, "Parent"), ...attachments], 4096);
-    const start = performance.now();
     const result = await msgExtractor({ data: buffer, sourcePath: "siblings.msg", maxBytes });
-    expect(performance.now() - start).toBeLessThan(3000);
+    const formatted = result.text.split("--- attached message ---")
+      .filter((message) => message.includes("**Ordinary entry text**")).length;
+    expect(formatted).toBeGreaterThan(0);
+    expect(formatted).toBeLessThanOrEqual(maxBytes === undefined ? 1 : 2);
     expect(result.text.endsWith("TAIL-19X")).toBe(true);
     expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
   });
