@@ -246,6 +246,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const nested = lines.flatMap(({ line, dialect }) => {
     if (line.includes(UNKNOWN_SHELL_WORD)) { nestedState.unreadable = true; return []; }
     const syntax = shellSyntax(line, dialect); nestedState.unreadable ||= syntax.unreadable;
+    if (program === "eval" && syntax.persistentInput) nestedState.unreadable = true;
     const inherited = consumesStdinScript && line === input.stdinScript ? { hasStdin: input.hasStdin } : input;
     return syntax.segments.flatMap((w, index) => expandSegment(w, depth + 1, nestedState, segmentInput(syntax.inputs[index], inherited)));
   });

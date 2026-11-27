@@ -36,7 +36,7 @@ export type ShellToken =
   | { kind: "separator"; pipe?: true; newline?: true }
   | { kind: "open" }
   | { kind: "close" }
-  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string"; inputFd?: number };
+  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string"; inputFd?: number; fd?: number; operator?: string };
 
 type Operator =
   | Exclude<ShellToken, { kind: "word" }>
@@ -146,7 +146,7 @@ export function lexShellLine(
     if (!inWord) return;
     if (pendingHeredoc !== null) {
       const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false, expandHeredoc: !quoted } : undefined;
-      if (body) tokens.push({ kind: "redirect", writes: "here-string", ...(keepInputFlow ? { inputFd: pendingHeredoc.inputFd } : {}) }, body);
+      if (body) tokens.push({ kind: "redirect", writes: "here-string", ...(keepInputFlow ? { inputFd: pendingHeredoc.inputFd, fd: pendingHeredoc.inputFd, operator: "<<" } : {}) }, body);
       heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
@@ -315,7 +315,7 @@ export function lexShellLine(
       if (operator.kind === "heredoc") {
         pendingHeredoc = { stripTabs: operator.stripTabs, ...(keepInputFlow ? { inputFd: fd } : {}) };
       } else {
-        tokens.push(keepInputFlow && operator.kind === "redirect" && text.startsWith("<") ? { ...operator, inputFd: fd }
+        tokens.push(keepInputFlow && operator.kind === "redirect" ? { ...operator, fd, operator: text, ...(text.startsWith("<") ? { inputFd: fd } : {}) }
           : keepInputFlow && text === "|" ? { kind: "separator", pipe: true } : operator);
       }
       i += text.length;

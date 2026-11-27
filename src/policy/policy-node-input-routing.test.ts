@@ -131,3 +131,25 @@ routingCases("R9 outgoing multiline pipeline stays ordinary", [
   "node --fixture-boolean x.js |\n# fixture\ncat",
   "node --fixture-boolean x.js\nprintf fixture |\ncat",
 ], false);
+
+routingCases("R9 exec keeps frame input and descriptor duplication", [
+  "exec < fixture; node --fixture-boolean x.js",
+  "exec 3< fixture; exec 0<&3; node --fixture-boolean x.js",
+  "exec 3< fixture; exec 0>&3; node --fixture-boolean x.js",
+  "exec < fixture; sh -c 'node --fixture-boolean x.js'",
+  "{ exec < fixture; node --fixture-boolean x.js; }",
+  "(exec < fixture; node --fixture-boolean x.js)",
+]);
+routingCases("R9 exec input stays inside its frame", [
+  "(exec < fixture; cat); node --fixture-boolean x.js",
+  "exec 3< fixture; node --fixture-boolean x.js",
+], false);
+routingCases("R9 exec prefixes and uncertain persistence", [
+  "command exec < fixture; node --fixture-boolean x.js",
+  "builtin exec < fixture; node --fixture-boolean x.js",
+  "FIXTURE=value exec < fixture; node --fixture-boolean x.js",
+  "exec < fixture | cat; node --fixture-boolean x.js",
+  "printf fixture | exec < fixture; node --fixture-boolean x.js",
+  "exec -a fixture < fixture; node --fixture-boolean x.js",
+  "eval 'exec < fixture'; node --fixture-boolean x.js",
+]);

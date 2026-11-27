@@ -1,4 +1,4 @@
-import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
+import { lexShellLine, type ShellDialect, type ShellToken } from "../shell-command-guard/shell-line-lexer.js";
 import { liftSubstitutions } from "../shell-command-guard/command-substitution.js";
 
 /** Internal analysis marker, never an argv to execute (NUL cannot be a shell word). */
@@ -14,7 +14,7 @@ export function receivesShellInput(input: ShellInput | undefined): boolean {
 }
 
 /** Bounded static syntax facts, never an interpreter and never alias/profile loading. */
-export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; inputs: ShellInput[]; unreadable: boolean } {
+export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; inputs: ShellInput[]; unreadable: boolean; persistentInput?: boolean } {
   if (line.length > 128 * 1024 || depth >= 8) return { segments: [], inputs: [], unreadable: true };
   const lifted = dialect === "posix" ? liftSubstitutions(line, true) : { outer: line, inner: [] };
   const tokens = lifted === null ? null : lexShellLine(lifted.outer, dialect, undefined, true, false, true);
@@ -22,18 +22,26 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
   let unreadable = tokens.some((token, index) => token.kind === "open" && tokens[index - 1]?.kind === "word" && tokens[index + 1]?.kind === "close" && tokens[index + 2]?.kind === "word" && (tokens[index + 2] as { text?: string }).text === "{");
   const segments: string[][] = [];
   const inputs: ShellInput[] = [];
-  type Frame = { kind: string; base: ShellInput; current: ShellInput };
+  type Frame = { kind: string; base: ShellInput; current: ShellInput; fds: Map<number, ShellInput>; local: Map<number, ShellInput>; piped: boolean; persisted?: boolean };
   const root: ShellInput = {};
-  const frames: Frame[] = [{ kind: "root", base: root, current: { parent: root } }];
+  const frames: Frame[] = [{ kind: "root", base: root, current: { parent: root }, fds: new Map([[0, root]]), local: new Map([[0, root]]), piped: false }];
   const frame = () => frames[frames.length - 1]!;
   const open = (kind: string) => {
     const base = frame().current;
-    frames.push({ kind, base, current: { parent: base } });
+    const fds = new Map(frame().local); fds.set(0, base);
+    frames.push({ kind, base, current: { parent: base }, fds, local: new Map(fds), piped: false });
   };
-  const close = (kind: string) => { if (frames.length > 1 && frame().kind === kind) frames.pop(); else if (!(kind === "paren" && frame().kind === "case")) unreadable = true; };
+  const close = (kind: string) => {
+    if (frames.length > 1 && frame().kind === kind) {
+      // Conditional/brace execution and restoration cannot prove a later fd.
+      if (kind !== "paren" && frame().persisted) unreadable = true;
+      frames.pop();
+    } else if (!(kind === "paren" && frame().kind === "case")) unreadable = true;
+  };
   let words: string[] = [], redirected = false;
+  let redirectToken: Extract<ShellToken, { kind: "redirect" }> | undefined;
   let commandPosition = true, pendingPipe = false;
-  const flush = () => {
+  const flush = (persist = true) => {
     let command = words; words = [];
     if (command.length === 0) return;
     if (dialect === "posix") {
@@ -48,24 +56,48 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     // do not guess an alias's target from the operator's machine.
     if (dialect === "powershell" && !/[\\/]/.test(command[0] ?? "") && !/^[A-Za-z]+-[A-Za-z]+$/.test(command[0] ?? "")) unreadable = true;
     if (command.length > 0) { segments.push(command); inputs.push(frame().current); }
+    let exec = command;
+    while (/^[A-Za-z_][A-Za-z0-9_]*=/.test(exec[0] ?? "")) exec = exec.slice(1);
+    if (["command", "builtin"].includes(exec[0] ?? "")) {
+      exec = exec.slice(1);
+      if (exec[0] === "--" || exec[0] === "-p") exec = exec.slice(1);
+    }
+    if (exec[0] === "exec" && exec[1]?.startsWith("-")) unreadable = true;
+    if (exec[0] === "exec" && exec.length === 1) {
+      if (!persist || frame().piped) unreadable = true;
+      else { frame().fds = new Map(frame().local); frame().persisted = true; }
+    }
   };
   for (const token of tokens) {
     if (token.kind === "separator" && token.newline && pendingPipe) continue;
     if (token.kind === "separator" && pendingPipe) unreadable = true;
     if (token.kind === "redirect") {
-      if (token.inputFd === 0) frame().current.redirected = true;
+      redirectToken = token;
       redirected = true; continue;
     }
     if (token.kind !== "word") {
-      redirected = false; flush();
+      redirected = false; flush(token.kind !== "separator" || !token.pipe);
       if (token.kind === "open") open("paren");
       else if (token.kind === "close") close("paren");
-      else frame().current = { parent: frame().base, ...(token.pipe ? { redirected: true } : {}) };
+      else {
+        frame().piped = token.pipe === true;
+        frame().local = new Map(frame().fds);
+        frame().current = token.pipe ? { redirected: true } : { parent: frame().fds.get(0) ?? frame().base };
+        frame().local.set(0, { ...frame().current });
+      }
       commandPosition = true;
       pendingPipe = token.kind === "separator" && token.pipe === true;
       continue;
     }
-    if (redirected) { redirected = false; continue; }
+    if (redirected) {
+      const op = redirectToken!;
+      const source = /^(?:<&|>&)$/.test(op.operator ?? "") && /^\d+$/.test(token.text) && !token.dynamic
+        ? frame().local.get(Number(token.text)) ?? { redirected: true as const } : { redirected: true as const };
+      const fd = op.fd ?? op.inputFd;
+      if (fd !== undefined) frame().local.set(fd, source);
+      if (fd === 0) { frame().current.parent = source; delete frame().current.redirected; }
+      redirected = false; continue;
+    }
     if (dialect !== "cmd" && (token.text === "{" || token.text === "}")) {
       if (token.text === "{" && words.length > 0) unreadable = true;
       flush();
@@ -93,5 +125,5 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     const nested = shellSyntax(inner, dialect, depth + 1);
     segments.push(...nested.segments); inputs.push(...nested.inputs); unreadable ||= nested.unreadable;
   }
-  return { segments, inputs, unreadable };
+  return { segments, inputs, unreadable, ...(frames[0]!.persisted ? { persistentInput: true } : {}) };
 }
