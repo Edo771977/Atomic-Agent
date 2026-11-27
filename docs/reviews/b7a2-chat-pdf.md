@@ -20,3 +20,5 @@ Requested focused suite: **13004 passed, 26 failed, 38 skipped**. 24 initial fai
 Main's complete run: **30572 passed, 157 failed, 658 skipped**. A failed baseline test that passes here is recorded without attributing a fix to this feature. These reports do not claim an entirely green suite.
 
 Both initially additional cleanup cases pass in the selected rerun on this branch and main (2 passed, 6 unselected). No source change to session-worktree cleanup is made.
+
+After publication, fork main advanced to 28b0c9b36 with README updates and the production-free B5c deferral. Integrating it required only a conflict between appended HTTP README notes; both are retained. No production TypeScript or dependency changed from the tested head 48fe8ef89. Lint, imports, test typecheck and docs checks pass on the integrated tree, as do both tests in the newly inherited B5c absence file. The focused/full-baseline counts above remain explicitly tied to the original verified 904476e2e snapshot.

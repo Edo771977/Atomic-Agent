@@ -12,6 +12,14 @@ The fork was last brought in step with upstream on 17 November 2026:
 - `main`: [#57](https://github.com/Edo771977/atomic-agent/pull/57), a one-time merge of upstream `main`, tracked in [#56](https://github.com/Edo771977/atomic-agent/issues/56).
 - The desktop line: [#61](https://github.com/Edo771977/atomic-agent/pull/61), upstream `desktop-v0.0.9` merged into `desktop-main`, tracked in [#59](https://github.com/Edo771977/atomic-agent/issues/59).
 
+After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/atomic-agent/pull/1740) comes in one change at a time with `git cherry-pick -x`, in the series of [#233](https://github.com/Edo771977/atomic-agent/issues/233).
+
+- Each imported change has a review and tests that failed before the import.
+- Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
+- [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
+
+These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
+
 Selective imports for offline use and chat data cleanup:
 
 - `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
@@ -258,6 +266,10 @@ B7a2 imports upstream #1715 PDF export. The TUI requires an explicit --confirm-i
 - [#35](https://github.com/Edo771977/atomic-agent/issues/35): the Windows test run (install, Fusion costs, folder constraints, approvals, project quality).
 - [#47](https://github.com/Edo771977/atomic-agent/issues/47): the desktop line and its project card.
 - [#80](https://github.com/Edo771977/atomic-agent/issues/80): the Windows acceptance checks for the rollback and milestone fixes.
+
+## Phone calls
+
+The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval, offline and child credential refusal; encoded Basic authorization can escape through errors. Upstream provides no incoming-call or signature-verification slice in this commit. [Evidence and reopening tests](../reviews/b5c-twilio.md).
 
 ## OS sandbox for commands
 

@@ -478,5 +478,24 @@
     "npm run typecheck:tests": 0,
     "npm run docs:check": 0
   },
-  "finalStaticChecksAllPassed": true
+  "finalStaticChecksAllPassed": true,
+  "postPublicationMainIntegration": {
+    "forkMain": "28b0c9b36e8a0879390dd9e6fe2b74a11c996530",
+    "originallyTestedHead": "48fe8ef899692f78b435891186bed5821bde8eac",
+    "productionSourceChanges": [],
+    "dependencyChanges": [],
+    "conflict": "src/http/README.md appended notes; both PDF and B5c notes preserved",
+    "checks": {
+      "lint": 0,
+      "imports": 0,
+      "typecheckTests": 0,
+      "docs": 0
+    },
+    "addedMainTest": {
+      "command": "npx vitest run src/http/b5c-twilio-deferred.test.ts",
+      "passed": 2,
+      "failed": 0
+    },
+    "focusedAndBaselineCountsRemainFrom": "904476e2e099903833223beb4a0ace08b8d7a220"
+  }
 }
