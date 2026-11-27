@@ -196,15 +196,15 @@ function powershellReadsStdin(args: readonly string[]): boolean {
 }
 
 /** Whether this command runs a script read from stdin rather than one on the line. */
-function readsScriptFromStdin(words: readonly string[]): boolean {
+function readsScriptFromStdin(words: readonly string[], cwd: string): boolean {
   const head = words[0];
   if (head === undefined) return false;
   const name = programName(head);
   const args = words.slice(1);
   if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
-  if (scriptInput(words) === "stdin") return true;
+  if (scriptInput(words, cwd) === "stdin") return true;
   // Unknown option semantics must retain main's conservative stdin fallback.
-  if (interpreterScript(words)?.kind !== "unknown" || !/^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/.test(name)) return false;
+  if (interpreterScript(words, cwd)?.kind !== "unknown" || !/^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/.test(name)) return false;
   if (args.some(arg => /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/.test(arg))) return false;
   const operand = args.find(arg => arg === "-" || !arg.startsWith("-"));
   return operand === undefined || operand === "-";
@@ -223,10 +223,11 @@ export function shellRunsUnreadableScript(
   execArgs: readonly string[],
   useShell: boolean,
   _dialect?: ShellDialect,
+  cwd = process.cwd(),
 ): boolean {
   if (!useShell) return false;
   if (!/[|<]/.test([cmd, ...execArgs].join(" "))) return false;
-  return shellRuleSegments(cmd, execArgs, useShell).some(readsScriptFromStdin);
+  return shellRuleSegments(cmd, execArgs, useShell).some(words => readsScriptFromStdin(words, cwd));
 }
 
 /**
@@ -243,12 +244,13 @@ export function stdinScriptOf(
   execArgs: readonly string[],
   useShell: boolean,
   stdin: string | undefined,
+  cwd = process.cwd(),
 ): { lines: string[]; unreadable: boolean } | null {
   if (stdin === undefined || stdin.trim() === "") return null;
   // Only locate actual stdin readers here; personal prefix/opaque-code decisions remain separate.
-  const segments = scriptSourceSegments(cmd, execArgs, useShell);
-  if (segments.some(words => scriptInput(words) === "unknown")) return { lines: [], unreadable: true };
-  const readers = segments.filter(readsScriptFromStdin);
+  const segments = scriptSourceSegments(cmd, execArgs, useShell, undefined, cwd);
+  if (segments.some(words => scriptInput(words, cwd) === "unknown")) return { lines: [], unreadable: true };
+  const readers = segments.filter(words => readsScriptFromStdin(words, cwd));
   if (readers.length === 0) return null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
   return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length };

@@ -1,4 +1,5 @@
 import { matchPolicyGlob } from "./policy-glob.js";
+import { resolveScriptCwd } from "../tools/os/shell/org-script-operands.js";
 import { programName } from "../tools/os/shell-command-guard/command-segments.js";
 import { changesPolicyChildMetadata } from "./policy-child-env-guard.js";
 /**
@@ -84,22 +85,27 @@ export function policyRuleMatch(policy: EffectivePolicy, request: PolicyGateRequ
   return { decision: verdict.effect, rule };
 }
 
-function shellAnalysisForCall(): typeof analyzeShellRules {
+function shellAnalysisForCall(workingDir = process.cwd()): typeof analyzeShellRules {
   const analyses = new Map<string, ReturnType<typeof analyzeShellRules>>();
-  return (cmd, rest, useShell, dialect) => {
-    const key = JSON.stringify([cmd, rest, useShell, dialect]);
+  return (cmd, rest, useShell, dialect, cwd = workingDir) => {
+    const key = JSON.stringify([cmd, rest, useShell, dialect, analysisCwd(cwd)]);
     let value = analyses.get(key);
-    if (value === undefined) { value = analyzeShellRules(cmd, rest, useShell, dialect); analyses.set(key, value); }
+    if (value === undefined) { value = analyzeShellRules(cmd, rest, useShell, dialect, cwd); analyses.set(key, value); }
     return value;
   };
 }
 
+/** One lexical namespace for native Windows and POSIX cwd spellings in this call. */
+function analysisCwd(cwd: string): string {
+  return resolveScriptCwd(undefined, cwd);
+}
+
 /** One explicit invocation scope; never stored in a session or reused by invoke. */
 export function createPolicyEvaluation(policy: EffectivePolicy, workingDir: string) {
-  const baseAnalyze = shellAnalysisForCall();
+  const baseAnalyze = shellAnalysisForCall(workingDir);
   const aliases = new Map<string, ReturnType<typeof analyzeShellRules>>();
-  const analysisKey = (cmd: string, args: readonly string[], shell: boolean, dialect?: string) => JSON.stringify([cmd, args, shell, dialect]);
-  const analyze: typeof analyzeShellRules = (cmd, args, shell, dialect) => aliases.get(analysisKey(cmd, args, shell, dialect)) ?? baseAnalyze(cmd, args, shell, dialect);
+  const analysisKey = (cmd: string, args: readonly string[], shell: boolean, dialect?: string, cwd = workingDir) => JSON.stringify([cmd, args, shell, dialect, analysisCwd(cwd)]);
+  const analyze: typeof analyzeShellRules = (cmd, args, shell, dialect, cwd = workingDir) => aliases.get(analysisKey(cmd, args, shell, dialect, cwd)) ?? baseAnalyze(cmd, args, shell, dialect, cwd);
   const normalizers = new Map<string, EditPathNormalizer>();
   const inspections = new Map<string, string | null>();
   return {
@@ -112,11 +118,11 @@ export function createPolicyEvaluation(policy: EffectivePolicy, workingDir: stri
       const refusal = policyCallRefusal(policy, tool, args, cwd, normalize, analyze);
       inspections.set(key, refusal); return refusal;
     },
-    asks: (tool: string, args: Record<string, unknown>) => policyCallAsks(policy, tool, args, analyze),
+    asks: (tool: string, args: Record<string, unknown>) => policyCallAsks(policy, tool, args, analyze, workingDir),
     shellSpawnRefusal(cmd: string, args: readonly string[], file: string, argv: readonly string[], cwd = workingDir): string | null {
       if (policy.rules.length > 0 || policy.sources.some(source => source.state === "loaded") || policyFiles(policy).some((normalizers.get(cwd) ?? createEditPathNormalizer(cwd)).mayExist)) {
-        const original = analyze(cmd, args, needsShellInterpretation(cmd, args));
-        aliases.set(analysisKey(file, argv, needsShellInterpretation(file, argv)), { ...original, segments: [[file, ...argv], ...original.segments] });
+        const original = analyze(cmd, args, needsShellInterpretation(cmd, args), undefined, cwd);
+        aliases.set(analysisKey(file, argv, needsShellInterpretation(file, argv), undefined, cwd), { ...original, segments: [[file, ...argv], ...original.segments] });
       }
       return this.refusal("os.shell.run", { cmd: file, args: [...argv] }, cwd);
     },
@@ -124,17 +130,17 @@ export function createPolicyEvaluation(policy: EffectivePolicy, workingDir: stri
 }
 
 /** The model-facing refusal for a tool call the policy denies, or null. */
-export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unknown, analyze = analyzeShellRules): boolean {
+export function policyCallAsks(policy: EffectivePolicy, tool: string, args: unknown, analyze = analyzeShellRules, workingDir = process.cwd()): boolean {
   if (policy.rules.length === 0) return false;
-  return verdictFor(policy, toolCallTarget(tool, args, analyze))?.effect === "ask";
+  return verdictFor(policy, toolCallTarget(tool, args, analyze, workingDir))?.effect === "ask";
 }
 
 /** The model-facing refusal for a tool call the policy denies, or null. */
-export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir), analyze = shellAnalysisForCall()): string | null {
-  const target = policy.rules.length === 0 && (tool === "os.shell.run" || tool === "verify.run") ? null : toolCallTarget(tool, args, analyze);
+export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: unknown, workingDir?: string, normalize: EditPathNormalizer = createEditPathNormalizer(workingDir), analyze = shellAnalysisForCall(workingDir)): string | null {
+  const target = policy.rules.length === 0 && (tool === "os.shell.run" || tool === "verify.run") ? null : toolCallTarget(tool, args, analyze, workingDir);
   const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
   const object = record(args);
-  const commands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? verifyRunShellCalls(object) : [];
+  const commands = tool === "os.shell.run" ? [object] : tool === "verify.run" ? verifyRunShellCalls(object, workingDir) : [];
   if (policy.rules.length > 0 || policy.sources.some(source => source.state === "loaded") || policyFiles(policy).some(normalize.mayExist)) {
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
@@ -146,7 +152,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
       const rest = coerceShellArgs(command.args) ?? [];
-      const segments = analyze(command.cmd, rest, needsShellInterpretation(command.cmd, rest)).segments;
+      const segments = analyze(command.cmd, rest, needsShellInterpretation(command.cmd, rest), undefined, workingDir).segments;
       for (const words of segments) for (const url of shellNetworkUrls(words[0] ?? "", words.slice(1)).keys()) {
         const verdict = evaluatePolicy(policy, "webfetch", url === "" ? [] : toolCallTarget("os.web.fetch", { url })!.resources, { unreadable: url === "" });
         if (verdict?.effect === "deny") return `${tool} was not run: blocked by organization policy (${describePolicyRule(verdict.rule)}) for a shell network destination.`;
@@ -175,7 +181,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     });
     if (touchesPolicy(policy, named, cwd, false, normalize)) return true;
     const args = coerceShellArgs(command.args) ?? [];
-    const segments = analyze(command.cmd, args, needsShellInterpretation(command.cmd, args)).segments;
+    const segments = analyze(command.cmd, args, needsShellInterpretation(command.cmd, args), undefined, workingDir).segments;
     const readsTree = segments.some(words => /^(?:tar|zip|7z|7za|rar|cpio|rg)$/.test(programName(words[0] ?? "")) || programName(words[0] ?? "") === "grep" && words.slice(1).some(arg => /^-[A-Za-z]*[rR]/.test(arg) || arg === "--recursive"));
     if (readsTree && touchesPolicy(policy, [...named, ...segments.flatMap(words => words.slice(1).filter(word => word && !word.startsWith("-")))], cwd, true, normalize)) return true;
     const words = segments.flatMap(segment => segment.slice(1));

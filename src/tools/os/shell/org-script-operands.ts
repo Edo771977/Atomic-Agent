@@ -67,14 +67,23 @@ function awkExternalCommand(script: string): boolean {
   return false;
 }
 
-/** Descriptor identities cannot be inferred from a different stdin payload. */
-export function scriptStream(operand: string | undefined): "stdin" | "unknown" | null {
-  if (operand?.startsWith("/")) operand = posix.normalize(operand);
-  if (operand === "-" || operand === "/dev/stdin" || /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\/0$/.test(operand ?? "")) return "stdin";
-  return /^\/(?:dev\/fd|proc\/(?:self|\d+)\/fd)\//.test(operand ?? "") || operand?.includes("\0") ? "unknown" : null;
+/** Lexical cwd only; Windows absolute spellings must not become relative POSIX suffixes. */
+export function resolveScriptCwd(cwd: string | undefined, workingDir = process.cwd()): string {
+  const normalize = (value: string) => value.replace(/\\/g, "/").replace(/^([A-Za-z]:\/)/, "/$1");
+  return posix.resolve(normalize(workingDir), normalize(cwd ?? "."));
 }
 
-export function scriptInput(words: readonly string[]): "stdin" | "unknown" | null {
+/** Descriptor identities cannot be inferred from a different stdin payload. */
+export function scriptStream(operand: string | undefined, cwd = process.cwd()): "stdin" | "unknown" | null {
+  if (operand === undefined) return null;
+  if (operand.includes("\0")) return "unknown";
+  if (operand === "-") return "stdin";
+  const path = posix.resolve(resolveScriptCwd(undefined, cwd), operand);
+  if (path === "/dev/stdin" || path === "/dev/fd/0" || /^\/proc\/(?:self|thread-self|\d+)\/(?:task\/(?:self|thread-self|\d+)\/)?fd\/0$/.test(path)) return "stdin";
+  return /^\/(?:dev|proc)(?:\/|$)/.test(path) ? "unknown" : null;
+}
+
+export function scriptInput(words: readonly string[], cwd = process.cwd()): "stdin" | "unknown" | null {
   const name = programName(words[0] ?? ""), args = words.slice(1);
   if (NESTED_SHELL_PROGRAMS.includes(name)) {
     const options = scanNestedShellOptions(args, name);
@@ -82,19 +91,19 @@ export function scriptInput(words: readonly string[]): "stdin" | "unknown" | nul
     if (options.runsCommand) return null;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
-      if (arg === "--") return scriptStream(args[i + 1]);
+      if (arg === "--") return scriptStream(args[i + 1], cwd);
       if (/^(?:--rcfile|--init-file|[-+][A-Za-z]*[oO])$/.test(arg)) { i++; continue; }
       if (arg.startsWith("-") || arg.startsWith("+")) continue;
-      return scriptStream(arg);
+      return scriptStream(arg, cwd);
     }
     return null;
   }
-  const script = interpreterScript(words);
-  return script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand) : null;
+  const script = interpreterScript(words, cwd);
+  return script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
 }
 
 /** Static option boundaries only: never inspect or execute a program's code. */
-export function interpreterScript(words: readonly string[]): ScriptOperand | null {
+export function interpreterScript(words: readonly string[], cwd = process.cwd()): ScriptOperand | null {
   const name = programName(words[0] ?? "");
   const args = words.slice(1);
   if (/^(?:source|\.)$/.test(name)) return { kind: args[0] ? "file" : "unknown", operand: args[0] };
@@ -121,7 +130,7 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
   }
   let nodeInputType = false;
   const selected = (operand: string | undefined): ScriptOperand => {
-    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand) === "stdin")) return { kind: "inline" };
+    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand, cwd) === "stdin")) return { kind: "inline" };
     return operand === undefined ? { kind: "stdin" } : { kind: operand === "-" ? "stdin" : "file", operand };
   };
   for (let i = 0; i < args.length; i++) {

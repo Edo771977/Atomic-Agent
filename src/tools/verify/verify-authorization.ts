@@ -229,14 +229,14 @@ export async function authorizeVerifyBatch(
     ];
     const refused = uiVerdicts.find(verdict => verdict.action === "block");
     if (refused !== undefined) throw new VerifyGuardRefusal(refused.rule, refused.reason);
-    const commands = detector === undefined ? verifyRunCommands(logical) : [{ cmd: detector.file, args: detectorArgs! }];
+    const commands = detector === undefined ? verifyRunCommands(logical, cwd) : [{ cmd: detector.file, args: detectorArgs! }];
     const commandSegments = detector === undefined
       ? commands.flatMap(c => shellRuleSegments(c.cmd, c.args, c.dialect !== undefined || needsShellInterpretation(c.cmd, c.args), c.dialect))
       : [detector.file, ...(basename(detector.file) === "impeccable" ? [] : ["impeccable"])].flatMap(exe => [
         [exe, ...detectorArgs!], [exe, "--version"],
       ]);
-    const stdinScript = verifyRunStdinScript(logical);
-    const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, c.dialect !== undefined || needsShellInterpretation(c.cmd, c.args), c.dialect)));
+    const stdinScript = verifyRunStdinScript(logical, cwd);
+    const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, c.dialect !== undefined || needsShellInterpretation(c.cmd, c.args), c.dialect, cwd)));
     const targetPaths = ui ? [] : commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
     const dangerous = guard.dangerous.length > 0 || uiVerdicts.some(verdict => verdict.action === "approval_required" && verdict.rule.startsWith("dangerous."));
     // A script fed on stdin is not what a grant for the program approved.
@@ -374,7 +374,7 @@ export async function authorizeVerifyBatch(
         });
       }
     };
-    const organizationAsk = policyCallAsks(activePolicy(), "verify.run", logical);
+    const organizationAsk = policyCallAsks(activePolicy(), "verify.run", logical, undefined, project);
     const scoped = !organizationAsk && options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&

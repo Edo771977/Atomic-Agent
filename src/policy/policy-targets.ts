@@ -1,3 +1,4 @@
+import { resolveScriptCwd } from "../tools/os/shell/org-script-operands.js";
 /**
  * What a call is, in policy terms: the `action` and the resources a rule's
  * glob is matched against. Two readers: the approval gate (a request it is
@@ -59,7 +60,7 @@ export function gateRequestTarget(request: PolicyGateRequest, normalize = create
   if (mcp !== null) return { action: "mcp", resources: [mcp] };
   if (SHELL_CATEGORIES.has(request.category) || request.tool === "os.shell.run") {
     const argvs = [...(request.commandArgv ? [request.commandArgv] : []), ...(request.commandSegments ?? [])];
-    const analyses = argvs.map(argv => analyzeShellRules(argv[0] ?? "", argv.slice(1), false));
+    const analyses = argvs.map(argv => analyzeShellRules(argv[0] ?? "", argv.slice(1), false, undefined, request.workdir));
     return {
       action: "shell",
       resources: nonEmpty(analyses.flatMap(analysis => analysis.segments.flatMap(argvResources))),
@@ -108,10 +109,10 @@ function argvResources(argv: readonly string[]): string[] {
  * wrappers like `sudo` and `env`, inside `bash -c`, `eval` and
  * `find -exec`), each also with its program reduced to its name.
  */
-export function shellResources(cmd: string, args: readonly string[] = [], dialect?: ShellDialect, analysis?: ReturnType<typeof analyzeShellRules>): string[] {
+export function shellResources(cmd: string, args: readonly string[] = [], dialect?: ShellDialect, analysis?: ReturnType<typeof analyzeShellRules>, cwd = process.cwd()): string[] {
   const line = [cmd, ...args].join(" ").trim().replace(/\s+/g, " ");
   const useShell = needsShellInterpretation(cmd, args);
-  const segments = (analysis ?? analyzeShellRules(cmd, args, useShell, dialect)).segments;
+  const segments = (analysis ?? analyzeShellRules(cmd, args, useShell, dialect, cwd)).segments;
   return nonEmpty([line, ...segments.flatMap(argvResources)]);
 }
 
@@ -144,8 +145,9 @@ export function urlResources(values: ReadonlyArray<string | undefined>): Array<s
 }
 
 /** The target of a tool call by its arguments, or null when no policy action covers it. */
-export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShellRules): PolicyTarget | null {
+export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShellRules, workingDir = process.cwd()): PolicyTarget | null {
   const a = record(args);
+  const cwd = resolveScriptCwd(str(a.cwd), workingDir);
   if (/^mcp\.(?:resource\.(?:list|read)|prompt\.(?:list|get))$/.test(tool)) {
     const server = str(a.server);
     return { action: "mcp", resources: [server ? `${server}/${tool.slice(4)}` : ""], ...(!server ? { unreadable: true } : {}) };
@@ -159,9 +161,9 @@ export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShe
     if (cmd !== undefined) {
       const rest = coerceShellArgs(command === undefined ? start.args : a.args) ?? [];
       const environment = Object.entries(record(a.env)).filter((entry): entry is [string, string] => typeof entry[1] === "string").map(([name, value]) => `${name}=${value}`);
-      const target = toolCallTarget("os.shell.run", environment.length > 0 ? { cmd: "env", args: [...environment, cmd, ...rest] } : { cmd, args: rest }, analyze)!;
-      const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin));
-      target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line, [], "posix")) ?? [])])];
+      const target = toolCallTarget("os.shell.run", environment.length > 0 ? { cmd: "env", args: [...environment, cmd, ...rest] } : { cmd, args: rest }, analyze, cwd)!;
+      const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin), cwd);
+      target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line, [], "posix", undefined, cwd)) ?? [])])];
       if (script?.unreadable) target.unreadable = true;
       return target;
     }
@@ -170,8 +172,8 @@ export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShe
     const cmd = str(a.cmd);
     if (cmd === undefined) return null; // wait / kill / jobs run nothing new
     const rest = coerceShellArgs(a.args) ?? [];
-    const analysis = analyze(cmd, rest, needsShellInterpretation(cmd, rest));
-    return { action: "shell", resources: shellResources(cmd, rest, undefined, analysis), ...(analysis.unreadable ? { unreadable: true } : {}) };
+    const analysis = analyze(cmd, rest, needsShellInterpretation(cmd, rest), undefined, cwd);
+    return { action: "shell", resources: shellResources(cmd, rest, undefined, analysis, cwd), ...(analysis.unreadable ? { unreadable: true } : {}) };
   }
   if (EDIT_TOOLS.has(tool)) {
     // The diff's real files are checked by the patch planner, including dry runs.

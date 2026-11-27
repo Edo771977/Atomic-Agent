@@ -318,7 +318,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     if (organizationRefusal !== null) throw new Error(organizationRefusal);
     const dangerous = isDangerousGuardRule(guardVerdict.rule);
     const commandSegments = shellRuleSegments(cmd, execArgs, useShell);
-    const commandUnreadable = shellRunsUnreadableScript(cmd, execArgs, useShell);
+    const commandUnreadable = shellRunsUnreadableScript(cmd, execArgs, useShell, undefined, cwd);
     const ruleCheck = {
       sessionId: ctx.sessionId,
       tool: "os.shell.run",
@@ -350,7 +350,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // but a saved deny rule still stops it: it goes to the gate, which
     // refuses it on the rule before any level, grant or prompt
     // (ATO-1332). Ask and allow rules keep to the gated path.
-    const organizationAsk = organization.asks("os.shell.run", { cmd, args: execArgs });
+    const organizationAsk = organization.asks("os.shell.run", { cmd, args: execArgs, cwd });
     const deniedBySavedRule =
       guardVerdict.action === "allow" &&
       options.approvalRequired &&

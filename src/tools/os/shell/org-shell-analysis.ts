@@ -136,19 +136,19 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  * `eval` runs and what `find -exec` runs are split the same way and
  * listed after the command itself (ATO-1332).
  */
-export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix"): { segments: string[][]; unreadable: boolean } {
+export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix", cwd = process.cwd()): { segments: string[][]; unreadable: boolean } {
   const syntax = useShell ? shellSyntax([cmd, ...execArgs].join(" "), dialect) : { segments: [[cmd, ...execArgs]], unreadable: false };
-  const state = { unreadable: syntax.unreadable, remaining: 2048 };
-  if (useShell && /[|<]/.test([cmd, ...execArgs].join(" ")) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words)))) state.unreadable = true;
+  const state = { unreadable: syntax.unreadable, remaining: 2048, cwd };
+  if (useShell && /[|<]/.test([cmd, ...execArgs].join(" ")) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) state.unreadable = true;
   const segments = syntax.segments.flatMap(words => expandSegment(words, 0, state));
   return { segments, unreadable: state.unreadable };
 }
 
-export function shellRuleSegments(cmd: string, execArgs: readonly string[], useShell: boolean, dialect?: ShellDialect): string[][] {
-  return analyzeShellRules(cmd, execArgs, useShell, dialect).segments;
+export function shellRuleSegments(cmd: string, execArgs: readonly string[], useShell: boolean, dialect?: ShellDialect, cwd = process.cwd()): string[][] {
+  return analyzeShellRules(cmd, execArgs, useShell, dialect, cwd).segments;
 }
 
-function makeScriptIsOpaque(args: readonly string[]): boolean {
+function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") break;
@@ -159,12 +159,12 @@ function makeScriptIsOpaque(args: readonly string[]): boolean {
       if (file === undefined) return true;
     } else if (/^-f./.test(arg)) file = arg.slice(2).replace(/^=/, "");
     else if (/^--(?:file|makefile)=/.test(arg)) file = arg.slice(arg.indexOf("=") + 1);
-    if (file !== undefined && scriptStream(file) !== null) return true;
+    if (file !== undefined && scriptStream(file, cwd) !== null) return true;
   }
   return args.some(arg => /^(?:SHELL|\.SHELLFLAGS)=/.test(arg));
 }
 
-function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number }): string[][] {
+function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string }): string[][] {
   if (--state.remaining < 0) { state.unreadable = true; return []; }
   const inner = withoutWrappers(words);
   if (inner[0]?.includes(UNKNOWN_SHELL_WORD)) state.unreadable = true;
@@ -174,13 +174,13 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const program = programName(inner[0] ?? "");
   const args = inner.slice(1);
   if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
-  if (/^g?make$/.test(program) && makeScriptIsOpaque(args)) state.unreadable = true;
+  if (/^g?make$/.test(program) && makeScriptIsOpaque(args, state.cwd)) state.unreadable = true;
   if (/^(?:vi|[rg]?vim(?:diff)?|[rg]?view|nvim(?:diff)?|nview|evim|eview|ex|gex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
   if (program === "tar" && (args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg)) || /^-?[A-Za-z]*I/.test(args[0] ?? ""))) state.unreadable = true;
   if (program === "zip" && args.slice(0, args.indexOf("--") === -1 ? args.length : args.indexOf("--")).some(arg => /^-TT/.test(arg))) state.unreadable = true;
   if (NESTED_SHELL_PROGRAMS.includes(program) && (words.some(word => /^(?:BASH_ENV|ENV|ZDOTDIR|SHELLOPTS|BASHOPTS)=/.test(word)) || args.some(arg => /^(?:--rcfile|--init-file)(?:=|$)/.test(arg)))) state.unreadable = true;
-  if (["inline", "unknown"].includes(interpreterScript(inner)?.kind ?? "")) state.unreadable = true;
-  if (scriptInput(inner) === "unknown" || interpreterScript(inner)?.kind === "file" && scriptInput(inner) === "stdin" || NESTED_SHELL_PROGRAMS.includes(program) && !scanNestedShellOptions(inner.slice(1), program).readsStdin && scriptInput(inner) === "stdin") state.unreadable = true;
+  if (["inline", "unknown"].includes(interpreterScript(inner, state.cwd)?.kind ?? "")) state.unreadable = true;
+  if (scriptInput(inner, state.cwd) === "unknown" || interpreterScript(inner, state.cwd)?.kind === "file" && scriptInput(inner, state.cwd) === "stdin" || NESTED_SHELL_PROGRAMS.includes(program) && !scanNestedShellOptions(inner.slice(1), program).readsStdin && scriptInput(inner, state.cwd) === "stdin") state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
@@ -189,7 +189,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const nested = lines.flatMap(({ line, dialect }) => {
     if (line.includes(UNKNOWN_SHELL_WORD)) { state.unreadable = true; return []; }
     const syntax = shellSyntax(line, dialect); state.unreadable ||= syntax.unreadable;
-    if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words)))) state.unreadable = true;
+    if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) state.unreadable = true;
     return syntax.segments.flatMap(w => expandSegment(w, depth + 1, state));
   });
   const executed = findExecCommands(inner).flatMap(w => expandSegment(w, depth + 1, state));
@@ -274,13 +274,13 @@ function powershellReadsStdin(args: readonly string[]): boolean {
 }
 
 /** Whether this command runs a script read from stdin rather than one on the line. */
-function readsScriptFromStdin(words: readonly string[]): boolean {
+function readsScriptFromStdin(words: readonly string[], cwd: string): boolean {
   const head = words[0];
   if (head === undefined) return false;
   const name = programName(head);
   const args = words.slice(1);
   if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
-  return scriptInput(words) === "stdin";
+  return scriptInput(words, cwd) === "stdin";
 }
 
 /**
@@ -297,8 +297,9 @@ export function shellRunsUnreadableScript(
   execArgs: readonly string[],
   useShell: boolean,
   dialect?: ShellDialect,
+  cwd = process.cwd(),
 ): boolean {
-  return analyzeShellRules(cmd, execArgs, useShell, dialect).unreadable;
+  return analyzeShellRules(cmd, execArgs, useShell, dialect, cwd).unreadable;
 }
 
 /**
@@ -315,12 +316,13 @@ export function stdinScriptOf(
   execArgs: readonly string[],
   useShell: boolean,
   stdin: string | undefined,
+  cwd = process.cwd(),
 ): { lines: string[]; unreadable: boolean } | null {
   if (stdin === undefined || stdin.trim() === "") return null;
-  const segments = shellRuleSegments(cmd, execArgs, useShell);
-  if (segments.some(words => scriptInput(words) === "unknown")) return { lines: [], unreadable: true };
-  const readers = segments.filter(readsScriptFromStdin);
+  const segments = shellRuleSegments(cmd, execArgs, useShell, undefined, cwd);
+  if (segments.some(words => scriptInput(words, cwd) === "unknown")) return { lines: [], unreadable: true };
+  const readers = segments.filter(words => readsScriptFromStdin(words, cwd));
   if (readers.length === 0) return null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
-  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length || shells.length > 0 && analyzeShellRules(stdin, [], true, "posix").unreadable };
+  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length || shells.length > 0 && analyzeShellRules(stdin, [], true, "posix", cwd).unreadable };
 }
