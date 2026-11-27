@@ -14,16 +14,19 @@ export function receivesShellInput(input: ShellInput | undefined): boolean {
 }
 
 /** Bounded static syntax facts, never an interpreter and never alias/profile loading. */
-export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { segments: string[][]; inputs: ShellInput[]; unreadable: boolean; persistentInput?: boolean } {
+export function shellSyntax(line: string, dialect: ShellDialect, depth = 0, inheritedInput?: ShellInput): { segments: string[][]; inputs: ShellInput[]; unreadable: boolean; persistentInput?: boolean } {
   if (line.length > 128 * 1024 || depth >= 8) return { segments: [], inputs: [], unreadable: true };
-  const lifted = dialect === "posix" ? liftSubstitutions(line, true) : { outer: line, inner: [] };
+  const lifted = dialect === "posix" ? liftSubstitutions(line, true, false, true) : { outer: line, inner: [] };
   const tokens = lifted === null ? null : lexShellLine(lifted.outer, dialect, undefined, true, false, true);
   if (tokens === null || tokens.length > 16_384) return { segments: [line.slice(0, 4096).split(/\s+/).slice(0, 256)], inputs: [{ redirected: true }], unreadable: true };
   let unreadable = tokens.some((token, index) => token.kind === "open" && tokens[index - 1]?.kind === "word" && tokens[index + 1]?.kind === "close" && tokens[index + 2]?.kind === "word" && (tokens[index + 2] as { text?: string }).text === "{");
   const segments: string[][] = [];
   const inputs: ShellInput[] = [];
   type Frame = { kind: string; base: ShellInput; current: ShellInput; fds: Map<number, ShellInput>; local: Map<number, ShellInput>; piped: boolean; persisted?: boolean };
-  const root: ShellInput = {};
+  const root: ShellInput = { parent: inheritedInput };
+  const substitutionInputs: Array<ShellInput | undefined> = [];
+  const placements = lifted?.placements ?? [];
+  let placementIndex = 0;
   const frames: Frame[] = [{ kind: "root", base: root, current: { parent: root }, fds: new Map([[0, root]]), local: new Map([[0, root]]), piped: false }];
   const frame = () => frames[frames.length - 1]!;
   const open = (kind: string) => {
@@ -69,6 +72,12 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     }
   };
   for (const token of tokens) {
+    if (token.kind === "word" && token.span) {
+      while (placementIndex < placements.length && placements[placementIndex]!.start < token.span[1]) {
+        const placement = placements[placementIndex++]!;
+        if (placement.start >= token.span[0] && !placement.process) substitutionInputs[placement.index] = frame().current;
+      }
+    }
     if (token.kind === "separator" && token.newline && pendingPipe) continue;
     if (token.kind === "separator" && pendingPipe) unreadable = true;
     if (token.kind === "redirect") {
@@ -121,8 +130,11 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
   }
   flush();
   unreadable ||= frames.length !== 1 || pendingPipe || redirected;
-  for (const inner of lifted?.inner ?? []) {
-    const nested = shellSyntax(inner, dialect, depth + 1);
+  for (const [index, inner] of (lifted?.inner ?? []).entries()) {
+    // A lifted body without an owning word (for example heredoc text) is
+    // unproven, rather than evidence that its process receives no input.
+    if (substitutionInputs[index] === undefined) unreadable = true;
+    const nested = shellSyntax(inner, dialect, depth + 1, substitutionInputs[index]);
     segments.push(...nested.segments); inputs.push(...nested.inputs); unreadable ||= nested.unreadable;
   }
   return { segments, inputs, unreadable, ...(frames[0]!.persisted ? { persistentInput: true } : {}) };

@@ -153,3 +153,18 @@ routingCases("R9 exec prefixes and uncertain persistence", [
   "exec -a fixture < fixture; node --fixture-boolean x.js",
   "eval 'exec < fixture'; node --fixture-boolean x.js",
 ]);
+
+routingCases("R9 command substitutions inherit their owning input", [
+  'printf fixture | echo "$(node --fixture-boolean x.js)"',
+  'printf fixture | echo "`node --fixture-boolean x.js`"',
+  'echo "$(node --fixture-boolean x.js)" < fixture',
+  'exec < fixture; echo "$(node --fixture-boolean x.js)"',
+  'printf fixture | { echo "$(node --fixture-boolean x.js)"; }',
+  "printf fixture | cat <<EOF\n$(node --fixture-boolean x.js)\nEOF",
+]);
+routingCases("R9 command substitution output is not input", [
+  'echo "$(node --fixture-boolean x.js)" | cat',
+  'echo "`node --fixture-boolean x.js`" | cat',
+  'cat < fixture; echo "$(node --fixture-boolean x.js)"',
+  'echo "$(node --fixture-boolean x.js)"; printf fixture | cat',
+], false);
