@@ -96,6 +96,7 @@ describe("atomic-agent export: what reaches the file", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     rmSync(stateDir, { recursive: true, force: true });
     delete process.env.ATOMIC_AGENT_STATE_DIR;
     resetConfigCache();
@@ -126,6 +127,18 @@ describe("atomic-agent export: what reaches the file", () => {
     expect(await exportCommand(["s-key"])).toBe(0);
     expect(stdout).toContain("printf");
     expect(stdout).not.toContain(KEY);
+  });
+
+  it.each([{ args: ["s-other"] }, { args: ["--last"] }, { args: ["s-other", "--format", "pdf", "--out", "child.pdf", "--force"] }])("refuses marked tool-child export before reading any session: %j", async ({ args }) => {
+    seed(chat("s-other"));
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    const load = vi.spyOn(SessionStore.prototype, "load");
+    const recent = vi.spyOn(SessionStore.prototype, "listRecent");
+    expect(await exportCommand(args.map(arg => arg === "child.pdf" ? join(stateDir, "child.pdf") : arg))).toBe(1);
+    expect(stdout).toBe("");
+    expect(stderr).toMatch(/agent tool/);
+    expect(load).not.toHaveBeenCalled();
+    expect(recent).not.toHaveBeenCalled();
   });
 
   it.each(["md", "pdf"])("refuses an incognito chat by id in %s", async format => {

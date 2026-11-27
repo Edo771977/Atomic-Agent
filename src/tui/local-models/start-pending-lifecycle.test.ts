@@ -11,6 +11,7 @@ beforeEach(()=>{
   dir=mkdtempSync(join(tmpdir(),"b7a5-start-"));
   vi.stubEnv("ATOMIC_AGENT_STATE_DIR",dir);resetConfigCache();
   modelsDir=getConfig().paths.localModelsDataDir;
+  getConfig().localModels.mode = "managed";
   expect(modelsDir).toBe(join(dir,"models"));
   mkdirSync(modelsDir,{recursive:true});
 });
@@ -20,6 +21,18 @@ function fixture(){
   const internals=orchestrator as unknown as {startDaemonNow:(opts:{signal:AbortSignal})=>Promise<boolean>;operations:ModelOperationQueue};
   return {orchestrator,internals,path:join(modelsDir,"chat-start.pending")};
 }
+it("does not write a start marker or create its directory in external mode", async () => {
+  getConfig().localModels.mode = "external";
+  const { orchestrator, internals, path } = fixture();
+  rmSync(modelsDir, { recursive: true, force: true });
+  vi.spyOn(internals, "startDaemonNow").mockImplementation(async () => {
+    expect(existsSync(path)).toBe(false);
+    expect(existsSync(modelsDir)).toBe(false);
+    return false;
+  });
+  expect(await orchestrator.startDaemon()).toBe(false);
+  expect(existsSync(modelsDir)).toBe(false);
+});
 it.each([true,false])("holds the marker before backend work and removes it after a thrown start (directory exists: %s)",async directoryExists=>{
   const {orchestrator,internals,path}=fixture();
   if(!directoryExists) rmSync(modelsDir,{recursive:true,force:true});

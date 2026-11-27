@@ -1,0 +1,328 @@
+{
+  "base": "8169861335b28c8c8f65a7b6f0938a23e9f20333",
+  "sourceTree": "5ba68369f4a83cd288f739d8cbe770ef369df739",
+  "origin": "https://github.com/Edo771977/Atomic-Agent.git",
+  "upstream": "https://github.com/AtomicBot-ai/atomic-agent.git",
+  "platform": "win32",
+  "node": "v26.13.1",
+  "setup": {
+    "npmCi": 0,
+    "dependencyChanges": false
+  },
+  "checks": {
+    "lint": 0,
+    "importsCheck": 0,
+    "typecheckTests": 0,
+    "docsCheck": 0,
+    "testTypeDebt": 674,
+    "newTestTypeErrors": 0
+  },
+  "regressions": {
+    "writer": {
+      "before": {
+        "passed": 1,
+        "failed": 6,
+        "skipped": 2,
+        "files": 1
+      },
+      "after": {
+        "passed": 17,
+        "failed": 0,
+        "skipped": 2,
+        "files": [
+          "src/cli/export-file-safety.test.ts",
+          "src/session/chat-export-file.test.ts"
+        ]
+      },
+      "additionalBefore": {
+        "conventionalInstructions": {
+          "passed": 7,
+          "failed": 9,
+          "skipped": 2,
+          "files": 1
+        },
+        "temporaryCreation": {
+          "passed": 0,
+          "failed": 1,
+          "skipped": 0,
+          "files": 1
+        }
+      }
+    },
+    "renderers": {
+      "before": {
+        "passed": 0,
+        "failed": 20,
+        "skipped": 0,
+        "files": [
+          "src/session/export-render-redaction.test.ts"
+        ]
+      },
+      "after": {
+        "passed": 20,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/session/export-render-redaction.test.ts"
+        ]
+      }
+    },
+    "providerTypes": {
+      "before": {
+        "passed": 48,
+        "failed": 7,
+        "skipped": 0,
+        "files": 2
+      },
+      "after": {
+        "passed": 173,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/error-reporting/provider-type-vocabulary.test.ts",
+          "src/error-reporting/error-scrubber.test.ts",
+          "src/error-reporting/sentry-envelope.test.ts",
+          "src/llm/llama-server-client.test.ts"
+        ]
+      }
+    },
+    "structuredParam": {
+      "before": {
+        "passed": 0,
+        "failed": 7,
+        "skipped": 0,
+        "files": 1
+      },
+      "after": {
+        "passed": 7,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/error-reporting/provider-param-source.test.ts"
+        ]
+      }
+    },
+    "exportFlags": {
+      "before": {
+        "passed": 8,
+        "failed": 4,
+        "skipped": 0,
+        "files": 1
+      },
+      "after": {
+        "passed": 12,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/tui/commands/export-command.test.ts"
+        ]
+      }
+    },
+    "toolChild": {
+      "before": {
+        "passed": 0,
+        "failed": 3,
+        "skipped": 8,
+        "files": 1
+      },
+      "after": {
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/cli/export-command.test.ts"
+        ]
+      }
+    },
+    "httpBound": {
+      "before": {
+        "passed": 0,
+        "failed": 4,
+        "skipped": 8,
+        "files": 1
+      },
+      "after": {
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/http/route-session-export.test.ts",
+          "src/http/export-pdf-visibility.test.ts"
+        ]
+      }
+    },
+    "startup": {
+      "before": {
+        "passed": 42,
+        "failed": 1,
+        "skipped": 0,
+        "files": 2
+      },
+      "after": {
+        "passed": 43,
+        "failed": 0,
+        "skipped": 0,
+        "files": [
+          "src/tui/local-models/start-pending-lifecycle.test.ts",
+          "src/agent/turn/turn-recovery-local-engine.test.ts"
+        ]
+      }
+    }
+  },
+  "requiredSuite": {
+    "command": "npx vitest run src/session src/tui src/cli src/http src/error-reporting src/llm src/agent/turn src/runtime src/local-llm",
+    "baseline": {
+      "passed": 15079,
+      "failed": 29,
+      "skipped": 57,
+      "files": 1271
+    },
+    "initialAttempt": {
+      "passed": 15131,
+      "failed": 31,
+      "skipped": 59,
+      "files": 1275,
+      "additionalFailures": [
+        {
+          "file": "src/error-reporting/error-scrubber.test.ts",
+          "name": "scrubError upstream detail (ATO-1673) sends the reason, blamed field and code of a Gemini refusal, never its text"
+        },
+        {
+          "file": "src/llm/llama-server-client.test.ts",
+          "name": "LlamaServerClient.complete keeps the body's reason code for error reporting, never the server's message (ATO-736)"
+        }
+      ],
+      "note": "Two obsolete integration expectations were updated: Google prose no longer supplies a param; a llama type outside the eight literals stays local. A synthetic temporary-create regression and conventional instruction-path controls were then added. The final run uses the consolidated source tree."
+    },
+    "head": {
+      "passed": 15143,
+      "failed": 29,
+      "skipped": 59,
+      "files": 1276
+    },
+    "unchangedFailures": [
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) accepts --role=<role>"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "refuses token management from an agent tool child"
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects closed stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects empty stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects unterminated stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects oversized stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects short stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects invalid stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime"
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "registers the active serve key for masking (undefined)"
+      },
+      {
+        "file": "src/cli/skill-history-command.test.ts",
+        "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) two tokens never come out the same"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) refuses a duplicate name and a bad name"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) remove drops one token and reports an unknown name"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) never writes over a broken file"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "does not store a bearer token accidentally supplied as a name"
+      },
+      {
+        "file": "src/http/scoped-auth.test.ts",
+        "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request"
+      },
+      {
+        "file": "src/runtime/project-instructions.test.ts",
+        "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks"
+      },
+      {
+        "file": "src/runtime/project-instructions.test.ts",
+        "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+      },
+      {
+        "file": "src/runtime/project-trust.test.ts",
+        "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it"
+      },
+      {
+        "file": "src/local-llm/backend/backend-installer-stable-repo.test.ts",
+        "name": "direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry"
+      },
+      {
+        "file": "src/local-llm/core/core-contract.test.ts",
+        "name": "Core host contract accepts its own data folder reported through a symlinked path"
+      },
+      {
+        "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+        "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy"
+      }
+    ],
+    "additionalFailures": [],
+    "recoveredFailures": []
+  },
+  "limitations": [
+    "Two real file-symlink cases are skipped on Windows after EPERM during the initial creation attempt; hardlinks and directory junctions ran.",
+    "Pending/no-lockOwner turn recovery already passes before the TUI managed-mode fix."
+  ]
+}
