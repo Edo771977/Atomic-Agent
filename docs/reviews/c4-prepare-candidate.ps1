@@ -10,15 +10,16 @@ if ((& git -C $repo remote get-url upstream) -cne 'https://github.com/AtomicBot-
 if (-not [IO.Path]::IsPathRooted($Candidate) -or (Test-Path -LiteralPath $Candidate)) { throw 'Use a new absolute disposable checkout path' }
 & git -C $repo worktree add --detach $Candidate $base
 if ($LASTEXITCODE -ne 0) { throw 'Cannot create candidate' }
-$commits = @('30404f00a','41d55a2da','e7b07c1e7','4eef35798')
-if ($Through -eq 'b') { $commits += '2dda8366f' }
-foreach ($sha in $commits) {
-  & git -C $Candidate cat-file -e "$sha`^{commit}" 2>$null
+$commits = @('30404f00a60f4d3f62477e157bb71d72a58e96fa','41d55a2da8f2e3a3608587cb26ad6530cc1601ce','e7b07c1e7a26f84e88c71d03890530f9bad014f4','4eef35798a2c37e351ef876ea10a06ae89b627ec')
+if ($Through -eq 'b') { $commits += '2dda8366f7dad6b3322f2e07ae8ce4f9dcb39da6' }
+foreach ($commit in $commits) {
+  $sha = $commit.Substring(0,9)
+  & git -C $Candidate cat-file -e "$commit`^{commit}" 2>$null
   if ($LASTEXITCODE -ne 0) {
-    & git -C $Candidate fetch https://github.com/AtomicBot-ai/atomic-agent.git $sha
+    & git -C $Candidate fetch https://github.com/AtomicBot-ai/atomic-agent.git $commit
     if ($LASTEXITCODE -ne 0) { throw 'Fetch upstream commit first' }
   }
-  & git -C $Candidate -c user.name=Edo771977 -c user.email=209531336+Edo771977@users.noreply.github.com cherry-pick -x $sha
+  & git -C $Candidate -c user.name=Edo771977 -c user.email=209531336+Edo771977@users.noreply.github.com cherry-pick -x $commit
   if ($LASTEXITCODE -eq 0) { continue }
   $conflicts = @(& git -C $Candidate diff --name-only --diff-filter=U)
   if ($sha -eq '2dda8366f' -and -not (Compare-Object @('src/tools/files/file-search.ts','src/tools/files/file-vector-store.ts') $conflicts)) {

@@ -1,27 +1,27 @@
-✔ control: only explicitly added folders are scanned (276.7338ms)
-✖ selected parent must exclude its protected state subtree (38.3849ms)
-✖ protected input inventory must apply inside a chosen folder (49.4719ms)
-✔ control: hidden .env and unsupported serve-api.key never become chunks (41.8057ms)
-✖ detector: mask before SQLite persistence (46.1084ms)
-✖ detector: mask before embedding (48.1834ms)
-✖ runtimeKnownSecrets: mask before SQLite persistence (43.0488ms)
-✖ runtimeKnownSecrets: mask before embedding (741.2806ms)
-✖ unqualified files.search must enforce the calling session read scope (34.4334ms)
-✔ control: existing junctions/symlinks are skipped and parent folder search is rejected (41.5023ms)
-✖ a selected root replaced by a junction must not index outside its original canonical folder (46.1414ms)
-✖ the walk must enforce a maximum depth (23.9483ms)
-✔ control: file count and size ceilings skip oversized input (49.2169ms)
-✖ a stopped-at-cap scan must visibly report a partial index (47.3155ms)
-✖ document extraction must pass the fork output budget to its existing reader (1.2889ms)
-✔ control: malicious file text is fenced and taints the turn through the real registry (330.6765ms)
-✔ control: stable prefix bytes stay identical before and after indexing on both transports (38.7421ms)
-✖ all four new HTTP routes must declare the required scopes (0.2926ms)
-✖ a real tool child with an inherited owner credential must not add a folder (255.386ms)
-[atomic-agent] created default config at C:\Users\edoar\AppData\Local\Temp\c4a-audit-5uCI6T\bootstrap-state\config.json
-✖ opening the intended read scope must not expose one named token folder to another (257.4297ms)
-✔ control: runtime refuses remote embedding configuration and unavailable embeddings retain keyword search (469.626ms)
-✔ control: grammar keeps the array root and both project and files tool families (0.4017ms)
-✖ LAN and .local embedding hosts require remote-provider admission rather than the local default (45.5345ms)
+✔ control: only explicitly added folders are scanned (47.0839ms)
+✖ selected parent must exclude its protected state subtree (31.4948ms)
+✖ protected input inventory must apply inside a chosen folder (129.5977ms)
+✔ control: hidden .env and unsupported serve-api.key never become chunks (27.5613ms)
+✖ detector: mask before SQLite persistence (45.8999ms)
+✖ detector: mask before embedding (47.1733ms)
+✖ runtimeKnownSecrets: mask before SQLite persistence (53.3676ms)
+✖ runtimeKnownSecrets: mask before embedding (144.267ms)
+✖ unqualified files.search must enforce the calling session read scope (60.2705ms)
+✔ control: existing junctions/symlinks are skipped and parent folder search is rejected (47.5907ms)
+✖ a selected root replaced by a junction must not index outside its original canonical folder (50.3618ms)
+✖ the walk must enforce a maximum depth (22.1644ms)
+✔ control: file count and size ceilings skip oversized input (49.4997ms)
+✖ a stopped-at-cap scan must visibly report a partial index (52.8857ms)
+✖ document extraction must pass the fork output budget to its existing reader (1.6613ms)
+✔ control: malicious file text is fenced and taints the turn through the real registry (49.1439ms)
+✔ control: stable prefix bytes stay identical before and after indexing on both transports (48.8528ms)
+✖ all four new HTTP routes must declare the required scopes (0.3999ms)
+✖ a real tool child with an inherited owner credential must not add a folder (178.7929ms)
+[atomic-agent] created default config at C:\Users\edoar\AppData\Local\Temp\c4a-audit-ODbtEu\bootstrap-state\config.json
+✖ opening the intended read scope must not expose one named token folder to another (63.9783ms)
+✔ control: runtime refuses remote embedding configuration and unavailable embeddings retain keyword search (149.4123ms)
+✔ control: grammar keeps the array root and both project and files tool families (0.5428ms)
+✖ LAN and .local embedding hosts require remote-provider admission rather than the local default (98.1843ms)
 ℹ tests 23
 ℹ suites 0
 ℹ pass 8
@@ -29,17 +29,17 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 4562.5888
+ℹ duration_ms 3165.6277
 
 ✖ failing tests:
 
-test at docs\reviews\c4a-candidate.mjs:58:1
-✖ selected parent must exclude its protected state subtree (38.3849ms)
+test at docs\reviews\c4a-candidate.mjs:60:1
+✖ selected parent must exclude its protected state subtree (31.4948ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
   1 !== 0
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:62:67)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:64:67)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -50,13 +50,13 @@ test at docs\reviews\c4a-candidate.mjs:58:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:66:1
-✖ protected input inventory must apply inside a chosen folder (49.4719ms)
+test at docs\reviews\c4a-candidate.mjs:68:1
+✖ protected input inventory must apply inside a chosen folder (129.5977ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
   1 !== 0
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:72:67)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:74:67)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -67,13 +67,13 @@ test at docs\reviews\c4a-candidate.mjs:66:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:87:3
-✖ detector: mask before SQLite persistence (46.1084ms)
+test at docs\reviews\c4a-candidate.mjs:89:3
+✖ detector: mask before SQLite persistence (45.8999ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(rows.every(row => !row.text.includes(secret)))
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:91:219)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:93:219)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -84,13 +84,13 @@ test at docs\reviews\c4a-candidate.mjs:87:3
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:94:3
-✖ detector: mask before embedding (48.1834ms)
+test at docs\reviews\c4a-candidate.mjs:96:3
+✖ detector: mask before embedding (47.1733ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(inputs.every(text => !text.includes(secret)))
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:97:99)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:99:99)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -101,13 +101,13 @@ test at docs\reviews\c4a-candidate.mjs:94:3
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:87:3
-✖ runtimeKnownSecrets: mask before SQLite persistence (43.0488ms)
+test at docs\reviews\c4a-candidate.mjs:89:3
+✖ runtimeKnownSecrets: mask before SQLite persistence (53.3676ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(rows.every(row => !row.text.includes(secret)))
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:91:219)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:93:219)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -118,13 +118,13 @@ test at docs\reviews\c4a-candidate.mjs:87:3
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:94:3
-✖ runtimeKnownSecrets: mask before embedding (741.2806ms)
+test at docs\reviews\c4a-candidate.mjs:96:3
+✖ runtimeKnownSecrets: mask before embedding (144.267ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(inputs.every(text => !text.includes(secret)))
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:97:99)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:99:99)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -135,10 +135,10 @@ test at docs\reviews\c4a-candidate.mjs:94:3
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:102:1
-✖ unqualified files.search must enforce the calling session read scope (34.4334ms)
+test at docs\reviews\c4a-candidate.mjs:104:1
+✖ unqualified files.search must enforce the calling session read scope (60.2705ms)
   AssertionError [ERR_ASSERTION]: another folder and its citation reached the caller
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:111:12)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:124:12)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: false,
@@ -149,30 +149,13 @@ test at docs\reviews\c4a-candidate.mjs:102:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:124:1
-✖ a selected root replaced by a junction must not index outside its original canonical folder (46.1414ms)
+test at docs\reviews\c4a-candidate.mjs:137:1
+✖ a selected root replaced by a junction must not index outside its original canonical folder (50.3618ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
   1 !== 0
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:131:47)
-      at async Test.run (node:internal/test_runner/test:1409:7)
-      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
-    generatedMessage: true,
-    code: 'ERR_ASSERTION',
-    actual: 1,
-    expected: 0,
-    operator: 'strictEqual',
-    diff: 'simple'
-  }
-
-test at docs\reviews\c4a-candidate.mjs:135:1
-✖ the walk must enforce a maximum depth (23.9483ms)
-  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
-  
-  1 !== 0
-  
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:138:10)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:144:47)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -184,34 +167,51 @@ test at docs\reviews\c4a-candidate.mjs:135:1
   }
 
 test at docs\reviews\c4a-candidate.mjs:148:1
-✖ a stopped-at-cap scan must visibly report a partial index (47.3155ms)
-  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /results may be incomplete|index is partial|scan (?:limit|cap)/i. Input:
+✖ the walk must enforce a maximum depth (22.1644ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
-  "1 passage(s) from My files, best first. Paste a hit's cite as is when you use it.\n" +
-    '[1] cite: [b.txt](file:///C:/Users/edoar/AppData/Local/Temp/c4a-audit-5uCI6T/14/chosen/b.txt)\n' +
-    '    file: C:\\Users\\edoar\\AppData\\Local\\Temp\\c4a-audit-5uCI6T\\14\\chosen\\b.txt\n' +
-    '    «partialcanary»'
+  1 !== 0
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:151:166)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:151:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
     code: 'ERR_ASSERTION',
-    actual: "1 passage(s) from My files, best first. Paste a hit's cite as is when you use it.\n[1] cite: [b.txt](file:///C:/Users/edoar/AppData/Local/Temp/c4a-audit-5uCI6T/14/chosen/b.txt)\n    file: C:\\Users\\edoar\\AppData\\Local\\Temp\\c4a-audit-5uCI6T\\14\\chosen\\b.txt\n    «partialcanary»",
+    actual: 1,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at docs\reviews\c4a-candidate.mjs:161:1
+✖ a stopped-at-cap scan must visibly report a partial index (52.8857ms)
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /results may be incomplete|index is partial|scan (?:limit|cap)/i. Input:
+  
+  "1 passage(s) from My files, best first. Paste a hit's cite as is when you use it.\n" +
+    '[1] cite: [b.txt](file:///C:/Users/edoar/AppData/Local/Temp/c4a-audit-ODbtEu/14/chosen/b.txt)\n' +
+    '    file: C:\\Users\\edoar\\AppData\\Local\\Temp\\c4a-audit-ODbtEu\\14\\chosen\\b.txt\n' +
+    '    «partialcanary»'
+  
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:164:166)
+      at async Test.run (node:internal/test_runner/test:1409:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: "1 passage(s) from My files, best first. Paste a hit's cite as is when you use it.\n[1] cite: [b.txt](file:///C:/Users/edoar/AppData/Local/Temp/c4a-audit-ODbtEu/14/chosen/b.txt)\n    file: C:\\Users\\edoar\\AppData\\Local\\Temp\\c4a-audit-ODbtEu\\14\\chosen\\b.txt\n    «partialcanary»",
     expected: /results may be incomplete|index is partial|scan (?:limit|cap)/i,
     operator: 'match',
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:155:1
-✖ document extraction must pass the fork output budget to its existing reader (1.2889ms)
+test at docs\reviews\c4a-candidate.mjs:168:1
+✖ document extraction must pass the fork output budget to its existing reader (1.6613ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   + actual - expected
   
   + undefined
   - 5242880
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:158:10)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:171:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: true,
@@ -222,15 +222,15 @@ test at docs\reviews\c4a-candidate.mjs:155:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:175:1
-✖ all four new HTTP routes must declare the required scopes (0.2926ms)
+test at docs\reviews\c4a-candidate.mjs:188:1
+✖ all four new HTTP routes must declare the required scopes (0.3999ms)
   AssertionError [ERR_ASSERTION]: GET /api/files/folders
   + actual - expected
   
   + undefined
   - 'read'
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:176:188)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:189:188)
       at Test.runInAsyncScope (node:async_hooks:226:14)
       at Test.run (node:internal/test_runner/test:1402:25)
       at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
@@ -245,13 +245,13 @@ test at docs\reviews\c4a-candidate.mjs:175:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:179:1
-✖ a real tool child with an inherited owner credential must not add a folder (255.386ms)
+test at docs\reviews\c4a-candidate.mjs:192:1
+✖ a real tool child with an inherited owner credential must not add a folder (178.7929ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
   
   '200' !== '403'
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:184:12)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:197:12)
       at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
@@ -263,13 +263,13 @@ test at docs\reviews\c4a-candidate.mjs:179:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:188:1
-✖ opening the intended read scope must not expose one named token folder to another (257.4297ms)
+test at docs\reviews\c4a-candidate.mjs:201:1
+✖ opening the intended read scope must not expose one named token folder to another (63.9783ms)
   AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
   
     assert.ok(!(await listed.text()).includes(f.docs.replaceAll('\\', '\\\\')))
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:197:130)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:210:130)
       at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
@@ -281,19 +281,25 @@ test at docs\reviews\c4a-candidate.mjs:188:1
     diff: 'simple'
   }
 
-test at docs\reviews\c4a-candidate.mjs:217:1
-✖ LAN and .local embedding hosts require remote-provider admission rather than the local default (45.5345ms)
-  AssertionError [ERR_ASSERTION]: remote admission missing for http://192.168.1.20:8081
+test at docs\reviews\c4a-candidate.mjs:230:1
+✖ LAN and .local embedding hosts require remote-provider admission rather than the local default (98.1843ms)
+  AssertionError [ERR_ASSERTION]: [{"url":"http://192.168.1.20:8081","calls":1},{"url":"http://gpu-box.local:8081","calls":1}]
+  + actual - expected
   
-  1 !== 0
+    [
+  +   1,
+  +   1
+  -   0,
+  -   0
+    ]
   
-      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:222:132)
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\atomic-c4-20261127\docs\reviews\c4a-candidate.mjs:239:10)
       at async Test.run (node:internal/test_runner/test:1409:7)
       at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
     generatedMessage: false,
     code: 'ERR_ASSERTION',
-    actual: 1,
-    expected: 0,
-    operator: 'strictEqual',
+    actual: [ 1, 1 ],
+    expected: [ 0, 0 ],
+    operator: 'deepStrictEqual',
     diff: 'simple'
   }

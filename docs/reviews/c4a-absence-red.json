@@ -14,31 +14,31 @@
   },
   "failures": [
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred exposes no index owner, search tool, schema, descriptor or route"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for owner including inherited credentials"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for admin including inherited credentials"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for operator including inherited credentials"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for member including inherited credentials"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for viewer including inherited credentials"
     },
     {
-      "file": "http/files-index-deferred.test.ts",
+      "file": "src/http/files-index-deferred.test.ts",
       "name": "C4a file indexing remains deferred keeps folder mutation and status absent for anonymous including inherited credentials"
     }
   ],

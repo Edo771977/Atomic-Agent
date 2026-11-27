@@ -17,7 +17,9 @@ const { buildFilesSearchTool } = await load('src/tools/files/files-search-tool.t
 const { walkFolder } = await load('src/tools/files/file-walker.ts');
 const { extractFileText } = await load('src/tools/files/file-text.ts');
 const { ToolRegistry } = await load('src/tools/tool-registry.ts');
+const { ApprovalGate } = await load('src/approval/approval-gate.ts');
 const { confineReads } = await load('src/tools/read-scope/confine-reads.ts');
+const { findSessionReadOutside } = await load('src/tools/read-scope/read-scope.ts');
 const { getStateSecretPaths, getTrustConfigPaths } = await load('src/config/config-file.ts');
 const { maskSecrets } = await load('src/error-reporting/secret-detector.ts');
 const { buildStablePrefix } = await load('src/prompt/stable-prefix.ts');
@@ -100,16 +102,27 @@ for (const [kind, secret, known] of [
 }
 
 test('unqualified files.search must enforce the calling session read scope', async () => {
-  const f = fixture(); writeFileSync(join(f.docs, 'private.txt'), 'foreignscopecanary');
+  const f = fixture(); const outside = realpathSync(mkdtempSync(join(candidate, 'c4-scope-audit-')));
+  assert.ok(outside.startsWith(realpathSync(candidate) + (process.platform === 'win32' ? '\\' : '/')));
+  const file = join(outside, 'private.txt'); writeFileSync(file, 'foreignscopecanary');
+  const otherChat = join(f.dir, 'other-chat'); mkdirSync(otherChat);
   const index = open(f);
   try {
-    await index.addFolder(f.docs); await index.idle();
+    // A temp file is scratch and normally in scope. Use the disposable
+    // checkout for this one fixture and pin a real ordinary-read refusal first.
+    assert.equal(findSessionReadOutside('os.fs.read', { path: file }, ctx(otherChat), [otherChat]), file);
+    await index.addFolder(outside); await index.idle();
+    let prompts = 0; let reads = 0;
+    const gate = new ApprovalGate({ level: 3, emit: request => { prompts++; queueMicrotask(() => gate.resolve({ approvalId: request.approvalId, approved: false })); } });
     const registry = new ToolRegistry(); registry.register(buildFilesSearchTool({ index }));
-    // Real production read wrapper, with no approval for widening the roots.
-    confineReads(registry, { grantedDirs: () => [], readScope: () => 'working-dir', approvals: { approvalRequired: true, approvals: { readScopeGrants: { rootsFor: () => [] } } } });
-    const result = await registry.invoke('files.search', { query: 'foreignscopecanary' }, ctx(join(f.dir, 'other-chat')));
+    registry.register({ name: 'os.fs.read', description: 'scope control', readonly: true, run: async () => { reads++; throw Error('a denied read reached execution'); } });
+    confineReads(registry, { grantedDirs: () => [], readScope: () => 'working-dir', approvals: { approvalRequired: true, approvals: gate } });
+    const denied = await registry.invoke('os.fs.read', { path: file }, ctx(otherChat));
+    assert.equal(denied.details.reason, 'read-outside-scope'); assert.equal(prompts, 1); assert.equal(reads, 0);
+    const result = await registry.invoke('files.search', { query: 'foreignscopecanary' }, ctx(otherChat));
+    assert.equal(prompts, 1, 'the search did not ask for a new approval');
     assert.ok(!result.summary.includes('foreignscopecanary'), 'another folder and its citation reached the caller');
-  } finally { await index.close(); }
+  } finally { await index.close(); rmSync(outside, { recursive: true, force: true }); }
 });
 
 test('control: existing junctions/symlinks are skipped and parent folder search is rejected', async t => {
@@ -215,11 +228,13 @@ test('control: grammar keeps the array root and both project and files tool fami
 });
 
 test('LAN and .local embedding hosts require remote-provider admission rather than the local default', async () => {
+  const observed = [];
   for (const url of ['http://192.168.1.20:8081', 'http://gpu-box.local:8081']) {
     const f = fixture(); const config = structuredClone(getConfig()); config.paths.stateDir = join(f.dir, 'runtime-state'); config.localModels.embeddings.url = url;
     const inputs = []; const index = createRuntimeFileIndex({ config, notesStore: { currentEmbeddingClient: () => ({ model: 'fixture', dim: 2, embed: async r => { inputs.push(r.text); return { model: 'fixture', vector: new Float32Array([1, 0]) }; } }) }, logger: { warn() {} }, startDelayMs: 1e9 });
     assert.ok(index);
-    try { writeFileSync(join(f.docs, 'file.txt'), 'lanembeddingcanary'); await index.addFolder(f.docs); await index.idle(); assert.equal(inputs.length, 0, `remote admission missing for ${url}`); }
+    try { writeFileSync(join(f.docs, 'file.txt'), 'lanembeddingcanary'); await index.addFolder(f.docs); await index.idle(); observed.push({ url, calls: inputs.length }); }
     finally { await index.close(); }
   }
+  assert.deepEqual(observed.map(item => item.calls), [0, 0], JSON.stringify(observed));
 });

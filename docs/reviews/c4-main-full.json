@@ -1,0 +1,478 @@
+{
+  "report": "atomic-c4-main-full.json",
+  "success": false,
+  "tests": {
+    "passed": 30907,
+    "failed": 115,
+    "pending": 660,
+    "total": 31682
+  },
+  "suites": {
+    "passed": 7912,
+    "failed": 98,
+    "pending": 0
+  },
+  "failures": [
+    {
+      "file": "scripts/check-anthropic-prices.test.ts",
+      "name": "parsePricingPage on the saved official page reproduces the committed generated block byte for byte"
+    },
+    {
+      "file": "scripts/gen-settings-reference.test.ts",
+      "name": "generated settings reference is up to date with the schema's JSDoc, and every key has some"
+    },
+    {
+      "file": "scripts/install-team-id.test.ts",
+      "name": "install.sh Team ID pin runs the pin on every macOS path, including a --verify timeout or skip"
+    },
+    {
+      "file": "scripts/install-team-id.test.ts",
+      "name": "install.sh Team ID pin accepts the expected Team ID"
+    },
+    {
+      "file": "scripts/install-team-id.test.ts",
+      "name": "install.sh Team ID pin refuses a binary signed by another team"
+    },
+    {
+      "file": "scripts/install-team-id.test.ts",
+      "name": "install.sh Team ID pin refuses an ad-hoc or unsigned binary when a Team ID is expected"
+    },
+    {
+      "file": "scripts/install-team-id.test.ts",
+      "name": "install.sh Team ID pin does not pin when no Team ID is expected (ATOMIC_AGENT_TEAM_ID='' or a fork)"
+    },
+    {
+      "file": "scripts/linux-packaging.test.ts",
+      "name": "package assets puts the tree where src/update/install-source.ts expects it"
+    },
+    {
+      "file": "scripts/linux-packaging.test.ts",
+      "name": "neededLibraries declares every library of the shipped binaries in nfpm.yaml and the PKGBUILD"
+    },
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace"
+    },
+    {
+      "file": "src/channels/build-extra-channels.test.ts",
+      "name": "buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids"
+    },
+    {
+      "file": "src/cli/http-command.test.ts",
+      "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it"
+    },
+    {
+      "file": "src/cli/http-command.test.ts",
+      "name": "atag http tokens (ATO-583) accepts --role=<role>"
+    },
+    {
+      "file": "src/cli/http-command.test.ts",
+      "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error"
+    },
+    {
+      "file": "src/cli/http-command.test.ts",
+      "name": "refuses token management from an agent tool child"
+    },
+    {
+      "file": "src/cli/memory-backup.test.ts",
+      "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+    },
+    {
+      "file": "src/cli/memory-backup.test.ts",
+      "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+    },
+    {
+      "file": "src/cli/node-env-bootstrap.test.ts",
+      "name": "cli entry import order imports the NODE_ENV bootstrap before every other module"
+    },
+    {
+      "file": "src/cli/run-agent-approval.test.ts",
+      "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with an input redirect"
+    },
+    {
+      "file": "src/cli/run-agent-approval.test.ts",
+      "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with a background job"
+    },
+    {
+      "file": "src/cli/run-agent-approval.test.ts",
+      "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with a sequence"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects closed stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects empty stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects unterminated stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects oversized stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects short stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-auth-process.test.ts",
+      "name": "rejects invalid stdin before starting serve"
+    },
+    {
+      "file": "src/cli/serve-command.test.ts",
+      "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime"
+    },
+    {
+      "file": "src/cli/serve-command.test.ts",
+      "name": "registers the active serve key for masking (undefined)"
+    },
+    {
+      "file": "src/cli/skill-history-command.test.ts",
+      "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+    },
+    {
+      "file": "src/config/settings-reference.test.ts",
+      "name": "the live settings reference matches the checked-in docs/user/settings-reference.md"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) two tokens never come out the same"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) refuses a duplicate name and a bad name"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) remove drops one token and reports an unknown name"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) never writes over a broken file"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens"
+    },
+    {
+      "file": "src/http/http-token-store.test.ts",
+      "name": "does not store a bearer token accidentally supplied as a name"
+    },
+    {
+      "file": "src/http/scoped-auth.test.ts",
+      "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request"
+    },
+    {
+      "file": "src/plugins/plugin-install.test.ts",
+      "name": "plugin install drops symlinks while copying"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "buildOsSandboxPolicy writes go to the project and temp only"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "buildOsSandboxPolicy hides credential folders and the agent's state"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "buildOsSandboxPolicy protects a configured model key outside the state root"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "round 3 point 4: refuses a workspace inside state and passes an explicit chdir"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "round 3 point 5: protects root home and privileged etc files"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "round 4 point 4: mounts a workspace toolchain read-only after the writable workspace"
+    },
+    {
+      "file": "src/sandbox/os-sandbox.test.ts",
+      "name": "round 4 point 5: a large dependency tree stays read-only without blocking shell launch"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+    },
+    {
+      "file": "src/runtime/project-trust.test.ts",
+      "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it"
+    },
+    {
+      "file": "src/skills/audit-starter.test.ts",
+      "name": "the audit starter skill is named so the slash command is /audit"
+    },
+    {
+      "file": "src/skills/install-local-skill.test.ts",
+      "name": "installLocalSkill installs the scanned staging copy, keeps relative links and cleans up"
+    },
+    {
+      "file": "src/skills/skill-loader.test.ts",
+      "name": "loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it"
+    },
+    {
+      "file": "src/skills/skill-script-runner.test.ts",
+      "name": "runSkillScript runs a bash script by .sh extension"
+    },
+    {
+      "file": "src/skills/workspace-skills.test.ts",
+      "name": "session workspace skills and live policy stores canonical workspace policy without modifying the project"
+    },
+    {
+      "file": "src/skills/workspace-skills.test.ts",
+      "name": "session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined"
+    },
+    {
+      "file": "src/skills/workspace-skills.test.ts",
+      "name": "session workspace skills and live policy never imports project symlinks outside the workspace"
+    },
+    {
+      "file": "src/skills/workspace-skills.test.ts",
+      "name": "session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias"
+    },
+    {
+      "file": "src/skills/workspace-skills.test.ts",
+      "name": "session workspace skills and live policy confines a symlinked shared skill to its own resolved folder"
+    },
+    {
+      "file": "src/agent/progress/read-coverage.test.ts",
+      "name": "read-coverage detection end to end sees a symlink and its target as one file"
+    },
+    {
+      "file": "src/local-llm/backend/backend-installer-stable-repo.test.ts",
+      "name": "direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry"
+    },
+    {
+      "file": "src/local-llm/core/core-contract.test.ts",
+      "name": "Core host contract accepts its own data folder reported through a symlinked path"
+    },
+    {
+      "file": "src/llm/grammar/build-grammar.test.ts",
+      "name": "the reasoning budget (F49) keeps the string small — llama.cpp expands {0,N} server-side, the request does not carry it"
+    },
+    {
+      "file": "src/llm/grammar/build-grammar.test.ts",
+      "name": "buildGrammarForTools — the per-request grammar replaces only the tool-name rule and leaves every other line byte-identical"
+    },
+    {
+      "file": "src/llm/grammar/tool-call-branches.test.ts",
+      "name": "per-request narrowing keeps or drops the fs branches a base from before the fs branches keeps the names on the generic branch"
+    },
+    {
+      "file": "src/llm/grammar/tool-call-branches.test.ts",
+      "name": "finish has its own branch, like reply (#681) a base from before the finish branch keeps finish on the generic branch"
+    },
+    {
+      "file": "src/llm/grammar/tool-call-branches.test.ts",
+      "name": "the tools small models use most need their required args (ATO-1114) a whole coding session's set keeps every branch in rule order, with no generic branch"
+    },
+    {
+      "file": "src/memory/voting/vote-store.test.ts",
+      "name": "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)"
+    },
+    {
+      "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+      "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy"
+    },
+    {
+      "file": "src/skills/eval/checks.test.ts",
+      "name": "runCheck command that runs too long fails as a timeout"
+    },
+    {
+      "file": "src/skills/hub/scan-skill-dir.test.ts",
+      "name": "scanSkillDir flags a symlink pointing outside the skill instead of following it"
+    },
+    {
+      "file": "src/skills/hub/scan-skill-dir.test.ts",
+      "name": "scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself"
+    },
+    {
+      "file": "src/skills/hub/skill-lock.test.ts",
+      "name": "skill lock covers symlinks by their link text"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies direct procfs reads even without state secret files"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "round2-4 recognizes cd /proc/self && cat environ"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "round2-4 recognizes cd /proc && cat self/environ"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags cat /proc/$(resolve pid)/environ without reading a real credential"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags pushd /proc/self && cat environ without reading a real credential"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags grep -r synthetic /proc/self without reading a real credential"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags find /proc/123 -type f without reading a real credential"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations"
+    },
+    {
+      "file": "src/tools/fusion/branch-merge.test.ts",
+      "name": "fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge"
+    },
+    {
+      "file": "src/tools/fusion/branch-private-git.test.ts",
+      "name": "keeps nested tasks and the final planned source independent from the candidate and each other"
+    },
+    {
+      "file": "src/tools/fusion/branch-private-git.test.ts",
+      "name": "executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+      "name": "actual tracked working-tree snapshot charges tracked byte overlays to the cumulative private-copy limit"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for ignored-directory payload"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "includes tracked byte overlays in the measured final copy"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits"
+    },
+    {
+      "file": "src/tools/fusion/candidate-evidence.test.ts",
+      "name": "binds promoted and zero-change receipts only after final delivery verification"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "fails closed for missing check evidence and protects declared inputs"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes inside a Git subdirectory while retaining dirty and untracked original bytes"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes a tracked file under a directory named like a dependency/build folder"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "never promotes deletion of ignored standalone files"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "never promotes modification of ignored standalone files"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rejects a tracked file renamed onto an ignored name instead of silently deleting it"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rejects a declared provide that only exists under an ignored path"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes but reports new ignored paths it kept private"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "refuses to delete a directory that still holds ignored or disposable original entries, naming them"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "stages a worktree candidate whose source directory has mode 509"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "stages a worktree candidate whose source directory has mode 448"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "requested candidate rejects cross-file mismatch without publishing either individually valid file"
+    },
+    {
+      "file": "src/tools/fusion/fusion-delegate-criteria.test.ts",
+      "name": "fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)"
+    },
+    {
+      "file": "src/tools/fusion/merge-gate.test.ts",
+      "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one"
+    },
+    {
+      "file": "src/tools/fusion/merge-gate.test.ts",
+      "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file"
+    },
+    {
+      "file": "src/tools/fusion/merge-gate.test.ts",
+      "name": "held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green"
+    },
+    {
+      "file": "src/tools/fusion/regression-gate.test.ts",
+      "name": "a change must not break a case that already passed (issue #106) in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)"
+    },
+    {
+      "file": "src/tui/components/logo-art.generated.test.ts",
+      "name": "logo-art.ts is in sync with assets/logo.svg"
+    }
+  ],
+  "suiteErrors": []
+}
