@@ -31,4 +31,4 @@ Checks: `npx vitest run src/atomic-mail` when tests are present; `npm run lint`;
 - At most 5 tasks per poll; the binding is not reachable over `POST /api/webhooks/<name>`.
 - `replyByEmail: true` (default `false`) mails the agent's final answer back to the sender when the task ends. There is no prompt per reply: turning it on is the operator's consent. Under per-folder constraints (issue #33) the answer of a session whose effective policy lacks the `mail` egress class (or a task without a session while constraints exist) is replaced by a fixed line saying it stays on the computer.
 
-Not covered yet: IMAP or Gmail for the operator's own mailbox (needs new dependencies), JMAP push instead of polling.
+IMAP/Gmail ingress for the operator's own mailbox is deferred in B5a (#1702/#1719): ambiguous identities can auto-start tasks and the candidate credential resolver admits tool children. The candidate uses node:tls without a new dependency, but needs the fork's trust and lifecycle boundaries before import. [Evidence and reopening tests](../../docs/reviews/b5a-imap.md). JMAP push instead of polling is also not covered.

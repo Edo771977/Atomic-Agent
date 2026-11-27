@@ -1,0 +1,75 @@
+{
+  "fixture": "synthetic credentials, fake IMAP and HTTP transports; no real messages, accounts, connections or calls",
+  "candidate": "b5a-candidate.test.ts",
+  "tests": [
+    {
+      "test": "control: quoted display name never auto-starts",
+      "status": "passed"
+    },
+    {
+      "test": "control: encoded display name never auto-starts",
+      "status": "passed"
+    },
+    {
+      "test": "control: plus address never auto-starts",
+      "status": "passed"
+    },
+    {
+      "test": "control: message and decoded subject are framed as external data",
+      "status": "passed"
+    },
+    {
+      "test": "does not auto-start with duplicate From",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected false to be true // Object.is equality\n    at <candidate>/src/tasks/b5a-candidate.test.ts:50:43\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processImmediate (node:internal/timers:541:9)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "does not auto-start with different Sender",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected false to be true // Object.is equality\n    at <candidate>/src/tasks/b5a-candidate.test.ts:50:43\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processImmediate (node:internal/timers:541:9)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "does not auto-start with different Reply-To",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected false to be true // Object.is equality\n    at <candidate>/src/tasks/b5a-candidate.test.ts:50:43\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processImmediate (node:internal/timers:541:9)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "never treats a whole authenticated domain as the person's identity",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected false to be true // Object.is equality\n    at <candidate>/src/tasks/b5a-candidate.test.ts:54:43\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processImmediate (node:internal/timers:541:9)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "never bypasses verified authserv-id for auto-start with trustFromHeader",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected false to be true // Object.is equality\n    at <candidate>/src/tasks/b5a-candidate.test.ts:58:43\n    at runNextTicks (node:internal/process/task_queues:65:5)\n    at process.processImmediate (node:internal/timers:541:9)\n    at async file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "test": "refuses credential resolution from a marked tool child",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: expected 'synthetic-password' to be null\n    at <candidate>/src/tasks/b5a-candidate.test.ts:63:136\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+      ]
+    },
+    {
+      "test": "rejects an IMAP trigger before an unverified message can create a task",
+      "status": "passed"
+    },
+    {
+      "test": "keeps IMAP connection, credential and scheduler entry points absent",
+      "status": "failed",
+      "assertionFailures": [
+        "AssertionError: ../imap-mail/imap-client.ts: expected true to be false // Object.is equality\n    at <candidate>/src/tasks/b5a-imap-deferred.test.ts:9:62\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<workspace>/atomic-b5-review-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+      ]
+    }
+  ]
+}
