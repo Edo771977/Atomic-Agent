@@ -315,9 +315,13 @@ function renderMessage(
   const bodyPrefix = head ? prefix + head + "\n\n" : prefix;
   const precedingParts = range?.seen ?? 0;
   const body = renderPart(part, depth, warnings, attachments, budget, output, bodyPrefix, range);
-  if (range && depth > 0 && ((range.start > 1 && range.seen < range.start) || precedingParts >= range.end)) {
-    return body;
+  if (range && depth > 0) {
+    // A forwarded message that contains only attachments belongs to the
+    // next body position, even though it does not advance the part count.
+    const lastPart = range.seen + (attachments.length > 0 && range.seen === precedingParts ? 1 : 0);
+    if ((range.start > 1 && lastPart < range.start) || precedingParts >= range.end) return body;
   }
+  if (output.stopped) return body;
   if (attachments.length > 0) {
     const attachmentPrefix = body ? "\n\n" : bodyPrefix;
     return body + output.append(attachmentPrefix + `Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
