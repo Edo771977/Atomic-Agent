@@ -1,0 +1,29 @@
+{
+  "baseline": {
+    "numTotalTests": 13,
+    "numPassedTests": 12,
+    "numFailedTests": 1,
+    "numPendingTests": 0,
+    "numFailedTestSuites": 3
+  },
+  "candidate": {
+    "numTotalTests": 12393,
+    "numPassedTests": 12380,
+    "numFailedTests": 1,
+    "numPendingTests": 12,
+    "numFailedTestSuites": 3
+  },
+  "comparison": {
+    "common": [
+      {
+        "file": "src/memory/voting/vote-store.test.ts",
+        "name": "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/memory/voting/vote-store.test.ts:287:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      }
+    ],
+    "additional": [],
+    "baselineOnly": []
+  }
+}

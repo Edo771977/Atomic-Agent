@@ -80,6 +80,16 @@ The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, do
 
 C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answer bytes, accepts malformed archive fields, persists extra history in incognito and restores without acquiring turn ownership. Existing rollback behavior remains available. [Evidence and reopening tests](../reviews/c2a-previous-replies.md).
 
+## Facts from a ChatGPT or Claude export
+
+C3a keeps upstream #1584 deferred: approval IDs can be supplied by an agent child, opaque runtime credentials survive collection, and extraction bounds exist only in the prompt. No facts extraction or save API is enabled. [Candidate evidence and reopening tests](../reviews/c3a-user-facts.md).
+
+C3b keeps upstream #1642 and its follow-up fixes deferred with C3a. No /api/import/facts routes or background import are enabled. The candidate lacks bounded archive admission, durable job scope, memory-enabled checks and token ownership; an inherited owner credential can save. Existing guarded providers and offline transport are preserved. [Audit and reopening tests](../reviews/c3b-import-jobs.md).
+
+C3c keeps the dependent terminal facts step (#1661) deferred. Its candidate checks every fact by default and Enter can save facts outside the only displayed page. The existing import form has no facts review until the predecessor services and explicit unchecked approval flow are established. [TUI audit](../reviews/c3c-tui-facts.md).
+
+C3d keeps the first-run export hint (#1670) deferred because it points to that absent facts step. The hint itself is informational and starts no import or memory write; it can return once the preceding chain is ready. [Onboarding controls](../reviews/c3d-onboarding.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).

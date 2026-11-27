@@ -1,0 +1,190 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "slice": "c3d",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "checks": [
+    {
+      "check": "ci",
+      "exit": 0,
+      "started": "2026-11-27T15:54:36.0314395+01:00",
+      "log": "c3d-ci.log"
+    },
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T15:55:06.5187172+01:00",
+      "log": "c3d-lint.log"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T15:55:24.9136723+01:00",
+      "log": "c3d-imports-check.log"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T15:55:29.5501884+01:00",
+      "log": "c3d-typecheck-tests.log"
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T15:56:14.1559166+01:00",
+      "log": "c3d-docs-check.log",
+      "finalLog": "c3d-docs-final.log"
+    },
+    {
+      "check": "focused",
+      "exit": 1,
+      "started": "2026-11-27T15:56:15.5823791+01:00",
+      "log": "c3d-focused.log"
+    }
+  ],
+  "focused": {
+    "passed": 12393,
+    "failed": 1,
+    "pending": 12,
+    "newTests": [
+      {
+        "name": "C3d first-run facts destination remains deferred does not export a hint for the unavailable facts workflow",
+        "status": "passed"
+      },
+      {
+        "name": "C3d first-run facts destination remains deferred does not advertise the absent facts step from first run",
+        "status": "passed"
+      }
+    ]
+  },
+  "candidate": {
+    "tests": 3,
+    "passed": 3,
+    "failed": 0,
+    "absenceFailed": 2,
+    "reason": "Deferred solely with its prerequisites; informational rendering controls pass."
+  },
+  "full": {
+    "command": "npm test -- --maxWorkers=6 --reporter=json --outputFile=<report.json>",
+    "main": {
+      "passed": 30921,
+      "failed": 85,
+      "pending": 660
+    },
+    "final": {
+      "passed": 30891,
+      "failed": 131,
+      "pending": 660
+    },
+    "common": 84,
+    "initiallyAdditional": 47,
+    "baselineOnly": 1,
+    "atLeast15SecondsAmongAdditional": 46,
+    "newTests": [
+      {
+        "name": "C3a facts extraction remains deferred exposes no export parser or collector before archive and read-scope review",
+        "status": "passed"
+      },
+      {
+        "name": "C3a facts extraction remains deferred exposes no save or undo API callable with agent-supplied approval IDs",
+        "status": "passed"
+      },
+      {
+        "name": "C3a facts extraction remains deferred exposes no extraction engine before runtime-secret, framing and output-bound checks",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/start or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register GET /api/import/facts/jobs/{id} or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/stop or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/jobs/{id}/save or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register DELETE /api/import/facts/jobs/{id} or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register GET /api/import/facts/receipts or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred does not register POST /api/import/facts/receipts/{id}/undo or grant a scope",
+        "status": "passed"
+      },
+      {
+        "name": "C3b facts jobs remain deferred exposes no reader, job service or receipt persistence behind another caller",
+        "status": "passed"
+      },
+      {
+        "name": "C3c terminal facts review remains deferred has no facts runner that can reach the deferred save service",
+        "status": "passed"
+      },
+      {
+        "name": "C3c terminal facts review remains deferred has no facts view, approval reducer or keys before unchecked review is established",
+        "status": "passed"
+      },
+      {
+        "name": "C3c terminal facts review remains deferred does not attach a facts review to the established import form",
+        "status": "passed"
+      },
+      {
+        "name": "C3d first-run facts destination remains deferred does not export a hint for the unavailable facts workflow",
+        "status": "passed"
+      },
+      {
+        "name": "C3d first-run facts destination remains deferred does not advertise the absent facts step from first run",
+        "status": "passed"
+      }
+    ],
+    "controls": {
+      "requested": 47,
+      "maxWorkers": 2,
+      "main": {
+        "passed": 35,
+        "failed": 12
+      },
+      "final": {
+        "passed": 35,
+        "failed": 12
+      },
+      "common": 8,
+      "additional": 4,
+      "baselineOnly": 4,
+      "otherCasesPending": 268,
+      "timeoutsUnchanged": true
+    },
+    "serial": {
+      "requested": 4,
+      "maxWorkers": 1,
+      "runs": "main then final, sequentially",
+      "main": {
+        "passed": 4,
+        "failed": 0
+      },
+      "final": {
+        "passed": 4,
+        "failed": 0
+      },
+      "otherCasesPending": 50,
+      "timeoutsUnchanged": true
+    },
+    "unresolvedAdditionalNames": [],
+    "sourceUnchangedAfterRun": true
+  },
+  "environment": {
+    "node": "v26.13.1",
+    "platform": "win32",
+    "arch": "x64",
+    "osRelease": "10.0.26300",
+    "coreAutocrlf": false
+  }
+}

@@ -1,0 +1,977 @@
+{
+  "baseline": {
+    "numTotalTests": 31666,
+    "numPassedTests": 30921,
+    "numFailedTests": 85,
+    "numPendingTests": 660,
+    "numFailedTestSuites": 66
+  },
+  "candidate": {
+    "numTotalTests": 31682,
+    "numPassedTests": 30891,
+    "numFailedTests": 131,
+    "numPendingTests": 660,
+    "numFailedTestSuites": 80
+  },
+  "comparison": {
+    "common": [
+      {
+        "file": "src/agent-profiles/profile-loader.test.ts",
+        "name": "loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/agent-profiles-tla8Tb/outside' -> 'C:/Users/edoar/AppData/Local/Temp/agent-profiles-tla8Tb/repo/.claude/agents'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/agent-profiles/profile-loader.test.ts:107:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/channels/build-extra-channels.test.ts",
+        "name": "buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+        "messages": [
+          "AssertionError: expected [ …(3) ] to deeply equal [ …(3) ]\n    at <checkout>/src/channels/build-extra-channels.test.ts:45:18\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+        "messages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:31:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) accepts --role=<role>",
+        "messages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:44:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+        "messages": [
+          "AssertionError: expected { code: 1, out: '', …(1) } to match object { code: +0, …(1) }\n(1 matching property omitted from actual)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1283:10)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/cli/http-command.test.ts:50:54\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "refuses token management from an agent tool child",
+        "messages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:87:79\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+        "messages": [
+          "Error: Command failed: powershell.exe -NoProfile -NonInteractive -Command $acl = Get-Acl -LiteralPath $env:ATAG_BACKUP_ACL_TEST_PATH\n         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value\n         $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])\n         if (!$acl.AreAccessRulesProtected -or $rules.Count -ne 1 -or $rules[0].IdentityReference.Value -ne $sid) {\n           exit 1\n         }\nGet-Acl : Comando 'Get-Acl' trovato nel modulo 'Microsoft.PowerShell.Security', ma impossibile caricare il modulo. Per \r\nulteriori informazioni, eseguire 'Import-Module Microsoft.PowerShell.Security'.\r\nIn riga:1 car:8\r\n+ $acl = Get-Acl -LiteralPath $env:ATAG_BACKUP_ACL_TEST_PATH\r\n+        ~~~~~~~\r\n    + CategoryInfo          : ObjectNotFound: (Get-Acl:String) [], CommandNotFoundException\r\n    + FullyQualifiedErrorId : CouldNotAutoloadMatchingModule\r\n \r\nImpossibile chiamare un metodo su un'espressione con valore null.\r\nIn riga:3 car:10\r\n+          $rules = $acl.GetAccessRules($true, $true, [Security.Princip ...\r\n+          ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~\r\n    + CategoryInfo          : InvalidOperation: (:) [], RuntimeException\r\n    + FullyQualifiedErrorId : InvokeMethodOnNull\r\n \r\n\n    at genericNodeError (node:internal/errors:999:15)\n    at wrappedFn (node:internal/errors:544:14)\n    at checkExecSyncError (node:child_process:990:11)\n    at execFileSync (node:child_process:1026:15)\n    at <checkout>/src/cli/memory-backup.test.ts:89:22\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+        "messages": [
+          "AssertionError: expected '/s/backups/memory-20261118-090507' to be '/s/backups/memory-20261118-090507' // Object.is equality\n    at <checkout>/src/cli/memory-backup.test.ts:426:69\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects closed stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects empty stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects unterminated stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /newline/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects oversized stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /4096 bytes/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects short stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /at least 16/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects invalid stdin before starting serve",
+        "messages": [
+          "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /printable ASCII/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+        "messages": [
+          "AssertionError: expected 'serve: no API key given, and the key …' to contain 'cloudflared'\n    at <checkout>/src/cli/serve-command.test.ts:164:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "registers the active serve key for masking (undefined)",
+        "messages": [
+          "AssertionError: expected 'tool output: 1e592833e571c8ecbe9856c8…' to be 'tool output: [redacted:serve-api-key]' // Object.is equality\n    at <checkout>/src/cli/serve-command.test.ts:226:66\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/cli/skill-history-command.test.ts",
+        "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+        "messages": [
+          "AssertionError: expected 'Pending review (drafts awaiting expli…' to contain '/learn'\n    at <checkout>/src/cli/skill-history-command.test.ts:202:20\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+        "messages": [
+          "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:31:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) two tokens never come out the same",
+        "messages": [
+          "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:46:49\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) refuses a duplicate name and a bad name",
+        "messages": [
+          "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:50:53\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) remove drops one token and reports an unknown name",
+        "messages": [
+          "AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true }\n    at <checkout>/src/http/http-token-store.test.ts:59:39\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) never writes over a broken file",
+        "messages": [
+          "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:66:56\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+        "messages": [
+          "AssertionError: expected [] to deeply equal [ 'a' ]\n    at <checkout>/src/http/http-token-store.test.ts:78:41\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "does not store a bearer token accidentally supplied as a name",
+        "messages": [
+          "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:109:25\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/http/scoped-auth.test.ts",
+        "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+        "messages": [
+          "Error: cannot update the token registry\n    at <checkout>/src/http/scoped-auth.test.ts:144:29\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/plugins/plugin-install.test.ts",
+        "name": "plugin install drops symlinks while copying",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/etc' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-plugin-install-ll61HC/src/skills/review/etc-link'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/plugins/plugin-install.test.ts:54:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "buildOsSandboxPolicy writes go to the project and temp only",
+        "messages": [
+          "AssertionError: expected 'C:/home/op/project' to be '/home/op/project' // Object.is equality\n    at <checkout>/src/sandbox/os-sandbox.test.ts:191:32\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "buildOsSandboxPolicy hides credential folders and the agent's state",
+        "messages": [
+          "AssertionError: expected [ '/home/op/.ssh', …(19) ] to include '/home/op/.ssh'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/sandbox/os-sandbox.test.ts:199:24\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "buildOsSandboxPolicy protects a configured model key outside the state root",
+        "messages": [
+          "AssertionError: expected [ '/home/op/.ssh', …(20) ] to include '/srv/models/llama-server.key'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/sandbox/os-sandbox.test.ts:213:24\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+        "messages": [
+          "AssertionError: expected [ '/home/op/.ssh', …(19) ] to include '/home/op/.atomic-agent'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/sandbox/os-sandbox.test.ts:225:24\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+        "messages": [
+          "AssertionError: expected [ '-D', 'HOME_ROOT=/home/op', …(51) ] to include 'W0=/home/op/project'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/sandbox/os-sandbox.test.ts:285:20\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+        "messages": [
+          "AssertionError: expected '--dev /dev --unshare-pid --unshare-ip…' to contain '--chdir /home/op/project'\n    at <checkout>/src/sandbox/os-sandbox.test.ts:406:48\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "round 3 point 5: protects root home and privileged etc files",
+        "messages": [
+          "AssertionError: expected [ '/home/op/.ssh', …(19) ] to deeply equal ArrayContaining{…}\n    at <checkout>/src/sandbox/os-sandbox.test.ts:410:29\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+        "messages": [
+          "Error: the protected agent state overlaps a writable workspace root\n    at <checkout>/src/sandbox/os-sandbox.test.ts:452:28\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/sandbox/os-sandbox.test.ts",
+        "name": "round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+        "messages": [
+          "Error: the protected agent state overlaps a writable workspace root\n    at <checkout>/src/sandbox/os-sandbox.test.ts:491:28\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/runtime/project-instructions.test.ts",
+        "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/project-rules-GBevsQ/outside.md' -> 'C:/Users/edoar/AppData/Local/Temp/project-rules-GBevsQ/workspace/AGENT.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:39:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/runtime/project-instructions.test.ts",
+        "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/project-rules-XlvRwG/workspace/AGENTS.md' -> 'C:/Users/edoar/AppData/Local/Temp/project-rules-XlvRwG/workspace/GEMINI.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:275:33\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/runtime/project-trust.test.ts",
+        "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/project-trust-ogf3VY/repo' -> 'C:/Users/edoar/AppData/Local/Temp/project-trust-ogf3VY/alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-trust.test.ts:136:40\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/skills/install-local-skill.test.ts",
+        "name": "installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'real.md' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-local-install-pT0RXI/src/linked/docs/alias.md'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/install-local-skill.test.ts:188:5\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/skills/skill-loader.test.ts",
+        "name": "loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/atomic-skills-TCflfg/store/linked' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-skills-TCflfg/home/.agents/skills/linked'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/skill-loader.test.ts:185:7\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/skills/skill-script-runner.test.ts",
+        "name": "runSkillScript runs a bash script by .sh extension",
+        "messages": [
+          "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/skills/skill-script-runner.test.ts:101:29\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atomic-skill-run-j4zo9N'"
+        ]
+      },
+      {
+        "file": "src/skills/workspace-skills.test.ts",
+        "name": "session workspace skills and live policy stores canonical workspace policy without modifying the project",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-mC4ADd/a' -> 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-mC4ADd/alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:110:40\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/skills/workspace-skills.test.ts",
+        "name": "session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-6IekXW/elsewhere/linked' -> 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-6IekXW/state/skills/linked'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:169:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/skills/workspace-skills.test.ts",
+        "name": "session workspace skills and live policy never imports project symlinks outside the workspace",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-wM9KDV/outside' -> 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-wM9KDV/a/.agents/skills'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:184:36\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/skills/workspace-skills.test.ts",
+        "name": "session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-wjJxJp/state' -> 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-wjJxJp/state-alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:190:46\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/skills/workspace-skills.test.ts",
+        "name": "session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-7lQB58/store/linked' -> 'C:/Users/edoar/AppData/Local/Temp/workspace-skills-7lQB58/home/.agents/skills/linked'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:320:47\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/agent/progress/read-coverage.test.ts",
+        "name": "read-coverage detection end to end sees a symlink and its target as one file",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/atomic-read-loop-P2PwhF/src.ts' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-read-loop-P2PwhF/alias.ts'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/agent/progress/read-coverage.test.ts:508:5\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/local-llm/backend/backend-installer-stable-repo.test.ts",
+        "name": "direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+        "messages": [
+          "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/local-llm/backend/backend-installer-stable-repo.test.ts:257:74\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/local-llm/core/core-contract.test.ts",
+        "name": "Core host contract accepts its own data folder reported through a symlinked path",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/engine-test-wWmvo5/real' -> 'C:/Users/edoar/AppData/Local/Temp/engine-test-wWmvo5/link'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/local-llm/core/core-contract.test.ts:26:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/memory/voting/vote-store.test.ts",
+        "name": "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/memory/voting/vote-store.test.ts:287:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+        "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+        "messages": [
+          "AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/runtime/composition/runtime-egress-guard.test.ts:75:117\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/skills/eval/checks.test.ts",
+        "name": "runCheck command that runs too long fails as a timeout",
+        "messages": [
+          "Error: EPERM, Permission denied: 'C:/Users/edoar/AppData/Local/Temp/skill-eval-checks-TjohMM'\n    at rmSync (node:fs:1593:18)\n    at <checkout>/src/skills/eval/checks.test.ts:52:19\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at wrapper (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:750:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2622:52\n    at run (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1150:20)\n    at limiterFn (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1162:59)"
+        ]
+      },
+      {
+        "file": "src/skills/hub/scan-skill-dir.test.ts",
+        "name": "scanSkillDir flags a symlink pointing outside the skill instead of following it",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Temp/atomic-scan-outside-p0vVCy/evil.sh' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-scan-dir-aU5gho/run.sh'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/scan-skill-dir.test.ts:88:7\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/skills/hub/scan-skill-dir.test.ts",
+        "name": "scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'real.md' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-scan-dir-xbT64S/alias.md'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/scan-skill-dir.test.ts:101:5\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/skills/hub/skill-lock.test.ts",
+        "name": "skill lock covers symlinks by their link text",
+        "messages": [
+          "Error: EPERM: operation not permitted, symlink 'SKILL.md' -> 'C:/Users/edoar/AppData/Local/Temp/atomic-skill-lock-EsFORc/la/link'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/skill-lock.test.ts:75:5\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:221:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-cleanup-links-sUAUqS'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "keeps nested tasks and the final planned source independent from the candidate and each other",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:72:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-2dI1jt/atag-fusion-55e5b8-WFN0n5/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:260:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-XNst47/atag-fusion-fbe3a4-BIi3Qb/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:63:44\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-QSBHeA/copies/atag-fusion-db3af7-GWVLDX/base'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:63:44\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-2duLxB/copies/atag-fusion-eabe2e-IjvBPz/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:63:44\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-osw9Cg/copies/atag-fusion-834961-6NfXDX/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:222:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "promotes a tracked file under a directory named like a dependency/build folder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:253:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "never promotes deletion of ignored standalone files",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:267:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "never promotes modification of ignored standalone files",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:279:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:372:50\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:412:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rejects a declared provide that only exists under an ignored path",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:424:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-dropped-2q8l98'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "promotes but reports new ignored paths it kept private",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:436:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:678:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a worktree candidate whose source directory has mode 509",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2025:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:714:12\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a worktree candidate whose source directory has mode 448",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2025:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:714:12\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:461:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-gate-Bwn0iN'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:638:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/regression-gate.test.ts",
+        "name": "a change must not break a case that already passed (issue #106) in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/regression-gate.test.ts:196:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "classifies direct procfs reads even without state secret files",
+        "messages": [
+          "AssertionError: expected [] to have a length of 1 but got +0\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1389:20)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:715:141\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+        "messages": [
+          "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:720:180\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+        "messages": [
+          "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:720:180\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "round2-4 recognizes cd /proc/self && cat environ",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:735:175\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "round2-4 recognizes cd /proc && cat self/environ",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:735:175\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "third round flags pushd /proc/self && cat environ without reading a real credential",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "third round flags grep -r synthetic /proc/self without reading a real credential",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      },
+      {
+        "file": "src/tools/read-scope/state-secrets.test.ts",
+        "name": "third round flags find /proc/123 -type f without reading a real credential",
+        "messages": [
+          "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+        ]
+      }
+    ],
+    "additional": [
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the reviewer's identity records provider and effective model, and flags a reviewer that is not the plan's",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/scripts/e2e-csv-sales.test.ts:349:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "autonomous run or guided resume one prompt with the auto-approval continuations is autonomous; a person's line after it is a guided resume",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/scripts/e2e-csv-sales.test.ts:359:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/local-llm/server/managed-api-key.test.ts",
+        "name": "managed llama-server api key (#582) heals at once past a fresh heal lock whose holder has exited",
+        "messages": [
+          "AssertionError: expected 1082 to be less than 1000\n    at <checkout>/src/local-llm/server/managed-api-key.test.ts:114:34\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2956:64"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "shared dependency directories isolates a repo whose ignored node_modules exceeds the copy budget across tasks",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:22:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-TIsrEd/atag-fusion-173e7c-krcbg8/ignore-policy'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "shared dependency directories links ignored folders inside a dependency directory that keeps a tracked placeholder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:44:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-QlrKYC/atag-fusion-443e97-j3wnLJ/base'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget links an ignored venv/ to the original instead of copying it into the base and every task",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:87:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-O463En/atag-fusion-2e1b13-HWU1WO/t0-a'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:108:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-O8fK5a/atag-fusion-4842f8-j1BWWd/ignore-policy'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:153:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-BDukj0/atag-fusion-c13811-VtkMVG/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "workspace removal never lets git walk a generated link removes the workspace folders with Node before git forgets the worktrees",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:204:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-Oite60/atag-fusion-6d2ac3-N36Nk2/t0-a'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-merge.test.ts:551:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-branch-XRpEtw'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "fusion.delegate with isolation worktree: each worker runs in its own workspace and the work lands in the folder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-merge.test.ts:590:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:39:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-Y9C8VK/atag-fusion-c75770-F5HZ9L/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "never imports source remotes, includes, or mutable config into private workspace metadata",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:114:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-8KEprh/atag-fusion-2b5c36-vPWWV3/t0-one'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "preserves available source branch/tag refs and commit history as private data",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:147:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-c5b5I3/atag-fusion-17212b-9g0ui8/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "preserves the available history of a shallow source without following its original remote",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:167:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-avP0oY/atag-fusion-a44050-vGQ5FU/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "preserves a linked source worktree's split index, shared indexes and common worktree registrations",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:185:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-ns49Mw/atag-fusion-a31938-TQ8Qci/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "never freshens aged source split-index metadata during private inventory queries",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-private-git.test.ts:199:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-private-git-copies-3HNFba/atag-fusion-a1a13c-yDHxEA/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "name": "actual tracked working-tree snapshot charges tracked byte overlays to the cumulative private-copy limit",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-workspace-autocrlf.test.ts:55:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-overlay-limit-tmp-URHpPT/atag-fusion-abe113-tDCHia/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "name": "measures exactly the complete unchanged future branch-set copy (Git=true)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/branch-workspace-copy-plan.test.ts:20:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-copy-plan-mHgwih/copies/atag-fusion-05294c-Et5d01/base'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for untracked payload",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-dk85Dy/copies/atag-fusion-5ccfc4-caYcTi/t0-candidate-e49765d48438'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for ignored-file payload",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-avurtm/copies/atag-fusion-cfd9a3-1Z03d6/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for ignored-directory payload",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-QO0J2z/copies/atag-fusion-7738c1-TlhfGY/t0-candidate-57765ff6aac1'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "includes tracked byte overlays in the measured final copy",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:52:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-WNwkzt/copies/atag-fusion-9f0c54-upkv4W/base'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "name": "binds promoted and zero-change receipts only after final delivery verification",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-evidence.test.ts:86:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:135:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:151:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "verifies only the paths it promotes instead of re-hashing the untouched original tree per step",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:448:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "treats a user edit between the step's verification and the rename as a concurrent change",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:467:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:486:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-test-ips0LJ'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "re-checks parent identity at commit, refusing a rename through a parent swapped for a link",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:663:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=false)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/fusion-candidate.test.ts:56:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=true)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/fusion-candidate.test.ts:56:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "requested candidate rejects cross-file mismatch without publishing either individually valid file",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/fusion-candidate.test.ts:99:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "archives check-run records and only delivered candidate manifests (pass=false)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/fusion-candidate.test.ts:137:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "holds passing output when the user changes the original during execution",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/fusion-candidate.test.ts:321:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/fusion-delegate-criteria.test.ts",
+        "name": "fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/fusion-delegate-criteria.test.ts:213:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:126:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:164:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:189:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:236:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:260:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:298:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:332:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:377:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:418:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:497:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:554:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      }
+    ],
+    "baselineOnly": [
+      {
+        "file": "src/cli/run-agent-approval.test.ts",
+        "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with an appending redirect",
+        "messages": [
+          "Error: ENOENT: no such file or directory, open 'C:/Users/edoar/AppData/Local/Temp/outside.txt'\n    at Proxy.readFileSync (node:fs:624:20)\n    at <checkout>/src/cli/run-agent-approval.test.ts:244:14\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        ]
+      }
+    ]
+  }
+}

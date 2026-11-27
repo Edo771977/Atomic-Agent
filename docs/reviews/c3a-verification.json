@@ -1,0 +1,83 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "slice": "c3a",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "checks": [
+    {
+      "check": "ci",
+      "exit": 0,
+      "started": "2026-11-27T15:19:24.4127052+01:00",
+      "log": "c3a-ci.log"
+    },
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T15:19:43.9221151+01:00",
+      "log": "c3a-lint.log"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T15:19:59.4512534+01:00",
+      "log": "c3a-imports-check.log"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T15:20:06.2262659+01:00",
+      "log": "c3a-typecheck-tests.log"
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T15:20:51.0828050+01:00",
+      "log": "c3a-docs-check.log"
+    },
+    {
+      "check": "focused",
+      "exit": 1,
+      "started": "2026-11-27T15:20:52.3490762+01:00",
+      "log": "c3a-focused.log"
+    }
+  ],
+  "focused": {
+    "passed": 12380,
+    "failed": 1,
+    "pending": 12,
+    "failedNames": [
+      "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)"
+    ],
+    "newTests": [
+      {
+        "name": "C3a facts extraction remains deferred exposes no export parser or collector before archive and read-scope review",
+        "status": "passed"
+      },
+      {
+        "name": "C3a facts extraction remains deferred exposes no save or undo API callable with agent-supplied approval IDs",
+        "status": "passed"
+      },
+      {
+        "name": "C3a facts extraction remains deferred exposes no extraction engine before runtime-secret, framing and output-bound checks",
+        "status": "passed"
+      }
+    ]
+  },
+  "controls": [
+    {
+      "run": "c3a-controls.json",
+      "passed": 15,
+      "failed": 1
+    },
+    {
+      "run": "c3-main-vote-control.json",
+      "passed": 12,
+      "failed": 1
+    }
+  ],
+  "candidate": {
+    "assertions": 10,
+    "passed": 4,
+    "failed": 6,
+    "absenceFailed": 3
+  }
+}
