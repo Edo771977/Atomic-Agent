@@ -466,6 +466,18 @@ describe("turn recovery: a held engine lock with no model process", () => {
     expect(events.at(-1)).toMatchObject({ type: "loop_failed" });
   });
 
+  it("start_pending without lockOwner survives the 8 s grace and ends at the no-process ceiling", () => {
+    const waited: number[] = [];
+    const verdict: LocalEngineVerdict = { state: "unknown", reason: "start_pending", modelProcess: "none" };
+    expect(verdict.lockOwner).toBeUndefined();
+    const { decision, turn } = runOutage(ms => { waited.push(ms); return verdict; });
+    expect(waited.some(ms => ms > LOCAL_ENGINE_RESTART_GRACE_MS)).toBe(true);
+    expect(LOCAL_ENGINE_RESTART_GRACE_MS).toBe(8_000);
+    expect(turn.outageWaitedMs).toBe(LOCAL_ENGINE_NO_PROCESS_CEILING_MS);
+    expect(decision.kind).toBe("failure");
+    if (decision.kind === "failure") expect(decision.runError).toBeInstanceOf(LocalEngineDownError);
+  });
+
   it("with a live model process behind the lock the old wait stays: the full budget", () => {
     const { decision, turn } = runOutage(() => lockedWithProcess);
     expect(decision.kind).toBe("failure");

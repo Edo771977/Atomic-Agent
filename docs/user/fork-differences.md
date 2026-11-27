@@ -239,6 +239,10 @@ The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport 
 
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../reviews/b4a-1671.md).
 
+## B7a follow-up hardening
+
+The follow-up to #273/#274/#277 shares guarded export writes, masks presentation-equivalent keys in PDF/HTML/Word, bounds HTTP rendering and refuses tool-child CLI exports. Refusal types use eight fixed literals and params come only from structured fields. TUI startup markers are managed-only, with the existing 90-second pending/no-process ceiling pinned by a regression. [Review and validation](../reviews/b7a-followup-hardening.md).
+
 ## Provider refusal reports
 
 B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
