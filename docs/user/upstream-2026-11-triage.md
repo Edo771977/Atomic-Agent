@@ -373,7 +373,7 @@ Rami aggiornati tra il 23 e il 25 novembre. I rami del Desktop partono dalla lin
 
 ## Lotti di integrazione upstream w8, w9 e w10 (25-27 novembre)
 
-Confronto del 27 novembre sul fork `main` a `7511497b02504f81ffa03ec8f63367119fdaa6d8`, da `origin/main` in checkout dedicato. Intervallo upstream dopo #1740: `89d65615e36b763b35bc81c1e64304bd2d0e5c7c` escluso → `e89b59033db3494c0ffa6a3bc1786ba17c4ba894` incluso, release v0.10.0. Questa sezione prevale sulle raccomandazioni precedenti per le sole PR qui riesaminate; non modifica il codice né importa commit.
+Confronto del 27 novembre sul fork `main` a `7511497b02504f81ffa03ec8f63367119fdaa6d8`, da `origin/main` in checkout dedicato. Intervallo upstream dopo #1740: `89d65615e36b763b35bc81c1e64304bd2d0e5c7c` escluso → `e89b59033db3494c0ffa6a3bc1786ba17c4ba894` incluso, release v0.10.0. Questa sezione prevale sulle raccomandazioni precedenti per le sole PR qui riesaminate; non modifica il codice né importa commit. Prima della pubblicazione il ramo integra senza conflitti main aggiornato a `b68349f2b410cb6198576fc2db7b5f9f2ed430a8` (#291): il rinvio C4 e le sue prove sono ora uniti, senza nuovi port di produzione. L’inventario Git rimane fissato alla base iniziale, lo stato e il piano riflettono anche questo aggiornamento.
 
 **Conteggi verificati con Git:** 424 commit totali = 250 senza merge + 174 merge. **109 PR funzionali** = 8 w8 + 4 w9 + 95 w10 + #1540 + #1766; **112 includendo i tre contenitori**. La stima di 108 non è confermata. I 217 commit w10 sono quelli senza merge: il totale introdotto dal merge #1914 è 374 (373 prima del merge esterno), con 884 file nel delta. Somma degli incrementi sul primo genitore: 24 w8 + 16 w9 + 5 #1540 + 2 #1766 + 374 w10 + 3 commit diretti di release/build = 424.
 
@@ -389,7 +389,7 @@ Restano i criteri #1740: **A** piccole correzioni a basso rischio; **B** approva
 
 ### Già nel fork
 
-13 commit sorgente hanno trailer `cherry picked from commit`; quattro sono anche patch equivalenti (`git cherry -`). Le altre equivalenze sono port adattati, non identità di patch. Nessun trailer o patch equivalente dei nuovi w9/w10 nella base. Il [registro delle prove](../reviews/upstream-w8-w10-analysis.md#import-già-presenti-e-adattamenti) distingue fonti, merge di ingresso e adattamenti delle PR del fork #235-#291: i rinvii non sono import. #291 e #281 sono ancora aperte al confronto.
+13 commit sorgente hanno trailer `cherry picked from commit`; quattro sono anche patch equivalenti (`git cherry -`). Le altre equivalenze sono port adattati, non identità di patch. Nessun trailer o patch equivalente dei nuovi w9/w10 nella base. Il [registro delle prove](../reviews/upstream-w8-w10-analysis.md#import-già-presenti-e-adattamenti) distingue fonti, merge di ingresso e adattamenti delle PR del fork #235-#291: i rinvii non sono import. #291 era aperta al confronto iniziale ed è ora unita; #281 resta aperta.
 
 | PR | Catena completa (SHA) | File principali e aree | Modifica | Raccomandazione |
 | --- | --- | --- | --- | --- |
@@ -410,7 +410,7 @@ Il [confronto con le prove in docs/reviews](../reviews/upstream-w8-w10-analysis.
 - **#1570:** #1771/#1772/#1911 non correggono l'archivio previousReplies, incognito o lock di #282. **#1606:** #1870/#1907 non modificano l'endpoint separato rinviato in #283.
 - **#1584 e C3b:** #1829 disarma configurazione provider, #1896 migliora il detector; nessuno corregge consenso dei candidati, archivi, job/token ownership, scope o memory-enabled. Restano [C3a](../reviews/c3a-user-facts.md) e [C3b](../reviews/c3b-import-jobs.md), con C3c/C3d dipendenti.
 - **#1671/#260 e OAuth #261:** #1794/#1829/#1849/#1877 sono difese parziali. Ask shell, mascheramento o cancellazione di una variabile ereditata non dimostrano una decisione umana; store e credenziali OAuth restano senza quella riparazione. [B4a](../reviews/b4a-1671.md), [B4b](../reviews/b4b-subscription-signin.md), [#235](https://github.com/Edo771977/Atomic-Agent/pull/235).
-- **#1697/#1700:** #1785/#1883 e #1784/#1787 migliorano disponibilità, cap, OCR e CI, ma non chiudono i 15/23 e 4/13 controlli di C4a/C4b in [#291](https://github.com/Edo771977/Atomic-Agent/pull/291). Prove fissate al ramo aperto: [C4a](https://github.com/Edo771977/Atomic-Agent/blob/4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3/docs/reviews/c4a-files-index.md), [C4b](https://github.com/Edo771977/Atomic-Agent/blob/4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3/docs/reviews/c4b-vec-rerank.md). Il pin dev sqlite-vec non è la fiducia del loader runtime; LAN non è questo computer.
+- **#1697/#1700:** #1785/#1883 e #1784/#1787 migliorano disponibilità, cap, OCR e CI, ma non chiudono i 15/23 e 4/13 controlli di C4a/C4b nel rinvio ora unito in [#291](https://github.com/Edo771977/Atomic-Agent/pull/291). Prove ora in main, con provenienza fissata al ramo esaminato: [C4a](https://github.com/Edo771977/Atomic-Agent/blob/4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3/docs/reviews/c4a-files-index.md), [C4b](https://github.com/Edo771977/Atomic-Agent/blob/4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3/docs/reviews/c4b-vec-rerank.md). Il pin dev sqlite-vec non è la fiducia del loader runtime; LAN non è questo computer.
 - **C1:** #1766/#1774/#1819/#1824/#1832/#1892 e i seguiti Fusion #1756/#1757/#1759/#1866/#1867 vanno alla serie già avviata. #1867 risolve il reset incrociato del grant di #1756; non prova tutti i limiti sull'albero. **B7b:** label/probe #1745/#1773, nomi #1806/#1837/#1860 e dipendenze crawl/RPC #1895/#1834 non chiudono automaticamente i tre requisiti. Non creare rami paralleli alle due serie.
 
 Le righe B/C sotto danno il requisito concreto della singola PR. Si applicano inoltre B1 già unita (#246), confine operatore di #235/#260/#261, policy endpoint di #283, archivi/scope C3b e ammissione file C4a. Prima di ogni port: test che fallisce sulla carenza precisa, revisione e conservazione delle scelte del fork; nessun risultato dei vecchi audit viene dichiarato rieseguito sul nuovo candidato. #266 resta aperta: classificazione shell, metadata child e nuove euristiche non attestano gli effetti arbitrari di un programma né sostituiscono isolamento OS/egress.
@@ -554,7 +554,7 @@ Gli altri 419 oggetti sono coperti dalle catene e dai tre merge contenitore; l'u
 
 Procedere una sottoserie alla volta; ogni riga numerata è un port separato, con al massimo due PR sorgente quando il cambiamento è ampio. Le sigle W nelle raccomandazioni rimandano a queste sottoserie, non alle vecchie B1/C1. Le dipendenze #1740 ancora assenti si riprogettano prima del seguito: non si importano implicitamente insieme a esso.
 
-**Prenotazioni:** #281 mantiene renderer/export e masker condivisi; B7b mantiene crawl, nomi canonici e classificazione/probe llama esterni; C1 mantiene profili, worker runner, grant e budget dell'albero; #291 mantiene il solo audit/rinvio file. Niente nuovi rami su quelle aree mentre il relativo lavoro è aperto. La prima sottoserie eseguibile indipendentemente è W1.1. Quelle con dipendenze aspettano il risultato della serie prenotata e ripartono da main aggiornato.
+**Prenotazioni:** #281 mantiene renderer/export e masker condivisi; B7b mantiene crawl, nomi canonici e classificazione/probe llama esterni; C1 mantiene profili, worker runner, grant e budget dell'albero; #291 ha concluso il solo audit/rinvio file e non abilita l’indice. Niente nuovi rami su quelle aree mentre il relativo lavoro è aperto. La prima sottoserie eseguibile indipendentemente è W1.1. Quelle con dipendenze aspettano il risultato della serie prenotata e ripartono da main aggiornato.
 
 | Ordine / sottoserie | PR upstream, senza assegnazioni duplicate | Dipendenza o limite prima di aprire il port |
 | --- | --- | --- |
@@ -608,7 +608,7 @@ Procedere una sottoserie alla volta; ogni riga numerata è un port separato, con
 | W21.2, Discord catch-up | #1843 | Dopo W21.1; replay/dedup bounded e nessun invio offline. |
 | W22.1, Linear | #1840 | Autonoma: ingresso verificato, credenziali e consenso a pubblicare. |
 | W22.2, ospiti Telegram | #1863 | Dopo W22.1, W20 e C1; puro sottoinsieme dei permessi owner. |
-| W23.1, indice disponibile | #1785 | Dopo decisione C4a/#291 e riparazione ammissione/scope/secret. |
+| W23.1, indice disponibile | #1785 | Rinvio C4a/#291 unito: prima riparare ammissione/scope/secret. |
 | W23.2, OCR | #1883 | Dopo W23.1; non dichiarare engine collegato al runtime. |
 | W24, mirror e CI vec | #1784, #1787 | Dopo C4b e W23.1; provenienza nativa prima del loader. |
 | W25.1, hook | #1855 | Processi e output sotto B1/egress e consenso persona. |
@@ -678,7 +678,7 @@ git log --first-parent --reverse --format='%H %P %s' 'a0210e15f^1..a0210e15f^2' 
 # Conferma dei proprietari invariati per i rinvii, output atteso vuoto
 git diff --name-only $start $end -- src/mcp/mcp-elicitation-broker.ts src/mcp/mcp-elicitation-handler.ts src/http/route-mcp-elicitation.ts src/session/session-previous-replies.ts src/http/route-previous-replies.ts src/memory/import-facts src/import/user-facts src/http/route-import-facts.ts src/session/next-step-endpoint.ts src/http/route-a2a.ts src/cli/acp-command.ts src/cli/acp-server.ts src/cli/acp-translator.ts src/config/secret-access.ts src/llm/provider/subscription-oauth/credential-store.ts
 
-# C4 e export: leggere prove dai rami aperti senza importarli
+# C4 unita ed export aperto: leggere gli snapshot delle prove senza importarli
 git fetch origin pull/291/head:refs/remotes/origin/triage-pr-291 pull/281/head:refs/remotes/origin/triage-pr-281
 git show '4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3:docs/reviews/c4a-files-index.md'
 git show '4ae43f137d3d5f271b3b4ca959b54c0b9825d5b3:docs/reviews/c4b-vec-rerank.md'

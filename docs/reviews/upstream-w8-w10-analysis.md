@@ -5,6 +5,8 @@ Owner: docs/reviews/
 
 Analisi di sola lettura, 27 novembre 2026. Fork di confronto `7511497b02504f81ffa03ec8f63367119fdaa6d8`, upstream da `89d65615e36b763b35bc81c1e64304bd2d0e5c7c` escluso a `e89b59033db3494c0ffa6a3bc1786ba17c4ba894` incluso. Nessun cherry-pick, codice di produzione o test di funzione nuova in questa PR. Le raccomandazioni non sono certificazioni di sicurezza dei candidati nuovi.
 
+Prima della pubblicazione, main è avanzato a `b68349f2b410cb6198576fc2db7b5f9f2ed430a8` con il merge #291. Quel main è integrato in questo ramo senza conflitti; aggiunge prove e test di assenza C4, nessun port di produzione o nuovo trailer upstream. L'inventario resta fissato alla base iniziale per riprodurre i conteggi, mentre stato e piano tengono conto del rinvio C4 ora unito. Il diff della PR verso il main aggiornato contiene soltanto i tre file documentali di questo triage.
+
 ## Metodo e limiti
 
 Lo [script di inventario](upstream-w8-w10-inventory.py) legge il DAG Git e produce SHA completi, commit interni di merge/re-merge, catene di modifiche, file toccati dall'intera catena e file del delta di integrazione. Per ogni edge di integrazione usa `first-parent..second-parent`, in ordine topologico, unendo senza duplicati gli edge dello stesso numero PR. Non si limita al secondo genitore dell'ultimo gate fix. W9 usa i quattro nomi ramo mappati nel corpo verificato di [#1764](https://github.com/AtomicBot-ai/atomic-agent/pull/1764); w8 e w10 usano i messaggi interni. Le PR contenitore sono [#1754](https://github.com/AtomicBot-ai/atomic-agent/pull/1754), [#1764](https://github.com/AtomicBot-ai/atomic-agent/pull/1764) e [#1914](https://github.com/AtomicBot-ai/atomic-agent/pull/1914).
@@ -13,7 +15,7 @@ Sono stati letti AGENTS.md, fork-differences, l'intera sezione #1740, issue [#23
 
 Il conteggio Git dell'intervallo è 424 oggetti commit: 250 senza merge e 174 merge. W8 introduce 24 (15+9), w9 16 (11+5), #1540 5 (3+2), #1766 2 (1+1), w10 374 (217+157). Restano due release e un commit release.yml: 24+16+5+2+374+3=424. Per w10 il dato API `commits: 373` esclude il merge esterno; 217 è il conteggio senza merge, non il totale. Le PR funzionali sono 8+4+95+2=109; con i tre contenitori diventano 112. I messaggi possono citare altre PR per dipendenza: non vanno contati come nuovi ingressi.
 
-La lettura dei diff e delle prove precedenti stabilisce i requisiti sotto. Non sono stati rieseguiti gli audit candidati né i loro conteggi sul nuovo upstream; dove il proprietario vulnerabile è immutato si può affermare che queste PR non lo riparano, senza inventare un nuovo test rosso. Le prove C4 sono ancora in [#291](https://github.com/Edo771977/Atomic-Agent/pull/291), aperta al confronto: citazioni fissate al suo head, senza copiarne i file o presentarli come uniti su main.
+La lettura dei diff e delle prove precedenti stabilisce i requisiti sotto. Non sono stati rieseguiti gli audit candidati né i loro conteggi sul nuovo upstream; dove il proprietario vulnerabile è immutato si può affermare che queste PR non lo riparano, senza inventare un nuovo test rosso. Le prove C4 erano nel ramo aperto [#291](https://github.com/Edo771977/Atomic-Agent/pull/291) al confronto iniziale e sono ora su main: [C4a](c4a-files-index.md), [C4b](c4b-vec-rerank.md). Le citazioni fissate al suo head conservano anche la provenienza iniziale.
 
 ## Import già presenti e adattamenti
 
@@ -52,4 +54,4 @@ Per ogni B/C la riga del triage aggiunge il requisito specifico. Rimangono comun
 
 ## Verifica della documentazione
 
-`npm run docs:check` passa: 350 file attivi, 21 file di istruzioni, link/metadati/puntatori/copertura archivio validi. `git diff --check` passa. Eseguito anche `python docs/reviews/upstream-w8-w10-inventory.py --imports`: tutte le 109 catene e i relativi insiemi di file coincidono con l'inventario iniziale indipendente; 13 commit sorgente con trailer e quattro patch equivalenti. Verificati 112 numeri PR distinti nelle tabelle, esistenza di tutti gli SHA completi come commit e copertura dei 424 oggetti. Nessuna suite di produzione o audit candidato è dichiarata rieseguita da questa PR di sola analisi.
+`npm run docs:check` passa: 352 file attivi, 21 file di istruzioni, link/metadati/puntatori/copertura archivio validi. `git diff --check` passa. Eseguito anche `python docs/reviews/upstream-w8-w10-inventory.py --imports`: tutte le 109 catene e i relativi insiemi di file coincidono con l'inventario iniziale indipendente; 13 commit sorgente con trailer e quattro patch equivalenti. Verificati 112 numeri PR distinti nelle tabelle, esistenza di tutti gli SHA completi come commit e copertura dei 424 oggetti. Nessuna suite di produzione o audit candidato è dichiarata rieseguita da questa PR di sola analisi.
