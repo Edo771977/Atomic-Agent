@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { toolCallTarget } from "./policy-targets.js";
 import { evaluatePolicy, type EffectivePolicy } from "./policy-evaluator.js";
+import { shellRunsUnreadableScript, stdinScriptOf } from "../tools/os/shell/shell-command-argv.js";
 
 const values = ["--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file", "--allow-fs-read", "--allow-fs-write", "--stack-size", "--title", "--conditions"];
 const operational = ["--experimental-vm-modules", "--preserve-symlinks", "--preserve-symlinks-main", "--test-only", "--permission", "--experimental-permission", "--experimental-require-module", "--no-experimental-require-module", "--no-addons"];
@@ -12,6 +13,10 @@ function effects(args: string[]) {
   });
 }
 describe("Node code and operational option boundaries", () => {
+  it("retains personal typed-stdin detection independently of organization opacity", () => {
+    expect(shellRunsUnreadableScript("printf fixture | node --input-type=module", [], true)).toBe(true);
+    expect(stdinScriptOf("node", ["--input-type", "module"], false, "fixture")).toEqual({ lines: [], unreadable: true });
+  });
   it.each(values)("consumes a separate or attached value for %s", option => {
     expect(effects([option, "fixture", "fixture.js", "-e"])).toEqual([null, null]);
     expect(effects([`${option}=fixture`, "fixture.js"])).toEqual([null, null]);

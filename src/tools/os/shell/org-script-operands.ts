@@ -1,7 +1,7 @@
 import { programName, NESTED_SHELL_PROGRAMS, scanNestedShellOptions } from "../shell-command-guard/command-segments.js";
 import { posix } from "node:path";
 
-export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string };
+export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string; stdin?: true };
 
 /** Linear selector scan; does not interpret replacement text or compile a regex. */
 function sedExternalCommand(script: string): boolean {
@@ -99,7 +99,7 @@ export function scriptInput(words: readonly string[], cwd = process.cwd()): "std
     return null;
   }
   const script = interpreterScript(words, cwd);
-  return script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
+  return script?.stdin === true || script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
 }
 
 /** Static option boundaries only: never inspect or execute a program's code. */
@@ -130,7 +130,7 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd())
   }
   let nodeInputType = false;
   const selected = (operand: string | undefined): ScriptOperand => {
-    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand, cwd) === "stdin")) return { kind: "inline" };
+    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand, cwd) === "stdin")) return { kind: "inline", stdin: true };
     return operand === undefined ? { kind: "stdin" } : { kind: operand === "-" ? "stdin" : "file", operand };
   };
   for (let i = 0; i < args.length; i++) {
