@@ -1,0 +1,31 @@
+diff --git a/src/tasks/b5c-candidate.test.ts b/src/tasks/b5c-candidate.test.ts
+new file mode 100644
+index 000000000..d3f6ea450
+--- /dev/null
++++ b/src/tasks/b5c-candidate.test.ts
+@@ -0,0 +1,25 @@
++import { afterEach, expect, it, vi } from "vitest";
++import { readTelephonyConfig } from "../telephony/telephony-config.js";
++import { TwilioVoiceClient } from "../telephony/twilio-voice-client.js";
++const config = { provider: "twilio" as const, accountSid: "AC" + "1".repeat(32), authToken: "synthetic-token-b5c", fromNumber: "+15550001111" };
++afterEach(() => vi.unstubAllEnvs());
++it("control: incomplete user credentials keep calls off", () => {
++  expect(readTelephonyConfig({})).toMatchObject({ ok: false });
++});
++it("refuses to reveal the token to a marked tool child", () => {
++  vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  expect(readTelephonyConfig({ ATOMIC_AGENT_TOOL_CHILD: "1", TWILIO_ACCOUNT_SID: config.accountSid, TWILIO_AUTH_TOKEN: config.authToken, TWILIO_FROM_NUMBER: config.fromNumber })).toMatchObject({ ok: false });
++});
++it.each(["normal", "offline", "tool-child"])("does not dial without per-call approval: %s", async mode => {
++  if (mode === "offline") vi.stubEnv("ATOMIC_AGENT_OFFLINE", "1");
++  if (mode === "tool-child") vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
++  const fetcher = vi.fn(async () => Response.json({ sid: "CA" + "2".repeat(32), status: "queued" }));
++  await new TwilioVoiceClient(config, fetcher).placeCall({ to: "+15550002222", message: "synthetic call" }).catch(() => {});
++  expect(fetcher).not.toHaveBeenCalled();
++});
++it("does not leak Basic authorization through an echoed transport error", async () => {
++  const basic = Buffer.from(`${config.accountSid}:${config.authToken}`).toString("base64");
++  const client = new TwilioVoiceClient(config, async () => { throw new Error(`authorization: Basic ${basic}`); });
++  const error = await client.placeCall({ to: "+15550002222", message: "synthetic call" }).catch(e => e as Error);
++  expect(String(error)).not.toContain(basic);
++});
