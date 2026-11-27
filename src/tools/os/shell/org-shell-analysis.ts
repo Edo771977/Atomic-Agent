@@ -149,17 +149,34 @@ export function shellRuleSegments(cmd: string, execArgs: readonly string[], useS
 }
 
 function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
+  const opaqueFile = (file: string | undefined) => file === undefined || scriptStream(file, cwd) !== null;
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") break;
-    if (/^(?:-E|--eval(?:=|$))/.test(arg)) return true;
-    let file: string | undefined;
-    if (/^(?:-f|--file|--makefile)$/.test(arg)) {
-      file = args[++i];
-      if (file === undefined) return true;
-    } else if (/^-f./.test(arg)) file = arg.slice(2).replace(/^=/, "");
-    else if (/^--(?:file|makefile)=/.test(arg)) file = arg.slice(arg.indexOf("=") + 1);
-    if (file !== undefined && scriptStream(file, cwd) !== null) return true;
+    if (arg.startsWith("--")) {
+      const option = arg.slice(2).split("=", 1)[0]!;
+      // GNU's unique prefixes: --e is ambiguous (environment-overrides),
+      // --ma is ambiguous (max-load); --ev, --f and --mak are unique.
+      if (option.length >= 2 && "eval".startsWith(option)) return true;
+      if (option.length >= 1 && "file".startsWith(option) || option.length >= 3 && "makefile".startsWith(option)) {
+        if (opaqueFile(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[++i])) return true;
+      } else if (["directory", "include-dir", "old-file", "assume-old", "what-if", "new-file", "assume-new"].includes(option) && !arg.includes("=")) i++;
+      continue;
+    }
+    if (!arg.startsWith("-")) continue;
+    for (let j = 1; j < arg.length; j++) {
+      const flag = arg[j]!;
+      if (flag === "E") return true;
+      if ("CfIoW".includes(flag)) {
+        const value = j + 1 < arg.length ? arg.slice(j + 1).replace(/^=/, "") : args[++i];
+        if (flag === "f" && opaqueFile(value)) return true;
+        break;
+      }
+      if (flag === "j" || flag === "l") {
+        const number = /^(?:\d+(?:\.\d*)?|\.\d+)/.exec(arg.slice(j + 1));
+        j += number?.[0].length ?? 0;
+      }
+    }
   }
   return args.some(arg => /^(?:SHELL|\.SHELLFLAGS)=/.test(arg));
 }
