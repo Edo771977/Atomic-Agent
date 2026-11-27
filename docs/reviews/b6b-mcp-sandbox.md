@@ -3,7 +3,7 @@
 Status: current
 Owner: docs/reviews/
 
-Deferred with no production changes. Baseline: fork `origin/main` at `904476e2e099903833223beb4a0ace08b8d7a220`, fetched on 27 November 2026. Origin is `https://github.com/Edo771977/Atomic-Agent.git`; upstream is `https://github.com/AtomicBot-ai/atomic-agent.git`. [Commit inventory](b6b-upstream-commits.json): `1a959f7e6`, `b40853a56`, `756e34729`, `d9c5044e4`, `aa18421f9`, `4bee18579`. The branch row supplies the chain; the final merge's second parent alone does not. `93c6763d3`, `94768b68f` and merge `1603f5bf8` are excluded. B1 #246 was open and unmerged, and the policy README is absent on this baseline.
+Deferred in [fork PR #276](https://github.com/Edo771977/Atomic-Agent/pull/276). No production changes. Baseline: fork `origin/main` at `904476e2e099903833223beb4a0ace08b8d7a220`, fetched on 27 November 2026. Origin is `https://github.com/Edo771977/Atomic-Agent.git`; upstream is `https://github.com/AtomicBot-ai/atomic-agent.git`. [Commit inventory](b6b-upstream-commits.json): `1a959f7e6`, `b40853a56`, `756e34729`, `d9c5044e4`, `aa18421f9`, `4bee18579`. The branch row supplies the chain; the final merge's second parent alone does not. `93c6763d3`, `94768b68f` and merge `1603f5bf8` are excluded. B1 #246 was open and unmerged, and the policy README is absent on this baseline.
 
 ## Blocking launch contract
 

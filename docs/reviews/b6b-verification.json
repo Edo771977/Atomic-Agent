@@ -821,5 +821,10 @@
   "isolatedClassification": {
     "prOnlyFailures": [],
     "unexecutedTargetNames": []
+  },
+  "pullRequest": "https://github.com/Edo771977/Atomic-Agent/pull/276",
+  "integrationCheck": {
+    "main": "28b0c9b36e8a0879390dd9e6fe2b74a11c996530",
+    "result": "clean"
   }
 }
