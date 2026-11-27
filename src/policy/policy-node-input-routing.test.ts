@@ -179,3 +179,20 @@ routingCases("R9 process producer without input stays ordinary", [
   "cat <(node --fixture-boolean x.js) | cat",
   "cat < fixture; cat <(node --fixture-boolean x.js)",
 ], false);
+
+const node25Values = ["--tls-cipher-list", "--tls-keylog", "--openssl-config", "--icu-data-dir", "--title", "--redirect-warnings", "--unhandled-rejections", "--max-old-space-size", "--stack-size", "--localstorage-file"];
+const node25Booleans = ["--tls-min-v1.0", "--tls-min-v1.1", "--tls-min-v1.2", "--tls-min-v1.3", "--tls-max-v1.2", "--tls-max-v1.3"];
+routingCases("R9 Node25 separated option values do not become scripts", node25Values.map(flag => `printf fixture | node ${flag} fixture -`));
+routingCases("R9 Node25 booleans identify scripts with real input", node25Booleans.map(flag => `printf fixture | node ${flag} x.js`), false);
+routingCases("R9 Node25 options preserve file and code boundaries", node25Values.map(flag => `printf fixture | node ${flag} fixture x.js`), false);
+describe("R9 Node25 direct verification argv", () => {
+  for (const level of [1, 5]) for (const effect of ["deny", "ask"] as const) {
+    it.each(node25Values)(`${effect}/${level} consumes %s before stdin or code`, flag => {
+      const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "shell", resource: "unrelated-fixture*", effect }] };
+      for (const [operand, expected] of [["-", effect], ["x.js", null], ["-e", effect]] as const) {
+        const target = toolCallTarget("verify.run", { cmd: "node", args: [flag, "fixture", operand, ...(operand === "-e" ? ["void 0"] : [])], stdin: "fixture" })!;
+        expect(evaluatePolicy(policy, "shell", target.resources, target)?.effect ?? null).toBe(expected);
+      }
+    });
+  }
+});
