@@ -9,7 +9,7 @@ The [atomic-desktop](atomic-desktop/atomic-desktop-importer.ts) source is not an
 
 Projects and folders: every session importer tags each session item with the group it had at the source (the folder it ran in, or a Claude app project), and [grouping.ts](grouping.ts) turns those tags into desktop Projects (`projects.json`, when the folder exists on this computer) or chat Folders (`chat-folders.json`), idempotently. `atag import` and the TUI run it after each importer (`groupImportReport`); the group rows land in the report as `projects` / `folders` items.
 
-Two sources are not another coding agent's state dir: [claude-app](claude-app/claude-app-importer.ts) reads the Claude data export (.zip or its folder; claude.ai and the Claude desktop app), and [atomic-agent](atomic-agent/atomic-agent-importer.ts) reads another Atomic Agent data folder, keeping its projects and folders as they were.
+Two sources are not another coding agent's state dir: [claude-app](claude-app/claude-app-importer.ts) reads the Claude data export (.zip or its folder; claude.ai and the Claude desktop app), and [atomic-agent](atomic-agent/atomic-agent-importer.ts) reads another Atomic Agent data folder, keeping its projects and folders as they were. A provider it brings over never keeps its `apiKeyCommand`, with or without secrets: that is a program the agent would run, so the report says to check it in the source's `config.json` and add it back by hand ([drop-api-key-command.ts](atomic-agent/drop-api-key-command.ts), ATO-1716).
 
 Entry point: [index.ts](index.ts). Read the root instruction route and the underlying domain instructions before cross-domain changes.
 
