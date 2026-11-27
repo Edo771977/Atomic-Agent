@@ -1,0 +1,11 @@
+{
+  "testedBranch": "codex/c1-subagents",
+  "finalBase": "b68349f2b410cb6198576fc2db7b5f9f2ed430a8",
+  "productionChanged": [],
+  "onlyAddedTestsAndDocs": [
+    "src/http/README.md",
+    "src/http/files-index-deferred.test.ts",
+    "src/tools/README.md",
+    "src/tools/files-vector-rerank-deferred.test.ts"
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "originalBase": "7511497b02504f81ffa03ec8f63367119fdaa6d8",
+  "checks": [
+    {
+      "slice": "C1a",
+      "failedNames": [
+        "src/session/fusion-worker-depth-boundary.test.ts > C1a worker depth preserves fork boundaries > records depth without losing the full input request or provider restrictions",
+        "src/session/fusion-worker-depth-boundary.test.ts > C1a worker depth preserves fork boundaries > increments ancestry and keeps malformed policy fail closed"
+      ],
+      "counts": "Tests  2 failed (2)",
+      "expectedFailures": true
+    },
+    {
+      "slice": "C1b",
+      "failedNames": [
+        "src/tools/fusion/worker-runner-core.test.ts > runWorkerTasksCore (ATO-1669) > runs a worker turn with only core options and returns its parsed row",
+        "src/tools/fusion/worker-runner-core.test.ts > runWorkerTasksCore (ATO-1669) > runs the turn under the fusion origin when none is given",
+        "src/tools/fusion/worker-runner-core.test.ts > runWorkerTasksCore (ATO-1669) > runs the turn under the subagent origin when the options name it",
+        "src/tools/fusion/worker-runner-origin.test.ts > worker turn origin (ATO-1669) > passes the subagent origin to the local turn and to the escalation re-run"
+      ],
+      "counts": "Tests  4 failed | 1 passed (5)",
+      "expectedFailures": true
+    },
+    {
+      "slice": "C1b experience adaptation",
+      "failedNames": [
+        "src/runtime/composition/runtime-experience-review.test.ts > C1b: a subagent never forms an experience review"
+      ],
+      "counts": "Tests  1 failed | 15 skipped (16)",
+      "expectedFailures": true
+    },
+    {
+      "slice": "C1c",
+      "failedNames": [
+        "src/config/agent-profiles-import.test.ts > C1c: retains normalized settings profiles independently of provider pins"
+      ],
+      "counts": "Tests  1 failed (1)",
+      "expectedFailures": true
+    },
+    {
+      "slice": "C1d",
+      "failedNames": [
+        "src/agent-profiles/settings-import.test.ts > C1d: loads fresh settings on each profile load"
+      ],
+      "counts": "Tests  1 failed (1)",
+      "expectedFailures": true
+    },
+    {
+      "slice": "C1d tool admission adaptation",
+      "failedNames": [
+        "src/agent-profiles/settings-import.test.ts > C1d: rejects unknown or forbidden profile tools with a diagnostic"
+      ],
+      "counts": "Tests  1 failed | 1 passed (2)",
+      "expectedFailures": true
+    }
+  ]
+}
