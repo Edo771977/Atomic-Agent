@@ -144,6 +144,8 @@ Known export secrets are also matched through a conservative Unicode/Markdown pr
 
 HTML references (numeric, hexadecimal and named) are decoded only in the secret-matching projection. A linear prefilter selects candidate blocks for joined inline checks, including link labels. A block that would reconstruct a key is emitted as redacted plain text; unrelated blocks keep their markup. `entities` 4.5.0 is now a direct dependency at its existing lockfile version/resolution. Its registry artifact already contains the decoder; it has no preinstall/install/postinstall hooks (`prepare` builds source for package development). No install script was executed when promoting the dependency.
 
+Known-value projection conservatively treats decoded NBSP as removable before Unicode compatibility normalization can turn it into an ordinary space. Named/numeric/hexadecimal entities and literal NBSP are covered across Markdown, HTML, Word and PDF.
+
 With `--force`, the writer requests mode `0600` for the replacement and does not copy the previous file mode. On filesystems honoring POSIX mode bits this makes the replacement owner-readable/writable even when the old file had broader permissions.
 
 Destination checks and writes are separate filesystem operations. A process able to replace the resolved parent directory during export can redirect a write; the writer does not bind operations to an open directory descriptor. Choose an export directory you control and keep its parents stable while exporting, including with `--force`. This is the same directory-ownership assumption documented for `--api-key-file` in the [CLI guide](../cli/README.md).

@@ -110,7 +110,7 @@ function maskPresentationText(text: string, known: readonly KnownSecret[]): stri
 }
 
 function projectPresentationText(value: string): string {
-  return decodeReferences(value).normalize("NFKD")
+  return decodeReferences(value).replace(/\u00a0/g, "").normalize("NFKD")
     .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
 }
 
