@@ -38,6 +38,8 @@ import {
   type FsDangerousToolOptions,
 } from "./fs-require-approval.js";
 import type { ToolContext, ToolDefinition } from "../../tool-registry.js";
+import { policyFileReadFilter } from "../../../policy/policy-paths.js";
+import { activePolicy } from "../../../policy/policy-active.js";
 
 export type { FileOutcome, PreviewOutcome } from "./fs-patch-preview.js";
 
@@ -66,6 +68,8 @@ export function buildOsFsPatchTool(
         ? await planCodexPatch(safeParseCodexPatch(args.patch), args.rootDir)
         : await planUnifiedPatch(args);
       const previews = planned.map((p) => p.outcome);
+      const policyReads = policyFileReadFilter(activePolicy());
+      if (previews.some(file => !policyReads.allows(file.absolute))) throw new Error("Organization policy files are protected");
 
       if (!args.apply) {
         return buildResult(previews, "dry-run");

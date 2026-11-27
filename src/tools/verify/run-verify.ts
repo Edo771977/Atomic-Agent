@@ -11,6 +11,8 @@ import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { guardVerifyRun } from "./verify-run-guard.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal } from "../../policy/policy-enforce.js";
 import { checkResearchLinks, probeResearchLink, type ResearchApproval, type ResearchProbe } from "./research-links.js";
 import { APPROVE_RESEARCH_LINKS, maskVerificationSecrets, redactResearchUrl, researchUrlMayBeDisclosed, resolveVerifyCwd, uiVerificationUnavailable } from "./verify-authorization.js";
 import { knownSecretsFromEnv, type KnownSecret } from "../../error-reporting/secret-detector.js";
@@ -175,6 +177,8 @@ async function runInWorkspace(args: VerifyRunArgs, dir: string, isolated: boolea
   // before every executor. A copy is not a process sandbox.
   const guard = guardVerifyRun(args, cwd, ctx.shellPolicy);
   if (guard.blocked !== null) throw new Error(`verify.run: blocked by shell guard: ${guard.blocked.verdict.rule} - ${guard.blocked.verdict.reason}`);
+  const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", args, cwd);
+  if (policyRefusal !== null) throw new Error(policyRefusal);
   ctx.signal?.throwIfAborted();
   const common = { kind: args.kind, isolated };
   if (process.platform === "linux" && readOsSandboxSettings().mode === "workspace" &&

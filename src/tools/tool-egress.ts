@@ -185,8 +185,8 @@ export class ShellNetworkNotAllowedError extends Error {
 }
 
 /** The first network client a shell or `verify.run` call would run, or `null`. */
-export function shellNetworkUseOf(tool: string, args: Record<string, unknown>): ShellNetworkUse | null {
-  const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
+export function shellNetworkUseOf(tool: string, args: Record<string, unknown>, workingDir?: string): ShellNetworkUse | null {
+  const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args, workingDir) : [];
   for (const call of calls) {
     const use = shellNetworkUse(call);
     if (use !== null) return use;
@@ -211,7 +211,7 @@ export function createEgressGuard(deps: EgressGuardDeps) {
   return (
     tool: string,
     args: Record<string, unknown>,
-    ctx: { sessionId: string },
+    ctx: { sessionId: string; workingDir?: string },
   ): EgressNotAllowedError | ShellNetworkNotAllowedError | null => {
     if (tool === SHELL_TOOL && args.network === true && readOsSandboxSettings().mode === "workspace") {
       const policy = deps.policyForSession(ctx.sessionId);
@@ -219,7 +219,7 @@ export function createEgressGuard(deps: EgressGuardDeps) {
         return new ShellNetworkNotAllowedError(tool, { program: "Safe Mode network override", cls: null }, policy);
       }
     }
-    const shell = shellNetworkUseOf(tool, args);
+    const shell = shellNetworkUseOf(tool, args, ctx.workingDir);
     if (shell !== null) {
       const policy = deps.policyForSession(ctx.sessionId);
       if (policy === undefined) return null;

@@ -5,6 +5,7 @@
  */
 
 import { dirname, isAbsolute, join } from "node:path";
+import { resolveScriptCwd } from "../os/shell/org-script-operands.js";
 import { fileURLToPath } from "node:url";
 import { resolveUserPath } from "../os/expand-home.js";
 
@@ -350,15 +351,17 @@ export const VERIFY_TOOL = "verify.run";
  */
 export function verifyRunShellCalls(
   args: Record<string, unknown>,
+  workingDir = process.cwd(),
 ): Record<string, unknown>[] {
   const calls: Record<string, unknown>[] = [];
+  const cwd = resolveScriptCwd(typeof args.cwd === "string" ? args.cwd : undefined, workingDir);
   const scope = { ...(args.cwd === undefined ? {} : { cwd: args.cwd }), ...(args.env === undefined ? {} : { env: args.env }) };
   if (typeof args.cmd === "string") {
     calls.push({ cmd: args.cmd, args: args.args, ...scope });
     // A script a shell reads from `stdin` runs as that command line.
     const cmdArgs = Array.isArray(args.args) ? args.args.filter((a): a is string => typeof a === "string") : [];
     const stdin = typeof args.stdin === "string" ? args.stdin : undefined;
-    for (const line of stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), stdin)?.lines ?? []) {
+    for (const line of stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), stdin, cwd)?.lines ?? []) {
       calls.push({ cmd: line, ...scope });
     }
   }

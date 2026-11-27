@@ -8,6 +8,8 @@ import {
 } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { ToolDefinition } from "../../tool-registry.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyFileReadFilter } from "../../../policy/policy-paths.js";
 import { compileGlob, matchesAny } from "./fs-glob-pattern.js";
 import { missingRoot } from "./fs-missing-path.js";
 import {
@@ -92,6 +94,7 @@ export function buildOsFsGlobTool(
     readonly: OS_FS_GLOB_CONTRACT.readonly,
     async run(rawArgs, ctx) {
       const args = parseArgs(rawArgs, ctx.workingDir);
+      const allowed = policyFileReadFilter(activePolicy()).allows;
       // A missing root used to walk to "(no matches)", which reads as
       // "no such files" rather than "wrong folder" (ATO-413).
       const missing = await missingRoot("os.fs.glob", args.cwd, ctx);
@@ -131,6 +134,7 @@ export function buildOsFsGlobTool(
           stopped = budget.check(totalScanned);
           if (stopped !== null) return;
           const abs = join(current, entry.name);
+          if (!allowed(abs)) continue;
           const rel = toPosix(relative(args.cwd, abs));
           if (rel.length === 0) continue;
           totalScanned++;

@@ -21,6 +21,7 @@ export interface LiftedLine {
   outer: string;
   /** The command lines inside the substitutions, outermost first. */
   inner: string[];
+  placements?: Array<{ index: number; start: number; end: number; process?: "in" | "out" }>;
 }
 
 /**
@@ -36,11 +37,12 @@ export interface LiftedLine {
  * alone. Returns `null` when a substitution or a quote is not closed,
  * so the caller keeps its old fallback.
  */
-export function liftSubstitutions(line: string, includeProcess = false, heredocBody = false): LiftedLine | null {
+export function liftSubstitutions(line: string, includeProcess = false, heredocBody = false, trackOrigins = false): LiftedLine | null {
   if (!line.includes("$(") && !line.includes("`") && (!includeProcess || !/[<>]\(/.test(line))) {
-    return { outer: line, inner: [] };
+    return { outer: line, inner: [], ...(trackOrigins ? { placements: [] } : {}) };
   }
   const inner: string[] = [];
+  const placements: NonNullable<LiftedLine["placements"]> = [];
   let outer = "";
   let inSingle = false;
   let inDouble = false;
@@ -57,6 +59,11 @@ export function liftSubstitutions(line: string, includeProcess = false, heredocB
       outer += line.slice(i, i + 2);
       i += 2;
       continue;
+    }
+    if (trackOrigins && !inDouble && c === "#" && (i === 0 || /[\s;|&()]/.test(line[i - 1]!))) {
+      const end = line.indexOf("\n", i);
+      const next = end === -1 ? line.length : end;
+      outer += line.slice(i, next); i = next; continue;
     }
     if (!heredocBody && c === "'" && !inDouble) {
       inSingle = true;
@@ -80,11 +87,16 @@ export function liftSubstitutions(line: string, includeProcess = false, heredocB
         // inside it still runs: `$(( $(git push -f; echo 1) ))`.
         const nested = liftSubstitutions(body.slice(1, -1));
         if (nested === null) return null;
-        inner.push(...nested.inner);
+        for (const script of nested.inner) {
+          placements.push({ index: inner.length, start: outer.length, end: outer.length + SUBSTITUTION_PLACEHOLDER.length });
+          inner.push(script);
+        }
         outer += SUBSTITUTION_PLACEHOLDER;
       } else {
+        const start = outer.length, index = inner.length;
         inner.push(body);
         outer += !process && PRINTS_LITERAL.test(body) ? PRINTED_PLACEHOLDER : SUBSTITUTION_PLACEHOLDER;
+        placements.push({ index, start, end: outer.length, ...(process ? { process: c === "<" ? "in" as const : "out" as const } : {}) });
       }
       i = end + 1;
       continue;
@@ -93,8 +105,10 @@ export function liftSubstitutions(line: string, includeProcess = false, heredocB
       const end = closingBacktick(line, i + 1);
       if (end === -1) return null;
       const body = line.slice(i + 1, end).replace(/\\`/g, "`");
+      const start = outer.length, index = inner.length;
       inner.push(body);
       outer += PRINTS_LITERAL.test(body) ? PRINTED_PLACEHOLDER : SUBSTITUTION_PLACEHOLDER;
+      placements.push({ index, start, end: outer.length });
       i = end + 1;
       continue;
     }
@@ -102,7 +116,7 @@ export function liftSubstitutions(line: string, includeProcess = false, heredocB
     i += 1;
   }
   if (inSingle || inDouble) return null;
-  return { outer, inner };
+  return { outer, inner, ...(trackOrigins ? { placements } : {}) };
 }
 
 /**

@@ -1,3 +1,4 @@
+import { installPolicy } from "../../policy/policy-active.js";
 import { EventEmitter } from "node:events";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -174,4 +175,13 @@ describe("video.render_html", () => {
     await built.run({ path: "intro.html", duration: 0.1, fps: 10 }, ctx());
     expect(request).toHaveBeenCalledWith(expect.objectContaining({ category: "trust_config" }), expect.anything());
   });
+});
+
+afterEach(() => installPolicy(null));
+it("organization edit policy refuses the actual rendered video path before ffmpeg", async () => {
+  installPolicy({ sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "edit", resource: "*.mp4", effect: "deny" }] });
+  const ff = fakeFfmpeg(); const cap = fakeCapture();
+  const { built: render } = tool({ spawn: ff.spawn, capture: cap.capture });
+  await expect(render.run({ html: "<p>ordinary fixture</p>", output: "fixture.mp4" }, ctx())).rejects.toThrow(/policy/);
+  expect(ff.calls).toHaveLength(0);
 });

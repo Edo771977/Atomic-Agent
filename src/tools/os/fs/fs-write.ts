@@ -1,4 +1,6 @@
 import { sessionReadRoots } from "../../read-scope/index.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyCallRefusal } from "../../../policy/policy-enforce.js";
 import { OS_FS_WRITE_CONTRACT, parseWriteArgs } from "./fs-write-contract.js";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -141,6 +143,8 @@ export function buildOsFsWriteTool(
           );
         }
         const next = resolveUserPath(typed, ctx.workingDir);
+        const policyRefusal = policyCallRefusal(activePolicy(), "os.fs.write", { path: next }, ctx.workingDir);
+        if (policyRefusal !== null) throw new Error(policyRefusal);
         const nextCategory = await categorizeFsMutation("write", [next], {
           workingDir: ctx.workingDir,
           ...(options.trustConfigPaths !== undefined
@@ -153,7 +157,8 @@ export function buildOsFsWriteTool(
           );
         }
         target = next;
-        if (nextCategory === outcome.category) break;
+        const nextRule = options.approvals.ruleDecisionFor?.({ sessionId: ctx.sessionId, tool: "os.fs.write", category: nextCategory, targetPaths: [next], affectedResources: [next], workdir: ctx.workingDir });
+        if (nextCategory === outcome.category && nextRule !== "deny" && nextRule !== "ask") break;
       }
 
       // What is there now, read before it is gone: the line counts the

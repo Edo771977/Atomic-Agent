@@ -42,10 +42,10 @@ export interface VerifyGuardResult {
  * line a shell reads from it, and whether an interpreter runs code from
  * it no rule can read. `null` for plain input data, or no stdin.
  */
-export function verifyRunStdinScript(args: VerifyRunArgs): { lines: string[]; unreadable: boolean } | null {
+export function verifyRunStdinScript(args: VerifyRunArgs, cwd = args.cwd ?? process.cwd()): { lines: string[]; unreadable: boolean } | null {
   if (args.kind !== "command" || args.cmd === undefined) return null;
   const cmdArgs = args.args ?? [];
-  return stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), args.stdin);
+  return stdinScriptOf(args.cmd, cmdArgs, needsShellInterpretation(args.cmd, cmdArgs), args.stdin, cwd);
 }
 
 /**
@@ -54,11 +54,12 @@ export function verifyRunStdinScript(args: VerifyRunArgs): { lines: string[]; un
  */
 export function verifyRunCommands(
   args: VerifyRunArgs,
-): { cmd: string; args: readonly string[] }[] {
+  cwd = args.cwd ?? process.cwd(),
+): { cmd: string; args: readonly string[]; dialect?: "posix" }[] {
   if (args.kind === "command") {
     if (args.cmd === undefined) return [];
-    const lines = verifyRunStdinScript(args)?.lines ?? [];
-    return [{ cmd: args.cmd, args: args.args ?? [] }, ...lines.map((line) => ({ cmd: line, args: [] }))];
+    const lines = verifyRunStdinScript(args, cwd)?.lines ?? [];
+    return [{ cmd: args.cmd, args: args.args ?? [] }, ...lines.map((line) => ({ cmd: line, args: [], dialect: "posix" as const }))];
   }
   if (args.start === undefined || args.start.cmd.length === 0) return [];
   return [{ cmd: args.start.cmd, args: args.start.args ?? [] }];
@@ -106,7 +107,7 @@ export function guardVerifyRun(
   policy?: ShellGuardPolicy,
 ): VerifyGuardResult {
   const dangerous: VerifyGuardedCommand[] = [];
-  for (const command of verifyRunCommands(args)) {
+  for (const command of verifyRunCommands(args, cwd)) {
     const direct = guardVerifyCommand(command.cmd, command.args, cwd, policy);
     // Explicit environment assignments are part of this invocation too (for
     // example GIT_CONFIG_* can turn an innocent git verb into arbitrary code).

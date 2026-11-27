@@ -1,6 +1,6 @@
 import type { BatchLoopSignal, BatchCallInput, BatchExecutionContext, BatchExecutionResult, BatchCallResult } from "./batch-contract.js";
 import { refuseUnregisteredTool } from "../policies/unknown-tool.js";
-import { refuseBeforeDispatch, skillAlreadyLoadedResult, runFinalStepGate, runToolFilterGate, runPlanModeGate, runFusionOrchestratorGate, runSyncLoopGate, observeReadCoverage } from "./batch-gates.js";
+import { refuseBeforeDispatch, refuseByOrgPolicy, skillAlreadyLoadedResult, runFinalStepGate, runToolFilterGate, runPlanModeGate, runFusionOrchestratorGate, runSyncLoopGate, observeReadCoverage } from "./batch-gates.js";
 
 
 
@@ -22,6 +22,7 @@ import {
 } from "../../approval/approval-ledger.js";
 import { runWithApprovalWorkdir } from "../../approval/approval-workdir.js";
 import { activeToolHooks, runWithToolHooks } from "../../hooks/hook-engine.js";
+import { activePolicy } from "../../policy/policy-active.js";
 import {
   isParallelWithinGroup,
   resourceClassFor,
@@ -360,6 +361,7 @@ export async function executeBatch(
       input.resourceClass === "terminal"
         ? null
         : refuseBeforeDispatch(input.call) ??
+          refuseByOrgPolicy(input.call, activePolicy(), ctx.workingDir) ??
           registry.refusalBeforeDispatch(input.call.tool, input.call.args, {
             sessionId: ctx.sessionId,
             workingDir: ctx.workingDir,

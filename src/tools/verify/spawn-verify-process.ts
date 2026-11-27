@@ -20,6 +20,8 @@
 import { spawn, type ChildProcess } from "node:child_process";
 
 import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal } from "../../policy/policy-enforce.js";
 import { getConfig, getStateSecretPaths, resolveStateDir } from "../../config/index.js";
 import { buildCommandEnv, markAgentToolChild } from "../../sandbox/command-env.js";
 import {
@@ -150,6 +152,10 @@ export function spawnVerifyProcess(
   options: SpawnVerifyOptions,
 ): VerifyProcess {
   const invocation = options.invocation ?? resolveInvocation(cmd, args);
+  for (const command of [{ cmd, args }, { cmd: invocation.command, args: invocation.args }]) {
+    const refusal = policyCallRefusal(activePolicy(), "verify.run", { kind: "command", ...command, stdin: options.stdin }, options.cwd);
+    if (refusal !== null) throw new Error(refusal);
+  }
   const detached = process.platform !== "win32";
   const sandboxed = readOsSandboxSettings().mode === "workspace";
   const cwd = sandboxed ? canonicalVerifyCwd(options.workspaceRoot, options.cwd) : options.cwd;

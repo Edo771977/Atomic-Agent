@@ -1,3 +1,7 @@
+import { gateBrowserUrl } from "./gate-browser-url.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal } from "../../policy/policy-enforce.js";
+import { requirePolicyWebUrl } from "../../policy/policy-web.js";
 import {
   compressToolResult,
   type CompressedToolResult,
@@ -11,11 +15,9 @@ import type { BrowserBackend, RefDescription } from "./browser-backend.js";
 import {
   blockedDomainMessage,
   checkBrowserHost,
-  checkBrowserUrl,
   webHostOf,
   type BrowserDomainPolicy,
 } from "./browser-domain-policy.js";
-import { requireUserSite } from "./user-profile-sites.js";
 import {
   classifyBrowserAction,
   type BrowserActionKind,
@@ -143,38 +145,28 @@ export async function gateBrowserAction(
   // Without element facts the page URL still comes from the backend, so
   // a blocked host is refused even when the element cannot be read.
   const pageUrl = element ? element.pageUrl : await currentUrlSafely(backend);
+  if (pageUrl !== null) {
+    const org = policyCallRefusal(activePolicy(), "os.web.fetch", { url: pageUrl });
+    if (org !== null) return compressToolResult({ tool: request.tool, status: "error", output: org, details: { reason: "organization_policy" } });
+  }
   const host = pageUrl !== null ? webHostOf(pageUrl) : null;
   if (host !== null && checkBrowserHost(host, policy).kind === "blocked") {
     return blockedResult(request.tool, request.ref, host);
   }
   const targetUrl = element ? actionTargetUrl(request.kind, element) : null;
   if (targetUrl !== null) {
-    const target = checkBrowserUrl(targetUrl, policy);
-    if (target.kind === "blocked") return blockedResult(request.tool, request.ref, target.host);
-    if (policy.userProfile) {
-      await requireUserSite(
-        dangerous,
-        policy,
-        request.tool,
-        target.host,
-        `${buildBrowserActionPreview(request, element, host, true)} → ${targetUrl}`,
-        ctx,
-      );
-    } else if (target.kind === "offsite") {
-      await requireApproval(
-        dangerous,
-        {
-          sessionId: ctx.sessionId,
-          tool: request.tool,
-          category: "browser_offsite",
-          reason: `${target.host} is not in browser.allowedDomains`,
-          preview: `${buildBrowserActionPreview(request, element, host, true)} → ${targetUrl}`,
-          affectedResources: [target.host],
-        },
-        ctx.signal,
-      );
+    if (/^(?:javascript|mailto|tel|blob|data):/i.test(targetUrl)) {
+      // These activate an element rather than opening a Chrome page.
+      // The ordinary action/secret gate below still applies.
+      const refusal = policyCallRefusal(activePolicy(), "os.web.fetch", { url: targetUrl });
+      if (refusal !== null) return compressToolResult({ tool: request.tool, status: "error", output: refusal, details: { reason: "organization_policy" } });
+      await requirePolicyWebUrl(dangerous, request.tool, targetUrl, ctx);
+    } else {
+      const refused = await gateBrowserUrl(dangerous, policy, request.tool, targetUrl, ctx);
+      if (refused !== null) return refused;
     }
   }
+
   const verdict = classifyBrowserAction(request.kind, element);
   if (verdict.category === null) return null;
   // In the user's own Chrome a submit acts as them, on their signed-in

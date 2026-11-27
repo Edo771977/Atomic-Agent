@@ -1,5 +1,6 @@
+import { installPolicy } from "../../policy/policy-active.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { CoreControlClient } from "../../local-llm/core/core-client.js";
@@ -246,4 +247,13 @@ describe("arguments and model fit", () => {
     expect(fitted.ok && fitted.notes.join(" ")).toMatch(/does not offer 4K/);
     expect(fitVideoToModel(parseVideoArgs({ prompt: "x", image: "a.png" }), TEXT_ONLY).ok).toBe(false);
   });
+});
+
+afterEach(() => installPolicy(null));
+it("organization edit policy refuses the actual generated video copy", async () => {
+  installPolicy({ sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "edit", resource: "*.mp4", effect: "deny" }] });
+  const core = fakeCore(); const made = tool({ withCore: core.withCore });
+  const result = await made.built.run({ prompt: "ordinary fixture" }, ctx());
+  expect(result.status).toBe("error"); expect(result.summary).toMatch(/policy/);
+  expect(readdirSync(work).filter(file => file.endsWith(".mp4"))).toEqual([]);
 });

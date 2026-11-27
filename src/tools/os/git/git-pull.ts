@@ -1,3 +1,5 @@
+import { needsGitPolicyPlan, gitPlanPaths } from "./git-policy-plan.js";
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import {
@@ -68,13 +70,41 @@ export function buildOsGitPullTool(
         },
         ctx.signal,
       );
-      const result = await runGitRemote(options, {
-        repo,
-        workingDir: ctx.workingDir,
-        args,
-        signal: ctx.signal,
-        timeoutMs: NETWORK_TIMEOUT_MS,
-      });
+      let result;
+      if (needsGitPolicyPlan(repoRoot)) {
+        let fetchBranch = branch;
+        if (fetchBranch === undefined) {
+          const probe = { repo: repoRoot, workingDir: ctx.workingDir, signal: ctx.signal };
+          const current = await runGit({ ...probe, args: ["symbolic-ref", "--quiet", "--short", "HEAD"] });
+          const name = current.stdout.trim();
+          if (current.exitCode !== 0 || current.timedOut || current.truncated || !name || /[\r\n]/.test(name)) throw new Error("Cannot determine the current pull branch for organization policy; specify a branch");
+          const trackingRemote = await runGit({ ...probe, args: ["config", "--get", `branch.${name}.remote`] });
+          if (trackingRemote.exitCode !== 0 || trackingRemote.timedOut || trackingRemote.truncated || trackingRemote.stdout.trim() !== remote) throw new Error("Cannot match the configured pull remote for organization policy; specify a branch");
+          const configured = await runGit({ ...probe, args: ["config", "--get", `branch.${name}.merge`] });
+          const ref = configured.stdout.trim();
+          if (configured.exitCode !== 0 || configured.timedOut || configured.truncated || !/^refs\/(?:heads|tags)\/[^\r\n]+$/.test(ref)) throw new Error("Cannot determine one configured pull source for organization policy; specify a branch");
+          fetchBranch = ref;
+        }
+        // Fetch one source so FETCH_HEAD cannot select a different remote ref.
+        const fetched = await runGitRemote(options, { sessionId: ctx.sessionId, repo: repoRoot, workingDir: ctx.workingDir,
+          args: ["fetch", NO_PROGRESS, remote, fetchBranch], signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
+        if (fetched.exitCode !== 0) return gitFailureResult(TOOL, fetched, { remote, branch, rebase, repoRoot });
+        const probe = { repo: repoRoot, workingDir: ctx.workingDir, signal: ctx.signal };
+        const pinned = await runGit({ ...probe, args: ["rev-parse", "--verify", "FETCH_HEAD^{commit}"] });
+        if (pinned.exitCode !== 0 || pinned.timedOut || pinned.truncated || !/^[a-f0-9]{40,64}$/i.test(pinned.stdout.trim())) throw new Error("Cannot pin fetched Git revision for organization policy");
+        const revision = pinned.stdout.trim();
+        const paths = await gitPlanPaths(probe, repoRoot, ["diff", "--name-only", "--no-renames", "-z", "HEAD", revision, "--"]);
+        if (rebase) {
+          const history = await runGit({ ...probe, args: ["rev-list", `${revision}..HEAD`] });
+          const commits = history.stdout.trim().split(/\r?\n/).filter(Boolean);
+          if (history.exitCode !== 0 || history.timedOut || history.truncated || commits.length > 256 || commits.some(commit => !/^[a-f0-9]{40,64}$/i.test(commit))) throw new Error("Cannot inspect complete rebase history for organization policy");
+          for (const commit of commits) paths.push(...await gitPlanPaths(probe, repoRoot, ["diff-tree", "--root", "--no-commit-id", "--name-only", "--no-renames", "-r", "-z", commit, "--"]));
+        }
+        await authorizeGitPolicyMutation(options, TOOL, repoRoot, paths, ctx);
+        result = await runGit({ ...probe, args: rebase ? ["rebase", revision] : ["merge", "--ff-only", revision], timeoutMs: NETWORK_TIMEOUT_MS });
+      } else {
+        result = await runGitRemote(options, { sessionId: ctx.sessionId, repo: repoRoot, workingDir: ctx.workingDir, args, signal: ctx.signal, timeoutMs: NETWORK_TIMEOUT_MS });
+      }
       if (result.exitCode !== 0) {
         return gitFailureResult(TOOL, result, { remote, branch, rebase, repoRoot });
       }
