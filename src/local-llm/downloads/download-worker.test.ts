@@ -387,9 +387,6 @@ describe("download-worker", () => {
     // The gate is set when the body is built, before the worker has read
     // or written anything; the stop must land once "ab" is on disk.
     await waitFor(() => partialText(dest) === "ab");
-    // The first chunk on record before the pause, or a slow write lands
-    // after it and the partial is still empty.
-    await waitFor(() => readDownloadJob(dataDir, jobId)?.transferredBytes === 2);
     requestDownloadPause(dataDir, jobId);
     controller.abort();
     releaseGate.release?.();
@@ -508,7 +505,6 @@ describe("download-worker", () => {
     // weights leg is no longer cancelled by the projector's 404.
     const releaseGgufGate: { release: (() => void) | null } = { release: null };
     const ggufDest = resolveModelFilePath(dataDir, VISION.id, VISION.filename);
-    let mmprojServed = false;
     let projectorAnswered!: () => void;
     const projectorFailed = new Promise<void>((resolve) => {
       projectorAnswered = resolve;
@@ -518,7 +514,6 @@ describe("download-worker", () => {
         // Fail only once the weights have bytes on disk, so the test
         // shows the projector's 404 lands while the GGUF is mid-flight.
         await waitFor(() => partialText(ggufDest) === "ab");
-        mmprojServed = true;
         projectorAnswered();
         return new Response(null, { status: 404, statusText: "Not Found" });
       }
@@ -554,9 +549,6 @@ describe("download-worker", () => {
     // away before the projector's check could see it.
     await projectorFailed;
     await waitFor(() => releaseGgufGate.release !== null);
-    // The 404 first: released early, the GGUF can finish before the
-    // projector fails and the test no longer shows the weights survive it.
-    await waitFor(() => mmprojServed);
     releaseGgufGate.release?.();
     const outcome = await pending;
 
