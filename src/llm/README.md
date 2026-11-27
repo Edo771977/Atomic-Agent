@@ -44,3 +44,5 @@ A provider rejection that identifies an invalid sampling setting stops failover 
 `npx vitest run src/llm`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
 
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../../docs/reviews/b4b-subscription-signin.md).
+
+B7a3 reads Google array-form error bodies and status alongside the fork's param field. This preserves invalid-sampling failover behavior; only closed-vocabulary refusal details reach reporting. [Review](../../docs/reviews/b7a3-provider-refusals.md).

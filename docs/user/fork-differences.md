@@ -205,6 +205,10 @@ The editor-launched ACP command from upstream #1646 remains deferred in B3. Its 
 
 The B4c Composio account CLI/TUI import (#1687/#1688) is deferred: connected accounts are readable from a marked child, and account selection changes the stable prompt prefix. Existing ATO-548 configuration and session pins are unchanged. [Review and reopening requirements](../reviews/b4c-composio-accounts.md).
 
+## Hermes Python plugins
+
+The upstream #1639 Python-to-MCP bridge remains deferred in B6a. CLI trust strings do not provide the fork's TUI confirmation, content identity or child write protection; changed plugin code executes without renewed trust. No bridge or shim is shipped. [Review and reproducible tests](../reviews/b6a-hermes-bridge.md).
+
 ## MCP over HTTP
 
 The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
@@ -224,6 +228,10 @@ The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport 
   - No phone push is sent.
 
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../reviews/b4a-1671.md).
+
+## Provider refusal reports
+
+B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
 
 ## Security and reliability
 
@@ -256,6 +264,10 @@ Child process environment filtering depends on the launcher. The shell builder n
 
   See [#76](https://github.com/Edo771977/atomic-agent/pull/76).
 
+## Chat document export
+
+B7a2 imports upstream #1715 PDF export. The TUI requires an explicit --confirm-incognito for each incognito export and --force before overwriting. The CLI and HTTP refuse incognito. All content and generated filenames mask runtime-known configuration credentials. The PDF writer uses no network or active content and adds no dependencies. [Review](../reviews/b7a2-chat-pdf.md).
+
 ## Still open
 
 - [#33](https://github.com/Edo771977/atomic-agent/issues/33): multi-model team and an approvable assignment plan.
@@ -270,3 +282,5 @@ The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval,
 ## OS sandbox for commands
 
 The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.
+
+Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client requests unrestricted network even without consent and while offline. An enabled port needs host grants enforced on the server process, folder egress and protected-path inventories. Existing MCP stdio stays outside this command wrapper. macOS already has a Seatbelt command backend with host loopback retained; Windows has no backend. No production behavior changes. [Review and reproducible tests](../reviews/b6b-mcp-sandbox.md).

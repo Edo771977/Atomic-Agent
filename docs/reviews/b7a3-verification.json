@@ -1,0 +1,1831 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "upstream": [
+    {
+      "sha": "78586bb3bb480c9f6c51ceafabbe640c593e98e2",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "Tag provider refusals with what was refused, not just that it was (ATO-1673)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    },
+    {
+      "sha": "cac95a69a2c8dba4b57a942397020ac148a1cd06",
+      "parents": "78586bb3bb480c9f6c51ceafabbe640c593e98e2",
+      "subject": "Keep only structural words in a blamed request path; read Google's array body (ATO-1673)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    }
+  ],
+  "disposition": "cherry-picked separately with -x, followed by fork adaptations",
+  "checks": [
+    {
+      "command": "npm ci",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "focused",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0,
+      "rerun": "types-final"
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-final"
+    }
+  ],
+  "reports": {
+    "red": {
+      "counts": {
+        "numTotalTests": 6,
+        "numPassedTests": 2,
+        "numFailedTests": 4,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code customer_private_731",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'customer_private_731' to be undefined\n    at <local>/src/error-reporting/provider-detail-privacy.test.ts:10:36\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n   "
+          ]
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code sk_credential_sentinel_731",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'sk_credential_sentinel_731' to be undefined\n    at <local>/src/error-reporting/provider-detail-privacy.test.ts:10:36\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous"
+          ]
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code C:\\private\\file",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code person@example.invalid",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code request_id_731",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'request_id_731' to be undefined\n    at <local>/src/error-reporting/provider-detail-privacy.test.ts:10:36\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at ru"
+          ]
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: keeps recognized closed-vocabulary codes and structural paths",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'private_identifier' to be 'INVALID_ARGUMENT' // Object.is equality\n    at <local>/src/error-reporting/provider-detail-privacy.test.ts:19:144\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<local>/node_modules/@vit"
+          ]
+        }
+      ]
+    },
+    "green": {
+      "counts": {
+        "numTotalTests": 421,
+        "numPassedTests": 421,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/error-reporting/answer-failure-tag.test.ts :: answer_failure / truncation_cause (ATO-1031) splits a cut at the limit from an empty answer and from a full window",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/answer-failure-tag.test.ts :: answer_failure / truncation_cause (ATO-1031) reads the model failure under a wrapper, and nothing off other errors",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/answer-failure-tag.test.ts :: answer_failure / truncation_cause (ATO-1031) puts distinct tags on the Sentry event, without the message",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError recognises a closed host pipe",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError recognises a tty that went away",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError recognises a stream torn down under us",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError reads the code out of a cause chain",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError does not claim ordinary failures",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/broken-pipe.test.ts :: isBrokenPipeError survives a self-referential cause chain",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://localhost:8080/completion is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://LOCALHOST:1234 is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://llama.localhost:8080 is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://127.0.0.1:8095/v1/chat/completions is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://127.10.0.3 is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://[::1]:8080 is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://0.0.0.0:11434 is localhost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://10.0.0.5:8080 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://172.16.4.2 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://172.31.255.1 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://192.168.1.20:1234 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://169.254.10.10 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://gpu-box:8080 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://studio.local:1234 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://nas.lan is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://llm.corp.internal/v1 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://box.home.arpa is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://[fd12:3456::1]:8080 is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://[fe80::1] is private",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://openrouter.ai/api/v1/chat/completions is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://api.anthropic.com/v1 is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://api.groq.com/openai/v1 is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://generativelanguage.googleapis.com/v1beta/openai/ is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://api.openai.com/v1 is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://llm.acme-corp.com/v1 is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://172.32.0.1 is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost http://8.8.8.8 is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://evil-openrouter.ai.example.com is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://my-team.openai.azure.com/openai, a per-account preset endpoint, is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://my-team.services.ai.azure.com/openai/v1, a per-account preset endpoint, is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://bedrock-mantle.eu-west-1.api.aws/v1, a per-account preset endpoint, is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://bedrock-runtime.us-west-2.amazonaws.com/openai/v1, a per-account preset endpoint, is known_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://openai.azure.com.example.com, a lookalike of a per-account endpoint, is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://bedrock-mantle.example.com, a lookalike of a per-account endpoint, is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost https://ec2-1-2-3-4.compute-1.amazonaws.com, a lookalike of a per-account endpoint, is other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost returns undefined for an unparseable url",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost knows every non-local preset host and every built-in provider host",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/classify-transport-host.test.ts :: classifyTransportHost never lists a local preset host as cloud",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError no-ops when the client is null",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError drops cancelled failures",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError drops Atomic Chat not running, also when wrapped (ATO-1278)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError captures a real error via the scrubber",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError reports a non-Error thrown value as NonError without stringifying it",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError drops a process-global broken pipe — the reader left, nothing broke",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: captureError still reports an EPIPE raised at a call site, where it may be ours",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: guardStdioStream exits 0 on a broken pipe by default, when the process is its own",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: guardStdioStream only swallows a broken pipe in a process a host owns",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-reporter.test.ts :: guardStdioStream under mute, stops writing to the broken stream and does not exit",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: sanitizeStack reduces filesystem paths to basenames (strips home dir / username)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: sanitizeStack returns an empty array for a missing stack",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeCode pulls http status and errno-style code, ignores freeform fields",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeCode reads status and errno through the wrapper chain",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeCode prefers a status the wrapper carries over its cause's",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeCode back-fills the status a GrammarError wrapper does not carry",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeCode survives a self-referential cause chain",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeReason allows the known ModelFailureReason enum values",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeReason drops an unrecognised reason (could be freeform text)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeToolTransport allows the known ToolCallTransport enum values",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeToolTransport drops an unrecognised transport (could be freeform text)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeFailureStage allows the known ModelFailureStage enum values",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeFailureStage drops an unrecognised stage (could be freeform text)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeTool allows a bounded registry-style tool identifier",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeTool drops a tool value that is not a bounded identifier (could echo model output)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeTransportHost sends a host class, never the host, path or query",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeTransportHost drops a malformed url",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType keeps the enum-shaped types llama.cpp and OpenAI actually send",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType drops freeform server text — the whole point of the allowlist",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType keeps a 48-character type and drops a 49-character one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType drops a non-string type instead of coercing it",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType reads through the wrapper to the cause that carries the body",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType ignores a non-object body and a missing one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: extractSafeUpstreamErrorType stops at the depth cap rather than walking an unbounded chain",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError omits the raw message by default (allowlist policy)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError reads a known LLM category off the error",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError prefers the explicit category override",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries ModelError.reason through when it is a known enum value",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries ModelError.transport through when it is a known enum value",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError drops a bogus ModelError.transport rather than reporting it",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries ModelError.stage through when it is a known enum value",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError drops a bogus ModelError.stage rather than reporting it",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries ToolExecutionError.tool through when it is a bounded identifier",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries only the class of TransportError's url host",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError prefers the cause's stack over the wrapper's own stack",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError falls back to the wrapper's own stack when cause is not an Error",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError surfaces the cause's class name as causeType, distinct from the wrapper's errorType",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError omits causeType when the error has no cause",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError falls back to the wrapper's frames when the cause has none",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError still prefers the cause's frames when it has them",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError carries the upstream error type off the provider error underneath",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError omits the upstream error type when the body's is freeform",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError message and the shared secret detector (ATO-1077) still drops the message of an error class that is not allowlisted",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError message and the shared secret detector (ATO-1077) masks a key in the message of an allowlisted class",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: round2-8 masks a registered serve key in allowlisted error messages",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError upstream detail (ATO-1673) sends the reason, blamed field and code of a Gemini refusal, never its text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError upstream detail (ATO-1673) sends the type, param and code of an OpenAI refusal built by the real parser",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/error-scrubber.test.ts :: scrubError upstream detail (ATO-1673) adds no upstream detail to an error without a provider body",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop-fork-regression.test.ts :: drops a wrapped FusionBudgetStopError while keeping unrelated failures",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop-fork-regression.test.ts :: drops a wrapped FusionWorkerStopError while keeping unrelated failures",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) matches a budget stop on its own",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) matches a worker stop on its own",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) matches a budget stop as the cause of a wrapper",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) matches a worker stop two causes down",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) does not match a real context overflow",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) does not match a plain Error carrying the cap's words",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: isFusionStopError (ATO-1677) does not match non-errors or a cause cycle",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) drops a budget stop on its own",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) drops a worker stop on its own",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) drops a budget stop as the cause of a wrapper",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) drops a worker stop two causes down",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) still reports a real RequestTooLargeError",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: captureError drops budget stops (ATO-1677) still reports an unrelated Error",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the time cap (stopForBudget)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the spend cap (stopForBudget)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the worker stop \"person\"",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the worker stop \"replaced\"",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the worker stop \"hand-back\"",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the worker stop \"time-limit\"",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) drops the worker stop \"escalation-cap\"",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/fusion-stop.test.ts :: a stopped worker's step failure is not reported (ATO-1677) still reports a plain Error abort reason (the shape before the fix)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-budget-tags.test.ts :: sanitizeLlmFailureTags: prompt budget and cut counts (ATO-1678) sends each budget part and the server's counts",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-budget-tags.test.ts :: sanitizeLlmFailureTags: prompt budget and cut counts (ATO-1678) says none for an unknown window and a request without a cap",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-budget-tags.test.ts :: sanitizeLlmFailureTags: prompt budget and cut counts (ATO-1678) reads a zero cut count as not reported, not as zero tokens",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-budget-tags.test.ts :: sanitizeLlmFailureTags: prompt budget and cut counts (ATO-1678) never lets a non-count through",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags passes fixed words and counts through",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags turns anything outside its vocabulary into unknown, never the value",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags keeps preset provider ids",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags drops daemon_state for an external engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags sends the managed engine's fault as a fixed word, never anything else (ATO-1279)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags returns undefined when there is nothing to tag",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: request_route and port_class (ATO-872) classifies the request path into a fixed word",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: request_route and port_class (ATO-872) classifies the port into a fixed word",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: request_route and port_class (ATO-872) a managed port wins over a well-known number",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: request_route and port_class (ATO-872) tags route and port class, never the address, host or port number",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: request_route and port_class (ATO-872) adds no route tags when the request URL is unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) a refused managed turn on a dead process says the engine was not alive and how long it waited",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) maps every liveness to yes, no or unknown, never the raw value",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) says why the managed engine was judged as it was, in fixed words only (ATO-1275)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) a lock held too long to be a real operation is its own word (ATO-1433)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) an external engine carries no liveness reason tags",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) an external engine is never judged alive or dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) a refusal on a link with no known engine reports local_engine unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) adds no refusal tags when the connection was not refused",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: local refusal tags (ATO-421, ATO-769) buckets the wait on the edges the turn loop acts on",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: llm_failure context through scrubber and envelope a refused local-llama turn on a dead pid carries engine, daemon and wait tags",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: llm_failure context through scrubber and envelope a llama 404 on 8080 carries request_route and port_class and no address",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: llm_failure context through scrubber and envelope a refused turn carries the refusal tags and no address, port or path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: llm_failure context through scrubber and envelope the new tags never change the fingerprint",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: port_holder (ATO-1277) says other_process for a 401 on the managed port with our engine gone",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: port_holder (ATO-1277) is absent otherwise",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) sends the last and first verdict with their reasons",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason not_local_link",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason not_active_provider",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason not_managed",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason lock_held",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason lock_probe_failed",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) keeps the reason pid_unreadable",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) turns any other value into unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) a verdict with no reason sends the reason as unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: the engine wait verdict (ATO-1432) sends nothing for an external engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends out_of_memory for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends model_file_missing for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends model_file_corrupt for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends gpu_driver for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends port_in_use for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends crashed_unknown for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends no_log for a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) turns any other word into unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/llm-failure-tags.test.ts :: sanitizeLlmFailureTags: why the engine's process is gone (ATO-1435) sends nothing for an external engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code customer_private_731",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code sk_credential_sentinel_731",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code C:\\private\\file",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code person@example.invalid",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: drops unrecognized provider code request_id_731",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-privacy.test.ts :: keeps recognized closed-vocabulary codes and structural paths",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: redacts a named HTTP token without needing its plaintext in the registry",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a OpenAI project key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a sk- key of an OpenAI-shaped service with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Anthropic key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a OpenRouter key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a GitHub classic token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a GitHub OAuth token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a GitHub fine-grained token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Slack bot token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Slack user token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a AWS access key id with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Google API key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Hugging Face token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Stripe secret key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Stripe restricted key with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a Telegram bot token with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes replaces a JWT with a labelled marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes masks a bearer token and keeps the scheme",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes masks Basic credentials only after an Authorization header",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes stops a Cookie value at a JSON-escaped line break and its closing quote",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes masks Cookie and Set-Cookie header values",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes removes a PEM private key block whole, in plain and JSON-escaped form",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: vendor key shapes removes a PEM block clipped before its END line",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: names that say secret masks .env lines and keeps the names",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: names that say secret masks JSON and YAML fields, CLI flags and query parameters",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: names that say secret masks the password of a URL and keeps the user and host",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: names that say secret keeps a vendor label when the key sits in a secret-named pair or a URL",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: values the agent knows replaces an exact known value, whatever its shape, longest first",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: values the agent knows ignores known values too short or too plain to match safely",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: values the agent knows collects secret-named variables from an env, with their names as labels",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a git log unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a sha256sum line unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves UUIDs unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves token counts and settings unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves paths, URLs and references unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves placeholders unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves object and cache keys unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves slugs that start with sk- unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a CSS class that starts with sk- unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a cookie in code unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves TypeScript unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves Python unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves Go unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves UI strings under secret names unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves prose with bearer and basic unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a URL with a port and no password unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves clock times and versions unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a Stripe publishable key unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves an id and a slug after a colon unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves a base64 image untouched even when its alphabet spells a key prefix",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: ordinary output is left alone leaves pseudo-random base64 untouched",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: properties is idempotent: a marker is never masked again",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: properties returns the same string when there is nothing to mask",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecrets: properties stays linear on adversarial input",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecretsDeep (ATO-1176) masks every string in nested objects and arrays without mutating the input",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecretsDeep (ATO-1176) returns the input itself when nothing is masked",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecretsDeep (ATO-1176) masks a shared object at every place it is referenced",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecretsDeep (ATO-1176) cuts a cycle instead of returning the unmasked ancestor",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: maskSecretsDeep (ATO-1176) uses the known exact values",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: round2-2 masks exact credentials at word boundaries only",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/secret-detector.test.ts :: redacts long exact credentials even inside text and identifiers",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: SentryClient POSTs a privacy-hardened envelope and never sends the raw message",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: SentryClient is fire-safe: swallows fetch rejections",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: SentryClient createSentryClient returns null when disabled",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: SentryClient createSentryClient returns null for the placeholder DSN",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: SentryClient createSentryClient returns null under the test runner without an injected fetch",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: Sentry dimension tags tags surface, install_channel and desktop_version when given",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: Sentry dimension tags omits desktop_version outside the desktop app",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-client.test.ts :: Sentry dimension tags adds no dimension tags when none are configured",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-config.test.ts :: parseSentryDsn parses a standard ingest DSN",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-config.test.ts :: parseSentryDsn handles a DSN with a path prefix",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-config.test.ts :: parseSentryDsn returns null for a DSN without a public key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-config.test.ts :: parseSentryDsn returns null for a malformed DSN",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope stamps a cause_type tag when the scrubbed event carries one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope stamps a tool_transport tag that splits ModelError reason=empty by transport",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope omits tool_transport when the scrubbed event has none",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope stamps a failure_stage tag that splits an otherwise identical native_tools reason=empty",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope omits failure_stage when the scrubbed event has none",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope omits cause_type when the scrubbed event has none",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope uses the innermost frame (frames[0]) for the fingerprint, not the outermost",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope prioritises causeType over the generic 'unknown' tool literal in the fingerprint",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope sends frames oldest-first, the way Sentry reads a stack",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope marks our own frames in_app and node internals not",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope does not reorder the caller's array (the fingerprint reads frames[0])",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope stamps an upstream_error_type tag when the scrubbed event carries one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope stamps the upstream detail tags and leaves the fingerprint as it was (ATO-1673)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope omits upstream_error_type when the scrubbed event has none",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope splits two same-status failures whose only difference is the upstream type",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope keeps the status out of the fingerprint — two statuses still group as one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope leaves an untagged event's fingerprint exactly as it was",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-envelope.test.ts :: buildEnvelope adds exactly one element for a tagged event",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter allows 10 identical events per hour and drops the 11th",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter counts different events independently",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter passes the event again once an hour has gone by",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter is a rolling window, not a fixed bucket",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter does not count dropped events toward the window",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter persistence carries the budget across a restart",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter persistence stores only hashes and timestamps, never the key text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter persistence sees the sends another process wrote to the file",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryRateLimiter persistence treats a corrupt or unwritable file as empty and keeps working",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: sentryGroupingKey is the fingerprint, element for element",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryClient rate limiting sends 10 identical captures in an hour, drops the 11th, keeps others",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/sentry-rate-limit.test.ts :: SentryClient rate limiting gives copies with the same fingerprint one shared budget",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) says why a CLI run failed, with its exit code",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) names a usage limit as limit_reached",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) names the other CLI failures by their class",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) finds the CLI error under a wrapper",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) is undefined for an error that is not a CLI one",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) does not trust a kind or an exit code it does not know",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) reaches the Sentry tags without the stderr text, the binary or its path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_failure / cli_exit_code tags (ATO-1446) keeps the fingerprint as it was",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads unknown_option out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads unknown_option out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads unknown_option out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads git_bash_missing out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads node_missing out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads node_missing out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads node_missing out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads node_missing out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads command_not_recognized out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads path_not_found out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads path_not_found out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads other out of the CLI's text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) says no_output when the CLI printed nothing",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) covers every word in the vocabulary",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) is always a word from the vocabulary, never the text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reads the CLI's words for reported_error and turn_failed too",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) adds no reason to a failure that carries none of the CLI's words",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason tag (ATO-1679) reaches the Sentry tags without the text and leaves the fingerprint alone",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) gives unknown_option with the hint for exited",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) gives git_bash_missing with the hint for exited",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) gives unknown_option with the hint for input_truncated",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) gives git_bash_missing with the hint for input_truncated",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) agrees when the flag error scrolled out of a long stderr: no hint and other",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/subscription-cli-failure-tag.test.ts :: cli_reason agrees with the hint in the message (ATO-1679) agrees when the flag error is at the end of a long stderr: hint and unknown_option",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/unregistered-tool-grouping.test.ts :: unregistered-tool error reports group as one issue whatever name the model invented",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/unregistered-tool-grouping.test.ts :: unregistered-tool error reports send a bounded name class instead of the invented name",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/unregistered-tool-grouping.test.ts :: unregistered-tool error reports drop a name class outside the enum",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/unregistered-tool-grouping.test.ts :: unregistered-tool error reports leave an ordinary ToolExecutionError's fingerprint and tool tag unchanged",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/unregistered-tool-grouping.test.ts :: unregistered-tool error reports ignore a kind outside the enum",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Gemini 3 thought signature",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) DeepSeek thinking mode",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Anthropic tool_use without result",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) OpenAI tool_calls without tool messages",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Anthropic orphan tool_result",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Anthropic empty text block",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Anthropic prefill",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) llama.cpp context",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Gemini schema keyword",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) unsupported parameter",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) Anthropic trailing whitespace",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) a bare prefill mention",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) model id",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) nothing known",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) reads any 402 as out of credit, even with no body text",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: classifyUpstreamReason (ATO-1673) names no reason when there is no text to read",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) prefers OpenAI's declared param, indices reduced",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) reads Anthropic's dotted path at the head of the message",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) reads Gemini's request path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) drops everything below a schema's properties: tool argument names stay home",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a scalar root out of prose (a file name is not a field)",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a bare container word out of prose",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a tool name",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a dependentSchemas key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a $defs-like definitions key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a dependentRequired key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a dependencies key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a patternProperties key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a user-named message field",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a Gemini function_call argument",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: a Gemini function_response key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: an Anthropic tool_use input key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps no chosen name below the root: an OpenAI tool call arguments key",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a file name as a field: a POSIX path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a file name as a field: a Windows path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a file name as a field: a home path",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) does not read a file name as a field: a file name in prose",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamParam (ATO-1673) keeps a declared one-word scalar param",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: normalizeParamPath refuses a path that does not start at a known request field",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: normalizeParamPath cuts at a link that is not an identifier",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: normalizeParamPath cuts a named bracket to *",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: normalizeParamPath cuts a declared param at the first chosen name too",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) walks from the wrapper to the provider body and keeps only fixed words",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) tags a 402 as out of credit so it can be told from a 400",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) takes Google's error.status as the code when error.code is a number",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) drops a freeform code",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) is empty when nothing on the chain carries a body",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/upstream-error-detail.test.ts :: extractUpstreamErrorDetail (ATO-1673) names no reason for a body that kept only its type",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) PostHog: capture drops the event, and resumes when the mode goes off",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) PostHog: captureConfirmed reports 'not delivered' so a one-time event is retried later",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) PostHog: ATOMIC_AGENT_OFFLINE=1 drops events from a client built before it was read",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) Sentry: capture builds no envelope and sends nothing",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) feature flags read off without asking PostHog",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/offline-telemetry.test.ts :: telemetry while offline mode is on (ATO-1085) the update check never asks GitHub and says why",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: createTelemetryToggle (runtime opt-out) sends analytics_disabled exactly once, before teardown",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: createTelemetryToggle (runtime opt-out) passes via through and defaults it to settings",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: createTelemetryToggle (runtime opt-out) is a no-op when the value already matches",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: createTelemetryToggle (runtime opt-out) rebuilds the clients and calls onEnabled when turned back on",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: buildRuntimeTelemetry builds both clients enabled with the shared id and surface",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: buildRuntimeTelemetry leaves error reports off unless they are opted into, even with analytics on (#29)",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: buildRuntimeTelemetry DO_NOT_TRACK=1 disables both and leaves the shared id alone (ATO-1189)",
+          "status": "passed"
+        },
+        {
+          "name": "src/analytics/toggle-runtime-telemetry.test.ts :: buildRuntimeTelemetry ATOMIC_AGENT_ANALYTICS=off disables both and leaves the shared id alone",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases leaves the process-handler installation between client creation and controls",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases detaches clients before stopping them and exposes rebuilt clients through late getters",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases passes the error-report opt-in through and reports nothing while the gate holds (incognito, #29)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases hands shutdown the reporter even while the gate holds, so queued reports still flush (#29 review)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases uses current analytics for reports after a toggle and retains interactive launch gating",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/runtime-observability.test.ts :: runtime observability construction phases sends ui_action through the live client, and to no client while analytics is off (ATO-1465)",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads the OpenAI shape",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads the upstream vendor's own message out of OpenRouter's raw body",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads the OpenRouter shape, including the upstream raw body",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads a textual cooldown: retry in 120 s",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads a textual cooldown: Please retry after 2 minutes.",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads a textual cooldown: try again in 30 seconds",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads a textual cooldown: retry in 500ms",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads a textual cooldown: Retry the request in 1.5s",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody copes with a body that is not JSON",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody reads the message a body with no error object carries at the top (AI/ML API)",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody, Google's array form (ATO-1673) reads the first error object of an array body, status included",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody, Google's array form (ATO-1673) still reads a bracketed log prefix the old way",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: parseProviderErrorBody, Google's array form (ATO-1673) still reads nothing out of an array that holds no object",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason reads exhausted credit off a 429 that OpenRouter relays for Anthropic",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason reads exhausted credit off OpenAI's insufficient_quota and OpenRouter's insufficient_credits",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason treats a 402 that talks about credit as exhausted credit",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason honours OpenRouter's in-flight budget with its hint, or a default wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason turns a retry-after header on a 429 into a wait, and a plain 429 into nothing",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason reads a textual cooldown off a 503",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason ignores cooldown wording on a status that is not a cooldown",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words reads AI/ML API's 403 as exhausted credit",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words reads a 403 about billing or the payment method the same way",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words leaves a 403 about the key or the input alone",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words reads any 402 that asked for no cooldown as the account, whatever its words",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words keeps a 402 that asked for a cooldown, and the in-flight budget, a wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words reads a 429 that says the account is empty and asks for no cooldown as exhausted credit",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words keeps an ordinary 429 rate limit transient, quota and billing words included",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason an account that cannot pay, in words keeps a 429 that talks money in a rate limit's words a wait, cooldown or not",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: readProviderErrorReason falls back to the error's own message when no body was kept",
+          "status": "passed"
+        },
+        {
+          "name": "src/llm/provider/openai/parse-provider-error-body.test.ts :: CREDENTIAL_WORDING is a provider's words for the key or its authentication",
+          "status": "passed"
+        }
+      ]
+    },
+    "delivery": {
+      "counts": {
+        "numTotalTests": 3,
+        "numPassedTests": 3,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/error-reporting/provider-detail-delivery.test.ts :: drops new provider details offline before any report is sent",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-delivery.test.ts :: keeps reporting disabled with {\"enabled\":false,\"errorReports\":true}",
+          "status": "passed"
+        },
+        {
+          "name": "src/error-reporting/provider-detail-delivery.test.ts :: keeps reporting disabled with {\"enabled\":true,\"errorReports\":false}",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "finalStaticChecks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "finalStaticChecksAllPassed": true
+}
