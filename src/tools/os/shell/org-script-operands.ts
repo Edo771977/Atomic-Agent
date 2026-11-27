@@ -119,10 +119,15 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
     const opaque = scripts.some(script => name === "sed" ? sedExternalCommand(script) : awkExternalCommand(script));
     return opaque ? { kind: "inline" } : file !== undefined ? { kind: "file", operand: file } : { kind: "none" };
   }
+  let nodeInputType = false;
+  const selected = (operand: string | undefined): ScriptOperand => {
+    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand) === "stdin")) return { kind: "inline" };
+    return operand === undefined ? { kind: "stdin" } : { kind: operand === "-" ? "stdin" : "file", operand };
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
-    if (arg === "--") return args[i + 1] === undefined ? { kind: "stdin" } : { kind: "file", operand: args[i + 1] };
-    if (arg === "-" || !arg.startsWith("-")) return { kind: arg === "-" ? "stdin" : "file", operand: arg };
+    if (arg === "--") return selected(args[i + 1]);
+    if (arg === "-" || !arg.startsWith("-")) return selected(arg);
     if (python) {
       if (/^-c/.test(arg)) return { kind: "inline" };
       if (/^-m/.test(arg)) return { kind: "file", operand: arg.length > 2 ? arg.slice(2) : args[i + 1] };
@@ -132,13 +137,19 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       if (!/^-[bBdEhiIOPqRsSuvVx]+$/.test(arg)) return { kind: "unknown" };
     } else if (name === "node") {
       if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
-      const option = arg.split("=", 1)[0]!;
-      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit"];
-      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1] ?? "")) return { kind: "inline" };
-      if (values.includes(option)) { if (!arg.includes("=")) i++; continue; }
-      if (/^-r./.test(arg)) continue;
+      const shortRequire = /^-r./.test(arg);
+      const option = shortRequire ? "-r" : arg.split("=", 1)[0]!;
+      const value = shortRequire ? arg.slice(2) : arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
+      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit", "--stack-size", "--stack_size", "--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file"];
+      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(value?.trimStart() ?? "")) return { kind: "inline" };
+      if (values.includes(option) || /^--allow-fs-/.test(option)) {
+        if (value === undefined) return { kind: "unknown" };
+        nodeInputType ||= option === "--input-type";
+        if (!arg.includes("=") && !shortRequire) i++;
+        continue;
+      }
       if (/^(?:-v|--version|--help)$/.test(arg)) return { kind: "none" };
-      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
+      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--experimental-vm-modules|--preserve-symlinks(?:-main)?|--test-only|--(?:experimental-)?permission|--(?:no-)?experimental-require-module|--no-addons|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
     } else if (name === "perl" || name === "ruby") {
       if (arg.startsWith("--")) {
         if (name === "ruby" && ["--encoding", "--external-encoding", "--internal-encoding"].includes(arg.split("=", 1)[0]!)) { if (!arg.includes("=")) i++; continue; }
@@ -160,5 +171,5 @@ export function interpreterScript(words: readonly string[]): ScriptOperand | nul
       if (arg === "-l" || arg === "-s") i++;
     }
   }
-  return { kind: "stdin" };
+  return selected(undefined);
 }
