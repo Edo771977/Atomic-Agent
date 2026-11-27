@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { isWorkerVisibleTool } from "../../tools/fusion/worker-tool-policy.js";
 import type { AtomicAgentConfig } from "../../config/index.js";
 import { DEFAULT_MAX_AUDIO_BYTES, getConfig, getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths } from "../../config/index.js";
 import type { CreateAgentRuntimeOptions } from "../runtime-contract.js";
@@ -1231,6 +1232,7 @@ export function registerRuntimeFusionAndReadScope(input: {
           startupTrust: config.skills.projectTrust,
           settingsProfiles: () =>
             readSettingsAgentProfiles(config.paths.userConfigFile, () => getConfig().llm?.runMode?.agentProfiles),
+          toolPolicy: { names: toolRegistry.list().map(tool => tool.name), allows: isWorkerVisibleTool },
           pluginProfiles: () => pluginAgentProfiles(config.paths.stateDir),
         }),
       outputCharCap: config.agent.batchToolResultCharCap,

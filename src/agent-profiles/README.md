@@ -32,3 +32,5 @@ Project files follow [project folder trust](../skills/docs/project-trust.md): ea
 ## Validation
 
 `npx vitest run src/agent-profiles src/tools/fusion/task-profiles.test.ts src/runtime/project-trust.test.ts`.
+
+C1d checks profile tool selections against the live runtime catalog and worker ceiling before offering them to Fusion. Unknown names, malformed aliases or patterns selecting forbidden tools reject the entire profile with a diagnostic; a rejected higher-priority name cannot silently fall back to a built-in or another source. Data-only loader callers may omit the runtime catalog, but do not execute profiles. Reloading settings changes future briefs, never the stable prefix of an open session.

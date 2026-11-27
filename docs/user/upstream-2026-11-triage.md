@@ -343,7 +343,7 @@ Ondate:
 | [#1722](https://github.com/AtomicBot-ai/atomic-agent/pull/1722) | 1 | Subagents: worker sessions remember their depth (ATO-1666) | Importata (C1a, #233), cherry-pick -x 69dc95c37: profondita dei worker con richiesta originale e policy provider/egress/host del fork preservate. [Prove](../reviews/c1a-worker-depth.md). |
 | [#1728](https://github.com/AtomicBot-ai/atomic-agent/pull/1728) | 3 | Subagents: shared worker runner core, Fusion as an add-on (ATO-1669) | Importata (C1b, #233), catena di 3 cherry-pick -x: core condiviso con guard del fork preservati, origine subagent esclusa anche dalla formazione esperienze. [Prove](../reviews/c1b-shared-runner.md). |
 | [#1731](https://github.com/AtomicBot-ai/atomic-agent/pull/1731) | 3 | Subagents: profiles in settings, llm.runMode.agentProfiles (ATO-1667) | Importata (C1c, #233), 3 cherry-pick -x: schema/parser e conservazione delle voci scartate, senza abilitare esecuzione. [Prove](../reviews/c1c-settings-schema.md). |
-| [#1732](https://github.com/AtomicBot-ai/atomic-agent/pull/1732) | 2 | Subagents: load profiles from settings on a par with files (ATO-1668) | Importare per serie |
+| [#1732](https://github.com/AtomicBot-ai/atomic-agent/pull/1732) | 2 | Subagents: load profiles from settings on a par with files (ATO-1668) | Importata (C1d, #233), 2 cherry-pick -x: rilettura config.json, fiducia progetto preservata, strumenti sconosciuti/non consentiti rifiutati con avviso. [Prove](../reviews/c1d-profile-loading.md). |
 | [#1733](https://github.com/AtomicBot-ai/atomic-agent/pull/1733) | 9 | Subagents: subagent.run tool with depth and child limits (ATO-1670) | Importare per serie |
 
 ### Release e analytics upstream
