@@ -41,6 +41,8 @@ const HTML_OUTPUT_CHARS = 576 * 1024;
 export const HTML_PLAIN_CHARS = 384 * 1024;
 const HTML_FORMAT_DEPTH = 128;
 const HTML_FORMAT_NODES = 30_000;
+const HTML_WIDE_SIBLINGS = 6_000;
+const HTML_JOIN_WORK_LIMIT = 3 * 1024 * 1024;
 const HTML_WHITESPACE_RUN = 128;
 const HTML_QUOTE_DEPTH = 32;
 const HTML_TABLE_DEPTH = 64;
@@ -57,7 +59,7 @@ const ATTRIBUTES = new Map([
   ["th", ["colspan"]],
 ]);
 
-type FormatLimit = "size" | "depth" | "nodes" | "output";
+type FormatLimit = "size" | "depth" | "nodes" | "output" | "sibling joins";
 
 class HtmlFormatLimit extends Error {
   constructor(readonly limit: FormatLimit) { super(limit); }
@@ -294,6 +296,8 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let preWhitespaceTrimmed = false;
   let inText = false;
   let renderedDepth = 0;
+  const siblings: number[] = [0];
+  let widestSiblings = 0;
   let openAnchor = -1;
   let anchorOpening = -1;
   let anchorHasPrefix = false;
@@ -313,12 +317,18 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     parts.push(text);
     length += cost;
   };
+  const countSibling = () => {
+    const count = (siblings[renderedDepth] ?? 0) + 1;
+    siblings[renderedDepth] = count;
+    widestSiblings = Math.max(widestSiblings, count);
+  };
   const appendText = (text: string) => {
     if (!text) return;
     if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = true;
     if (!inText && /[^\s\u0085]/u.test(text)) {
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       inText = true;
+      countSibling();
     }
     if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
     const escaped = escapeMarkup(text);
@@ -478,8 +488,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         flattened.depth = true;
         return;
       }
+      countSibling();
       if (!isVoid) {
         renderedDepth++;
+        siblings[renderedDepth] = 0;
         if (!INLINE_ELEMENTS.has(name)) openBlocks++;
         emitted[emitted.length - 1] = name;
         if (name === "a" && !recognizeSelfClosing) {
@@ -524,7 +536,12 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   const markup = parts.join("");
   const markupWork = markup.length - textMarkupLength + 16 * nodes;
   // A failed preparation also scanned the source before pausing.
-  const work = limit ? Math.max(markupWork, Math.min(html.length, parser.endIndex + 1)) : markupWork;
+  const preparationWork = limit ? Math.max(markupWork, Math.min(html.length, parser.endIndex + 1)) : markupWork;
+  // Turndown's sibling join reads the growing output for each child. Charge
+  // wide groups for that repeated scan before constructing the DOM.
+  const joinWork = Math.ceil(Math.max(0, widestSiblings - HTML_WIDE_SIBLINGS) * textMarkupLength / 512);
+  const work = preparationWork + joinWork;
+  if (joinWork > HTML_JOIN_WORK_LIMIT) limit ??= "sibling joins";
   return { markup, title, limit, flattened, work, preWhitespaceTrimmed };
 }
 
@@ -567,6 +584,7 @@ export function boundedHtmlToMarkdown(
     nodes: `node count (${HTML_FORMAT_NODES})`,
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
+    "sibling joins": "wide sibling joins",
   };
   // Parse up to a fresh item's allowance; the caller accounts for framing
   // and decides whether the item fits in the current output window.

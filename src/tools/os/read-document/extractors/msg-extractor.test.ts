@@ -503,6 +503,26 @@ describe("msg extractor", () => {
     expect(result.text.match(/\| Item \| Note \|/g)).toHaveLength(1250);
   });
 
+  it.each([undefined, 12 * 1024 * 1024])("bounds wide sibling joins across twenty embedded messages (%s)", async (maxBytes) => {
+    const listing = "<p><b>Ordinary entry text</b></p>".repeat(9000);
+    const attachments = Array.from({ length: 20 }, (_, n) => ({
+      name: "__attach_version1.0_#" + n.toString(16).padStart(8, "0"),
+      children: [
+        props(8, [[0x3705, 0x0003, long(5)]]),
+        {
+          name: "__substg1.0_3701000D",
+          children: [props(24, []), { name: b(0x1013), data: Buffer.from(listing + "<p>TAIL-" + n + "X</p>") }],
+        },
+      ],
+    }));
+    const { buffer } = buildCfb([str(0x1000, "Parent"), ...attachments], 4096);
+    const start = performance.now();
+    const result = await msgExtractor({ data: buffer, sourcePath: "siblings.msg", maxBytes });
+    expect(performance.now() - start).toBeLessThan(3000);
+    expect(result.text.endsWith("TAIL-19X")).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
+  });
+
   it("keeps going with a warning when one property stream is corrupt", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const off = buffer.indexOf(Buffer.from(`${u(0x0037)}\0`, "utf16le"));
