@@ -36,9 +36,9 @@ export async function exportChat(
     format === "markdown"
       ? markdown
       : format === "html"
-        ? renderChatHtml(markdown, title)
+        ? renderChatHtml(markdown, title, masked)
         : format === "pdf"
-          ? renderMarkdownPdf(markdown, title, now)
-          : await renderMarkdownDocx(markdown, title, now);
+          ? renderMarkdownPdf(markdown, title, now, masked)
+          : await renderMarkdownDocx(markdown, title, now, masked);
   return { format, filename: chatExportFilename(state, format, masked), mimeType: CHAT_EXPORT_MIME[format], body };
 }

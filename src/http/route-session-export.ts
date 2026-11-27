@@ -5,6 +5,26 @@ import { describeToolCall } from "../tools/describe-tool-call.js";
 import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
 
+/** Bound Markdown parsing, redaction and document layout on the HTTP event loop. */
+function exportTooLarge(state: { turns: readonly unknown[] }): boolean {
+  if (state.turns.length > 2_000) return true;
+  let charsLeft = 1_000_000;
+  let nodesLeft = 20_000;
+  const exceeds = (value: unknown, depth: number): boolean => {
+    if (--nodesLeft < 0 || depth > 32) return true;
+    if (typeof value === "string") return (charsLeft -= value.length) < 0;
+    if (value !== null && typeof value === "object") {
+      for (const key in value) {
+        if (!Object.hasOwn(value, key)) continue;
+        charsLeft -= key.length;
+        if (charsLeft < 0 || exceeds((value as Record<string, unknown>)[key], depth + 1)) return true;
+      }
+    }
+    return false;
+  };
+  return exceeds(state, 0);
+}
+
 /**
  * `GET /api/sessions/{id}/export?format=markdown|html|docx|pdf[&tools=0]` —
  * one chat as a document (ATO-1054).
@@ -44,6 +64,10 @@ export function createExportSessionHandler(): HttpHandler {
       // An incognito chat (ATO-586) is meant to leave nothing behind; a
       // document of it would outlive the chat.
       sendError(res, 409, openaiError("an incognito chat cannot be exported", "invalid_request_error", null, "incognito_session"));
+      return;
+    }
+    if (exportTooLarge(state)) {
+      sendError(res, 413, openaiError("chat is too large for HTTP export; use export from your terminal", "invalid_request_error", null, "export_too_large"));
       return;
     }
     const file = await exportChat(state, format, {

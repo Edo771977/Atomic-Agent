@@ -107,12 +107,12 @@ export interface ScrubbedErrorEvent {
   transportHost?: string;
   /**
    * `error.type` out of an OpenAI-shaped upstream error body
-   * (`{"error":{"type":"exceed_context_size_error",…}}`) — the one field
+   * (`{"error":{"type":"invalid_request_error",…}}`) — the one field
    * that says *why* a provider rejected a turn, where the status only
    * says that it did.
    *
    * Unlike every other field here, this one is written by a server we do
-   * not control, so it is validated against a bounded enum shape and
+   * not control, so it is validated against a closed literal vocabulary and
    * DROPPED when it does not match. A local llama-server / LM Studio /
    * Ollama is free to put a sentence, a filesystem path, or a fragment
    * of the user's own prompt in that field, and none of that may travel.
@@ -210,26 +210,11 @@ const MAX_FRAMES = 30;
  */
 const SAFE_CODE_RE = /^[A-Z][A-Z0-9_]*$/;
 
-/**
- * Enum shape for an upstream provider's `error.type`. Deliberately
- * tighter than {@link SAFE_IDENTIFIER_RE}: that one guards a value our
- * own registry produced, this one guards a value a third-party server
- * wrote. Lowercase snake_case, 48 characters at most — which admits
- * every type llama.cpp and OpenAI actually define
- * (`exceed_context_size_error`, `invalid_request_error`, `server_error`,
- * `unavailable_error`, `insufficient_quota`, `not_found_error`,
- * `authentication_error`) and excludes anything carrying a space, a `/`
- * or `\`, punctuation, a capital or a non-ASCII byte.
- *
- * What it does NOT exclude: a single lowercase word. `resignation`,
- * `config_json` and 48 unbroken characters of a prompt all pass, because
- * nothing here can tell one token of prose from one token of enum. The
- * pattern buys the *multi-word* case — which is every shape a sentence,
- * a path or a real prompt fragment actually takes — not the single-token
- * one. {@link SAFE_CODE_RE} has had the identical property since it was
- * written; the bound is the backstop for both.
- */
-const SAFE_UPSTREAM_ERROR_TYPE_RE = /^[a-z][a-z0-9_]{0,47}$/;
+/** Only fixed, reviewed provider type literals may leave the machine. */
+const SAFE_UPSTREAM_ERROR_TYPES = new Set([
+  "invalid_request_error", "authentication_error", "permission_error",
+  "not_found_error", "rate_limit_error", "api_error", "overloaded_error", "server_error",
+]);
 
 /** Depth cap on every `cause` walk in this module — longer is a cycle. */
 const MAX_CAUSE_DEPTH = 5;
@@ -403,7 +388,7 @@ export function extractSafeTransportHost(err: unknown): string | undefined {
 /**
  * Read the upstream `error.type` off a provider error body
  * (`OpenAiHttpError.body`, parsed by `parseProviderErrorBody`),
- * restricted to a bounded enum shape so freeform server text is never
+ * restricted to a closed literal vocabulary so freeform server text is never
  * sent. Only `.type` is read — the same object also holds `.message` and
  * up to 2 kB of raw body, which are exactly what must not travel.
  *
@@ -431,7 +416,7 @@ export function extractSafeUpstreamErrorType(
     const body = (current as { body?: unknown }).body;
     if (body !== null && typeof body === "object") {
       const type = (body as { type?: unknown }).type;
-      if (typeof type === "string" && SAFE_UPSTREAM_ERROR_TYPE_RE.test(type)) {
+      if (typeof type === "string" && SAFE_UPSTREAM_ERROR_TYPES.has(type)) {
         return type;
       }
     }

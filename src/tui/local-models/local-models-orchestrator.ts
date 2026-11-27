@@ -2181,8 +2181,11 @@ export class LocalModelsOrchestrator {
       // ATO-421: the backend check, device pick and port clearance below run
       // before the daemon start's own marker; a turn already waiting on the
       // refused port (a crash restart) reads the whole start as on its way.
-      const started = await withChatStartPending(getConfig().paths.localModelsDataDir, () =>
-        this.startDaemonNow({ ...opts, signal }));
+      const config = getConfig();
+      const start = () => this.startDaemonNow({ ...opts, signal });
+      const started = config.localModels.mode === "managed"
+        ? await withChatStartPending(config.paths.localModelsDataDir, start)
+        : await start();
       if (started && !signal.aborted) this.chatReadyError = null;
       return started;
     }, false);
