@@ -145,3 +145,7 @@ The [serve memory guard](serve-memory-guard.ts) samples heap and resident memory
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../../docs/reviews/b4b-subscription-signin.md).
 
 B7a5 holds the shared chat-start.pending marker across models start, including preflight before daemon launch. It is PID-only and removed when startup settles.
+
+Export file writes share [the destination guard](../session/chat-export-file.ts): state, trust inventories, policy and skill paths are refused in lexical and resolved forms. File links are refused. Ordinary writes use exclusive creation; `--force` replaces via an adjacent owner-only temporary file and rename. Export to a working folder outside agent state.
+
+`export` refuses every marked agent tool-child invocation before opening the session store, including explicit session IDs, `--last` and file/stdout output. The CLI has no authenticated current-session binding or read-scope context; the person exports from their terminal or the TUI.

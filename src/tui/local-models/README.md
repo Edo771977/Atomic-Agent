@@ -46,3 +46,5 @@ measurement. Background backend checks share lifecycle ownership without blockin
 Send while the current daemon is healthy.
 
 B7a5 wraps the complete queued public start with the shared start-pending marker, including pre-daemon backend/device/port work. The marker stays until start failure or cancellation settles and is removed in finally. [Tests](start-pending-lifecycle.test.ts).
+
+The TUI writes the start-pending marker only in managed mode; external starts never create the marker directory. The marker surrounds all managed startup work and remains held until a thrown or cancelled operation settles.

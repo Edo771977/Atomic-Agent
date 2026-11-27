@@ -1,5 +1,5 @@
 import type { DocumentFormat, Extractor, ExtractResult } from "./extractor-types.js";
-import { FragmentBudget } from "./fragment-budget.js";
+import { FragmentBudget, FragmentOutput } from "./fragment-budget.js";
 import { boundedHtmlToMarkdown } from "./html-markdown.js";
 import { decodeBytes } from "./text-decode.js";
 
@@ -24,32 +24,79 @@ import { decodeBytes } from "./text-decode.js";
  */
 const SHOWN_HEADERS = ["from", "to", "cc", "date", "subject"] as const;
 const MAX_DEPTH = 8;
+const ATTACHED_MESSAGE_MARKER = "--- attached message ---";
 
 interface TextPartRange {
   start: number;
   end: number;
   seen: number;
   resumeAt?: number;
+  partial?: number;
+  attachments: string[];
+  pendingAttachment?: { offset: number; subject?: string };
 }
 
 export const emlExtractor: Extractor = async (input) => {
   const warnings: string[] = [];
   const raw = input.data.toString("latin1");
   const budget = new FragmentBudget(input.maxBytes);
+  const output = new FragmentOutput(budget.maxOutputBytes);
   const range: TextPartRange = {
     start: input.pagesFrom ?? 1,
     end: input.pagesTo ?? Infinity,
     seen: 0,
+    attachments: [],
   };
-  const text = renderMessage(raw, 0, warnings, budget, range);
-  if (range.resumeAt !== undefined) {
-    warnings.push(`MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom to resume at that part or a later one.`);
+  const text = renderMessage(raw, 0, warnings, budget, output, "", range);
+  const attachmentOffset = range.start - range.seen - 1;
+  if (input.pagesFrom !== undefined && attachmentOffset >= 0 && attachmentOffset < range.attachments.length) {
+    const listing = new FragmentOutput(output.limit);
+    const displayed = appendAttachmentLines(listing, "", range.attachments, attachmentOffset);
+    const remaining = attachmentOffset + displayed.count < range.attachments.length;
+    warnings.push(range.seen
+      ? `MIME attachment list resumed. Body parts end at part ${range.seen}.`
+      : "MIME attachment list resumed. This message has no body parts.");
+    if (remaining) {
+      const next = range.start + displayed.count;
+      warnings.push(displayed.count === 0
+        ? `No complete MIME attachment line fits within maxBytes. Increase maxBytes and use pagesFrom=${next} to retry.`
+        : attachmentContinuation(next));
+    }
+    return {
+      format: "eml",
+      text: displayed.text,
+      warnings: dedupe(warnings),
+      ...(remaining && { truncated: true }),
+    };
+  }
+  const nextBody = range.resumeAt ??
+    (range.partial !== undefined && range.partial < range.seen ? range.partial + 1 : undefined);
+  if (range.partial !== undefined) {
+    const continuation = nextBody !== undefined
+      ? ` Use pagesFrom=${nextBody} to continue with the next part.`
+      : "";
+    warnings.push(`MIME part ${range.partial} was truncated.${continuation}`);
+  } else if (range.resumeAt !== undefined) {
+    warnings.push(output.framingLimited
+      ? `No body text was shown because the MIME headers and framing leave no room within maxBytes. Increase maxBytes and use pagesFrom=${range.resumeAt} to retry this part.`
+      : `MIME text budget exhausted at part ${range.resumeAt}; further text was skipped. Use pagesFrom=${range.resumeAt} to resume.`);
+  }
+  if (input.pagesFrom !== undefined && range.start > range.seen) {
+    warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
+  }
+  if (output.framingCompacted) {
+    warnings.push("MIME headers were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.");
+  }
+  if (range.pendingAttachment !== undefined && nextBody === undefined) {
+    const { offset, subject } = range.pendingAttachment;
+    const owner = subject ? ` The next attachment belongs to "${subject}".` : "";
+    warnings.push(attachmentContinuation(range.seen + offset + 1) + owner);
   }
   return {
     format: "eml",
     text: text.trim(),
     warnings: dedupe(warnings),
-    ...(budget.exhausted && { truncated: true }),
+    ...((budget.exhausted || output.truncated || output.framingCompacted || range.pendingAttachment !== undefined) && { truncated: true }),
   };
 };
 
@@ -58,13 +105,14 @@ export const mboxExtractor: Extractor = async (input) => {
   const messages = splitMbox(input.data.toString("latin1"));
   const total = messages.length;
   const budget = new FragmentBudget(input.maxBytes);
+  const output = new FragmentOutput(budget.maxOutputBytes);
   const result = (text: string, extracted: number[]): ExtractResult => ({
     format: "mbox" satisfies DocumentFormat,
     text,
     pageCount: total,
     pagesExtracted: extracted,
     warnings: dedupe(warnings),
-    ...(budget.exhausted && { truncated: true }),
+    ...((budget.exhausted || output.truncated) && { truncated: true }),
   });
   if (total === 0) {
     warnings.push("no messages found (expected lines starting with \"From \")");
@@ -77,25 +125,69 @@ export const mboxExtractor: Extractor = async (input) => {
   const separators = input.pageSeparators !== false;
   const chunks: string[] = [];
   const extracted: number[] = [];
+  const deferredAttachments: number[] = [];
+  let hasBodyContinuation = false;
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
-    const text = renderMessage(messages[n - 1]!, 0, warnings, budget).trim();
-    if (text || !budget.exhausted) {
-      chunks.push(separators ? `--- message ${n} ---\n${text}` : text);
+    const marker = separators ? `--- message ${n} ---\n` : "";
+    const markerBytes = Buffer.byteLength(marker);
+    if (markerBytes > output.limit) {
+      output.stop();
+      hasBodyContinuation = true;
+      warnings.push(`The MBOX message marker exceeds maxBytes. Increase maxBytes and use pagesFrom=${n} to retry.`);
+      break;
     }
-    if (budget.exhausted) {
-      warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom to resume at this message or a later one.`);
+    const message = new FragmentOutput(output.limit - markerBytes, extracted.length === 0);
+    const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
+    if (message.framingLimited) {
+      output.stop();
+      hasBodyContinuation = true;
+      warnings.push(extracted.length > 0
+        ? `MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`
+        : `No message text was shown because the MBOX headers leave no room within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
+      break;
+    }
+    if (budget.exhausted && !message.partialItem) {
+      output.stop();
+      hasBodyContinuation = true;
+      warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
+      break;
+    }
+    const separator = chunks.length && (marker || text) ? "\n\n" : "";
+    const shown = output.appendItem(separator + marker, text, message.truncated);
+    if (shown.text) chunks.push(shown.text);
+    if (message.framingCompacted && shown.status !== "deferred") {
+      output.truncated = true;
+      warnings.push(`MBOX headers for message ${n} were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.`);
+    }
+    if (message.attachmentListingLimited && shown.status !== "deferred") {
+      output.truncated = true;
+      deferredAttachments.push(n);
+    }
+    if (shown.status === "partial") {
+      hasBodyContinuation = n < total;
+      const continuation = hasBodyContinuation ? ` Use pagesFrom=${n + 1} to continue with the next message.` : "";
+      warnings.push(`MBOX message ${n} was truncated.${continuation}`);
+      break;
+    }
+    if (shown.status === "deferred") {
+      hasBodyContinuation = true;
+      warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
     extracted.push(n);
   }
   const remaining = end - start + 1 - extracted.length;
-  if (remaining > 0 && !budget.exhausted) {
+  if (remaining > 0 && !budget.exhausted && !output.stopped) {
     warnings.push(
       `stopped at maxPages=${maxPages}; ${remaining} more message(s) not read (use pagesFrom)`,
     );
   }
-  return result(chunks.join("\n\n").trim(), extracted);
+  for (const n of deferredAttachments) {
+    const priority = hasBodyContinuation ? " Follow the body continuation first." : "";
+    warnings.push(`MBOX attachments for message ${n} were deferred. Increase maxBytes and retry with pagesFrom=${n} to read the complete list.${priority}`);
+  }
+  return result(chunks.join("").trim(), extracted);
 };
 
 /**
@@ -270,7 +362,15 @@ function attachmentSize(body: string, encoding: string | undefined): number {
 
 // -------------------------------------------------------------- rendering
 
-function renderMessage(raw: string, depth: number, warnings: string[], budget: FragmentBudget, range?: TextPartRange): string {
+function renderMessage(
+  raw: string,
+  depth: number,
+  warnings: string[],
+  budget: FragmentBudget,
+  output: FragmentOutput,
+  prefix: string,
+  range?: TextPartRange,
+): string {
   const part = splitPart(raw);
   const lines: string[] = [];
   for (const name of SHOWN_HEADERS) {
@@ -278,22 +378,121 @@ function renderMessage(raw: string, depth: number, warnings: string[], budget: F
     if (value) lines.push(`${capitalise(name)}: ${decodeHeaderWords(value)}`);
   }
   const attachments: string[] = [];
-  const body = renderPart(part, depth, warnings, attachments, budget, range).trim();
-  const out = [lines.join("\n"), body];
-  if (attachments.length > 0) {
-    out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
+  const head = lines.join("\n");
+  const bodyPrefix = head ? prefix + head + "\n\n" : prefix;
+  const precedingParts = range?.seen ?? 0;
+  const body = renderPart(part, depth, warnings, attachments, budget, output, bodyPrefix, range);
+  const attachmentOffset = range?.attachments.length ?? 0;
+  if (range) for (const attachment of attachments) range.attachments.push(attachment);
+  const deferAttachments = (displayed = 0) => {
+    if (displayed === attachments.length) return;
+    if (range) {
+      if (range.pendingAttachment) return;
+      const subject = lines.find((line) => line.startsWith("Subject: "))
+        ?.slice("Subject: ".length).replace(/[\r\n]+/g, " ").trim().slice(0, 80);
+      range.pendingAttachment = { offset: attachmentOffset + displayed, subject };
+    } else {
+      output.attachmentListingLimited = true;
+    }
+  };
+  if (range && depth > 0) {
+    // A forwarded message that contains only attachments belongs to the
+    // next body position, even though it does not advance the part count.
+    const lastPart = range.seen + (attachments.length > 0 && range.seen === precedingParts ? 1 : 0);
+    if ((range.start > 1 && lastPart < range.start) || precedingParts >= range.end) {
+      deferAttachments();
+      return body;
+    }
   }
-  return out.filter((s) => s.length > 0).join("\n\n");
+  if (output.stopped) {
+    deferAttachments();
+    return body;
+  }
+  if (attachments.length > 0) {
+    const attachmentPrefix = body ? "\n\n" : bodyPrefix;
+    const listing = appendAttachmentLines(output, attachmentPrefix, attachments);
+    deferAttachments(listing.count);
+    return body + listing.text;
+  }
+  return body || (head ? output.append(prefix + head) : "");
 }
 
-function renderTextPart(bodySize: number, budget: FragmentBudget, range: TextPartRange | undefined, render: (inputBytes: number) => string): string {
+function attachmentContinuation(index: number): string {
+  return `MIME attachments were deferred. Use pagesFrom=${index} to read the remaining attachment list.`;
+}
+
+function appendAttachmentLines(output: FragmentOutput, prefix: string, attachments: string[], start = 0) {
+  const rows: string[] = [];
+  for (let index = start; index < attachments.length; index++) {
+    const leading = rows.length ? "\n" : prefix + "Attachments:\n";
+    const row = leading + "- " + attachments[index];
+    if (Buffer.byteLength(row) > output.remaining) break;
+    rows.push(output.append(row));
+  }
+  return { text: rows.join(""), count: rows.length };
+}
+
+function compactMailFraming(prefix: string, available: number): string | undefined {
+  const separator = /^\n*/.exec(prefix)?.[0] ?? "";
+  const lines = prefix.split("\n");
+  const markers = lines.filter((line) => line === ATTACHED_MESSAGE_MARKER);
+  const required = separator + (markers.length ? markers.join("\n") + "\n" : "");
+  const headerRoom = available - Buffer.byteLength(required);
+  if (headerRoom < 0) return undefined;
+
+  const ownHeaders = lines.slice(lines.lastIndexOf(ATTACHED_MESSAGE_MARKER) + 1);
+  let fields = ["From: ", "Subject: "].flatMap((label) => {
+    const value = ownHeaders.find((line) => line.startsWith(label))?.slice(label.length).trim();
+    return value ? [{ label, value }] : [];
+  });
+  const headerOverhead = () => fields.reduce((bytes, { label }) => bytes + label.length, 1) + (fields.length - 1) * 3;
+  if (fields.length === 2 && headerRoom < headerOverhead() + 2) fields = fields.slice(0, 1);
+  if (fields.length === 0 || headerRoom < headerOverhead() + 1) return required;
+
+  let valueRoom = headerRoom - headerOverhead();
+  const summary = fields.map(({ label, value }, index) => {
+    const allowance = Math.floor(valueRoom / (fields.length - index));
+    const shown = new FragmentOutput(allowance).append(value);
+    valueRoom -= Buffer.byteLength(shown);
+    return label + shown;
+  });
+  return required + summary.join(" | ") + "\n";
+}
+
+function renderTextPart(
+  bodySize: number,
+  budget: FragmentBudget,
+  output: FragmentOutput,
+  prefix: string,
+  range: TextPartRange | undefined,
+  render: (inputBytes: number) => { text: string; truncated?: boolean },
+): string {
   const part = range ? ++range.seen : 0;
   if (range && (part < range.start || part > range.end)) return "";
+  if (output.stopped) return "";
   const accepted = budget.take(bodySize);
-  const text = accepted === undefined ? "" : render(accepted);
-  if (accepted !== undefined && accepted < bodySize) budget.noteTruncation();
-  if (range && budget.exhausted) range.resumeAt ??= part;
-  return text;
+  if (accepted === undefined) {
+    output.stop();
+    if (range) range.resumeAt = part;
+    return "";
+  }
+  const rendered = render(accepted);
+  const text = rendered.text.trim();
+  const clipped = rendered.truncated || accepted < bodySize;
+  if (accepted < bodySize) budget.noteTruncation();
+  if (!text && !clipped) return "";
+  const shown = output.appendItem(prefix, text, clipped, (available) => compactMailFraming(prefix, available));
+  if (range && shown.status === "partial") range.partial = part;
+  if (range && shown.status === "deferred") range.resumeAt = part;
+  return shown.text;
+}
+
+function readPartText(part: Part, inputBytes: number, warnings: string[]): string {
+  const encoding = part.headers.get("content-transfer-encoding");
+  const type = parseStructuredHeader(part.headers.get("content-type"));
+  const decoded = decodeBytes(decodeTransfer(part.body.slice(0, inputBytes), encoding), type.params.charset);
+  if (decoded.warning) warnings.push(decoded.warning);
+  return decoded.text.replace(/\r\n?/g, "\n");
 }
 
 function renderPart(
@@ -302,6 +501,8 @@ function renderPart(
   warnings: string[],
   attachments: string[],
   budget: FragmentBudget,
+  output: FragmentOutput,
+  prefix: string,
   range?: TextPartRange,
   htmlAlternative?: Part,
 ): string {
@@ -318,9 +519,9 @@ function renderPart(
   if (mime.startsWith("multipart/") && !attached) {
     const boundary = type.params.boundary;
     if (!boundary) {
-      return renderTextPart(part.body.length, budget, range, (inputBytes) => {
+      return renderTextPart(part.body.length, budget, output, prefix, range, (inputBytes) => {
         warnings.push(`${mime} without a boundary; shown as text`);
-        return budget.includeText(decodeBytes(Buffer.from(part.body.slice(0, inputBytes), "latin1")).text);
+        return decodeBytes(Buffer.from(part.body.slice(0, inputBytes), "latin1"));
       });
     }
     const rawChildren = splitMultipart(part.body, boundary);
@@ -331,7 +532,7 @@ function renderPart(
       for (const child of rawChildren) {
         const candidate = splitPart(child);
         if (isAttachment(candidate)) {
-          renderPart(candidate, depth + 1, warnings, attachments, budget, range);
+          renderPart(candidate, depth + 1, warnings, attachments, budget, output, prefix, range);
           continue;
         }
         last = candidate;
@@ -340,39 +541,45 @@ function renderPart(
         if (childMime === "text/html") html ??= last;
       }
       const pick = plain && (!html || budget.canTake(plain.body.length)) ? plain : html ?? last;
-      return pick ? renderPart(pick, depth + 1, warnings, attachments, budget, range, pick === plain ? html : undefined) : "";
+      return pick ? renderPart(pick, depth + 1, warnings, attachments, budget, output, prefix, range, pick === plain ? html : undefined) : "";
     }
     const chunks: string[] = [];
     for (const child of rawChildren) {
-      const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget, range).trim();
+      const text = renderPart(splitPart(child), depth + 1, warnings, attachments, budget, output, chunks.length ? "\n\n" : prefix, range);
       if (text) chunks.push(text);
     }
-    return chunks.join("\n\n");
+    return chunks.join("");
   }
 
   if (mime === "message/rfc822" && !attached) {
     const bytes = decodeTransfer(part.body, encoding);
-    const nested = renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget, range);
-    return nested ? `--- attached message ---\n${nested}` : "";
+    return renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget, output,
+      prefix + ATTACHED_MESSAGE_MARKER + "\n", range);
   }
 
   const isText = mime === "text/plain" || mime === "text/html";
   if (!isText || attached) {
-    const label = decodeHeaderWords(disposition.params.filename ?? type.params.name ?? "") || "(unnamed)";
+    const label = decodeHeaderWords(disposition.params.filename ?? type.params.name ?? "")
+      .replace(/[\r\n]+/g, " ").trim() || "(unnamed)";
     attachments.push(`${label} (${mime}, ${formatSize(attachmentSize(part.body, encoding))})`);
     return "";
   }
 
-  return renderTextPart(part.body.length, budget, range, (inputBytes) => {
-    const decoded = decodeBytes(decodeTransfer(part.body.slice(0, inputBytes), encoding), type.params.charset);
-    if (decoded.warning) warnings.push(decoded.warning);
-    const text = decoded.text.replace(/\r\n?/g, "\n");
-    if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget).text;
+  return renderTextPart(part.body.length, budget, output, prefix, range, (inputBytes) => {
+    const text = readPartText(part, inputBytes, warnings);
+    if (mime === "text/html") return boundedHtmlToMarkdown(text, warnings, undefined, budget);
     if (!text.trim() && htmlAlternative) {
       // Both representations belong to the same displayed MIME part.
-      return renderPart(htmlAlternative, depth, warnings, attachments, budget);
+      const alternateSize = budget.take(htmlAlternative.body.length);
+      if (alternateSize === undefined) return { text: "", truncated: true };
+      const html = boundedHtmlToMarkdown(readPartText(htmlAlternative, alternateSize, warnings), warnings, undefined, budget);
+      if (alternateSize < htmlAlternative.body.length) {
+        budget.noteTruncation();
+        html.truncated = true;
+      }
+      return html;
     }
-    return budget.includeText(text);
+    return { text };
   });
 }
 

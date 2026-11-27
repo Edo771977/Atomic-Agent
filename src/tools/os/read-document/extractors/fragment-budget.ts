@@ -9,16 +9,15 @@ export class FragmentBudget {
   #parts = 0;
   #bytes = 0;
   #work = 0;
-  #text = 0;
   #exhausted = false;
   #formattingLimited = false;
-  readonly #textLimit: number;
+  readonly maxOutputBytes: number;
   readonly #inputLimit: number;
   readonly #workLimit: number;
 
   constructor(maxBytes = DEFAULT_DOCUMENT_MAX_BYTES) {
-    this.#textLimit = maxBytes;
-    this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 4));
+    this.maxOutputBytes = maxBytes;
+    this.#inputLimit = Math.min(64 * 1024 * 1024, Math.max(MAX_FRAGMENT_BYTES, maxBytes * 5));
     this.#workLimit = Math.min(MAX_RENDER_WORK, Math.max(128 * 1024, Math.floor(maxBytes * 0.3)));
   }
 
@@ -26,17 +25,12 @@ export class FragmentBudget {
     return this.#exhausted;
   }
 
-  get textRemaining(): number {
-    return this.#textLimit - this.#text;
-  }
-
   get canFormat(): boolean {
     return !this.#formattingLimited;
   }
 
   canTake(bytes: number): boolean {
-    return !this.#exhausted && this.#parts < MAX_FRAGMENTS &&
-      (this.textRemaining > 0 || bytes === 0) && bytes <= this.#inputLimit - this.#bytes;
+    return !this.#exhausted && this.#parts < MAX_FRAGMENTS && bytes <= this.#inputLimit - this.#bytes;
   }
 
   take(bytes: number): number | undefined {
@@ -52,33 +46,94 @@ export class FragmentBudget {
   }
 
   /** Once formatting is exhausted, subsequent fragments can use plain text. */
-  takeWork(work: number): boolean {
-    if (this.#formattingLimited || work > this.#workLimit - this.#work) {
+  takeWork(work: number, wholeDocument = false): boolean {
+    if (!wholeDocument && (this.#formattingLimited || work > this.#workLimit - this.#work)) {
       this.#formattingLimited = true;
       return false;
     }
     this.#work += work;
+    this.#formattingLimited = this.#work >= this.#workLimit;
     return true;
-  }
-
-  includeText(value: string, cut = false): string {
-    const limit = this.textRemaining;
-    const size = Buffer.byteLength(value);
-    if (size <= limit) {
-      this.#text += size;
-      this.#exhausted ||= cut;
-      return value;
-    }
-    this.#exhausted = true;
-    if (limit === 0) return "";
-    const bytes = Buffer.from(value);
-    let end = limit;
-    while ((bytes[end]! & 0xc0) === 0x80) end--;
-    this.#text += end;
-    return bytes.toString("utf8", 0, end);
   }
 
   noteTruncation(): void {
     this.#exhausted = true;
+  }
+}
+
+/** Account for the bytes actually displayed, including framing and metadata. */
+export class FragmentOutput {
+  #used = 0;
+  #hasItem = false;
+  truncated = false;
+  stopped = false;
+  partialItem = false;
+  framingLimited = false;
+  framingCompacted = false;
+  attachmentListingLimited = false;
+
+  constructor(readonly limit: number, private readonly compactFraming = true) {}
+
+  get remaining(): number {
+    return this.limit - this.#used;
+  }
+
+  append(value: string): string {
+    const limit = this.remaining;
+    const size = Buffer.byteLength(value);
+    if (size <= limit) {
+      this.#used += size;
+      return value;
+    }
+    this.truncated = true;
+    if (limit === 0) return "";
+    const bytes = Buffer.from(value);
+    let end = limit;
+    while ((bytes[end]! & 0xc0) === 0x80) end--;
+    this.#used += end;
+    return bytes.toString("utf8", 0, end);
+  }
+
+  appendItem(
+    prefix: string,
+    value: string,
+    clipped = false,
+    compactPrefix?: string | ((available: number) => string | undefined),
+  ): {
+    text: string;
+    status: "complete" | "deferred" | "partial";
+  } {
+    const valueBytes = Buffer.byteLength(value);
+    let prefixBytes = Buffer.byteLength(prefix);
+    const available = this.remaining - valueBytes;
+    if (!this.#hasItem && this.compactFraming && !clipped && available >= 0 &&
+        prefixBytes > available && compactPrefix !== undefined) {
+      const compact = typeof compactPrefix === "string" ? compactPrefix : compactPrefix(available);
+      if (compact !== undefined && Buffer.byteLength(compact) <= available) {
+        prefix = compact;
+        prefixBytes = Buffer.byteLength(compact);
+        this.framingCompacted = true;
+      }
+    }
+    const size = prefixBytes + valueBytes;
+    if (this.#hasItem && (clipped || size > this.remaining)) {
+      this.stop();
+      return { text: "", status: "deferred" };
+    }
+    if (valueBytes > 0 && size > this.remaining &&
+        this.remaining - prefixBytes < Buffer.byteLength(String.fromCodePoint(value.codePointAt(0)!))) {
+      this.framingLimited = true;
+      this.stop();
+      return { text: "", status: "deferred" };
+    }
+    const partial = clipped || size > this.remaining;
+    const text = this.append(prefix + value);
+    this.#hasItem = true;
+    if (partial) this.partialItem = this.stopped = this.truncated = true;
+    return { text, status: partial ? "partial" : "complete" };
+  }
+
+  stop(): void {
+    this.stopped = this.truncated = true;
   }
 }

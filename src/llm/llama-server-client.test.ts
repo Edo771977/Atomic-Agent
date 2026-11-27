@@ -604,7 +604,7 @@ describe("LlamaServerClient.complete", () => {
     });
   });
 
-  it("keeps the body's reason code for error reporting, never the server's message (ATO-736)", async () => {
+  it("keeps the local body's type but omits types outside the report vocabulary (ATO-736)", async () => {
     const reply = (type: string) =>
       new LlamaServerClient({
         baseUrl: "http://127.0.0.1:9999",
@@ -621,10 +621,10 @@ describe("LlamaServerClient.complete", () => {
     expect(err).toBeInstanceOf(LlamaServerError);
     expect((err as LlamaServerError).body).toEqual({ type: "exceed_context_size_error" });
     const event = scrubError(err as Error, { source: "test" });
-    expect(event.upstreamErrorType).toBe("exceed_context_size_error");
+    expect(event.upstreamErrorType).toBeUndefined();
     expect(JSON.stringify(event)).not.toContain("user text here");
 
-    // A sentence in `type` fails the reporter's strict pattern and is dropped.
+    // A sentence in `type` is outside the reporter's closed vocabulary too.
     const sentence = await reply("The user asked about their medical records").complete({ prompt: "hi" }).catch((e: unknown) => e);
     expect(scrubError(sentence as Error, { source: "test" }).upstreamErrorType).toBeUndefined();
   });

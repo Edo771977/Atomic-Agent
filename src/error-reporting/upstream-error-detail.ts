@@ -16,7 +16,7 @@
  *    `empty_content`, …), `other` when nothing matched. Only the word
  *    travels, never the text it was matched on.
  *  - `upstream_error_param`: the request field the provider blamed, from
- *    OpenAI's `error.param` or a field path at the head of the message
+ *    the parsed `body.param`, never a field path quoted in the message
  *    (`messages.3.content.0.text`, `contents[3].parts[0]`). Kept only when
  *    it starts at a known request field. Every index becomes `[]`; below
  *    the root only the request's own structural words are kept, and the
@@ -290,7 +290,7 @@ function detailOfBody(
   const status = (owner as { status?: unknown }).status;
   const reason = classifyUpstreamReason(text, typeof status === "number" ? status : null);
   if (reason !== null) out.upstreamReason = reason;
-  const param = extractUpstreamParam(text);
+  const param = typeof body.param === "string" ? normalizeParamPath(body.param) : undefined;
   if (param !== undefined) out.upstreamErrorParam = param;
   // `error.code` when it is a word; Google's is only the HTTP number,
   // and its `error.status` (`INVALID_ARGUMENT`) is the word.

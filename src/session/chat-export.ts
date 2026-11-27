@@ -3,6 +3,8 @@ import { Marked, type Tokens } from "marked";
 import {
   knownSecretsFromEnv,
   maskSecrets,
+  MIN_KNOWN_SECRET_LENGTH,
+  redactedMarker,
   type KnownSecret,
 } from "../error-reporting/secret-detector.js";
 
@@ -71,7 +73,40 @@ export interface ChatExportOptions {
 
 /** `text` with every credential the shared detector finds replaced by a marker. */
 export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
-  return maskSecrets(text, options.knownSecrets ?? knownSecretsFromEnv());
+  const known = options.knownSecrets ?? knownSecretsFromEnv();
+  text = maskSecrets(text, known);
+  // Match a conservative presentation projection while replacing the original
+  // source range: Markdown delimiters/escapes, invisible/control characters and
+  // compatibility forms must not hide a key until a renderer joins its pieces.
+  const project = (value: string) => value.normalize("NFKD")
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
+  const needles = known.map(secret => project(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
+  if (needles.length === 0) return maskSecrets(text, known);
+  let projected = "";
+  const starts: number[] = [];
+  const ends: number[] = [];
+  let offset = 0;
+  for (const char of text) {
+    const value = project(char);
+    for (let i = 0; i < value.length; i += 1) { starts.push(offset); ends.push(offset + char.length); }
+    projected += value;
+    offset += char.length;
+  }
+  const ranges: Array<[number, number]> = [];
+  for (const needle of new Set(needles)) {
+    for (let at = projected.indexOf(needle); at >= 0; at = projected.indexOf(needle, at + needle.length)) {
+      ranges.push([starts[at]!, ends[at + needle.length - 1]!]);
+    }
+  }
+  ranges.sort((a, b) => a[0] - b[0]);
+  let out = "";
+  let consumed = 0;
+  for (const [start, end] of ranges) {
+    if (end <= consumed) continue;
+    out += text.slice(consumed, Math.max(consumed, start)) + redactedMarker("secret");
+    consumed = end;
+  }
+  return maskSecrets(out + text.slice(consumed), known);
 }
 
 /** The chat's name: its title, else its first prompt cut short, else its id. */
@@ -235,7 +270,9 @@ function safeHref(href: string): string | null {
  * from the network (CSP), so opening an export cannot fetch or execute
  * anything a message carried.
  */
-export function renderChatHtml(markdown: string, title: string): string {
+export function renderChatHtml(markdown: string, title: string, options: ChatExportOptions = {}): string {
+  markdown = maskChatExportText(markdown, options);
+  title = maskChatExportText(title, options);
   const md = new Marked({
     gfm: true,
     renderer: {

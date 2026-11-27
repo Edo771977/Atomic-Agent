@@ -2,7 +2,8 @@ import { CfbError, openCfb } from "./cfb-reader.js";
 import type { CfbEntry, CfbFile } from "./cfb-reader.js";
 import { formatSize } from "./email-extractor.js";
 import type { Extractor } from "./extractor-types.js";
-import { boundedHtmlToMarkdown } from "./html-markdown.js";
+import { FragmentBudget, FragmentOutput } from "./fragment-budget.js";
+import { boundedHtmlToMarkdown, HTML_PLAIN_CHARS } from "./html-markdown.js";
 import { decodeBytes, sniffHtmlCharset } from "./text-decode.js";
 
 /**
@@ -77,32 +78,45 @@ export const msgExtractor: Extractor = async (input) => {
   if (!hasProps) {
     warnings.push("no Outlook message properties found; this compound file may not be a .msg");
   }
-  const text = renderMessage(cfb, cfb.root, HEADER_TOP, 0, warnings);
-  return { format: "msg", text: text.trim(), warnings: [...new Set(warnings)] };
+  const budget = new FragmentBudget(input.maxBytes);
+  const output = new FragmentOutput(budget.maxOutputBytes);
+  const htmlBody = { truncated: false };
+  const text = renderMessage({ cfb, warnings, budget, output, htmlBody }, cfb.root, HEADER_TOP, 0);
+  const sharedTruncated = budget.exhausted || output.truncated;
+  if (sharedTruncated) warnings.push("Outlook document text was truncated by the shared extraction budget.");
+  const truncated = sharedTruncated || htmlBody.truncated;
+  return { format: "msg", text: text.trim(), warnings: [...new Set(warnings)], ...(truncated && { truncated: true }) };
 };
 
-interface MessageCtx {
+interface MessageReader {
   cfb: CfbFile;
+  warnings: string[];
+  budget: FragmentBudget;
+  output: FragmentOutput;
+  htmlBody: { truncated: boolean };
+}
+
+interface MessageCtx extends MessageReader {
   storage: CfbEntry;
   props: Map<number, Buffer>;
   /** Charset for PT_STRING8 values. */
   ansi: string;
-  warnings: string[];
 }
 
 function renderMessage(
-  cfb: CfbFile,
+  reader: MessageReader,
   storage: CfbEntry,
   headerSize: number,
   depth: number,
-  warnings: string[],
+  prefix = "",
 ): string {
+  const { cfb, warnings, output } = reader;
   const props = readFixedProps(cfb, storage, headerSize, warnings);
   const ansi =
     codepageLabel(getLong(props, PR_MESSAGE_CODEPAGE)) ??
     codepageLabel(getLong(props, PR_INTERNET_CPID)) ??
     "windows-1252";
-  const ctx: MessageCtx = { cfb, storage, props, ansi, warnings };
+  const ctx: MessageCtx = { ...reader, storage, props, ansi };
 
   const recipients = readRecipients(ctx);
   const from = formatAddress(
@@ -127,13 +141,15 @@ function renderMessage(
 
   const attachments: string[] = [];
   const nested: string[] = [];
-  readAttachments(ctx, depth, attachments, nested);
-
-  const out = [headerLines.join("\n"), readBody(ctx), ...nested];
+  const intro = [headerLines.join("\n"), readBody(ctx, depth === 0)].filter(Boolean).join("\n\n");
+  const first = output.append(prefix + intro);
+  readAttachments(ctx, depth, attachments, nested, first.length > 0);
+  const out = first + nested.join("");
   if (attachments.length > 0) {
-    out.push(`Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
+    const start = out ? "\n\n" : "";
+    return out + output.append(start + `Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
   }
-  return out.filter((s) => s.length > 0).join("\n\n");
+  return out;
 }
 
 // ------------------------------------------------------------ properties
@@ -288,17 +304,36 @@ function readRecipients(ctx: MessageCtx): { to: string[]; cc: string[] } {
 
 // ------------------------------------------------------------------ body
 
-function readBody(ctx: MessageCtx): string {
+function readBody(ctx: MessageCtx, outerBody: boolean): string {
   const plain = readString(ctx, PR_BODY);
-  if (plain && plain.trim().length > 0) return plain.replace(/\r\n?/g, "\n").trim();
+  if (plain && plain.trim().length > 0) return takeBody(ctx, plain).replace(/\r\n?/g, "\n").trim();
 
   const html = readHtml(ctx);
-  if (html) return boundedHtmlToMarkdown(html, ctx.warnings).text;
+  if (html) {
+    const body = takeBody(ctx, html);
+    if (!body) return "";
+    const plainLimit = Math.min(ctx.output.remaining, HTML_PLAIN_CHARS);
+    const result = boundedHtmlToMarkdown(body, ctx.warnings, undefined, ctx.budget, plainLimit, outerBody);
+    if (result.truncated) {
+      if (plainLimit === HTML_PLAIN_CHARS) ctx.htmlBody.truncated = true;
+      else ctx.output.truncated = true;
+    }
+    return result.text;
+  }
 
   if (ctx.cfb.child(ctx.storage, substgName(PR_RTF_COMPRESSED, PT_BINARY))) {
     ctx.warnings.push("message body is stored only as compressed RTF, which is not read");
   }
   return "";
+}
+
+function takeBody(ctx: MessageCtx, body: string): string {
+  const size = Buffer.byteLength(body);
+  const accepted = ctx.budget.take(size);
+  if (accepted === undefined) return "";
+  if (accepted === size) return body;
+  ctx.budget.noteTruncation();
+  return new FragmentOutput(accepted).append(body);
 }
 
 function readHtml(ctx: MessageCtx): string | undefined {
@@ -319,6 +354,7 @@ function readAttachments(
   depth: number,
   attachments: string[],
   nested: string[],
+  preceded: boolean,
 ): void {
   for (const storage of childStorages(ctx, "__ATTACH_VERSION1.0_#", "attachments")) {
     const a = subCtx(ctx, storage, HEADER_CHILD);
@@ -329,8 +365,12 @@ function readAttachments(
         ctx.warnings.push(`attached messages nested deeper than ${MAX_DEPTH} levels were cut`);
         continue;
       }
-      const text = renderMessage(ctx.cfb, embedded, HEADER_EMBEDDED, depth + 1, ctx.warnings);
-      nested.push(`--- attached message ---\n${text}`);
+      if (ctx.budget.exhausted || ctx.output.remaining === 0) {
+        ctx.output.stop();
+        continue;
+      }
+      const prefix = (preceded || nested.length > 0 ? "\n\n" : "") + "--- attached message ---\n";
+      nested.push(renderMessage(ctx, embedded, HEADER_EMBEDDED, depth + 1, prefix));
       continue;
     }
     const name =

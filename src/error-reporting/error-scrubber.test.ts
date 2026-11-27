@@ -187,13 +187,16 @@ describe("extractSafeTransportHost", () => {
 });
 
 describe("extractSafeUpstreamErrorType", () => {
-  it("keeps the enum-shaped types llama.cpp and OpenAI actually send", () => {
+  it("keeps only the eight approved provider error types", () => {
     for (const type of [
-      "exceed_context_size_error",
       "invalid_request_error",
+      "authentication_error",
+      "permission_error",
+      "not_found_error",
+      "rate_limit_error",
+      "api_error",
+      "overloaded_error",
       "server_error",
-      "unavailable_error",
-      "insufficient_quota",
     ]) {
       expect(extractSafeUpstreamErrorType({ body: { type } })).toBe(type);
     }
@@ -210,7 +213,7 @@ describe("extractSafeUpstreamErrorType", () => {
       "превышен размер контекста",
       "Error: invalid_request",
       "a".repeat(500),
-      "exceed_context_size_error ", // trailing space is not the enum
+      "invalid_request_error ", // trailing space is not the enum
       // A capital anywhere is out, including the all-caps constant name
       // llama.cpp uses internally (`ERROR_TYPE_EXCEED_CONTEXT_SIZE`) —
       // the enum on the wire is lowercase, and `[A-Z]` is the cheapest
@@ -223,28 +226,28 @@ describe("extractSafeUpstreamErrorType", () => {
     }
   });
 
-  it("keeps a 48-character type and drops a 49-character one", () => {
+  it("drops identifier-shaped arbitrary values at either length", () => {
     // The bound is the reason a prompt fragment cannot arrive truncated
     // to something that still reads as one: pin both sides of it, or a
     // widened bound goes unnoticed.
     expect(
       extractSafeUpstreamErrorType({ body: { type: "a".repeat(48) } }),
-    ).toBe("a".repeat(48));
+    ).toBeUndefined();
     expect(
       extractSafeUpstreamErrorType({ body: { type: "a".repeat(49) } }),
     ).toBeUndefined();
   });
 
   it("drops a non-string type instead of coercing it", () => {
-    // `String(["exceed_context_size_error"])` is a *valid* type — an
+    // `String(["invalid_request_error"])` is a *valid* type — an
     // array is how a coercing check quietly accepts a caller-controlled
     // value it never validated. The check is `typeof type === "string"`,
     // and these pin that.
     for (const type of [
       123,
       {},
-      ["exceed_context_size_error"],
-      Symbol("exceed_context_size_error"),
+      ["invalid_request_error"],
+      Symbol("invalid_request_error"),
       true,
       null,
     ]) {
@@ -256,9 +259,9 @@ describe("extractSafeUpstreamErrorType", () => {
     // The scrubbed error is the `TransportError` wrapper `toLlmFailure`
     // builds; it copies `status`/`url` but not the parsed body, so
     // reading only the top object finds nothing.
-    const cause = { body: { type: "exceed_context_size_error", text: "…" } };
+    const cause = { body: { type: "invalid_request_error", text: "…" } };
     expect(extractSafeUpstreamErrorType({ status: 400, cause })).toBe(
-      "exceed_context_size_error",
+      "invalid_request_error",
     );
   });
 
@@ -278,10 +281,10 @@ describe("extractSafeUpstreamErrorType", () => {
     // ends a self-referential chain, which the last case pins.
     const chain = (depth: number): unknown =>
       depth === 0
-        ? { body: { type: "exceed_context_size_error" } }
+        ? { body: { type: "invalid_request_error" } }
         : { cause: chain(depth - 1) };
     expect(extractSafeUpstreamErrorType(chain(4))).toBe(
-      "exceed_context_size_error",
+      "invalid_request_error",
     );
     expect(extractSafeUpstreamErrorType(chain(5))).toBeUndefined();
     const cycle: { body?: unknown; cause?: unknown } = {};
@@ -494,7 +497,7 @@ describe("scrubError", () => {
       name: "OpenAiHttpError",
       status: 400,
       body: {
-        type: "exceed_context_size_error",
+        type: "invalid_request_error",
         message:
           "request (14612 tokens) exceeds the available context size (12800 tokens), try increasing it",
         text: '{"error":{"code":400,"message":"request (14612 tokens) …"}}',
@@ -510,7 +513,7 @@ describe("scrubError", () => {
       source: "llm_failure",
       category: "transport",
     });
-    expect(ev.upstreamErrorType).toBe("exceed_context_size_error");
+    expect(ev.upstreamErrorType).toBe("invalid_request_error");
     // The body's prose and raw text stay behind: only `.type` travels.
     expect(JSON.stringify(ev)).not.toContain("14612");
     expect(JSON.stringify(ev)).not.toContain("exceeds the available");
@@ -571,7 +574,7 @@ it("round2-8 masks a registered serve key in allowlisted error messages", () => 
 });
 
 describe("scrubError upstream detail (ATO-1673)", () => {
-  it("sends the reason, blamed field and code of a Gemini refusal, never its text", () => {
+  it("sends Gemini reason/code but infers no blamed field from prose", () => {
     // The body exactly as the HTTP client builds it, from Google's array form.
     const raw =
       '[{"error":{"code":400,"message":"* GenerateContentRequest.contents[3].parts[0].function_call: Function call is missing a thought_signature in functionCall parts; draft my resignation letter","status":"INVALID_ARGUMENT"}}]';
@@ -587,9 +590,7 @@ describe("scrubError upstream detail (ATO-1673)", () => {
     });
     const ev = scrubError(wrapper, { source: "llm_failure", category: "transport" });
     expect(ev.upstreamReason).toBe("missing_thought_signature");
-    expect(ev.upstreamErrorParam).toBe(
-      "GenerateContentRequest.contents[].parts[].function_call",
-    );
+    expect(ev.upstreamErrorParam).toBeUndefined();
     expect(ev.upstreamErrorCode).toBe("INVALID_ARGUMENT");
     expect(JSON.stringify(ev)).not.toContain("resignation");
     expect(JSON.stringify(ev)).not.toContain("functionCall parts");
