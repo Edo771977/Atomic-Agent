@@ -129,8 +129,10 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd())
     return opaque ? { kind: "inline" } : file !== undefined ? { kind: "file", operand: file } : { kind: "none" };
   }
   let nodeInputType = false;
+  let nodeCodeLoad = false;
   const selected = (operand: string | undefined): ScriptOperand => {
-    if (name === "node" && nodeInputType && (operand === undefined || scriptStream(operand, cwd) === "stdin")) return { kind: "inline", stdin: true };
+    const stdin = operand === undefined || scriptStream(operand, cwd) === "stdin";
+    if (name === "node" && (nodeCodeLoad || nodeInputType && stdin)) return { kind: "inline", ...(stdin ? { stdin: true } : {}) };
     return operand === undefined ? { kind: "stdin" } : { kind: operand === "-" ? "stdin" : "file", operand };
   };
   for (let i = 0; i < args.length; i++) {
@@ -150,7 +152,7 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd())
       const option = shortRequire ? "-r" : arg.split("=", 1)[0]!;
       const value = shortRequire ? arg.slice(2) : arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
       const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit", "--stack-size", "--stack_size", "--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file"];
-      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(value?.trimStart() ?? "")) return { kind: "inline" };
+      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(value?.trimStart() ?? "")) nodeCodeLoad = true;
       if (values.includes(option) || /^--allow-fs-/.test(option)) {
         if (value === undefined) return { kind: "unknown" };
         nodeInputType ||= option === "--input-type";

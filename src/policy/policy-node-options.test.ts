@@ -17,6 +17,10 @@ describe("Node code and operational option boundaries", () => {
     expect(shellRunsUnreadableScript("printf fixture | node --input-type=module", [], true)).toBe(true);
     expect(stdinScriptOf("node", ["--input-type", "module"], false, "fixture")).toEqual({ lines: [], unreadable: true });
   });
+  it.each([["-rdata:text/javascript,void 0"], ["--import=data:text/javascript,void 0"], ["--loader", "data:text/javascript,void 0"]])("retains a preload's separate stdin source: %j", (...args) => {
+    expect(stdinScriptOf("node", args, false, "fixture")).toEqual({ lines: [], unreadable: true });
+    expect(stdinScriptOf("node", [...args, "fixture.js"], false, "fixture")).toBeNull();
+  });
   it.each(values)("consumes a separate or attached value for %s", option => {
     expect(effects([option, "fixture", "fixture.js", "-e"])).toEqual([null, null]);
     expect(effects([`${option}=fixture`, "fixture.js"])).toEqual([null, null]);
