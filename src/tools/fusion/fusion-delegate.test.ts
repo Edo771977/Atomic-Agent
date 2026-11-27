@@ -369,8 +369,8 @@ describe("fusion.delegate", () => {
       { tasks: [...TASKS] }, ctx());
     expect(result.status).toBe("ok");
     expect(create.mock.calls.map((call) => call[0])).toEqual([
-      { parentSessionId: "s-parent", taskId: "t1", operatorRequest: full },
-      { parentSessionId: "s-parent", taskId: "t2", operatorRequest: full },
+      { parentSessionId: "s-parent", taskId: "t1", depth: 1, operatorRequest: full },
+      { parentSessionId: "s-parent", taskId: "t2", depth: 1, operatorRequest: full },
     ]);
   });
 
