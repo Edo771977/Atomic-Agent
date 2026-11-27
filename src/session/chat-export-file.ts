@@ -11,6 +11,7 @@ export interface ChatExportRequest {
   readonly path: string | null;
   readonly force?: boolean;
   readonly incognitoConfirmed?: boolean;
+  readonly error?: string;
 }
 
 const EXTENSION: Record<ChatExportFormat, string> = { markdown: ".md", html: ".html", docx: ".docx", pdf: ".pdf" };

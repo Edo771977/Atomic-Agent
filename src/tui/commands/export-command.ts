@@ -53,11 +53,15 @@ function unquote(text: string): string {
  * it names none), so `/export notes` writes `notes.md`.
  */
 export function parseExportCommand(rawArgs: string): ChatExportRequest {
-  const flags: { force?: boolean; incognitoConfirmed?: boolean } = {};
-  rawArgs = rawArgs.replace(/^\s*(?:(?:--force|--confirm-incognito)(?:\s+|$))+/, prefix => {
-    if (prefix.includes("--force")) flags.force = true;
-    if (prefix.includes("--confirm-incognito")) flags.incognitoConfirmed = true;
-    return "";
+  const flags: { force?: boolean; incognitoConfirmed?: boolean; error?: string } = {};
+  // Quoted paths remain literal. Unquoted options work before or after the
+  // format/path, and unknown options can never silently become a filename.
+  rawArgs = rawArgs.replace(/"[^"]*"|'[^']*'|(^|\s)(--\S+)(?=\s|$)/g, (match, space: string | undefined, flag: string | undefined) => {
+    if (!flag) return match;
+    if (flag === "--force") flags.force = true;
+    else if (flag === "--confirm-incognito") flags.incognitoConfirmed = true;
+    else flags.error = `unknown export option: ${flag}`;
+    return space ?? "";
   });
   const args = rawArgs.trim();
   if (args.length === 0) return { format: "markdown", path: null, ...flags };
@@ -82,9 +86,10 @@ export async function writeChatExport(
   request: ChatExportRequest,
   cwd: string = process.cwd(),
 ): Promise<string> {
+  if (request.error) return `export failed: ${request.error}`;
   if (!state || !state.turns.some((t) => t.kind === "user")) return "nothing to export yet: this chat has no messages";
   if (isIncognitoSession(state) && request.incognitoConfirmed !== true) {
-    return "incognito chat: exporting leaves a permanent file. To confirm, repeat /export with --confirm-incognito before the format and path.";
+    return "incognito chat: exporting leaves a permanent file. To confirm, repeat /export with --confirm-incognito.";
   }
   let path = "";
   try {

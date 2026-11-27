@@ -19,6 +19,9 @@ function chat(text = "Plan a trip"): SessionState {
 }
 
 describe("/export arguments (ATO-1054)", () => {
+  it.each(["pdf --force --confirm-incognito chat.pdf", "pdf chat.pdf --force --confirm-incognito", "--force pdf --confirm-incognito chat.pdf"])("accepts flags around the format and path: %s", args => {
+    expect(parseExportCommand(args)).toEqual({ format: "pdf", path: "chat.pdf", force: true, incognitoConfirmed: true });
+  });
   it("defaults to Markdown in the current folder", () => {
     expect(parseExportCommand("")).toEqual({ format: "markdown", path: null });
     expect(parseExportCommand("   ")).toEqual({ format: "markdown", path: null });
@@ -73,6 +76,12 @@ describe("/export writing the file (ATO-1054)", () => {
     writeFileSync(join(dir, "c.md"), "old");
     await writeChatExport(chat(), { format: "markdown", path: "c.md", force: true }, dir);
     expect(readFileSync(join(dir, "c.md"), "utf8")).toContain("Lisbon");
+  });
+
+  it("refuses unknown flags without treating them as a file name", async () => {
+    const answer = await writeChatExport(chat(), parseExportCommand("pdf --typo"), dir);
+    expect(answer).toMatch(/unknown.*--typo/);
+    expect(() => readFileSync(join(dir, "--typo.pdf"))).toThrow();
   });
 
   it("writes a PDF and mentions the font limit only when the chat needs it", async () => {
