@@ -27,7 +27,7 @@
  *    conversation nor a tool's, schema's or user's own names travel.
  *  - `upstream_error_code`: `error.code` (`invalid_value`), or Google's
  *    `error.status` (`INVALID_ARGUMENT`) when the code is only a number,
- *    the same bounded enum shape as the type.
+ *    admitted only from the fork's closed literal vocabulary.
  *
  * The provider's full sentence stays where it already was: in the chat
  * row (`humanizeOpenAiHttpError` quotes it) and the local trace `error`
@@ -202,8 +202,16 @@ const PATH_RE =
 /** What a normalized path may look like on the wire. */
 const SAFE_PARAM_RE = /^[A-Za-z_][A-Za-z0-9_.[\]*]{0,95}$/;
 
-/** `error.code`: bounded enum shape, either case (`INVALID_ARGUMENT`). */
-const SAFE_CODE_RE = /^[A-Za-z][A-Za-z0-9_]{0,47}$/;
+/** Provider input is untrusted: identifier shape alone can carry a credential or user ID. */
+const SAFE_CODES: ReadonlySet<string> = new Set([
+  "invalid_value", "invalid_request_error", "invalid_parameter", "unsupported_parameter",
+  "unsupported_value", "context_length_exceeded", "model_not_found", "insufficient_quota",
+  "invalid_json_schema", "string_above_max_length", "rate_limit_exceeded",
+  "content_policy_violation", "authentication_error", "permission_denied",
+  "INVALID_ARGUMENT", "FAILED_PRECONDITION", "RESOURCE_EXHAUSTED", "NOT_FOUND",
+  "PERMISSION_DENIED", "UNAUTHENTICATED", "OUT_OF_RANGE", "UNIMPLEMENTED",
+  "INTERNAL", "UNAVAILABLE", "DEADLINE_EXCEEDED", "CANCELLED", "UNKNOWN",
+]);
 
 /**
  * Links below the root that are the request's own structure, the same
@@ -287,7 +295,7 @@ function detailOfBody(
   // `error.code` when it is a word; Google's is only the HTTP number,
   // and its `error.status` (`INVALID_ARGUMENT`) is the word.
   const code = [body.code, body.status].find(
-    (value): value is string => typeof value === "string" && SAFE_CODE_RE.test(value),
+    (value): value is string => typeof value === "string" && SAFE_CODES.has(value),
   );
   if (code !== undefined) out.upstreamErrorCode = code;
   return out;

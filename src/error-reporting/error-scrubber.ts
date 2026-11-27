@@ -130,7 +130,7 @@ export interface ScrubbedErrorEvent {
    * when it starts at a known request field, indices reduced to `[]`.
    */
   upstreamErrorParam?: string;
-  /** `error.code` of the provider body, bounded enum shape. */
+  /** `error.code` of the provider body, admitted only from a closed literal vocabulary. */
   upstreamErrorCode?: string;
   /**
    * `llm_failure` turn context as ready-made tags (`provider_id`,
