@@ -11,16 +11,18 @@ function load(path, root) {
     .replace(/C:\/Users\/[^/\s]+\/AppData\/Local\/Temp\/[^/\s'"\n]+/g, "<temporary-fixture>");
   const tests = report.testResults.flatMap(suite => {
     const file = slash(relative(root, suite.name));
-    if (suite.status === "failed" && suite.assertionResults.length === 0) {
-      return [{ file, name: "<module collection>", status: "failed", failures: [scrub(suite.message ?? "").slice(0, 1600)] }];
-    }
-    return suite.assertionResults.map(test => ({
+    const tests = suite.assertionResults.map(test => ({
       file, name: scrub(test.fullName), status: test.status,
       failures: test.failureMessages.map(message => scrub(message).slice(0, 1600)),
     }));
+    if (suite.status === "failed" && !tests.some(test => test.status === "failed")) {
+      tests.push({ file, name: tests.length ? "<module lifecycle>" : "<module collection>", status: "failed", failures: [scrub(suite.message ?? "").slice(0, 1600)] });
+    }
+    return tests;
   });
   return {
-    counts: { total: report.numTotalTests, passed: report.numPassedTests, failed: report.numFailedTests, skipped: report.numPendingTests },
+    counts: { total: report.numTotalTests, passed: report.numPassedTests, failed: report.numFailedTests, skipped: report.numPendingTests,
+      failedSuites: report.numFailedTestSuites, runtimeErrorSuites: report.numRuntimeErrorTestSuites, wasInterrupted: report.wasInterrupted, success: report.success },
     tests, failures: tests.filter(test => test.status === "failed"),
   };
 }
