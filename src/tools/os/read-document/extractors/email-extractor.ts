@@ -31,6 +31,8 @@ interface TextPartRange {
   seen: number;
   resumeAt?: number;
   partial?: number;
+  attachments: string[];
+  pendingAttachment?: number;
 }
 
 export const emlExtractor: Extractor = async (input) => {
@@ -42,8 +44,21 @@ export const emlExtractor: Extractor = async (input) => {
     start: input.pagesFrom ?? 1,
     end: input.pagesTo ?? Infinity,
     seen: 0,
+    attachments: [],
   };
   const text = renderMessage(raw, 0, warnings, budget, output, "", range);
+  const attachmentOffset = range.start - range.seen - 1;
+  if (attachmentOffset >= 0 && attachmentOffset < range.attachments.length) {
+    const listing = new FragmentOutput(output.limit);
+    const rows = range.attachments.slice(attachmentOffset);
+    const displayed = listing.append(attachmentList(rows));
+    return {
+      format: "eml",
+      text: displayed.trim(),
+      warnings: dedupe(warnings),
+      ...(listing.truncated && { truncated: true }),
+    };
+  }
   if (range.partial !== undefined) {
     const continuation = range.partial < range.seen
       ? ` Use pagesFrom=${range.partial + 1} to continue with the next part.`
@@ -56,6 +71,10 @@ export const emlExtractor: Extractor = async (input) => {
   }
   if (input.pagesFrom !== undefined && range.start > range.seen) {
     warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
+  }
+  if (range.pendingAttachment !== undefined) {
+    const next = range.seen + range.pendingAttachment + 1;
+    warnings.push(`MIME attachments were deferred. Use pagesFrom=${next} to read the remaining attachment list.`);
   }
   return {
     format: "eml",
@@ -319,18 +338,33 @@ function renderMessage(
   const bodyPrefix = head ? prefix + head + "\n\n" : prefix;
   const precedingParts = range?.seen ?? 0;
   const body = renderPart(part, depth, warnings, attachments, budget, output, bodyPrefix, range);
+  const attachmentOffset = range?.attachments.length ?? 0;
+  if (range) for (const attachment of attachments) range.attachments.push(attachment);
+  const deferAttachments = () => {
+    if (range && attachments.length > 0) range.pendingAttachment ??= attachmentOffset;
+  };
   if (range && depth > 0) {
     // A forwarded message that contains only attachments belongs to the
     // next body position, even though it does not advance the part count.
     const lastPart = range.seen + (attachments.length > 0 && range.seen === precedingParts ? 1 : 0);
-    if ((range.start > 1 && lastPart < range.start) || precedingParts >= range.end) return body;
+    if ((range.start > 1 && lastPart < range.start) || precedingParts >= range.end) {
+      deferAttachments();
+      return body;
+    }
   }
-  if (output.stopped) return body;
+  if (output.stopped) {
+    deferAttachments();
+    return body;
+  }
   if (attachments.length > 0) {
     const attachmentPrefix = body ? "\n\n" : bodyPrefix;
-    return body + output.append(attachmentPrefix + `Attachments:\n${attachments.map((a) => `- ${a}`).join("\n")}`);
+    return body + output.append(attachmentPrefix + attachmentList(attachments));
   }
   return body || (head ? output.append(prefix + head) : "");
+}
+
+function attachmentList(attachments: string[]): string {
+  return `Attachments:\n${attachments.map((attachment) => `- ${attachment}`).join("\n")}`;
 }
 
 function renderTextPart(
