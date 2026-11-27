@@ -19,6 +19,11 @@ function chat(text = "Plan a trip"): SessionState {
 }
 
 describe("/export arguments (ATO-1054)", () => {
+  it.each(["\u2010", "\u2011", "\u2012", "\u2015", "\u2e17", "\u2e1a", "\u30a0", "\ufe58", "\ufe63", "\uff0d", "\u2212"])("rejects Unicode dash/minus path words: %s", dash => {
+    expect(parseExportCommand(`md ${dash}notes.md`).error).toBeTruthy();
+    expect(parseExportCommand(`md "${dash}notes.md"`).error).toBeTruthy();
+    expect(parseExportCommand(`md ./${dash}notes.md`).error).toBeUndefined();
+  });
   it.each(["md -notes.md", "md —notes.md", "md –notes.md", "md --", 'md "unfinished', "md 'unfinished", 'md "-notes.md"'])("rejects ambiguous or unfinished path syntax: %s", args => {
     expect(parseExportCommand(args).error).toBeTruthy();
   });

@@ -61,7 +61,7 @@ export function parseExportCommand(rawArgs: string): ChatExportRequest {
   for (const word of words) {
     if (!word.quoted && word.value === "--force") flags.force = true;
     else if (!word.quoted && word.value === "--confirm-incognito") flags.incognitoConfirmed = true;
-    else if (/^[-\u2013\u2014]/u.test(word.value)) {
+    else if (/^[\p{Pd}\u2212]/u.test(word.value)) {
       flags.error = word.value.startsWith("--") ? `unknown export option: ${word.value}` : `invalid export path word: ${word.value}`;
     } else paths.push(word);
   }

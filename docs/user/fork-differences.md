@@ -245,6 +245,8 @@ The follow-up to #273/#274/#277 shares guarded export writes, masks presentation
 
 The next [export/report follow-up](../reviews/b7a-export-followup2.md) decodes HTML references and checks joined Markdown labels, budgets only included export text, uses effective protected roots, documents replacement permissions/concurrency and advisory CLI marking, tightens TUI path syntax, adds four reviewed report types and skips projection for plain printable ASCII.
 
+The [PR 281 review](../reviews/b7a-281-review.md) bounds redaction parsing, shares instruction-loader protection names across nested/ancestor project paths, caps HTTP exports at 20,000 stored turns and rejects Unicode dash/minus path words. Backslash and `<` retain projection. Linked candidate blocks may be conservatively redacted. External Markdown viewers hiding raw HTML tags/comments can still rejoin a key; this pre-existing presentation limit is explicitly documented, and the built-in HTML/PDF/Word formats keep raw HTML inert.
+
 ## Provider refusal reports
 
 B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).

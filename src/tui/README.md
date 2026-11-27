@@ -89,4 +89,4 @@ Export file writes share [the destination guard](../session/chat-export-file.ts)
 
 `/export` accepts `--force` and `--confirm-incognito` before or after the format and path. Quote paths that contain option-like words; an unknown unquoted option is refused before rendering or writing.
 
-Export path words may not begin with an ASCII hyphen or a long dash, including quoted words and a bare `--`; use an explicit `./` prefix for a literal such filename. Quotes must close. Removing flags joins the remaining path words with one space (`md my --force notes.md` writes `my notes.md`).
+Export path words may not begin with any Unicode dash punctuation (category Pd, including ASCII hyphen) or the minus sign U+2212, including quoted words and a bare `--`; use an explicit `./` prefix for a literal such filename. Quotes must close. Removing flags joins the remaining path words with one space (`md my --force notes.md` writes `my notes.md`).

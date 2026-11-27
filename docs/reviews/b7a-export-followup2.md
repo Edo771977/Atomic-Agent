@@ -3,6 +3,10 @@
 Status: current
 Owner: docs/reviews/
 
+Snapshot note: this receipt describes the original nine-point publication at the
+source tree recorded below. The subsequent [six-point PR 281 review](b7a-281-review.md)
+integrates current main (including #265) and supersedes its final-state claims.
+
 This independent PR starts at fork main `116bf48d8` (PR #280 merged), without
 depending on PR #265. Origin is `https://github.com/Edo771977/Atomic-Agent.git`;
 upstream is `https://github.com/AtomicBot-ai/atomic-agent.git`.
