@@ -1,9 +1,9 @@
 [atomic-agent] created default config at <temporary-state>\config.json
-✖ safety: a hard spend ceiling refuses a cloud leg whose cost cannot be accounted (84.6798ms)
-✖ safety: other sessions cannot evict an active turn's hard child count (0.9224ms)
-✔ control: a reached spend ceiling prevents dispatch (0.6534ms)
-✔ control: worker ids remain unable to launch nested subagents (0.3921ms)
-✔ control: usage of a priced worker reaches the parent spend seam (0.8037ms)
+✖ safety: a hard spend ceiling refuses a cloud leg whose cost cannot be accounted (1186.4408ms)
+✖ safety: other sessions cannot evict an active turn's hard child count (1.0241ms)
+✔ control: a reached spend ceiling prevents dispatch (1.1186ms)
+✔ control: worker ids remain unable to launch nested subagents (0.775ms)
+✔ control: usage of a priced worker reaches the parent spend seam (1.3426ms)
 ℹ tests 5
 ℹ suites 0
 ℹ pass 3
@@ -11,12 +11,12 @@
 ℹ cancelled 0
 ℹ skipped 0
 ℹ todo 0
-ℹ duration_ms 2144.1664
+ℹ duration_ms 3064.6055
 
 ✖ failing tests:
 
 test at docs\reviews\c1e-candidate.mjs:45:1
-✖ safety: a hard spend ceiling refuses a cloud leg whose cost cannot be accounted (84.6798ms)
+✖ safety: a hard spend ceiling refuses a cloud leg whose cost cannot be accounted (1186.4408ms)
   AssertionError [ERR_ASSERTION]: an unpriced paid worker must not start under a hard cap
 
   1 !== 0
@@ -33,7 +33,7 @@ test at docs\reviews\c1e-candidate.mjs:45:1
   }
 
 test at docs\reviews\c1e-candidate.mjs:53:1
-✖ safety: other sessions cannot evict an active turn's hard child count (0.9224ms)
+✖ safety: other sessions cannot evict an active turn's hard child count (1.0241ms)
   AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
 
   0 !== 24

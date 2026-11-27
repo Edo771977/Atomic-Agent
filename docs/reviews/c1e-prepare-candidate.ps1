@@ -13,10 +13,19 @@ if ($LASTEXITCODE -ne 0) {
   git -C $RepoRoot fetch upstream 2794bdf005a2708db87a6b0e864e2ac631b20294
   if ($LASTEXITCODE -ne 0) { throw 'Could not fetch the review chain.' }
 }
-# Intrinsic upstream audit: the parent of C1e, already containing C1a-C1d.
+# Intrinsic upstream audit: the parent of C1e contains C1a and the C1b core.
+# Apply the remaining C1b review and C1c-C1d prerequisites before C1e.
 # This checkout is never the fork's integration/PR branch.
 git -C $RepoRoot worktree add --detach $Destination 3ee5204d9720d3ec3a330eed6455d4dd65aaa694
 if ($LASTEXITCODE -ne 0) { throw 'Could not create the candidate.' }
+$prerequisites = @(
+  '34fa9b554a5bdba3c80d2d93f12a2b329d6de93f',
+  '53d1c7a73da3e6e9b47fdc62d5a5a419d3451b16',
+  '8acf38c32133a1bc5ea90311849e8ed799a8e36b',
+  '45c91677176c2220403d9000b2fe9e75745149a8',
+  'f60f1141c088e352eaf044f22b0c69c9fa48cfa2',
+  '77fceafae5c12fd8d0d51948e0678afe6f352165'
+)
 $chain = @(
   '262c5d652255b65e3054263d0b6760a86e6ee758',
   '45b70635f301bfa71e165f29436abbe2eda3b0c4',
@@ -34,8 +43,19 @@ $chain = @(
   'a6dba7ab5bce69fdc7075dc24ecf52518ff86308',
   '2794bdf005a2708db87a6b0e864e2ac631b20294'
 )
-foreach ($revision in $chain) {
+foreach ($revision in ($prerequisites + $chain)) {
+  git -C $RepoRoot cat-file -e "$revision`^{commit}" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    git -C $RepoRoot fetch upstream $revision
+    if ($LASTEXITCODE -ne 0) { throw "Could not fetch $revision" }
+  }
   git -C $Destination cherry-pick -x $revision
+  if ($LASTEXITCODE -ne 0 -and $revision -eq 'eedbc37304cb3e1ad19bd52333e6abde104a6b75') {
+    node (Join-Path $PSScriptRoot 'c1e-resolve-candidate.mjs') $Destination
+    if ($LASTEXITCODE -ne 0) { throw 'Unexpected candidate conflict.' }
+    git -C $Destination add src/agent-profiles/README.md
+    git -c core.editor=true -C $Destination cherry-pick --continue
+  }
   if ($LASTEXITCODE -ne 0) { throw "Candidate replay stopped at $revision" }
 }
 Push-Location -LiteralPath $Destination

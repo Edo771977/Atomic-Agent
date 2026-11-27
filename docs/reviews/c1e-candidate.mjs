@@ -22,7 +22,7 @@ function harness(over = {}) {
     createEphemeralSession: meta => createFusionWorkerSession({ workingDir: state, meta }),
     approvals: { setSessionPolicy() {}, clearSessionPolicy() {} },
     emitEvent() {},
-    resolveRunMode: () => ({ effective: "local", workerMaxSteps: 6, workerTimeoutMs: 60000, cloudWorkers: 1 }),
+    resolveRunMode: () => ({ effective: "cloud", workerMaxSteps: 6, workerTimeoutMs: 60000, cloudWorkers: 1 }),
     resolveSessionLeg: () => ({ providerId: "fixture-cloud", model: "fixture-model" }),
     workerSupportsSlotAffinity: () => false,
     approvalRequired: false,

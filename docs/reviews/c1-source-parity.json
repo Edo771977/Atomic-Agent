@@ -7,5 +7,8 @@
     "src/http/files-index-deferred.test.ts",
     "src/tools/README.md",
     "src/tools/files-vector-rerank-deferred.test.ts"
-  ]
+  ],
+  "testedCommit": "c404acf178e289b680c3f480f8b8af6475a39ca1",
+  "finalSourceCommit": "1f01d56684849f31b83bec13bb33085638d40990",
+  "productionIndexSha256": "ee515f0d14fe2ddfe2678605aa35cc44ff21bc94fd69a2d17dc29b07887c8886"
 }

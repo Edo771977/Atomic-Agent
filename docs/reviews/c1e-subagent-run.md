@@ -7,7 +7,9 @@ C1a-C1d are imported separately. C1e (#1733), including the later spend-ceiling 
 
 ## Candidate and reproduction
 
-The [preparation script](c1e-prepare-candidate.ps1) creates a fresh review checkout at upstream parent `3ee5204d9720d3ec3a330eed6455d4dd65aaa694` and applies all fifteen specified commits individually with `cherry-pick -x`, through `2794bdf005a2708db87a6b0e864e2ac631b20294`. The parent already contains upstream C1a-C1d. This is an intrinsic upstream audit, not a claim that upstream replaces the fork's runner or dispatch. The production integration branch starts at fork `origin/main` `7511497b02504f81ffa03ec8f63367119fdaa6d8` and retains its guards.
+The [preparation script](c1e-prepare-candidate.ps1) creates a fresh review checkout at upstream parent `3ee5204d9720d3ec3a330eed6455d4dd65aaa694`. That parent contains C1a and the first two C1b commits. The script applies the six remaining C1b/C1c/C1d prerequisites, then all fifteen specified C1e commits individually with `cherry-pick -x`, through `2794bdf005a2708db87a6b0e864e2ac631b20294`. This is an intrinsic upstream audit, not a claim that upstream replaces the fork's runner or dispatch. The production integration branch starts at fork `origin/main` `7511497b02504f81ffa03ec8f63367119fdaa6d8` and retains its guards.
+
+The only replay conflict is the C1d/C1e profile README paragraph: the [checked resolver](c1e-resolve-candidate.mjs) keeps settings reload documentation and replaces the obsolete Fusion-only sentence. It refuses any other conflict; no production implementation is overwritten to prepare the audit.
 
 From this branch, set `C1E_CANDIDATE_ROOT` to that checkout and run:
 

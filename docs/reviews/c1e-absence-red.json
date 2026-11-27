@@ -1,7 +1,16 @@
 {
   "candidateBase": "3ee5204d9720d3ec3a330eed6455d4dd65aaa694",
+  "candidateCommit": "c037fdafaf99b8ba69f5f029a7b14420a3ddfaa4",
+  "prerequisites": [
+    "34fa9b554",
+    "53d1c7a73",
+    "8acf38c32",
+    "45c916771",
+    "f60f1141c",
+    "77fceafae"
+  ],
   "upstreamThrough": "2794bdf005a2708db87a6b0e864e2ac631b20294",
-  "passed": 0,
+  "passed": 50,
   "failed": 3,
   "failedNames": [
     "C1e: keeps the subagent execution surface absent until its boundaries pass",
