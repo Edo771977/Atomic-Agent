@@ -27,7 +27,7 @@ Memory trace of a run (issue #106, [run-memory-trace.ts](run-memory-trace.ts)): 
 
 Protection for operator-only config settings relies on the agent tool child process marker, ATOMIC_AGENT_TOOL_CHILD. Child processes can remove environment variables. Shell command approval is the enforcement boundary for whether a command runs.
 
-`config secrets [status|keychain|env]` shows or switches where saved API keys and tokens live: `<stateDir>/.env` (default) or the OS keychain (opt-in, ATO-474). Switching moves the keys both ways and prints names only; exit 1 when the keychain failed and keys were left where they were. See [config-secrets-command.ts](config-secrets-command.ts) and the [config compatibility notes](../config/docs/compatibility.md).
+`config secrets [status|keychain|env]` shows or switches where saved API keys and tokens live: `<stateDir>/.env` (default) or the OS keychain (opt-in, ATO-474). The agent shell asks before env/keychain moves, including hidden subcommands. Switching moves the keys both ways and prints names only; exit 1 when the keychain failed and keys were left where they were. See [config-secrets-command.ts](config-secrets-command.ts) and the [config compatibility notes](../config/docs/compatibility.md).
 
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../../docs/reviews/b4a-1671.md).
 
