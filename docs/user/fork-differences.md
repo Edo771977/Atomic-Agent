@@ -18,6 +18,8 @@ After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/ato
 - Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
 - [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
 
+W1.2 imports only the model-routing regression tests from upstream #1864/#1908 and removes their four resolved type-debt entries (five diagnostics), confirmed by typecheck:tests:reduce on the fork. The escalation test maps upstream turnModel to the existing fork model/pinModel fields. Fork fixture levels, team member selection, receipt attribution and production code are preserved; no C1/B7b prerequisite is imported. Both new tests pass on main and fail under temporary assertion inversions.
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:

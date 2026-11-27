@@ -239,10 +239,10 @@ describe("advisor escalation of a stuck worker (ATO-942)", () => {
     const [row] = await runWorkerTasks(h.deps, {
       ...BASE,
       tasks: TASK,
-      turnModel: "small-wire",
+      model: "small-wire",
       signal: new AbortController().signal,
       escalation: {
-        target: { ...TARGET, replace: true, turnModel: "big-wire" },
+        target: { ...TARGET, replace: true, pinModel: "big-wire" },
         pricing: PRICING,
       },
     });
@@ -256,14 +256,14 @@ describe("advisor escalation of a stuck worker (ATO-942)", () => {
     expect(row!.notes?.join("\n")).toMatch(/re-run on big after the local worker stayed stuck/);
 
     // A target whose model is the entry's own chat model has no
-    // `turnModel`: the re-run names no model, so the provider's own one
+    // `pinModel`: the re-run names no model, so the provider's own one
     // answers, and the worker's model never leaks onto the cloud leg.
     asked.length = 0;
     const plain = harness(stuckThenDone);
     await runWorkerTasks(plain.deps, {
       ...BASE,
       tasks: TASK,
-      turnModel: "small-wire",
+      model: "small-wire",
       signal: new AbortController().signal,
       escalation: { target: { ...TARGET, replace: true }, pricing: PRICING },
     });
