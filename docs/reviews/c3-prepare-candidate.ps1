@@ -8,6 +8,7 @@ $repo = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 if ((& git -C $repo remote get-url origin) -cne 'https://github.com/Edo771977/Atomic-Agent.git') { throw 'Unexpected origin' }
 if ((& git -C $repo remote get-url upstream) -cne 'https://github.com/AtomicBot-ai/atomic-agent.git') { throw 'Unexpected upstream' }
 if (Test-Path -LiteralPath $Candidate) { throw 'Use a new disposable checkout path' }
+if (-not [IO.Path]::IsPathRooted($Candidate)) { throw 'Use an absolute checkout path' }
 & git -C $repo worktree add --detach $Candidate $base
 if ($LASTEXITCODE -ne 0) { throw 'Cannot create candidate checkout' }
 $commits = @('d093ba6a44b31206fef888121060fa80472d2b1b')
@@ -15,6 +16,11 @@ if ($Through -ne 'a') { $commits += @('374fc05f5754eb4ecd8725b4dd6ac1ebecf98a03'
 if ($Through -in @('c','d')) { $commits += 'e0d2d6dfc6743cf26bea823429298b21e92bc89f' }
 if ($Through -eq 'd') { $commits += '89aecbec047767d2a15e92ee11812045a7510ef1' }
 foreach ($sha in $commits) {
+  & git -C $Candidate cat-file -e "$sha`^{commit}" 2>$null
+  if ($LASTEXITCODE -ne 0) {
+    & git -C $Candidate fetch upstream $sha
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot fetch the requested upstream commit' }
+  }
   & git -C $Candidate -c user.name=Edo771977 -c user.email=209531336+Edo771977@users.noreply.github.com cherry-pick -x $sha
   if ($LASTEXITCODE -eq 0) { continue }
   $conflicts = @(& git -C $Candidate diff --name-only --diff-filter=U)

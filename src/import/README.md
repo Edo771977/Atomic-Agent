@@ -15,6 +15,8 @@ Entry point: [index.ts](index.ts). Read the root instruction route and the under
 
 C3a keeps chat-export facts extraction (#1584) deferred. The collector, extractor and saver remain unavailable until operator approval, runtime credential masking and enforced output limits are established. Existing session importers remain available. [Evidence](../../docs/reviews/c3a-user-facts.md).
 
+C3b also defers the background facts service (#1642), including its loopback-only classification and test-typing follow-ups: archive limits, read admission, job scope, disabled memory and operator approval must be established together. No facts receipt directory is created. This does not harden the existing Claude session importer; the review exercises that reader only as reused by the deferred service. [Evidence](../../docs/reviews/c3b-import-jobs.md).
+
 Checks: `npx vitest run src/import` when tests are present; `npm run lint`; `npm run docs:check`.
 
 Atomic Desktop import skips incognito tasks and tasks bound to incognito source chats, including legacy tasks without the privacy flag. The session privacy check reads the source snapshot even for a tasks-only import. Skipped tasks and their run history are not copied; only their count enters the summary.

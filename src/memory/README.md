@@ -24,6 +24,8 @@ No durable store holds a credential: profile, note, lesson and procedure writes 
 
 C3a keeps upstream #1584 facts extraction deferred: no import-facts engine is exposed before person-mediated approval, runtime-secret filtering and enforced candidate bounds. Existing scoped stores and memory controls remain in force. [Candidate review](../../docs/reviews/c3a-user-facts.md).
 
+C3b also defers the dependent job/save/undo service (#1642): a job must retain its constraint scope through a later approval request and respect memory-enabled settings before touching these stores. [Service audit](../../docs/reviews/c3b-import-jobs.md).
+
 Housekeeping history from upstream #1708 remains deferred in B7a1. No lesson/procedure undo, eviction history or merge splitting is enabled. [Audit and reopening conditions](../../docs/reviews/b7a1-memory-history.md).
 
 [Backup and restore](memory-backup.ts) provide the shared CLI and TUI operations. A backup stages a consistent SQLite snapshot privately, checks stored values for credentials, rebuilds full-text indexes, and publishes the completed database atomically into a new private directory. Restore validates the schema and merges notes and active facts in one write transaction, preserving constraint scopes and disabled state. The target maintains its own search index and rebuilds embeddings through the normal backfill. Project files under `.atomic/project/lessons/` are outside this store.

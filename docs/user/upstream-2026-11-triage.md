@@ -328,7 +328,7 @@ Ondate:
 | [#1636](https://github.com/AtomicBot-ai/atomic-agent/pull/1636) | 1 | Fusion: forecast a cloud task's cost before it is sent (ATO-1585) | Importare per serie |
 | [#1637](https://github.com/AtomicBot-ai/atomic-agent/pull/1637) | 1 | Fusion: critical path, total work and idle local slot time in the run repor | Importare per serie |
 | [#1640](https://github.com/AtomicBot-ai/atomic-agent/pull/1640) | 2 | Run the agent on your own server with Docker (ATO-595) | Importare per serie |
-| [#1642](https://github.com/AtomicBot-ai/atomic-agent/pull/1642) | 2 | Facts import from a chat export: the run, with one fixed model, receipts an | Importare per serie |
+| [#1642](https://github.com/AtomicBot-ai/atomic-agent/pull/1642) | 2 | Facts import from a chat export: the run, with one fixed model, receipts an | Rinviata (C3b, #233), dipende da C3a: archivi senza limiti, scope perso al salvataggio, memoria disabilitata ignorata, chiave ereditata e ownership dei job non protette; manca ROUTE_SCOPES. Esaminati 6edc49563, a45ab2986 e dc5a4b980. Nessun codice importato. [Prove](../reviews/c3b-import-jobs.md). |
 | [#1659](https://github.com/AtomicBot-ai/atomic-agent/pull/1659) | 1 | Interface language setting with Russian, first slice in the terminal UI (AT | Importare per serie |
 | [#1661](https://github.com/AtomicBot-ai/atomic-agent/pull/1661) | 1 | Terminal: "Here is what I learned about you" step in the Import tab (ATO-16 | Importare per serie |
 | [#1670](https://github.com/AtomicBot-ai/atomic-agent/pull/1670) | 1 | Terminal first run: point ChatGPT and Claude users at their data export (AT | Importare per serie |

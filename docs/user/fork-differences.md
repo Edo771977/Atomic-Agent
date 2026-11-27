@@ -84,6 +84,8 @@ C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answ
 
 C3a keeps upstream #1584 deferred: approval IDs can be supplied by an agent child, opaque runtime credentials survive collection, and extraction bounds exist only in the prompt. No facts extraction or save API is enabled. [Candidate evidence and reopening tests](../reviews/c3a-user-facts.md).
 
+C3b keeps upstream #1642 and its follow-up fixes deferred with C3a. No /api/import/facts routes or background import are enabled. The candidate lacks bounded archive admission, durable job scope, memory-enabled checks and token ownership; an inherited owner credential can save. Existing guarded providers and offline transport are preserved. [Audit and reopening tests](../reviews/c3b-import-jobs.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
