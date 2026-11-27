@@ -10,3 +10,5 @@ The fresh-load test fails before import: settings source absent. The fork tool-a
 The settings reload and admission tests, actual fresh config reads, stable-prefix equality, parser, task-profile and runtime catalog selection pass (69 tests before adding the prefix assertion). Project-file trust code is unchanged. Windows trust/symlink failures from the larger selection are compared with main; they are not reported as passing.
 
 README conflict resolution retains the fork's split-profile inheritance, profile shadowing warnings, checkpoint accounting and verification/candidate contracts. config.json remains a protected person-owned file.
+
+The prefix assertion also uses the complete prompt builder on the same open session in both local and cloud modes. Two actual config edits change the loaded instructions and subsequent task brief; the complete stablePrefix stays byte-identical and excludes those instructions. All three settings-import tests pass with this stronger session-level check.
