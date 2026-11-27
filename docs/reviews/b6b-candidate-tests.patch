@@ -1,0 +1,40 @@
+diff --git a/src/mcp/b6b-candidate.test.ts b/src/mcp/b6b-candidate.test.ts
+new file mode 100644
+index 000000000..b62377476
+--- /dev/null
++++ b/src/mcp/b6b-candidate.test.ts
+@@ -0,0 +1,34 @@
++import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
++import { afterEach, beforeEach, expect, it, vi } from "vitest";
++import { resetOfflineNetworkForTests, setOfflineNetwork } from "../llm/offline-network.js";
++import type { OsSandboxPolicyInput } from "../sandbox/os-sandbox.js";
++import { McpClient } from "./mcp-client.js";
++import type { McpServerConfig } from "./mcp-types.js";
++const capture = vi.hoisted(() => ({ inputs: [] as OsSandboxPolicyInput[], wrapped: 0 }));
++vi.mock("../sandbox/os-sandbox.js", async importOriginal => {
++  const actual = await importOriginal<typeof import("../sandbox/os-sandbox.js")>();
++  return { ...actual, MCP_SECRET_HOME_PATHS: [],
++    buildOsSandboxPolicy: (input: OsSandboxPolicyInput) => { capture.inputs.push(input); return actual.buildOsSandboxPolicy(input); },
++    wrapWithOsSandbox: (command: string, args: string[]) => { capture.wrapped++; return { ok: true, command, args }; },
++  };
++});
++let root: string;
++let state: string;
++let cwd: string;
++beforeEach(() => { root = mkdtempSync(join(tmpdir(), "b6b-review-")); state = join(root, "state"); cwd = join(root, "work"); mkdirSync(cwd); mkdirSync(state); capture.inputs = []; capture.wrapped = 0; });
++afterEach(() => { vi.unstubAllEnvs(); resetOfflineNetworkForTests(); rmSync(root, { recursive: true, force: true }); });
++function build(settings = { mode: "workspace", network: false }, extra: Record<string, unknown> = {}) {
++  const config = { name: "probe", enabled: true, transport: { kind: "stdio", command: process.execPath, args: ["-e", "process.exit(0)"], cwd }, ...extra } as McpServerConfig;
++  const client = new McpClient(config, { oauthStateDir: state, sandbox: () => settings } as never);
++  // Inspect the real launch boundary without starting a process or pretending to test OS enforcement.
++  return (client as unknown as { buildTransport(): unknown }).buildTransport();
++}
++it("control: sandbox-off leaves the transport unwrapped", () => { build({ mode: "off", network: false }); expect(capture.wrapped).toBe(0); });
++it("control: enabled sandbox reaches the wrapper", () => { build(); expect(capture.wrapped).toBe(1); });
++it("closes the sandbox network by default", () => { build(); expect(capture.inputs[0]?.network).toBe(false); });
++it("does not widen a boolean consent into access to every host", () => { build({ mode: "workspace", network: true }); expect(capture.inputs[0]?.network).toBe(false); });
++it("keeps sandbox network closed in offline mode", () => { setOfflineNetwork(true); build({ mode: "workspace", network: true }); expect(capture.inputs[0]?.network).toBe(false); });
++it("passes fork protected paths to the shared policy", () => { build(); expect(capture.inputs[0]?.protectedPaths?.length ?? 0).toBeGreaterThan(0); });
++it("control: explicit per-server opt-out leaves the transport unwrapped", () => { build(undefined, { sandbox: false }); expect(capture.wrapped).toBe(0); });

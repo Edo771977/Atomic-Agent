@@ -24,3 +24,5 @@ On Linux, Safe Mode starts an asynchronous read of the system trees during runti
 For activation, one-time network consent and service verification limits, see the [user guide](../../docs/user/os-sandbox.md).
 
 Checks: `npx vitest run src/sandbox` when tests are present; `npm run lint`; `npm run docs:check`.
+
+Stdio MCP servers do not use this wrapper yet. Upstream #1630 remains deferred until the server process has enforced host egress and fork state/trust protections. The macOS Seatbelt backend above remains part of main. [B6b review](../../docs/reviews/b6b-mcp-sandbox.md).
