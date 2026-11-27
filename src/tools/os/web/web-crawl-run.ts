@@ -23,8 +23,6 @@ export const MAX_QUEUE = 2_000;
 export const MAX_CONSECUTIVE_ERRORS = 5;
 /** Times the start page may move the crawl to a new origin; os.web.fetch's own redirect cap. */
 export const MAX_START_MOVES = 3;
-/** JS-built pages rendered in the agent's browser per crawl; a browser load costs far more than curl. */
-export const MAX_BROWSER_RENDERS = 5;
 
 /**
  * The site being crawled. Mutable: when the start page redirects within the
@@ -34,12 +32,6 @@ export const MAX_BROWSER_RENDERS = 5;
 export interface CrawlScope {
   start: URL;
   robots: RobotsDecision;
-}
-
-export interface RenderedCrawlPage {
-  finalUrl: string;
-  title: string;
-  html: string;
 }
 
 export interface RunCrawlInput {
@@ -53,12 +45,8 @@ export interface RunCrawlInput {
   fetchPage: (url: string, opts?: { binary?: boolean }) => Promise<FetchOutcome>;
   /** robots.txt of a new origin the start page moved to. */
   robotsFor: (url: URL) => Promise<RobotsDecision>;
-  /**
-   * Render a JS-built page in the agent's own browser (paced, SSRF-checked
-   * by the caller). Absent, or resolving null, the page is listed as one
-   * that needs the browser.
-   */
-  renderPage?: (url: string) => Promise<RenderedCrawlPage | null>;
+  /** Before robots or transport at a new origin; validates DNS identity and consent. */
+  authorizeMove: (target: URL) => Promise<void>;
 }
 
 interface QueueItem {
@@ -75,7 +63,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
   const errors: { url: string; message: string }[] = [];
   const notes: string[] = [];
   const jsPages: string[] = [];
-  let rendered = 0;
   let startMoves = 0;
   let startSettled = false;
   let overflow = 0;
@@ -127,6 +114,13 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
         `The start page ${from} was not followed: ${why}. A crawl stays on one site; ` +
           `crawl ${target.toString()} directly if that is the site meant.`,
       );
+      stoppedBecause = "start-moved";
+      return false;
+    }
+    try {
+      await input.authorizeMove(target);
+    } catch (error) {
+      errors.push({ url: target.href, message: (error as Error).message });
       stoppedBecause = "start-moved";
       return false;
     }
@@ -213,25 +207,15 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
     }
     consecutiveErrors = 0;
 
-    let page = { body: res.body, contentType: res.contentType, truncated: res.truncated };
-    let extracted = extractWebContent({
+    const page = { body: res.body, contentType: res.contentType, truncated: res.truncated };
+    const extracted = extractWebContent({
       body: page.body,
       contentType: page.contentType,
       url: res.finalUrl,
       mode: args.mode,
     });
-    let via: "curl" | "browser" = "curl";
     if (looksJsRendered(res.body, res.contentType, extracted.text)) {
-      const browserPage = rendered < MAX_BROWSER_RENDERS ? await renderInBrowser(input, res.finalUrl) : null;
-      if (browserPage !== null) {
-        rendered++;
-        via = "browser";
-        page = { body: browserPage.html, contentType: "text/html", truncated: false };
-        extracted = extractWebContent({ body: page.body, contentType: page.contentType, url: res.finalUrl, mode: args.mode });
-        if (!extracted.title && browserPage.title) extracted = { ...extracted, title: browserPage.title };
-      } else {
-        jsPages.push(res.finalUrl);
-      }
+      jsPages.push(res.finalUrl);
     }
     const truncated = page.truncated || extracted.text.length > args.maxCharsPerPage;
     pages.push({
@@ -241,7 +225,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       status: res.status,
       text: extracted.text.slice(0, args.maxCharsPerPage),
       truncated,
-      ...(via === "browser" ? { via } : {}),
     });
 
     if (item.depth < args.maxDepth) {
@@ -254,7 +237,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1), notes);
     }
   }
-  if (rendered > 0) notes.push(`${rendered} page(s) built by JavaScript were rendered in the agent's own browser.`);
   if (jsPages.length > 0) notes.push(describeJsPages(jsPages));
 
   // An unexplored queue at the end means one of the stop reasons fired.
@@ -272,31 +254,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
     notes,
     jsPages,
   };
-}
-
-/**
- * The browser render of a JS-built page, kept only when it landed on an
- * allowed page of the crawled site. A failed render is a miss, not an error:
- * the curl text is still returned and the page is listed as needing the browser.
- */
-async function renderInBrowser(input: RunCrawlInput, url: string): Promise<RenderedCrawlPage | null> {
-  if (input.renderPage === undefined || input.signal.aborted) return null;
-  let page: RenderedCrawlPage | null;
-  try {
-    page = await input.renderPage(url);
-  } catch {
-    return null;
-  }
-  if (page === null) return null;
-  let landed: URL;
-  try {
-    landed = new URL(page.finalUrl);
-  } catch {
-    return null;
-  }
-  if (landed.origin !== input.scope.start.origin) return null;
-  if (!input.politeness.allows(input.scope.robots, landed)) return null;
-  return page;
 }
 
 /**

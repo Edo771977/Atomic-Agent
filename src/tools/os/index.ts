@@ -367,7 +367,7 @@ export function registerOsTools(
   registry.register(buildOsWebCrawlTool({
     config: options.config,
     dangerous: { approvals: options.approvals, approvalRequired: options.approvalRequired },
-    ...(options.webFetchRenderPage === undefined ? {} : { renderPage: options.webFetchRenderPage }),
+    ...(options.webFetchEgressRefusal === undefined ? {} : { egressRefusal: options.webFetchEgressRefusal }),
   }));
   registry.register(osClipboardReadTool);
   registry.register(osClipboardWriteTool);

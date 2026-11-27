@@ -497,6 +497,8 @@ interface FetchWithGuardOptions {
  * before the SSRF check, so the address is still resolved fresh after a wait.
  */
 export interface FetchRequestHooks {
+  /** After fresh SSRF resolution, before transport; the exact addresses pinned to curl. */
+  validateAddresses?: (url: URL, addresses: readonly string[]) => void | Promise<void>;
   beforeRequest?: (url: URL, signal: AbortSignal) => Promise<void>;
   afterResponse?: (url: URL, status: number, retryAfterMs: number | null) => void;
   /** Asked before a redirect hop is requested; `false` stops there (robots.txt in `os.web.crawl`). */
@@ -636,6 +638,7 @@ async function fetchHopWithRetry(
     // Re-resolve on every attempt: the guard must pin a freshly verified IP
     // rather than trusting one resolved before an arbitrary backoff wait.
     const pinnedIps = await assertHostAllowed(url, { lookup: opts.lookup });
+    await opts.hooks?.validateAddresses?.(url, pinnedIps);
 
     let res: CurlResponse | null = null;
     let failure: unknown = null;

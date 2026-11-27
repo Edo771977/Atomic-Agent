@@ -3,7 +3,7 @@
  * sent as `application/gzip` / `application/x-gzip`, and ones sent with
  * `Content-Encoding: gzip` all arrive as gzip bytes (the crawl fetches
  * sitemaps with `binaryBody`, so curl does not unpack them) and are unpacked
- * here with Node's zlib.
+ * here with Node's zlib under the fork's 2,000,000-byte expansion cap.
  *
  * Gzip is recognised by its magic bytes, not by the file name or the
  * Content-Type: a `.gz` URL served already unpacked, and a gzip body under a
@@ -19,7 +19,7 @@
 import { constants, gunzipSync } from "node:zlib";
 
 /** Largest unpacked sitemap read. Past it the file is skipped as a possible gzip bomb. */
-export const MAX_SITEMAP_XML_BYTES = 10 * 1024 * 1024;
+export const MAX_SITEMAP_XML_BYTES = 2_000_000;
 const MAX_GZIP_LAYERS = 2;
 
 export type SitemapText =
@@ -56,5 +56,7 @@ export function decodeSitemapBody(
     layers++;
   }
   if (buf.length > maxBytes) buf = buf.subarray(0, maxBytes);
-  return { ok: true, xml: buf.toString("utf8"), gzipped: layers > 0 };
+  // A partial UTF-8 character at the byte boundary is omitted; replacing
+  // it with U+FFFD could itself exceed the admitted decompressed budget.
+  return { ok: true, xml: new TextDecoder().decode(buf, { stream: true }), gzipped: layers > 0 };
 }

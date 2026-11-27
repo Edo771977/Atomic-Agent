@@ -47,3 +47,13 @@ Callers inject command execution, DNS lookup and, where supported, sleep for det
 Run `npx vitest run src/tools/os/web src/tools/os/web-search/transport/search-http.test.ts` for the shared curl seam. Adjacent suites cover fetch/extraction/challenge/SSRF, HTTP policy and metadata, retry replay and abort, and Retry-After parsing. Use injected command/DNS/sleep fixtures rather than external requests. Run `npm run lint`, `npm run typecheck:tests`, `npm run imports:check` and `npm run docs:check`; catalog changes also require tool-resource-class and schema coverage.
 
 The URL guard covers the address and URL query data. HTTP headers, cookies and POST bodies follow their own HTTP write, credential forwarding and tool policies. A URL approval does not approve a POST body.
+
+## B7b1 crawl import boundary
+
+The start page may move within the same site only when the destination resolves to exactly the start host's validated public address set. This intentionally rejects sites whose aliases/CDNs use different addresses: crawl that destination directly after checking it. The exact addresses passed to curl are checked after every fresh DNS lookup, including retries. Robots redirects stay on their origin; start moves authorize the destination before fetching its robots. Cached pages and redirect chains receive fresh policy, consent and DNS checks.
+
+Crawl checks the live project `web` egress class, offline switch, B1 web deny and URL-data consent for every derived URL and redirect. The runtime's existing egress callback remains wired for session policy. B1 read-only `ask` semantics are unchanged; URL-data approval is independent.
+
+Gzip uses at most two layers, each bounded at 2,000,000 decompressed bytes. A compressed body exceeding that expansion budget is rejected. An uncompressed sitemap above 2 MB is read in part, under the upstream 50 MiB download guard. The final text omits an incomplete UTF-8 suffix.
+
+Crawl detects JavaScript shells and lists them as needing `browser.navigate`, but never invokes the automatic renderer, including if an old embedding supplies one. Fetch's existing bot-wall ladder is separate. Reopening requires pre-request checks for fetch/XHR/images/WebSockets, isolated credentials/files, timeout and memory caps. [Candidate and tests](../../../../docs/reviews/b7b1-crawl.md).

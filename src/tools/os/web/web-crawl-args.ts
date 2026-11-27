@@ -77,8 +77,6 @@ export interface CrawledPage {
   status: number;
   text: string;
   truncated: boolean;
-  /** Set when the page was built by JavaScript and rendered in the agent's browser. */
-  via?: "browser";
 }
 
 export type StopReason =

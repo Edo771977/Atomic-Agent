@@ -478,7 +478,7 @@ describe("os.web.crawl", () => {
       expect(result.summary).toContain("browser.navigate");
     });
 
-    it("renders it in the agent's browser, paced, and follows the links it shows", async () => {
+    it("keeps automatic JS rendering deferred even when a legacy renderer is supplied", async () => {
       const site = fakeSite(routes());
       const rendered: string[] = [];
       const renderPage: PageRenderer = async ({ url }) => {
@@ -487,13 +487,11 @@ describe("os.web.crawl", () => {
       };
       const result = await tool(site, {}, renderPage).run({ url: `${O}/`, useSitemap: false }, ctx());
       const details = result.details as { pages: { url: string; via?: string }[]; needsBrowser?: string[] };
-      expect(rendered).toEqual([`${O}/`]);
-      expect(details.pages[0]).toMatchObject({ url: `${O}/`, via: "browser" });
-      expect(details.pages.map((p) => p.url)).toContain(`${O}/docs`);
-      expect(details.needsBrowser).toBeUndefined();
-      expect(result.summary).toContain("Readable text about App rendered");
-      // The browser load waited its turn like a curl request.
-      expect(site.waits.filter((w) => w >= 1_000).length).toBeGreaterThanOrEqual(site.requests.length);
+      expect(rendered).toEqual([]);
+      expect(details.pages[0]?.via).toBeUndefined();
+      expect(details.pages.map((p) => p.url)).not.toContain(`${O}/docs`);
+      expect(details.needsBrowser).toEqual([`${O}/`]);
+      expect(result.summary).not.toContain("Readable text about App rendered");
     });
 
     it("drops a render that landed on another site and lists the page instead", async () => {
@@ -521,7 +519,7 @@ describe("os.web.crawl", () => {
         lookup: site.lookup,
         sleep: site.sleep,
         now: site.now,
-        renderPage,
+        ...{ renderPage },
         config: {
           web: {
             ...USER_CONFIG_DEFAULTS.web,

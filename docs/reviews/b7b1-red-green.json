@@ -1,0 +1,799 @@
+{
+  "before": {
+    "passed": 23,
+    "failed": 8,
+    "skipped": 0,
+    "totalFiles": 2,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "failed",
+            "failure": "AssertionError: expected 'error' to be 'ok' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:44:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "failed",
+            "failure": "AssertionError: expected 'error' to be 'ok' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:44:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "failed",
+            "failure": "AssertionError: expected 'error' to be 'ok' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:44:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "failed",
+            "failure": "AssertionError: expected 'error' to be 'ok' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:44:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:53:60\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "failed",
+            "failure": "Error: promise resolved \"{ tool: 'os.web.crawl', …(6) }\" instead of rejecting\n    at Assertion.__VITEST_REJECTS__ (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/chai/index.js:1607:27)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "failed",
+            "failure": "AssertionError: expected [ …(5) ] to not include 'https://docs.example.com/end'\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "failed",
+            "failure": "AssertionError: expected [ …(3) ] to include 'https://docs.example.com/found'\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/os/web/sitemap-body-fork.test.ts",
+        "status": "failed",
+        "message": "Cannot find module './sitemap-body.js' imported from C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/sitemap-body-fork.test.ts",
+        "tests": []
+      }
+    ]
+  },
+  "upstream": {
+    "passed": 28,
+    "failed": 6,
+    "skipped": 0,
+    "totalFiles": 2,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:53:60\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "failed",
+            "failure": "Error: promise resolved \"{ tool: 'os.web.crawl', …(6) }\" instead of rejecting\n    at Assertion.__VITEST_REJECTS__ (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/chai/index.js:1607:27)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "failed",
+            "failure": "AssertionError: expected [ …(5) ] to not include 'https://docs.example.com/end'\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/os/web/sitemap-body-fork.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 decompressed sitemap budget rejects a gzip bomb by decompressed bytes",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/sitemap-body-fork.test.ts:9:55\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget bounds both layers when a gzip file is gzip-encoded again",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/sitemap-body-fork.test.ts:12:98\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget reads a large uncompressed sitemap only up to 2 MB in bytes",
+            "status": "failed",
+            "failure": "AssertionError: expected 3000000 to be less than or equal to 2000000\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/sitemap-body-fork.test.ts:17:60\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          }
+        ]
+      }
+    ]
+  },
+  "adaptedWeb": {
+    "passed": 515,
+    "failed": 0,
+    "skipped": 0,
+    "totalFiles": 40,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/os/web/sitemap-body-fork.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 decompressed sitemap budget rejects a gzip bomb by decompressed bytes",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget bounds both layers when a gzip file is gzip-encoded again",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget reads a large uncompressed sitemap only up to 2 MB in bytes",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "finalWeb": {
+    "passed": 518,
+    "failed": 0,
+    "skipped": 0,
+    "totalFiles": 40,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not request a rebound public address after admitting a start move",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries requires the fork's URL-data consent before a same-site redirect or its robots request",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces configured project constraints when no runtime policy frame was installed",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/os/web/sitemap-body-fork.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 decompressed sitemap budget rejects a gzip bomb by decompressed bytes",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget bounds both layers when a gzip file is gzip-encoded again",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 decompressed sitemap budget reads a large uncompressed sitemap only up to 2 MB in bytes",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "configuredProjectRed": {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 33,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not request a rebound public address after admitting a start move",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries requires the fork's URL-data consent before a same-site redirect or its robots request",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces configured project constraints when no runtime policy frame was installed",
+            "status": "failed",
+            "failure": "Error: promise resolved \"{ tool: 'os.web.crawl', …(6) }\" instead of rejecting\n    at Assertion.__VITEST_REJECTS__ (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/chai/index.js:1607:27)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "skipped"
+          }
+        ]
+      }
+    ]
+  }
+}
