@@ -1,0 +1,104 @@
+[
+  {
+    "source": "main",
+    "exitCode": 0,
+    "expected": 3,
+    "selected": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "passed",
+        "durationMs": 8051.2632
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "passed",
+        "durationMs": 9383.9964
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "passed",
+        "durationMs": 8308.5292
+      }
+    ]
+  },
+  {
+    "source": "b7b2",
+    "exitCode": 0,
+    "expected": 3,
+    "selected": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "passed",
+        "durationMs": 9528.971300000001
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "passed",
+        "durationMs": 9988.5271
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "passed",
+        "durationMs": 10774.036799999998
+      }
+    ]
+  }
+]

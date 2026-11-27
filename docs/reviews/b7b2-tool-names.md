@@ -39,4 +39,18 @@ No session-export, HTTP-export, subagent, profile or shared worker-runner files 
 
 ## Verification
 
-The verification record and failure-name comparisons are attached after the required checks finish.
+`npm ci`, `npm run lint`, `npm run imports:check`, `npm run typecheck:tests` and `npm run docs:check` pass. The final expanded dispatch-boundary suite passes **14 tests**; the six resolver/lifecycle/filter/reporting/trace suites pass **76 tests**. No timeout, skip or quarantine was added.
+
+The required broad command was executed in full:
+
+```text
+npx vitest run src/agent src/policy src/tools src/mcp src/llm src/local-llm src/tui src/http src/runtime
+```
+
+It is **not green**: **24,080 passed, 1,020 failed, 575 skipped**, with no suite-load errors. The clean pinned-main complete run is **33,928 passed, 1,060 failed, 667 skipped**. The [file/name comparison](b7b2-focused-comparison.json) lists all 953 common failures, 67 additional failures and main-only differences for the selected files. Only checkout roots and slash direction are normalized. Windows restrictions and timing affect subprocess/Git, symlink and local-network fixtures; this does not automatically explain every failure.
+
+The [paired named controls](b7b2-focused-controls.json) rerun every additional assertion with one worker on both main and the candidate. The [verification record](b7b2-verification.json) summarizes those outcomes and retains raw report hashes. An isolated retry passing does not change the recorded broad-run failure. The complete `npm test` comparison for the series is also recorded in B7b3. The source base remains `7511497b0`; later main `5da6478ff` has only unrelated documentation/absence-test changes and the virtual merge was clean.
+
+Names still failing only on the candidate in that first paired control receive one [further sequential paired diagnostic](b7b2-diagnostic-controls.json), with complete default-reporter logs for [main](b7b2-diagnostic-main.log) and [the candidate](b7b2-diagnostic-b7b2.log). Original results remain above; the verification summary uses the latest result for each name.
+
+Final named follow-up: **65 of the 67 additional assertions pass on the candidate; two fail on both main and the candidate**. All three discordant names in the first paired control pass on both checkouts in the diagnostic. No candidate-only failure remains in this isolated comparison; the original broad run remains failed.

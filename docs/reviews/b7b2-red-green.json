@@ -3,6 +3,7 @@
     "passed": 2,
     "failed": 6,
     "skipped": 0,
+    "totalFiles": 1,
     "files": [
       {
         "file": "src/agent/tool-name-policy-boundary.test.ts",
@@ -55,6 +56,7 @@
     "passed": 6,
     "failed": 2,
     "skipped": 0,
+    "totalFiles": 1,
     "files": [
       {
         "file": "src/agent/tool-name-policy-boundary.test.ts",
@@ -103,6 +105,7 @@
     "passed": 76,
     "failed": 0,
     "skipped": 0,
+    "totalFiles": 6,
     "files": [
       {
         "file": "src/agent/agent-loop-tool-filter.test.ts",
@@ -456,6 +459,7 @@
     "passed": 14,
     "failed": 0,
     "skipped": 0,
+    "totalFiles": 1,
     "files": [
       {
         "file": "src/agent/tool-name-policy-boundary.test.ts",
