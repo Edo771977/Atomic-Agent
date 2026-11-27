@@ -145,3 +145,5 @@ For a key supplied with `--api-key-file <path>`, the file exists between creatio
 The [serve memory guard](serve-memory-guard.ts) samples heap and resident memory. Near exhaustion a supervised server shuts down with exit code 86 and leaves interrupted task runs marked as crashed. An unsupervised server reports the pressure and keeps running. Set `ATOMIC_AGENT_MEMORY_GUARD=0` to disable the guard.
 
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../../docs/reviews/b4b-subscription-signin.md).
+
+B7a5 holds the shared chat-start.pending marker across models start, including preflight before daemon launch. It is PID-only and removed when startup settles.

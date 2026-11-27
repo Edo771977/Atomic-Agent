@@ -1,4 +1,4 @@
-import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { machineBootTimeMs, writtenBeforeBoot } from "../core/core-operation.js";
@@ -56,6 +56,7 @@ export function markChatStartPending(dataDir: string): () => void {
   held.set(dataDir, count + 1);
   if (count === 0) {
     try {
+      mkdirSync(dataDir, { recursive: true });
       writeFileSync(chatStartPendingPath(dataDir), String(process.pid), { mode: 0o600 });
     } catch {
       /* the start goes on without its marker */

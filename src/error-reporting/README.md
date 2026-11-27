@@ -12,3 +12,5 @@ Prompt-budget and truncation tags report numeric token counts for the failed req
 Checks: `npx vitest run src/error-reporting` when tests are present; `npm run lint`; `npm run docs:check`.
 Expected Fusion budget and worker stops are excluded from crash reports by their named cause; unrelated failures still report (`fusion-stop.ts`, ATO-1677).
 `cli_reason` is a fixed word derived locally for subscription CLI failures (ATO-1679); raw CLI output is never included in that tag.
+
+B7a5 accepts the fixed start_pending liveness reason and reports the existing fixed engine-exit reason for a failed start. No marker content, PID, provider text or log lines enter the new tag.

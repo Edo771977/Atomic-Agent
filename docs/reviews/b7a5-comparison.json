@@ -1,0 +1,1249 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "baselineCounts": {
+    "numPassedTests": 30572,
+    "numFailedTests": 157,
+    "numPendingTests": 658,
+    "numTotalTests": 31387
+  },
+  "baselineFailedNames": [
+    "scripts/e2e-csv-sales.test.ts :: an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+    "scripts/e2e-csv-sales.test.ts :: autonomous run or guided resume one prompt with the auto-approval continuations is autonomous; a person's line after it is a guided resume",
+    "scripts/e2e-csv-sales.test.ts :: earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+    "scripts/e2e-csv-sales.test.ts :: the reviewer's identity records provider and effective model, and flags a reviewer that is not the plan's",
+    "scripts/e2e-csv-sales.test.ts :: the runner passes a run only when every required task is accepted green suites with an open review block (needs-changes, then no_changes) exit 1 and name the block",
+    "src/agent-profiles/profile-loader.test.ts :: loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+    "src/agent/progress/read-coverage.test.ts :: read-coverage detection end to end sees a symlink and its target as one file",
+    "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/local-llm/backend/backend-installer-stable-repo.test.ts :: direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+    "src/local-llm/core/core-contract.test.ts :: Core host contract accepts its own data folder reported through a symlinked path",
+    "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+    "src/plugins/plugin-install.test.ts :: plugin install drops symlinks while copying",
+    "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+    "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+    "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy hides credential folders and the agent's state",
+    "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+    "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy protects a configured model key outside the state root",
+    "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy writes go to the project and temp only",
+    "src/sandbox/os-sandbox.test.ts :: round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+    "src/sandbox/os-sandbox.test.ts :: round 3 point 5: protects root home and privileged etc files",
+    "src/sandbox/os-sandbox.test.ts :: round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+    "src/sandbox/os-sandbox.test.ts :: round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+    "src/sandbox/os-sandbox.test.ts :: wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+    "src/skills/eval/checks.test.ts :: runCheck command that runs too long fails as a timeout",
+    "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+    "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir flags a symlink pointing outside the skill instead of following it",
+    "src/skills/hub/skill-lock.test.ts :: skill lock covers symlinks by their link text",
+    "src/skills/install-local-skill.test.ts :: installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+    "src/skills/skill-loader.test.ts :: loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+    "src/skills/skill-script-runner.test.ts :: runSkillScript runs a bash script by .sh extension",
+    "src/skills/workspace-skills.test.ts :: session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+    "src/skills/workspace-skills.test.ts :: session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+    "src/skills/workspace-skills.test.ts :: session workspace skills and live policy never imports project symlinks outside the workspace",
+    "src/skills/workspace-skills.test.ts :: session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+    "src/skills/workspace-skills.test.ts :: session workspace skills and live policy stores canonical workspace policy without modifying the project",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: direct-mode copy budget links an ignored venv/ to the original instead of copying it into the base and every task",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies delivers a green task's outputs and ignored files, its cache writes landing through the link",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies does not charge a linked ignored directory to the copy limit",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies shares ignored caches and dependencies with the original by links in direct mode",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: shared dependency directories isolates a repo whose ignored node_modules exceeds the copy budget across tasks",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: shared dependency directories links ignored folders inside a dependency directory that keeps a tracked placeholder",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: tracked paths under excluded directory names merges a tracked change under a directory named build and never merges ignored dist, which is linked",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge recognizes native case aliases in ignored provides without hiding partial delivery",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: workspace removal never lets git walk a generated link removes the workspace folders with Node before git forgets the worktrees",
+    "src/tools/fusion/branch-isolation-safety.test.ts :: workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations",
+    "src/tools/fusion/branch-merge.test.ts :: createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+    "src/tools/fusion/branch-merge.test.ts :: createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+    "src/tools/fusion/branch-merge.test.ts :: fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+    "src/tools/fusion/branch-merge.test.ts :: fusion.delegate with isolation worktree: each worker runs in its own workspace and the work lands in the folder",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave discards a failed task's changes",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave holds a row that finished without a reply as a patch instead of merging it unseen (#29)",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave merges two tasks that edited different files",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave merges two tasks that edited different parts of one file",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave refuses a declared input the task wiped",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave removes the workspaces when the run throws",
+    "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+    "src/tools/fusion/branch-private-git.test.ts :: does not carry an expired preparation deadline into a later materialization",
+    "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+    "src/tools/fusion/branch-private-git.test.ts :: keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+    "src/tools/fusion/branch-private-git.test.ts :: keeps info/global ignore inputs as frozen private data for nested Git classification",
+    "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+    "src/tools/fusion/branch-private-git.test.ts :: never freshens aged source split-index metadata during private inventory queries",
+    "src/tools/fusion/branch-private-git.test.ts :: never imports source remotes, includes, or mutable config into private workspace metadata",
+    "src/tools/fusion/branch-private-git.test.ts :: preserves a linked source worktree's split index, shared indexes and common worktree registrations",
+    "src/tools/fusion/branch-private-git.test.ts :: preserves available source branch/tag refs and commit history as private data",
+    "src/tools/fusion/branch-private-git.test.ts :: preserves dirty tracked sibling-package bytes outside the selected monorepo subdirectory",
+    "src/tools/fusion/branch-private-git.test.ts :: preserves the available history of a shallow source without following its original remote",
+    "src/tools/fusion/branch-workspace-autocrlf.test.ts :: actual tracked working-tree snapshot charges tracked byte overlays to the cumulative private-copy limit",
+    "src/tools/fusion/branch-workspace-copy-plan.test.ts :: measures exactly the complete unchanged future branch-set copy (Git=true)",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: includes tracked byte overlays in the measured final copy",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for ignored-directory payload",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for ignored-file payload",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for untracked payload",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+    "src/tools/fusion/candidate-evidence.test.ts :: binds promoted and zero-change receipts only after final delivery verification",
+    "src/tools/fusion/candidate-integration.test.ts :: journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes but reports new ignored paths it kept private",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+    "src/tools/fusion/candidate-integration.test.ts :: promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+    "src/tools/fusion/candidate-integration.test.ts :: re-checks parent identity at commit, refusing a rename through a parent swapped for a link",
+    "src/tools/fusion/candidate-integration.test.ts :: re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\.atomic-agent \"",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\.atomic-agent\"",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\deep\\\\.ATOMIC-AGENT.\"",
+    "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+    "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+    "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+    "src/tools/fusion/candidate-integration.test.ts :: rolls back a directory it created even when setting its mode fails",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a folder copy candidate whose source directory has mode 448",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+    "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509",
+    "src/tools/fusion/fusion-delegate-criteria.test.ts :: fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)",
+    "src/tools/fusion/merge-gate.test.ts :: held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green",
+    "src/tools/fusion/merge-gate.test.ts :: held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+    "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+    "src/tools/fusion/regression-gate.test.ts :: a change must not break a case that already passed (issue #106) in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+    "src/tools/read-scope/state-secrets.test.ts :: classifies direct procfs reads even without state secret files",
+    "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc && cat self/environ",
+    "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc/self && cat environ",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags find /proc/123 -type f without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags grep -r synthetic /proc/self without reading a real credential",
+    "src/tools/read-scope/state-secrets.test.ts :: third round flags pushd /proc/self && cat environ without reading a real credential",
+    "src/tools/verify/run-page-real-browser.test.ts :: runVerify — page games under a real browser stops a running game when the run is cancelled, even inside a step that never ends"
+  ],
+  "baselineFailedSuites": [],
+  "nameNormalization": "Only the absolute checkout prefix in parameterized names is replaced by <checkout>.",
+  "candidates": {
+    "focused": {
+      "counts": {
+        "numPassedTests": 12977,
+        "numFailedTests": 25,
+        "numPendingTests": 38,
+        "numTotalTests": 13040
+      },
+      "commonFailedNames": [
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+        "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+        "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+        "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+        "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+        "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+        "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+        "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+        "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+        "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+        "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)"
+      ],
+      "additionalFailedNames": [
+        "src/session/session-worktree.test.ts :: session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions"
+      ],
+      "baselineFailedNamesPassingHere": [],
+      "newTestNames": [
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: false)",
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: true)",
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start"
+      ],
+      "newTestsAllPassed": true,
+      "failureDiagnostics": [
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:31:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) accepts --role=<role>",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:44:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected { code: 1, out: '', …(1) } to match object { code: +0, …(1) }\n(1 matching property omitted from actual)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1283:10)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "refuses token management from an agent tool child",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:87:79\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+          "status": "failed",
+          "diagnostic": "Error: Command failed: powershell.exe -NoProfile -NonInteractive -Command $acl = Get-Acl -LiteralPath $env:ATAG_BACKUP_ACL_TEST_PATH\n         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value\n         $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected '\\s\\backups\\memory-20261118-090507' to be '/s/backups/memory-20261118-090507' // Object.is equality\n    at <checkout>/src/cli/memory-backup.test.ts:426:69\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects closed stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects empty stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects unterminated stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /newline/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects oversized stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /4096 bytes/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects short stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /at least 16/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects invalid stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /printable ASCII/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: no API key given, and the key …' to contain 'cloudflared'\n    at <checkout>/src/cli/serve-command.test.ts:164:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "registers the active serve key for masking (undefined)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'tool output: <fixture-key>' to be 'tool output: [redacted:serve-api-key]' // Object.is equality\n    at <checkout>/src/cli/serve-command.test.ts:226:66\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/skill-history-command.test.ts",
+          "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'Pending review (drafts awaiting expli…' to contain '/learn'\n    at <checkout>/src/cli/skill-history-command.test.ts:202:20\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:31:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) two tokens never come out the same",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:46:49\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) refuses a duplicate name and a bad name",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:50:53\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) remove drops one token and reports an unknown name",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true }\n    at <checkout>/src/http/http-token-store.test.ts:59:39\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) never writes over a broken file",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:66:56\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to deeply equal [ 'a' ]\n    at <checkout>/src/http/http-token-store.test.ts:78:41\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "does not store a bearer token accidentally supplied as a name",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:109:25\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/scoped-auth.test.ts",
+          "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/scoped-auth.test.ts:144:29\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/session/session-worktree.test.ts",
+          "name": "session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atomic-session-wt-ts8qkW\\state\\worktrees\\repo-fb3eb7f6\\merged01'"
+        },
+        {
+          "file": "src/memory/voting/vote-store.test.ts",
+          "name": "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        }
+      ],
+      "failedSuites": [],
+      "additionalFailureReconciliation": [
+        {
+          "name": "src/session/session-worktree.test.ts :: session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions",
+          "baselineObservations": [
+            {
+              "report": "b7a-main-paired",
+              "status": "failed"
+            },
+            {
+              "report": "b7a-main-cleanup-rerun",
+              "status": "passed"
+            }
+          ],
+          "candidateObservations": [],
+          "disposition": "reproduced_on_main"
+        }
+      ],
+      "unresolvedAdditionalFailedNames": []
+    },
+    "full": {
+      "counts": {
+        "numPassedTests": 30653,
+        "numFailedTests": 94,
+        "numPendingTests": 658,
+        "numTotalTests": 31405
+      },
+      "commonFailedNames": [
+        "src/agent-profiles/profile-loader.test.ts :: loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+        "src/agent/progress/read-coverage.test.ts :: read-coverage detection end to end sees a symlink and its target as one file",
+        "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+        "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+        "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+        "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+        "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+        "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+        "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+        "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+        "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+        "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+        "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+        "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+        "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+        "src/local-llm/backend/backend-installer-stable-repo.test.ts :: direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+        "src/local-llm/core/core-contract.test.ts :: Core host contract accepts its own data folder reported through a symlinked path",
+        "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+        "src/plugins/plugin-install.test.ts :: plugin install drops symlinks while copying",
+        "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+        "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+        "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+        "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+        "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy hides credential folders and the agent's state",
+        "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+        "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy protects a configured model key outside the state root",
+        "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy writes go to the project and temp only",
+        "src/sandbox/os-sandbox.test.ts :: round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+        "src/sandbox/os-sandbox.test.ts :: round 3 point 5: protects root home and privileged etc files",
+        "src/sandbox/os-sandbox.test.ts :: round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+        "src/sandbox/os-sandbox.test.ts :: round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+        "src/sandbox/os-sandbox.test.ts :: wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+        "src/skills/eval/checks.test.ts :: runCheck command that runs too long fails as a timeout",
+        "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+        "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir flags a symlink pointing outside the skill instead of following it",
+        "src/skills/hub/skill-lock.test.ts :: skill lock covers symlinks by their link text",
+        "src/skills/install-local-skill.test.ts :: installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+        "src/skills/skill-loader.test.ts :: loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+        "src/skills/skill-script-runner.test.ts :: runSkillScript runs a bash script by .sh extension",
+        "src/skills/workspace-skills.test.ts :: session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+        "src/skills/workspace-skills.test.ts :: session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+        "src/skills/workspace-skills.test.ts :: session workspace skills and live policy never imports project symlinks outside the workspace",
+        "src/skills/workspace-skills.test.ts :: session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+        "src/skills/workspace-skills.test.ts :: session workspace skills and live policy stores canonical workspace policy without modifying the project",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations",
+        "src/tools/fusion/branch-merge.test.ts :: fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+        "src/tools/fusion/branch-merge.test.ts :: fusion.delegate with isolation worktree: each worker runs in its own workspace and the work lands in the folder",
+        "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+        "src/tools/fusion/branch-private-git.test.ts :: keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+        "src/tools/fusion/branch-private-git.test.ts :: keeps info/global ignore inputs as frozen private data for nested Git classification",
+        "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+        "src/tools/fusion/branch-private-git.test.ts :: preserves a linked source worktree's split index, shared indexes and common worktree registrations",
+        "src/tools/fusion/branch-private-git.test.ts :: preserves available source branch/tag refs and commit history as private data",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+        "src/tools/fusion/candidate-evidence.test.ts :: binds promoted and zero-change receipts only after final delivery verification",
+        "src/tools/fusion/candidate-integration.test.ts :: journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+        "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+        "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+        "src/tools/fusion/candidate-integration.test.ts :: promotes but reports new ignored paths it kept private",
+        "src/tools/fusion/candidate-integration.test.ts :: promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+        "src/tools/fusion/candidate-integration.test.ts :: promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+        "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+        "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+        "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+        "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+        "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509",
+        "src/tools/fusion/fusion-delegate-criteria.test.ts :: fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)",
+        "src/tools/fusion/merge-gate.test.ts :: held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "src/tools/fusion/regression-gate.test.ts :: a change must not break a case that already passed (issue #106) in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)",
+        "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+        "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+        "src/tools/read-scope/state-secrets.test.ts :: classifies direct procfs reads even without state secret files",
+        "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc && cat self/environ",
+        "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc/self && cat environ",
+        "src/tools/read-scope/state-secrets.test.ts :: third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+        "src/tools/read-scope/state-secrets.test.ts :: third round flags find /proc/123 -type f without reading a real credential",
+        "src/tools/read-scope/state-secrets.test.ts :: third round flags grep -r synthetic /proc/self without reading a real credential",
+        "src/tools/read-scope/state-secrets.test.ts :: third round flags pushd /proc/self && cat environ without reading a real credential"
+      ],
+      "additionalFailedNames": [
+        "src/tools/fusion/candidate-integration.test.ts :: fails closed for missing check evidence and protects declared inputs",
+        "src/tools/fusion/fusion-candidate.test.ts :: keeps local candidate skills trusted by the real project (moved=false)",
+        "src/tools/fusion/fusion-candidate.test.ts :: keeps local candidate skills trusted by the real project (moved=true)"
+      ],
+      "baselineFailedNamesPassingHere": [
+        "scripts/e2e-csv-sales.test.ts :: an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+        "scripts/e2e-csv-sales.test.ts :: autonomous run or guided resume one prompt with the auto-approval continuations is autonomous; a person's line after it is a guided resume",
+        "scripts/e2e-csv-sales.test.ts :: earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+        "scripts/e2e-csv-sales.test.ts :: the reviewer's identity records provider and effective model, and flags a reviewer that is not the plan's",
+        "scripts/e2e-csv-sales.test.ts :: the runner passes a run only when every required task is accepted green suites with an open review block (needs-changes, then no_changes) exit 1 and name the block",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: direct-mode copy budget links an ignored venv/ to the original instead of copying it into the base and every task",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies delivers a green task's outputs and ignored files, its cache writes landing through the link",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies does not charge a linked ignored directory to the copy limit",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: private branch dependencies shares ignored caches and dependencies with the original by links in direct mode",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: shared dependency directories isolates a repo whose ignored node_modules exceeds the copy budget across tasks",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: shared dependency directories links ignored folders inside a dependency directory that keeps a tracked placeholder",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: tracked paths under excluded directory names merges a tracked change under a directory named build and never merges ignored dist, which is linked",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge recognizes native case aliases in ignored provides without hiding partial delivery",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "src/tools/fusion/branch-isolation-safety.test.ts :: workspace removal never lets git walk a generated link removes the workspace folders with Node before git forgets the worktrees",
+        "src/tools/fusion/branch-merge.test.ts :: createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+        "src/tools/fusion/branch-merge.test.ts :: createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave discards a failed task's changes",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave holds a row that finished without a reply as a patch instead of merging it unseen (#29)",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave merges two tasks that edited different files",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave merges two tasks that edited different parts of one file",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave refuses a declared input the task wiped",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave removes the workspaces when the run throws",
+        "src/tools/fusion/branch-merge.test.ts :: runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+        "src/tools/fusion/branch-private-git.test.ts :: does not carry an expired preparation deadline into a later materialization",
+        "src/tools/fusion/branch-private-git.test.ts :: never freshens aged source split-index metadata during private inventory queries",
+        "src/tools/fusion/branch-private-git.test.ts :: never imports source remotes, includes, or mutable config into private workspace metadata",
+        "src/tools/fusion/branch-private-git.test.ts :: preserves dirty tracked sibling-package bytes outside the selected monorepo subdirectory",
+        "src/tools/fusion/branch-private-git.test.ts :: preserves the available history of a shallow source without following its original remote",
+        "src/tools/fusion/branch-workspace-autocrlf.test.ts :: actual tracked working-tree snapshot charges tracked byte overlays to the cumulative private-copy limit",
+        "src/tools/fusion/branch-workspace-copy-plan.test.ts :: measures exactly the complete unchanged future branch-set copy (Git=true)",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: includes tracked byte overlays in the measured final copy",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for ignored-directory payload",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for ignored-file payload",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: refuses the measured whole final copy before workers for untracked payload",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+        "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+        "src/tools/fusion/candidate-integration.test.ts :: re-checks parent identity at commit, refusing a rename through a parent swapped for a link",
+        "src/tools/fusion/candidate-integration.test.ts :: re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link",
+        "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\.atomic-agent \"",
+        "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\.atomic-agent\"",
+        "src/tools/fusion/candidate-integration.test.ts :: refuses nested agent state at \"pkg\\\\deep\\\\.ATOMIC-AGENT.\"",
+        "src/tools/fusion/candidate-integration.test.ts :: rolls back a directory it created even when setting its mode fails",
+        "src/tools/fusion/candidate-integration.test.ts :: stages a folder copy candidate whose source directory has mode 448",
+        "src/tools/fusion/merge-gate.test.ts :: held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "src/tools/fusion/merge-gate.test.ts :: merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "src/tools/verify/run-page-real-browser.test.ts :: runVerify — page games under a real browser stops a running game when the run is cancelled, even inside a step that never ends"
+      ],
+      "newTestNames": [
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker another live process holds counts; a gone owner's does not",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker older than the stale bound, or from before the last boot, is no start",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) an empty marker counts only while it is fresh",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is removed when the start throws",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is written as a start begins and removed as it ends",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) nested marks in one process keep the marker until the outermost ends",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) never removes another starter's marker",
+        "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) this process's own leftover marker counts only while it holds a start",
+        "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a dead recorded pid with a start on its way (the restart after a crash) is start_pending",
+        "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a marker probe that throws leaves the reading as it was",
+        "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) never hides a live model process behind the marker",
+        "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) no pid file with a start on its way is unknown (start_pending), not no_pid",
+        "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) reads the real marker a start writes",
+        "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a start that never got its model up (start_pending, ATO-421)",
+        "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a start on its way before the lock (ATO-421) asks whether a model process exists, so the no-process ceiling bounds the wait",
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: false)",
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: true)",
+        "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start"
+      ],
+      "newTestsAllPassed": true,
+      "failureDiagnostics": [
+        {
+          "file": "src/agent-profiles/profile-loader.test.ts",
+          "name": "loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\agent-profiles-digrzK\\outside' -> '<local>\\AppData\\Local\\Temp\\agent-profiles-digrzK\\repo\\.claude\\agents'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/agent-profiles/profile-loader.test.ts:107:5"
+        },
+        {
+          "file": "src/channels/build-extra-channels.test.ts",
+          "name": "buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ …(3) ] to deeply equal [ …(3) ]\n    at <checkout>/src/channels/build-extra-channels.test.ts:45:18\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:31:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) accepts --role=<role>",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:44:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected { code: 1, out: '', …(1) } to match object { code: +0, …(1) }\n(1 matching property omitted from actual)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1283:10)"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "refuses token management from an agent tool child",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/cli/http-command.test.ts:87:79\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+          "status": "failed",
+          "diagnostic": "Error: Command failed: powershell.exe -NoProfile -NonInteractive -Command $acl = Get-Acl -LiteralPath $env:ATAG_BACKUP_ACL_TEST_PATH\n         $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value\n         $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected '\\s\\backups\\memory-20261118-090507' to be '/s/backups/memory-20261118-090507' // Object.is equality\n    at <checkout>/src/cli/memory-backup.test.ts:426:69\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects closed stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects empty stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /no API key line/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects unterminated stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /newline/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects oversized stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /4096 bytes/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects short stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /at least 16/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects invalid stdin before starting serve",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: --api-key-stdin could not rese…' to match /printable ASCII/i\n    at <checkout>/src/cli/serve-auth-process.test.ts:115:20\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'serve: no API key given, and the key …' to contain 'cloudflared'\n    at <checkout>/src/cli/serve-command.test.ts:164:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "registers the active serve key for masking (undefined)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'tool output: <fixture-key>' to be 'tool output: [redacted:serve-api-key]' // Object.is equality\n    at <checkout>/src/cli/serve-command.test.ts:226:66\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/cli/skill-history-command.test.ts",
+          "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'Pending review (drafts awaiting expli…' to contain '/learn'\n    at <checkout>/src/cli/skill-history-command.test.ts:202:20\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:31:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) two tokens never come out the same",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:46:49\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) refuses a duplicate name and a bad name",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:50:53\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) remove drops one token and reports an unknown name",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected { ok: false, …(1) } to deeply equal { ok: true }\n    at <checkout>/src/http/http-token-store.test.ts:59:39\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) never writes over a broken file",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/http/http-token-store.test.ts:66:56\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to deeply equal [ 'a' ]\n    at <checkout>/src/http/http-token-store.test.ts:78:41\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/http-token-store.test.ts",
+          "name": "does not store a bearer token accidentally supplied as a name",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/http-token-store.test.ts:109:25\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/http/scoped-auth.test.ts",
+          "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+          "status": "failed",
+          "diagnostic": "Error: cannot update the token registry\n    at <checkout>/src/http/scoped-auth.test.ts:144:29\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/plugins/plugin-install.test.ts",
+          "name": "plugin install drops symlinks while copying",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink 'C:\\etc' -> '<local>\\AppData\\Local\\Temp\\atomic-plugin-install-Mxa63p\\src\\skills\\review\\etc-link'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/plugins/plugin-install.test.ts:54:5"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\project-rules-9Fexf4\\outside.md' -> '<local>\\AppData\\Local\\Temp\\project-rules-9Fexf4\\workspace\\AGENT.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:39:5"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\project-rules-sk1pYu\\workspace\\AGENTS.md' -> '<local>\\AppData\\Local\\Temp\\project-rules-sk1pYu\\workspace\\GEMINI.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:275:33"
+        },
+        {
+          "file": "src/runtime/project-trust.test.ts",
+          "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\project-trust-gy6kgK\\repo' -> '<local>\\AppData\\Local\\Temp\\project-trust-gy6kgK\\alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-trust.test.ts:136:40"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "buildOsSandboxPolicy writes go to the project and temp only",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 'C:\\home\\op\\project' to be '/home/op/project' // Object.is equality\n    at <checkout>/src/sandbox/os-sandbox.test.ts:191:32\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "buildOsSandboxPolicy hides credential folders and the agent's state",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ '\\home\\op\\.ssh', …(19) ] to include '/home/op/.ssh'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "buildOsSandboxPolicy protects a configured model key outside the state root",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ '\\home\\op\\.ssh', …(20) ] to include '/srv/models/llama-server.key'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ '\\home\\op\\.ssh', …(19) ] to include '/home/op/.atomic-agent'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ '-D', 'HOME_ROOT=/home/op', …(51) ] to include 'W0=/home/op/project'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected '--dev /dev --unshare-pid --unshare-ip…' to contain '--chdir /home/op/project'\n    at <checkout>/src/sandbox/os-sandbox.test.ts:406:48\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "round 3 point 5: protects root home and privileged etc files",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ '\\home\\op\\.ssh', …(19) ] to deeply equal ArrayContaining{…}\n    at <checkout>/src/sandbox/os-sandbox.test.ts:410:29\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+          "status": "failed",
+          "diagnostic": "Error: the protected agent state overlaps a writable workspace root\n    at <checkout>/src/sandbox/os-sandbox.test.ts:452:28\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/sandbox/os-sandbox.test.ts",
+          "name": "round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+          "status": "failed",
+          "diagnostic": "Error: the protected agent state overlaps a writable workspace root\n    at <checkout>/src/sandbox/os-sandbox.test.ts:491:28\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "file": "src/skills/install-local-skill.test.ts",
+          "name": "installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink 'real.md' -> '<local>\\AppData\\Local\\Temp\\atomic-local-install-DAsqNH\\src\\linked\\docs\\alias.md'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/install-local-skill.test.ts:188:5"
+        },
+        {
+          "file": "src/skills/skill-loader.test.ts",
+          "name": "loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\atomic-skills-eT9PG5\\store\\linked' -> '<local>\\AppData\\Local\\Temp\\atomic-skills-eT9PG5\\home\\.agents\\skills\\linked'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/skill-loader.test.ts:185:7"
+        },
+        {
+          "file": "src/skills/skill-script-runner.test.ts",
+          "name": "runSkillScript runs a bash script by .sh extension",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected 1 to be +0 // Object.is equality\n    at <checkout>/src/skills/skill-script-runner.test.ts:101:29\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "file": "src/skills/workspace-skills.test.ts",
+          "name": "session workspace skills and live policy stores canonical workspace policy without modifying the project",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\workspace-skills-CIB7GW\\a' -> '<local>\\AppData\\Local\\Temp\\workspace-skills-CIB7GW\\alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:110:40"
+        },
+        {
+          "file": "src/skills/workspace-skills.test.ts",
+          "name": "session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\workspace-skills-rSvvsX\\elsewhere\\linked' -> '<local>\\AppData\\Local\\Temp\\workspace-skills-rSvvsX\\state\\skills\\linked'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:169:5"
+        },
+        {
+          "file": "src/skills/workspace-skills.test.ts",
+          "name": "session workspace skills and live policy never imports project symlinks outside the workspace",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\workspace-skills-ZnlgU2\\outside' -> '<local>\\AppData\\Local\\Temp\\workspace-skills-ZnlgU2\\a\\.agents\\skills'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:184:36"
+        },
+        {
+          "file": "src/skills/workspace-skills.test.ts",
+          "name": "session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\workspace-skills-BbWwJr\\state' -> '<local>\\AppData\\Local\\Temp\\workspace-skills-BbWwJr\\state-alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:190:46"
+        },
+        {
+          "file": "src/skills/workspace-skills.test.ts",
+          "name": "session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\workspace-skills-sKsAfv\\store\\linked' -> '<local>\\AppData\\Local\\Temp\\workspace-skills-sKsAfv\\home\\.agents\\skills\\linked'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/skills/workspace-skills.test.ts:320:47"
+        },
+        {
+          "file": "src/agent/progress/read-coverage.test.ts",
+          "name": "read-coverage detection end to end sees a symlink and its target as one file",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\atomic-read-loop-pBIQ5Z\\src.ts' -> '<local>\\AppData\\Local\\Temp\\atomic-read-loop-pBIQ5Z\\alias.ts'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/agent/progress/read-coverage.test.ts:508:5"
+        },
+        {
+          "file": "src/local-llm/backend/backend-installer-stable-repo.test.ts",
+          "name": "direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected false to be true // Object.is equality\n    at <checkout>/src/local-llm/backend/backend-installer-stable-repo.test.ts:257:74\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+        },
+        {
+          "file": "src/local-llm/core/core-contract.test.ts",
+          "name": "Core host contract accepts its own data folder reported through a symlinked path",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\engine-test-q1q3jF\\real' -> '<local>\\AppData\\Local\\Temp\\engine-test-q1q3jF\\link'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/local-llm/core/core-contract.test.ts:26:5"
+        },
+        {
+          "file": "src/memory/voting/vote-store.test.ts",
+          "name": "VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+          "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+          "status": "failed",
+          "diagnostic": "AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/skills/eval/checks.test.ts",
+          "name": "runCheck command that runs too long fails as a timeout",
+          "status": "failed",
+          "diagnostic": "Error: EPERM, Permission denied: '<local>\\AppData\\Local\\Temp\\skill-eval-checks-L2dNwV'\n    at rmSync (node:fs:1593:18)\n    at <checkout>/src/skills/eval/checks.test.ts:52:19"
+        },
+        {
+          "file": "src/skills/hub/scan-skill-dir.test.ts",
+          "name": "scanSkillDir flags a symlink pointing outside the skill instead of following it",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink '<local>\\AppData\\Local\\Temp\\atomic-scan-outside-i0EJzB\\evil.sh' -> '<local>\\AppData\\Local\\Temp\\atomic-scan-dir-U8bAep\\run.sh'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/scan-skill-dir.test.ts:88:7"
+        },
+        {
+          "file": "src/skills/hub/scan-skill-dir.test.ts",
+          "name": "scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink 'real.md' -> '<local>\\AppData\\Local\\Temp\\atomic-scan-dir-jYOxQf\\alias.md'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/scan-skill-dir.test.ts:101:5"
+        },
+        {
+          "file": "src/skills/hub/skill-lock.test.ts",
+          "name": "skill lock covers symlinks by their link text",
+          "status": "failed",
+          "diagnostic": "Error: EPERM: operation not permitted, symlink 'SKILL.md' -> '<local>\\AppData\\Local\\Temp\\atomic-skill-lock-5ujdYM\\la\\link'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/skills/hub/skill-lock.test.ts:75:5"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "workspace removal never lets git walk a generated link sweeps dead independent Git stores without changing source worktree registrations",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-cleanup-links-twF1V6'"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "fusion.delegate with isolation worktree: each worker runs in its own workspace and the work lands in the folder",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-copies-WaWzzx\\atag-fusion-a825d2-zIWncN\\t1-two'"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "keeps nested tasks and the final planned source independent from the candidate and each other",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-copies-RrKY9h\\atag-fusion-ce67ab-OJIJYY\\t0-candidate'"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "preserves available source branch/tag refs and commit history as private data",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-copies-9FQhPN\\atag-fusion-8d849c-2l3T4U\\t0-one'"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "preserves a linked source worktree's split index, shared indexes and common worktree registrations",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-project-eYZ3r3'"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "keeps info/global ignore inputs as frozen private data for nested Git classification",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-project-MO0cOw'"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-private-git-copies-ivS3Fx\\atag-fusion-ed758a-WraLtn\\t0-candidate-8d5034f3b982'"
+        },
+        {
+          "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+          "name": "retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\nError: EBUSY: resource busy or locked, rmdir '<local>\\AppData\\Local\\Temp\\atag-candidate-budget-111cWz\\copies\\atag-fusion-b2aa7f-9VP2YP\\snapshot.git'"
+        },
+        {
+          "file": "src/tools/fusion/candidate-evidence.test.ts",
+          "name": "binds promoted and zero-change receipts only after final delivery verification",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "fails closed for missing check evidence and protects declared inputs",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "promotes a tracked file under a directory named like a dependency/build folder",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "never promotes deletion of ignored standalone files",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "never promotes modification of ignored standalone files",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "rejects a declared provide that only exists under an ignored path",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "promotes but reports new ignored paths it kept private",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "stages a worktree candidate whose source directory has mode 509",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "stages a worktree candidate whose source directory has mode 448",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "keeps local candidate skills trusted by the real project (moved=false)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "keeps local candidate skills trusted by the real project (moved=true)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/fusion-delegate-criteria.test.ts",
+          "name": "fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/fusion/regression-gate.test.ts",
+          "name": "a change must not break a case that already passed (issue #106) in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)",
+          "status": "failed",
+          "diagnostic": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "classifies direct procfs reads even without state secret files",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to have a length of 1 but got +0\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1389:20)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "round2-4 recognizes cd /proc/self && cat environ",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:735:175\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "round2-4 recognizes cd /proc && cat self/environ",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:735:175\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "third round flags pushd /proc/self && cat environ without reading a real credential",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "third round flags grep -r synthetic /proc/self without reading a real credential",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        },
+        {
+          "file": "src/tools/read-scope/state-secrets.test.ts",
+          "name": "third round flags find /proc/123 -type f without reading a real credential",
+          "status": "failed",
+          "diagnostic": "AssertionError: expected [] to not deeply equal []\n    at <checkout>/src/tools/read-scope/state-secrets.test.ts:758:42\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+        }
+      ],
+      "failedSuites": [],
+      "additionalFailureReconciliation": [
+        {
+          "name": "src/tools/fusion/candidate-integration.test.ts :: fails closed for missing check evidence and protects declared inputs",
+          "baselineObservations": [
+            {
+              "report": "b7a-main-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "candidateObservations": [
+            {
+              "report": "b7a5-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "disposition": "not_reproduced_in_candidate_rerun"
+        },
+        {
+          "name": "src/tools/fusion/fusion-candidate.test.ts :: keeps local candidate skills trusted by the real project (moved=false)",
+          "baselineObservations": [
+            {
+              "report": "b7a-main-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "candidateObservations": [
+            {
+              "report": "b7a5-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "disposition": "not_reproduced_in_candidate_rerun"
+        },
+        {
+          "name": "src/tools/fusion/fusion-candidate.test.ts :: keeps local candidate skills trusted by the real project (moved=true)",
+          "baselineObservations": [
+            {
+              "report": "b7a-main-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "candidateObservations": [
+            {
+              "report": "b7a5-fusion-rerun",
+              "status": "passed"
+            }
+          ],
+          "disposition": "not_reproduced_in_candidate_rerun"
+        }
+      ],
+      "unresolvedAdditionalFailedNames": []
+    }
+  },
+  "controlledReruns": {
+    "baseline": [
+      {
+        "name": "b7a-main-paired",
+        "counts": {
+          "numPassedTests": 77,
+          "numFailedTests": 2,
+          "numPendingTests": 0,
+          "numTotalTests": 79
+        },
+        "failedNames": [
+          "src/session/session-worktree.test.ts :: session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions",
+          "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)"
+        ]
+      },
+      {
+        "name": "b7a-main-cleanup-rerun",
+        "counts": {
+          "numPassedTests": 2,
+          "numFailedTests": 0,
+          "numPendingTests": 6,
+          "numTotalTests": 8
+        },
+        "failedNames": []
+      },
+      {
+        "name": "b7a-main-fusion-rerun",
+        "counts": {
+          "numPassedTests": 3,
+          "numFailedTests": 0,
+          "numPendingTests": 107,
+          "numTotalTests": 110
+        },
+        "failedNames": []
+      }
+    ],
+    "candidate": [
+      {
+        "name": "b7a5-fusion-rerun",
+        "counts": {
+          "numPassedTests": 3,
+          "numFailedTests": 0,
+          "numPendingTests": 107,
+          "numTotalTests": 110
+        },
+        "failedNames": []
+      }
+    ]
+  }
+}

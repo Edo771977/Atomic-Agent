@@ -125,6 +125,8 @@ export function explainLocalEngineState(
       found = "unknown";
     }
     if (report.reason === "lock_writing") return { ...verdict, modelProcess: found, lockOwner: "pending" };
+    // The start marker precedes acquisition: it is not evidence of a live lock owner.
+    if (report.reason === "start_pending") return { ...verdict, modelProcess: found };
     // A live owner gets its own ceiling, counted from when it took the
     // lock; a pid that started after that cannot be the owner (reused).
     let owner: CoreOperationLockOwner | null;
