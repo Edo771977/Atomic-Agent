@@ -34,5 +34,6 @@ it("shows the end of a chapter that fits without the long book title", async () 
   expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(1000);
   expect(result.text).toContain("CH1END");
   expect(result.pagesExtracted).toEqual([1]);
-  expect(result.truncated).not.toBe(true);
+  expect(result.truncated).toBe(true);
+  expect(result.warnings).toContainEqual(expect.stringMatching(/title.*omitted.*maxBytes/i));
 });

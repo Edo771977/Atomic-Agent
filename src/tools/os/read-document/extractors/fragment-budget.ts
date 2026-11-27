@@ -69,9 +69,10 @@ export class FragmentOutput {
   stopped = false;
   partialItem = false;
   framingLimited = false;
+  framingCompacted = false;
   attachmentListingLimited = false;
 
-  constructor(readonly limit: number) {}
+  constructor(readonly limit: number, private readonly compactFraming = true) {}
 
   get remaining(): number {
     return this.limit - this.#used;
@@ -93,17 +94,25 @@ export class FragmentOutput {
     return bytes.toString("utf8", 0, end);
   }
 
-  appendItem(prefix: string, value: string, clipped = false, compactPrefix = prefix): {
+  appendItem(
+    prefix: string,
+    value: string,
+    clipped = false,
+    compactPrefix?: string | ((available: number) => string | undefined),
+  ): {
     text: string;
     status: "complete" | "deferred" | "partial";
   } {
     const valueBytes = Buffer.byteLength(value);
     let prefixBytes = Buffer.byteLength(prefix);
-    if (!clipped && prefix !== compactPrefix && prefixBytes + valueBytes > this.limit) {
-      const compactBytes = Buffer.byteLength(compactPrefix);
-      if (compactBytes + valueBytes <= this.limit) {
-        prefix = compactPrefix;
-        prefixBytes = compactBytes;
+    const available = this.remaining - valueBytes;
+    if (!this.#hasItem && this.compactFraming && !clipped && available >= 0 &&
+        prefixBytes > available && compactPrefix !== undefined) {
+      const compact = typeof compactPrefix === "string" ? compactPrefix : compactPrefix(available);
+      if (compact !== undefined && Buffer.byteLength(compact) <= available) {
+        prefix = compact;
+        prefixBytes = Buffer.byteLength(compact);
+        this.framingCompacted = true;
       }
     }
     const size = prefixBytes + valueBytes;

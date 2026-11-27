@@ -24,6 +24,7 @@ import { decodeBytes } from "./text-decode.js";
  */
 const SHOWN_HEADERS = ["from", "to", "cc", "date", "subject"] as const;
 const MAX_DEPTH = 8;
+const ATTACHED_MESSAGE_MARKER = "--- attached message ---";
 
 interface TextPartRange {
   start: number;
@@ -78,6 +79,9 @@ export const emlExtractor: Extractor = async (input) => {
   if (input.pagesFrom !== undefined && range.start > range.seen) {
     warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
   }
+  if (output.framingCompacted) {
+    warnings.push("MIME headers were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.");
+  }
   if (range.pendingAttachment !== undefined) {
     warnings.push(attachmentContinuation(range.seen + range.pendingAttachment + 1));
   }
@@ -85,7 +89,7 @@ export const emlExtractor: Extractor = async (input) => {
     format: "eml",
     text: text.trim(),
     warnings: dedupe(warnings),
-    ...((budget.exhausted || output.truncated || range.pendingAttachment !== undefined) && { truncated: true }),
+    ...((budget.exhausted || output.truncated || output.framingCompacted || range.pendingAttachment !== undefined) && { truncated: true }),
   };
 };
 
@@ -116,11 +120,20 @@ export const mboxExtractor: Extractor = async (input) => {
   const extracted: number[] = [];
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
-    const message = new FragmentOutput(output.limit);
+    const marker = separators ? `--- message ${n} ---\n` : "";
+    const markerBytes = Buffer.byteLength(marker);
+    if (markerBytes > output.limit) {
+      output.stop();
+      warnings.push(`The MBOX message marker exceeds maxBytes. Increase maxBytes and use pagesFrom=${n} to retry.`);
+      break;
+    }
+    const message = new FragmentOutput(output.limit - markerBytes, extracted.length === 0);
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
     if (message.framingLimited) {
       output.stop();
-      warnings.push(`No message text was shown because the MBOX headers leave no room within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
+      warnings.push(extracted.length > 0
+        ? `MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`
+        : `No message text was shown because the MBOX headers leave no room within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
       break;
     }
     if (budget.exhausted && !message.partialItem) {
@@ -128,10 +141,13 @@ export const mboxExtractor: Extractor = async (input) => {
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
-    const marker = separators ? `--- message ${n} ---\n` : "";
     const separator = chunks.length && (marker || text) ? "\n\n" : "";
-    const shown = output.appendItem(separator + marker, text, message.truncated, separator);
+    const shown = output.appendItem(separator + marker, text, message.truncated);
     if (shown.text) chunks.push(shown.text);
+    if (message.framingCompacted && shown.status !== "deferred") {
+      output.truncated = true;
+      warnings.push(`MBOX headers for message ${n} were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.`);
+    }
     if (message.attachmentListingLimited && shown.status !== "deferred") {
       output.truncated = true;
       warnings.push(`MBOX attachments for message ${n} were deferred. Increase maxBytes and retry with pagesFrom=${n} to read the complete list.`);
@@ -392,6 +408,33 @@ function appendAttachmentLines(output: FragmentOutput, prefix: string, attachmen
   return { text: rows.join(""), count: rows.length };
 }
 
+function compactMailFraming(prefix: string, available: number): string | undefined {
+  const separator = /^\n*/.exec(prefix)?.[0] ?? "";
+  const lines = prefix.split("\n");
+  const markers = lines.filter((line) => line === ATTACHED_MESSAGE_MARKER);
+  const required = separator + (markers.length ? markers.join("\n") + "\n" : "");
+  const headerRoom = available - Buffer.byteLength(required);
+  if (headerRoom < 0) return undefined;
+
+  const ownHeaders = lines.slice(lines.lastIndexOf(ATTACHED_MESSAGE_MARKER) + 1);
+  let fields = ["From: ", "Subject: "].flatMap((label) => {
+    const value = ownHeaders.find((line) => line.startsWith(label))?.slice(label.length).trim();
+    return value ? [{ label, value }] : [];
+  });
+  const headerOverhead = () => fields.reduce((bytes, { label }) => bytes + label.length, 1) + (fields.length - 1) * 3;
+  if (fields.length === 2 && headerRoom < headerOverhead() + 2) fields = fields.slice(0, 1);
+  if (fields.length === 0 || headerRoom < headerOverhead() + 1) return required;
+
+  let valueRoom = headerRoom - headerOverhead();
+  const summary = fields.map(({ label, value }, index) => {
+    const allowance = Math.floor(valueRoom / (fields.length - index));
+    const shown = new FragmentOutput(allowance).append(value);
+    valueRoom -= Buffer.byteLength(shown);
+    return label + shown;
+  });
+  return required + summary.join(" | ") + "\n";
+}
+
 function renderTextPart(
   bodySize: number,
   budget: FragmentBudget,
@@ -414,8 +457,7 @@ function renderTextPart(
   const clipped = rendered.truncated || accepted < bodySize;
   if (accepted < bodySize) budget.noteTruncation();
   if (!text && !clipped) return "";
-  const separator = prefix.match(/^\n*/)?.[0] ?? "";
-  const shown = output.appendItem(prefix, text, clipped, separator);
+  const shown = output.appendItem(prefix, text, clipped, (available) => compactMailFraming(prefix, available));
   if (range && shown.status === "partial") range.partial = part;
   if (range && shown.status === "deferred") range.resumeAt = part;
   return shown.text;
@@ -488,7 +530,7 @@ function renderPart(
   if (mime === "message/rfc822" && !attached) {
     const bytes = decodeTransfer(part.body, encoding);
     return renderMessage(Buffer.from(bytes).toString("latin1"), depth + 1, warnings, budget, output,
-      prefix + "--- attached message ---\n", range);
+      prefix + ATTACHED_MESSAGE_MARKER + "\n", range);
   }
 
   const isText = mime === "text/plain" || mime === "text/html";

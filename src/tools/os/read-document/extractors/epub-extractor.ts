@@ -116,6 +116,9 @@ export const epubExtractor: Extractor = async (input) => {
       `stopped at maxPages=${maxPages}; ${remaining} more chapter(s) not read (use pagesFrom)`,
     );
   }
+  if (output.framingCompacted) {
+    warnings.push("The EPUB title was omitted to fit the complete chapter. Increase maxBytes to show the title.");
+  }
 
   return {
     format: "epub",
@@ -123,7 +126,7 @@ export const epubExtractor: Extractor = async (input) => {
     pageCount: total,
     pagesExtracted: extracted,
     warnings,
-    ...((budget.exhausted || output.truncated) && { truncated: true }),
+    ...((budget.exhausted || output.truncated || output.framingCompacted) && { truncated: true }),
   };
 };
 
