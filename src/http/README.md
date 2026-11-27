@@ -3,6 +3,8 @@
 Status: current
 Owner: src/http/
 
+Per-turn model selection refuses a Codex CLI entry (`subscription-cli`, `cli: "codex"`) before starting its client, unless the requested model is the entry's configured model. Its ChatGPT login chooses the model (ATO-1592). Claude CLI and supported cloud entries keep per-turn selection; the fork's known-model checks and independent Fusion reviewers still apply.
+
 B7a1 leaves memory housekeeping restoration (#1708) deferred. Existing history routes retain read/admin scopes; lesson/procedure history and the additional restoration kinds stay unavailable. [Evidence](../../docs/reviews/b7a1-memory-history.md).
 
 This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) before changing it.
