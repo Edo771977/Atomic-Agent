@@ -30,24 +30,9 @@ export function resolveToolName(
 ): string | null {
   if (registry.has(name)) return name;
 
-  // `fusion_delegate` → `fusion.delegate`, `os_fs_write` → `os.fs.write`.
-  // Tried before `__` because a single-underscore name is the common
-  // miss and the double form is what `nameUnescape` already handled.
-  const singleToDot = name.replace(/_/g, ".");
-  if (singleToDot !== name && registry.has(singleToDot)) return singleToDot;
-
-  // A name that arrived still escaped: the text-JSON fallback path does
-  // not run `nameUnescape`, so `fusion__delegate` can reach here whole.
-  const doubleToDot = name.replace(/__/g, ".");
-  if (doubleToDot !== name && registry.has(doubleToDot)) return doubleToDot;
-
-  // Case only, over the two forms above as well — some models
-  // capitalise the first letter of a tool name.
-  const lower = name.toLowerCase();
-  for (const { name: candidate } of registry.list()) {
-    if (candidate.toLowerCase() === lower) return candidate;
-    if (candidate.toLowerCase() === singleToDot.toLowerCase()) return candidate;
-  }
+  // Every nonexact spelling must consider the complete catalog. A fast
+  // separator/case match could otherwise choose the first of two MCP
+  // names with the same shape and evade the ambiguity check below.
   return resolveByShape(name, registry.list().map((definition) => definition.name));
 }
 
@@ -59,12 +44,14 @@ const FUNCTIONS_PREFIX = "functions.";
  * backticks, an empty call `()` and trailing punctuation.
  */
 function stripWrapping(name: string): string {
-  return name
-    .replace(/<\|[\s\S]*$/, "")
-    .trim()
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/\(\s*\)$/, "")
-    .replace(/[:;,.!?]+$/, "");
+  let value = name.replace(/<\|[\s\S]*$/, "").trim();
+  // Handle both `"tool"()` and `"tool()"` without accepting arguments.
+  for (let pass = 0; pass < 2; pass++) {
+    value = value.replace(/[:;,.!?]+$/, "")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .replace(/\(\s*\)$/, "").trim();
+  }
+  return value;
 }
 
 /**

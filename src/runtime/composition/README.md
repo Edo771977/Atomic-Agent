@@ -34,3 +34,5 @@ Each component receives the shared handles it actually needs. The channel recipe
 ## Checks
 
 `npx vitest run src/runtime/ src/sidecar/ src/http/route-sessions.test.ts`; `npm run lint`; `npm run typecheck:tests`; `npm run imports:check`; `npm run docs:check`. Public contract, phase and catalog equivalence evidence is recorded in [stage 06 acceptance](../../../docs/testing/stage-06-validation.md).
+
+B7b2 keeps local traces/warnings for unknown-tool failures. Only a streak classified as `near_miss` is omitted from external reporting; other classes still report through the existing opt-in, offline and incognito gates. Tool names are not added to report tags.
