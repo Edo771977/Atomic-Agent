@@ -23,5 +23,5 @@ it.each([undefined, 1, 2])("offers both attachments after the final text part is
   const listings = await emlExtractor({ ...input, pagesFrom: next });
   expect(listings.text).toContain("A1.bin");
   expect(listings.text).toContain("A2.bin");
-  expect(listings.warnings).toEqual([]);
+  expect(listings.warnings).toEqual(["MIME attachment list resumed. Body parts end at part 2."]);
 });

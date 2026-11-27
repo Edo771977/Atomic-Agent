@@ -53,6 +53,9 @@ export const emlExtractor: Extractor = async (input) => {
     const listing = new FragmentOutput(output.limit);
     const displayed = appendAttachmentLines(listing, "", range.attachments, attachmentOffset);
     const remaining = attachmentOffset + displayed.count < range.attachments.length;
+    warnings.push(range.seen
+      ? `MIME attachment list resumed. Body parts end at part ${range.seen}.`
+      : "MIME attachment list resumed. This message has no body parts.");
     if (remaining) {
       const next = range.start + displayed.count;
       warnings.push(displayed.count === 0
