@@ -5,6 +5,8 @@ Owner: src/tui/import/
 
 This feature configures imports from other agents and displays preview/execution reports. Read [TUI instructions](../AGENTS.md), [domain import guide](../../import/README.md) and [runtime instructions](../../runtime/AGENTS.md); follow the affected config/session/memory/tasks/skills instructions for domain changes. External AGENTS.md in the Codex importer remains an input filename, not this repository's instruction guide.
 
+C3c keeps the upstream #1661 facts step deferred with C3a/C3b. No Facts about you row, runner or review state is added; the candidate selects all facts initially and can save unseen rows with Enter. Reopening requires explicit unchecked approval and the protected import service. [Review and reproduction](../../../docs/reviews/c3c-tui-facts.md).
+
 ## Presentation and input
 
 [ImportPanel](import-panel.tsx) is composed by [DebugPane](../components/debug-pane.tsx). It renders configure, running, preview and done modes, notices and unreadable-store warnings. [Sources](import-sources.ts) and [form options](import-form-options.ts) define source-specific rows/options rather than silently honoring hidden toggles. Hermes/OpenClaw, Claude Code, Codex and Pi-family sources retain their existing option sets, overwrite and limit handling; secret import remains opt-in where offered.

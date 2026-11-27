@@ -1,0 +1,21 @@
+{
+  "baseline": {
+    "numTotalTests": 54,
+    "numPassedTests": 4,
+    "numFailedTests": 0,
+    "numPendingTests": 50,
+    "numFailedTestSuites": 0
+  },
+  "candidate": {
+    "numTotalTests": 54,
+    "numPassedTests": 4,
+    "numFailedTests": 0,
+    "numPendingTests": 50,
+    "numFailedTestSuites": 0
+  },
+  "comparison": {
+    "common": [],
+    "additional": [],
+    "baselineOnly": []
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "comparison": "Non-Markdown src, grammars, scripts, package/lock and TS/Vitest configuration files, including all four new test files",
+  "fullRunFileCount": 5360,
+  "finalBranchFileCount": 5360,
+  "fullRunSha256": "b8d9482fc7a03c676c86434ac351e5e184b95ae3aaa5a352be811f7e0e8df873",
+  "finalBranchSha256": "b8d9482fc7a03c676c86434ac351e5e184b95ae3aaa5a352be811f7e0e8df873",
+  "identical": true,
+  "productionSourceChanges": [],
+  "newTests": [
+    "src/http/import-facts-deferred.test.ts",
+    "src/import/facts-extraction-deferred.test.ts",
+    "src/tui/import/facts-review-deferred.test.ts"
+  ],
+  "afterFullRunSha256": "b8d9482fc7a03c676c86434ac351e5e184b95ae3aaa5a352be811f7e0e8df873"
+}

@@ -1,0 +1,376 @@
+{
+  "passed": 80,
+  "failed": 1,
+  "pending": 0,
+  "files": [
+    {
+      "file": "src/http/http-scopes.test.ts",
+      "tests": [
+        {
+          "name": "ROUTE_SCOPES names a scope for every authenticated route (add one for a new route)",
+          "status": "failed"
+        },
+        {
+          "name": "ROUTE_SCOPES has no stale entry and explicitly marks each open route Public read",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES uses only known scopes",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES keeps only health and the panel shell public",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES puts config, skills and webhook admin behind admin, and chat behind chat",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the same permission for both ways of creating a task",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES asks the owner for a route the table does not know",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES gives no write route to read-only tokens",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/approval/resolve",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/question/answer",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/project-trust",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/project/decision",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/project/backlog",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES requires the decision scope on /api/project/lessons",
+          "status": "passed"
+        },
+        {
+          "name": "ROUTE_SCOPES leaves the tunnel gateway unauthenticated, so scopes never apply there",
+          "status": "passed"
+        },
+        {
+          "name": "ROLE_SCOPES admin has every scope, member read + chat, viewer read",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/http/route-import-facts.test.ts",
+      "tests": [
+        {
+          "name": "POST /api/import/facts/start body (ATO-1617) defaults to the local model",
+          "status": "passed"
+        },
+        {
+          "name": "POST /api/import/facts/start body (ATO-1617) counts only a literal true as cloud consent",
+          "status": "passed"
+        },
+        {
+          "name": "POST /api/import/facts/start body (ATO-1617) refuses a bad body with a reason",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/collect-user-messages.test.ts",
+      "tests": [
+        {
+          "name": "collectUserMessages (ATO-1620) keeps only the person's own words: no replies, reasoning or attachment text",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) drops trivial replies",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) applies the 12-month default window",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) monthsBack 0 lifts the date window",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) masks a pasted key before it can reach a model",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) keeps the newest messages when over the limit, newest chunk first",
+          "status": "passed"
+        },
+        {
+          "name": "collectUserMessages (ATO-1620) stats carry numbers only",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage ok is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage Спасибо! is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage    is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage да is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage ? is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage lol 1 is trivial",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage I work as a nurse is kept",
+          "status": "passed"
+        },
+        {
+          "name": "isTrivialUserMessage Я живу в Тбилиси is kept",
+          "status": "passed"
+        },
+        {
+          "name": "parseChatGptConversations reads the visible branch only, skipping hidden and non-text messages",
+          "status": "passed"
+        },
+        {
+          "name": "parseChatGptConversations feeds collectUserMessages",
+          "status": "passed"
+        },
+        {
+          "name": "parseChatGptConversations is safe on junk",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/import-facts-model.test.ts",
+      "tests": [
+        {
+          "name": "bindImportFactsModel (ATO-1617) local: uses the active provider when it is local, under the grammar",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) local: never picks the active cloud provider; falls back to the first local entry",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) local: a local OpenAI-compatible server counts as local and is asked through the emit tool",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) local with no local entry is refused before anything is sent",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) cloud without this run's consent is refused",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) cloud with consent uses exactly the picked provider; a local id is refused as not_cloud",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) local means this computer only: LAN, .internal and remote llama.cpp need the cloud consent",
+          "status": "passed"
+        },
+        {
+          "name": "bindImportFactsModel (ATO-1617) a llama-server on 127.0.0.1 is local even when its embeddings daemon url is elsewhere",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/import-facts-receipts.test.ts",
+      "tests": [
+        {
+          "name": "import receipts (ATO-1617) writes, reads, lists newest first and deletes",
+          "status": "passed"
+        },
+        {
+          "name": "import receipts (ATO-1617) an import that wrote nothing leaves no receipt",
+          "status": "passed"
+        },
+        {
+          "name": "import receipts (ATO-1617) two imports in the same millisecond get different ids",
+          "status": "passed"
+        },
+        {
+          "name": "import receipts (ATO-1617) refuses path-shaped ids and skips broken files",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/import-facts-service.test.ts",
+      "tests": [
+        {
+          "name": "facts import service (ATO-1617) start → candidates → save only the ticked ones → undo by receipt",
+          "status": "passed"
+        },
+        {
+          "name": "facts import service (ATO-1617) a cloud engine without consent sends nothing",
+          "status": "passed"
+        },
+        {
+          "name": "facts import service (ATO-1617) one run at a time; saving a running job is refused",
+          "status": "passed"
+        },
+        {
+          "name": "facts import service (ATO-1617) a stopped run keeps what it found; an unreadable export fails the job with the reason",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/read-chat-export.test.ts",
+      "tests": [
+        {
+          "name": "readChatExport (ATO-1617) reads a ChatGPT export folder",
+          "status": "passed"
+        },
+        {
+          "name": "readChatExport (ATO-1617) reads a ChatGPT export zip with the file one folder down",
+          "status": "passed"
+        },
+        {
+          "name": "readChatExport (ATO-1617) says what is wrong with a wrong file",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/import/user-facts/save-fact-candidates.test.ts",
+      "tests": [
+        {
+          "name": "saveFactCandidates (ATO-1625) writes only what the person ticked, notes tagged with the source",
+          "status": "passed"
+        },
+        {
+          "name": "saveFactCandidates (ATO-1625) a second run adds nothing",
+          "status": "passed"
+        },
+        {
+          "name": "saveFactCandidates (ATO-1625) never overwrites a different stored value: reports was / would be",
+          "status": "passed"
+        },
+        {
+          "name": "saveFactCandidates (ATO-1625) undo removes only what the import wrote; older memory stays",
+          "status": "passed"
+        },
+        {
+          "name": "saveFactCandidates (ATO-1625) undo keeps a profile key changed after the import",
+          "status": "passed"
+        },
+        {
+          "name": "saveFactCandidates (ATO-1625) removes imported notes by tag without a receipt",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/memory/import-facts/extract-fact-candidates.test.ts",
+      "tests": [
+        {
+          "name": "extractFactCandidates (ATO-1623) returns grounded candidates with the backing quote and chat",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) never offers a key, even if the model echoes one",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) refuses a cloud model without consent and sends nothing",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) runs a cloud model when the person consented",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) stops between chunks and keeps what it found",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) goes on past a failed chunk",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) drops a duplicate across chunks",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) drops an invented name",
+          "status": "passed"
+        },
+        {
+          "name": "extractFactCandidates (ATO-1623) never puts message text in progress events",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive password=hunter2 is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive wifi_pin=1234 is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive contact=me@example.com is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive note=card 4111 1111 1111 1111 is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive phone_note=call me is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive contact=+49 151 23456789 is sensitive",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive job=designer is fine",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive pinned_topic=gardening is fine",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive career=worked at Acme 2019-2023 is fine",
+          "status": "passed"
+        },
+        {
+          "name": "isSensitive favorite_card_game=Magic is fine",
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}

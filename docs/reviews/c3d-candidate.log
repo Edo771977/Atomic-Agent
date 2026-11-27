@@ -1,0 +1,11 @@
+✔ control: onboarding names ChatGPT, Claude and the facts destination (103.1814ms)
+✔ control: layout measurement includes the entire hint (0.3133ms)
+✔ control: first-run rendering starts no import and makes no memory write (40.6357ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 7992.9413
