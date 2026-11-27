@@ -2,6 +2,7 @@
   "passed": 2,
   "failed": 9,
   "skipped": 0,
+  "totalFiles": 1,
   "files": [
     {
       "file": "src/runtime/composition/b7b3-candidate-review.test.ts",

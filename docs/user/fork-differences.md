@@ -102,6 +102,8 @@ C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment 
 
 ## Fusion team
 
+B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).
+
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).
 - **A reviewer per task.**
   - It gives a structured verdict and has at most two passes; then the director decides ([#44](https://github.com/Edo771977/atomic-agent/pull/44)).
@@ -327,5 +329,3 @@ Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client req
 La sesta revisione B1 usa selettori espliciti per il codice Node, compreso NODE_OPTIONS, e mantiene ordinari i flag lunghi operativi. Make legge gruppi corti e abbreviazioni GNU univoche; /dev/null e uno script vuoto per Make e shell. Il reset che rimuove i metadati registrati da una policy locale caricata e intenzionalmente rifiutato, con indicazioni per conservare le variabili ereditate. La guida esplicita limiti sed e differenze personali stdin.
 
 La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy organizzativa e distingue valori separati, reporter data: e stdin ambiguo, anche tramite NODE_OPTIONS e verify. Il parser personale mantiene le proprie tabelle. I glob letterali in --allow-fs-* vanno quotati per conservare la prudenza del lexer condiviso. Make, reset dell'ambiente e /dev/null mantengono i contratti verificati.
-
-B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).

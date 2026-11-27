@@ -51,4 +51,27 @@ The candidate touches `src/tools/fusion/fusion-delegate.ts` and runtime catalog 
 
 ## Verification
 
-The verification record, complete suite and failure-name comparisons are attached after the required checks finish.
+`npm ci`, `npm run lint`, `npm run imports:check`, final `npm run typecheck:tests` and `npm run docs:check` pass. The first test typecheck caught an incorrect provider-type import in the new absence test; that import was corrected before the final successful check. The four final absence assertions pass. No timeout, skip or quarantine was added.
+
+The required broad command was executed in full:
+
+```text
+npx vitest run src/agent src/policy src/tools src/mcp src/llm src/local-llm src/tui src/http src/runtime
+```
+
+It is **not green**: **24,052 passed, 1,018 failed, 575 skipped**, with no suite-load errors. The [file/name comparison](b7b3-focused-comparison.json) lists 949 common failures, 69 additional failures and main-only differences for the selected files. Only checkout roots and slash direction are normalized.
+
+The required complete `npm test` was executed without exclusions on both pinned main and this branch:
+
+| Checkout | Passed | Failed | Skipped | Files |
+| --- | ---: | ---: | ---: | ---: |
+| Main `7511497b0` | 33,928 | 1,060 | 667 | 2,647 |
+| B7b3 | 33,882 | 1,110 | 667 | 2,648 |
+
+Both exit 1; neither has a suite-load error. The [complete name comparison](b7b3-full-comparison.json) records **1,042 common, 68 additional and 18 main-only failures**. Windows restrictions and timing affect subprocess/Git, symlink and local-network fixtures; this does not automatically explain every failure. Production source is identical to the pinned base.
+
+The [focused paired controls](b7b3-focused-controls.json) rerun all 69 additional focused names with one worker on both checkouts. The [full-only paired controls](b7b3-full-extra-controls.json) cover the other 14 names that appear only in the full run's additional set; the 54 overlapping names reuse the focused controls. The [verification record](b7b3-verification.json) records every paired outcome and hashes of the raw complete reports. An isolated retry passing does not change the original broad/full results. The source base remains `7511497b0`; later main `5da6478ff` has only unrelated documentation/absence-test changes and the virtual merge was clean.
+
+The one name still failing only on the candidate in the first paired control receives one [further sequential paired diagnostic](b7b3-diagnostic-controls.json), with complete default-reporter logs for [main](b7b3-diagnostic-main.log) and [the candidate](b7b3-diagnostic-b7b3.log). Original results remain above; the verification summary uses the latest result for each name.
+
+Final named follow-up: **68 of the 69 additional focused assertions pass on the candidate; one fails on both checkouts**. For the full run's 68 additional names, **67 pass on the candidate and one fails on both**. The one discordant focused name passes on both checkouts in the diagnostic, and all 14 full-only names pass on both checkouts. No candidate-only failure remains in these isolated comparisons; the original broad/full runs remain failed.

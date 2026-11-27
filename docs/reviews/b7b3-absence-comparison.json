@@ -3,6 +3,7 @@
     "passed": 37,
     "failed": 4,
     "skipped": 0,
+    "totalFiles": 4,
     "files": [
       {
         "file": "src/llm/run-mode/resolve-run-mode.test.ts",
@@ -206,6 +207,7 @@
     "passed": 4,
     "failed": 0,
     "skipped": 0,
+    "totalFiles": 1,
     "files": [
       {
         "file": "src/runtime/composition/external-llama-deferred.test.ts",
