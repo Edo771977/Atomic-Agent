@@ -55,6 +55,18 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).not.toContain("- Used os.fs.read");
   });
 
+  it.each(["md", "html", "docx", "pdf"])("bounds synchronous %s rendering for a 10,000-turn chat and oversized content", async format => {
+    const state = seed("ex-large");
+    state.turns = Array.from({ length: 10_000 }, () => ({ kind: "user" as const, text: "small", at: 1 }));
+    harness.runtime.sessionStore.save(state);
+    expect((await get(state.id, `?format=${format}`)).status).toBe(413);
+    state.turns = [{ kind: "user", text: "x".repeat(1_000_001), at: 1 }];
+    harness.runtime.sessionStore.save(state);
+    const response = await get(state.id, `?format=${format}`);
+    expect(response.status).toBe(413);
+    expect(await response.json()).toMatchObject({ error: { code: "export_too_large" } });
+  });
+
   it("leaves tool steps out with tools=0", async () => {
     seed("ex-2");
     const body = (await (await get("ex-2", "?tools=0")).json()) as ExportBody;

@@ -391,3 +391,5 @@ The B4a import of upstream #1671 is deferred: a marked child can read/delete a s
 B7a2 accepts format=pdf on GET /api/sessions/{id}/export. PDF bytes are base64 with application/pdf. Incognito remains refused; named tokens receive the same 404 for unknown, hidden and incognito IDs before export. [Review](../../docs/reviews/b7a2-chat-pdf.md).
 
 The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval, offline and child credential refusal; encoded Basic authorization can escape through errors. Upstream provides no incoming-call or signature-verification slice in this commit. [B5 review](../../docs/reviews/b5c-twilio.md).
+
+HTTP chat export returns `413 export_too_large` before rendering above 2,000 transcript records, 1,000,000 UTF-16 units in session strings/keys, 20,000 visited values or 32 levels. This bounds synchronous document rendering on the listener; the person can export larger chats from their terminal. Session visibility and incognito checks run before this limit.
