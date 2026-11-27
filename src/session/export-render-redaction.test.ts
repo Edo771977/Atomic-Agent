@@ -48,6 +48,15 @@ async function visible(format: "markdown" | "html" | "docx" | "pdf", body: strin
 }
 
 for (const format of ["markdown", "pdf", "html", "docx"] as const) {
+  it(`${format} masks a known value with an escaped hyphen`, async () => {
+    const value = "sentinel-731key";
+    const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture" });
+    state.turns.push({ kind: "user", text: "sentinel\\-731key", at: 1 });
+    const file = await exportChat(state, format, { knownSecrets: [{ label: "fixture", value }] });
+    const shown = decodeHTML(await visible(format, file.body));
+    expect(shown).not.toContain(value);
+    expect(shown).toContain("redacted");
+  });
   it.each(variants)(`${format} never reconstructs a known secret through %s`, async (_name, text) => {
     const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture" });
     state.turns.push({ kind: "user", text, at: 1 });

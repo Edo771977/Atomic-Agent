@@ -143,13 +143,13 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
   const known = options.knownSecrets ?? knownSecretsFromEnv();
   // Plain printable ASCII has no presentation transform to project. Controls
   // stay on the slow path because document encoders can remove them.
-  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[]/.test(text)) return maskSecrets(text, known);
+  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[\\<]/.test(text)) return maskSecrets(text, known);
   text = maskPresentationText(text, known);
-  if (!/[*_`~&\[]/.test(text)) return text;
+  if (!/[*_`~&\[\\<]/.test(text)) return text;
   const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
   let parserWorkLeft = 32_768;
   return text.split(/(\n[\t ]*\n)/).map(block => {
-    if (!/[*_`~&\[]/.test(block)) return block;
+    if (!/[*_`~&\[\\<]/.test(block)) return block;
     const projected = projectPresentationText(block);
     const possibleKey = () => needles.some(needle => {
       let at = 0;

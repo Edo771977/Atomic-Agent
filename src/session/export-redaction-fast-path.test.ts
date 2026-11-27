@@ -24,11 +24,15 @@ it("skips projection for plain ASCII but preserves the normal credential detecto
   expect(output).not.toContain("abcDEFghijkLMN0123456789abcdEF");
   expect(count).toBe(0);
 });
-it.each(["*", "_", "`", "~", "&", "["])("keeps projection for syntax character %s", char => {
+it.each(["*", "_", "`", "~", "&", "[", "\\", "<"])("keeps projection for syntax character %s", char => {
   expect(measure(`ordinary${char}text`, options).count).toBeGreaterThan(0);
 });
 it("keeps projection for ASCII controls that rendering can remove", () => {
   const { output, count } = measure("Opaque\u0001Credential731", options);
   expect(output).toContain("redacted");
   expect(count).toBeGreaterThan(0);
+});
+it("masks an escaped hyphen in a known value before document framing", () => {
+  const output = maskChatExportText("sentinel\\-731key", { knownSecrets: [{ label: "fixture", value: "sentinel-731key" }] });
+  expect(output).toContain("redacted");
 });
