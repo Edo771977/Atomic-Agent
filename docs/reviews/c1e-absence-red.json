@@ -1,0 +1,11 @@
+{
+  "candidateBase": "3ee5204d9720d3ec3a330eed6455d4dd65aaa694",
+  "upstreamThrough": "2794bdf005a2708db87a6b0e864e2ac631b20294",
+  "passed": 0,
+  "failed": 3,
+  "failedNames": [
+    "C1e: keeps the subagent execution surface absent until its boundaries pass",
+    "C1e: offers no subagent tool in the production catalog",
+    "C1e: keeps the production grammar free of the deferred verb"
+  ]
+}

@@ -344,7 +344,7 @@ Ondate:
 | [#1728](https://github.com/AtomicBot-ai/atomic-agent/pull/1728) | 3 | Subagents: shared worker runner core, Fusion as an add-on (ATO-1669) | Importata (C1b, #233), catena di 3 cherry-pick -x: core condiviso con guard del fork preservati, origine subagent esclusa anche dalla formazione esperienze. [Prove](../reviews/c1b-shared-runner.md). |
 | [#1731](https://github.com/AtomicBot-ai/atomic-agent/pull/1731) | 3 | Subagents: profiles in settings, llm.runMode.agentProfiles (ATO-1667) | Importata (C1c, #233), 3 cherry-pick -x: schema/parser e conservazione delle voci scartate, senza abilitare esecuzione. [Prove](../reviews/c1c-settings-schema.md). |
 | [#1732](https://github.com/AtomicBot-ai/atomic-agent/pull/1732) | 2 | Subagents: load profiles from settings on a par with files (ATO-1668) | Importata (C1d, #233), 2 cherry-pick -x: rilettura config.json, fiducia progetto preservata, strumenti sconosciuti/non consentiti rifiutati con avviso. [Prove](../reviews/c1d-profile-loading.md). |
-| [#1733](https://github.com/AtomicBot-ai/atomic-agent/pull/1733) | 9 | Subagents: subagent.run tool with depth and child limits (ATO-1670) | Importare per serie |
+| [#1733](https://github.com/AtomicBot-ai/atomic-agent/pull/1733) | 9 | Subagents: subagent.run tool with depth and child limits (ATO-1670) | Rinviata (C1e, #233): catena completa di 15 commit verificata; cloud senza prezzo fuori dal tetto di spesa e conteggi figli di turni attivi espulsi dal registro. Nessun codice di produzione importato. [Prove e riapertura](../reviews/c1e-subagent-run.md). |
 
 ### Release e analytics upstream
 
