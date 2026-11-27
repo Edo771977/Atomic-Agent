@@ -100,8 +100,6 @@ export interface CrawlReport {
   delayMs: number;
   /** One line each: a start page that moved, a sitemap skipped, JS pages (ATO-970). */
   notes: string[];
-  /** Pages built by JavaScript that were read without it (no browser render). */
-  jsPages: string[];
 }
 
 const STOP_TEXT: Record<StopReason, string> = {

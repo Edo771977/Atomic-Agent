@@ -9,8 +9,8 @@
  * ATO-970 follow-ups: gzipped sitemaps are unzipped with a size cap; a start
  * page that redirects within the same site (`example.com` ->
  * `www.example.com`) moves the crawl there after DNS/URL admission.
- * JavaScript shells are reported for manual browser use; automatic
- * rendering is deferred until every subrequest and resource cap is guarded.
+ * Automatic JavaScript handling is deferred until every browser
+ * subrequest and resource cap is guarded.
  */
 import type { DangerousToolOptions } from "../../../approval/dangerous-tool.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlSendSites } from "./url-data-guard.js";
@@ -82,7 +82,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
       "robots.txt (the user can exempt their own sites in config), caches pages for " +
       "a few minutes. Same SSRF guard as os.web.fetch. Unzips .xml.gz sitemaps; " +
       "follows a start page that redirects within the same site (e.g. to www.); " +
-      "pages built by JavaScript are listed as needing browser.navigate. " +
+      "Runs no page JavaScript. " +
       "`pathPrefix` keeps it under one section (e.g. \"/docs/\"). For a single page " +
       "use os.web.fetch.",
     readonly: true,
@@ -314,9 +314,6 @@ function resultFor(
         stoppedBecause: report.stoppedBecause,
         delayMs: report.delayMs,
         ...(report.notes.length > 0 ? { notes: report.notes } : {}),
-        ...(report.jsPages.length > 0
-          ? { needsBrowser: report.jsPages.slice(0, 20), retryWith: "browser.navigate" }
-          : {}),
         truncated: capped,
       },
     },

@@ -475,7 +475,7 @@
     ]
   },
   "finalWeb": {
-    "passed": 520,
+    "passed": 517,
     "failed": 0,
     "skipped": 0,
     "totalFiles": 40,
@@ -627,6 +627,17 @@
           },
           {
             "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/os/web/crawl-js-deferred.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "keeps the deferred crawl JavaScript classification module absent",
             "status": "passed"
           }
         ]
@@ -808,6 +819,26 @@
           {
             "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
             "status": "skipped"
+          }
+        ]
+      }
+    ]
+  },
+  "jsModuleAbsenceRed": {
+    "passed": 0,
+    "failed": 1,
+    "skipped": 0,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-js-deferred.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "keeps the deferred crawl JavaScript classification module absent",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-js-deferred.test.ts:5:70\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
           }
         ]
       }

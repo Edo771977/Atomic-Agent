@@ -468,14 +468,13 @@ describe("os.web.crawl", () => {
       [`${O}/docs`]: { status: 200, body: html("Docs", []) },
     });
 
-    it("without a browser, returns the page and says it needs browser.navigate", async () => {
+    it("returns static page text without adding the deferred JavaScript classification", async () => {
       const site = fakeSite(routes());
       const result = await tool(site).run({ url: `${O}/`, useSitemap: false }, ctx());
       const details = result.details as { needsBrowser?: string[]; retryWith?: string };
-      expect(details.needsBrowser).toEqual([`${O}/`]);
-      expect(details.retryWith).toBe("browser.navigate");
-      expect(result.summary).toContain("built by JavaScript");
-      expect(result.summary).toContain("browser.navigate");
+      expect(result.status).toBe("ok");
+      expect(details.needsBrowser).toBeUndefined();
+      expect(details.retryWith).toBeUndefined();
     });
 
     it("keeps automatic JS rendering deferred even when a legacy renderer is supplied", async () => {
@@ -490,21 +489,22 @@ describe("os.web.crawl", () => {
       expect(rendered).toEqual([]);
       expect(details.pages[0]?.via).toBeUndefined();
       expect(details.pages.map((p) => p.url)).not.toContain(`${O}/docs`);
-      expect(details.needsBrowser).toEqual([`${O}/`]);
+      expect(details.needsBrowser).toBeUndefined();
       expect(result.summary).not.toContain("Readable text about App rendered");
     });
 
-    it("drops a render that landed on another site and lists the page instead", async () => {
+    it("does not start a supplied renderer that would leave the site", async () => {
       const site = fakeSite(routes());
-      const renderPage: PageRenderer = async () => ({
-        finalUrl: "https://login.other.org/",
-        title: "Sign in",
-        html: html("Sign in", []),
-      });
+      let calls = 0;
+      const renderPage: PageRenderer = async () => {
+        calls++;
+        return { finalUrl: "https://login.other.org/", title: "Sign in", html: html("Sign in", []) };
+      };
       const result = await tool(site, {}, renderPage).run({ url: `${O}/`, useSitemap: false }, ctx());
       const details = result.details as { pages: { via?: string }[]; needsBrowser?: string[] };
       expect(details.pages[0]?.via).toBeUndefined();
-      expect(details.needsBrowser).toEqual([`${O}/`]);
+      expect(details.needsBrowser).toBeUndefined();
+      expect(calls).toBe(0);
     });
 
     it("does not render when web.fetch.renderWithBrowser is off", async () => {
@@ -530,7 +530,7 @@ describe("os.web.crawl", () => {
       });
       const result = await crawl.run({ url: `${O}/`, useSitemap: false }, ctx());
       expect(calls).toBe(0);
-      expect((result.details as { needsBrowser?: string[] }).needsBrowser).toEqual([`${O}/`]);
+      expect((result.details as { needsBrowser?: string[] }).needsBrowser).toBeUndefined();
     });
   });
 });

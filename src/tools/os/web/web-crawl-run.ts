@@ -5,7 +5,6 @@
  * through the caller's `fetchPage`, which carries the pace and the cache.
  */
 import { CurlUnavailableError } from "./ensure-curl.js";
-import { describeJsPages, looksJsRendered } from "./crawl-js-page.js";
 import { extractPageLinks, inCrawlScope, normaliseCrawlUrl, parseSitemap } from "./crawl-links.js";
 import type { CrawlPoliteness, RobotsDecision } from "./crawl-politeness.js";
 import { startMoveAllowed } from "./crawl-scope.js";
@@ -62,7 +61,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
   const blockedByRobots: string[] = [];
   const errors: { url: string; message: string }[] = [];
   const notes: string[] = [];
-  const jsPages: string[] = [];
   let startMoves = 0;
   let startSettled = false;
   let overflow = 0;
@@ -214,9 +212,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       url: res.finalUrl,
       mode: args.mode,
     });
-    if (looksJsRendered(res.body, res.contentType, extracted.text)) {
-      jsPages.push(res.finalUrl);
-    }
     const truncated = page.truncated || extracted.text.length > args.maxCharsPerPage;
     pages.push({
       url: res.finalUrl,
@@ -237,7 +232,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1), notes);
     }
   }
-  if (jsPages.length > 0) notes.push(describeJsPages(jsPages));
 
   // An unexplored queue at the end means one of the stop reasons fired.
   if (stoppedBecause === "done" && queue.length > 0) stoppedBecause = "page-limit";
@@ -252,7 +246,6 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
     stoppedBecause,
     delayMs: politeness.pacer.hostDelay(scope.start.host),
     notes,
-    jsPages,
   };
 }
 

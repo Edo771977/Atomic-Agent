@@ -11,7 +11,7 @@ Imported with one `git cherry-pick -x` per upstream commit: `0a076b47cc9f7a358bb
 
 The [two-commit candidate mail patch](b7b1-candidate.patch) preserves the pre-adaptation candidate (`93c5cd6e7`) for review. Apply it with `git am` in a disposable checkout from the base above, then run `npm ci`. Set `B7B1_CANDIDATE_ROOT` to that checkout and run `node --import tsx --test docs/reviews/b7b1-candidate.mjs` from this review branch. Run the same command with the final branch as the root for the absence control. Supply the root through the environment when using `--test`; a positional directory is interpreted by Node as another test target.
 
-All requests and DNS answers in the fixtures are synthetic. No browser, external site, personal profile or credential is used. The [JS candidate log](b7b1-js-candidate.log) records one failed absence assertion online and one passing offline control: the upstream crawl invokes the supplied renderer online. The final branch must pass both. This proves the integration is absent, not that a mock browser establishes OS isolation.
+All requests and DNS answers in the fixtures are synthetic. No browser, external site, personal profile or credential is used. The [JS candidate log](b7b1-js-candidate.log) records one failed absence assertion online and one passing offline control: the upstream crawl invokes the supplied renderer online. The final branch [passes both absence controls](b7b1-js-final.log). This proves the integration is absent, not that a mock browser establishes OS isolation.
 
 ## Fork adaptations and coverage
 
@@ -34,7 +34,7 @@ The exact-address-set restriction is intentionally conservative: aliases and CDN
 
 The candidate renderer interface accepts a URL and timeout and returns HTML after navigation. It provides no per-subrequest authorization callback or memory budget to the crawl. Its existing domain/frame checks and final-URL SSRF backstop cannot prove pre-request admission for page fetch/XHR, images or WebSockets. Reusing the agent browser also does not by itself establish a fresh cookie store for each crawl. A final-URL check is too late for a request the page already made.
 
-Automatic rendering and its wiring are removed in the final adaptation. The upstream JS-shell detector remains informational: it lists pages requiring `browser.navigate`. The modified upstream rendering test verifies that even a legacy embedding-supplied renderer is never invoked. Fetch's existing challenge ladder is outside this import and is unchanged.
+The entire JavaScript integration is deferred: rendering, its wiring and the new shell-classification module are omitted. Static page text continues through the existing extractor. The classification-module absence test was red before its removal; the modified upstream rendering tests verify that even a legacy embedding-supplied renderer is never invoked. The online/offline renderer reproduction remains available above. Fetch's existing challenge ladder is outside this import and is unchanged.
 
 Before reopening, require the fork browser's pre-request SSRF/egress policy on every navigation/subresource/WebSocket, isolated files/cookies/profile, cancellation, timeout and memory caps, and a zero-start offline test. Add a failing test for each before implementation. No shared runner, subagent profile, session export or HTTP export file changes here.
 
