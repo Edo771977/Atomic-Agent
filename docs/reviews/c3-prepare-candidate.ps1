@@ -34,4 +34,15 @@ foreach ($sha in $commits) {
   & git -C $Candidate -c core.editor=true -c user.name=Edo771977 -c user.email=209531336+Edo771977@users.noreply.github.com cherry-pick --continue
   if ($LASTEXITCODE -ne 0) { throw 'Cannot retain fork capabilities' }
 }
-Write-Output 'Run npm ci in the candidate, set C3_CANDIDATE_ROOT, then run the corresponding c3*-candidate.mjs from the deferral checkout.'
+$guards = @(
+  @('a','src/import/facts-extraction-deferred.test.ts'),
+  @('b','src/http/import-facts-deferred.test.ts'),
+  @('c','src/tui/import/facts-review-deferred.test.ts'),
+  @('d','src/tui/onboarding/chat-export-hint-deferred.test.tsx')
+)
+foreach ($guard in $guards) {
+  if ([int][char]$guard[0] -gt [int][char]$Through) { continue }
+  $source = Join-Path $repo $guard[1]
+  if (Test-Path -LiteralPath $source) { Copy-Item -LiteralPath $source -Destination (Join-Path $Candidate $guard[1]) }
+}
+Write-Output 'Run npm ci in the candidate, set C3_CANDIDATE_ROOT, then run the corresponding c3*-candidate.mjs from the deferral checkout. Copied absence tests remain untracked: run them with Vitest in the candidate to reproduce red evidence.'

@@ -1,0 +1,79 @@
+{
+  "passed": 13,
+  "failed": 0,
+  "pending": 0,
+  "files": [
+    {
+      "file": "src/tui/import/import-facts-keys.test.ts",
+      "tests": [
+        {
+          "name": "facts step keys (ATO-1627) Enter on Find facts starts with the form's choices, local unless ticked",
+          "status": "passed"
+        },
+        {
+          "name": "facts step keys (ATO-1627) Esc while running stops the job",
+          "status": "passed"
+        },
+        {
+          "name": "facts step keys (ATO-1627) review: space toggles, Enter saves exactly the ticked ids, Esc discards",
+          "status": "passed"
+        },
+        {
+          "name": "facts step keys (ATO-1627) types into the path and consumes every key",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/tui/import/import-facts-reducer.test.ts",
+      "tests": [
+        {
+          "name": "facts step reducer (ATO-1627) opens and closes the step through the Import slice",
+          "status": "passed"
+        },
+        {
+          "name": "facts step reducer (ATO-1627) ticks every candidate by default; space unticks the one under the cursor",
+          "status": "passed"
+        },
+        {
+          "name": "facts step reducer (ATO-1627) a failure goes back to the form with the reason; the path survives",
+          "status": "passed"
+        },
+        {
+          "name": "facts step reducer (ATO-1627) the model line says where the text goes",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/tui/import/import-facts-view.test.tsx",
+      "tests": [
+        {
+          "name": "ImportFactsView (ATO-1627) form says which model reads and warns for the cloud",
+          "status": "passed"
+        },
+        {
+          "name": "ImportFactsView (ATO-1627) running shows part N of M",
+          "status": "passed"
+        },
+        {
+          "name": "ImportFactsView (ATO-1627) review lists candidates with ticks and quotes; done shows the counts",
+          "status": "passed"
+        }
+      ]
+    },
+    {
+      "file": "src/tui/onboarding/onboarding-import-chat-export-hint.test.tsx",
+      "tests": [
+        {
+          "name": "first-run import: ChatGPT / Claude export hint (ATO-1062) points a ChatGPT or Claude user at the facts step",
+          "status": "passed"
+        },
+        {
+          "name": "first-run import: ChatGPT / Claude export hint (ATO-1062) the block is measured wide enough for the hint",
+          "status": "passed"
+        }
+      ]
+    }
+  ]
+}

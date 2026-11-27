@@ -1,0 +1,99 @@
+✖ review defaults to saving no facts (3.4242ms)
+✖ Enter without checking any fact cannot approve candidates (0.4608ms)
+✖ Enter cannot save a fact absent from the only rendered review page (117.2752ms)
+✔ control: a visible row displays the fact and backing quote (54.8654ms)
+✔ control: Esc discards without issuing a save (0.2502ms)
+✔ control: opening a new review resets cloud consent to false (0.0866ms)
+ℹ tests 6
+ℹ suites 0
+ℹ pass 3
+ℹ fail 3
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1642.9985
+
+✖ failing tests:
+
+test at ..\c3c-candidate.mjs:17:1
+✖ review defaults to saving no facts (3.4242ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:
+  + actual - expected
+
+  + [
+  +   'c0-0',
+  +   'c0-1',
+  +   'c0-2',
+  +   'c0-3',
+  +   'c0-4',
+  +   'c0-5',
+  +   'c0-6',
+  +   'c0-7',
+  +   'c0-8',
+  +   'c0-9',
+  +   'c0-10',
+  +   'c0-11'
+  + ]
+  - []
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\c3c-candidate.mjs:17:57)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.start (node:internal/test_runner/test:1262:17)
+      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: [
+      'c0-0',  'c0-1',
+      'c0-2',  'c0-3',
+      'c0-4',  'c0-5',
+      'c0-6',  'c0-7',
+      'c0-8',  'c0-9',
+      'c0-10', 'c0-11'
+    ],
+    expected: [],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+
+test at ..\c3c-candidate.mjs:18:1
+✖ Enter without checking any fact cannot approve candidates (0.4608ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  12 !== 0
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\c3c-candidate.mjs:21:10)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 12,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at ..\c3c-candidate.mjs:23:1
+✖ Enter cannot save a fact absent from the only rendered review page (117.2752ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+  9 !== 0
+
+      at TestContext.<anonymous> (C:\Users\edoar\OneDrive\Documenti\ChatGPT\Fusion\c3c-candidate.mjs:29:12)
+      at Test.runInAsyncScope (node:async_hooks:226:14)
+      at Test.run (node:internal/test_runner/test:1402:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)
+      at Test.postRun (node:internal/test_runner/test:1542:19)
+      at Test.run (node:internal/test_runner/test:1467:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 9,
+    expected: 0,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

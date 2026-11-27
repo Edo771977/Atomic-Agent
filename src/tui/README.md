@@ -5,6 +5,8 @@ Owner: src/tui/
 
 This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing it.
 
+C3c keeps the dependent chat-export facts review (#1661) unavailable while its extraction/service prerequisites are deferred and the candidate approves every row by default. Existing import UI remains available. [Review](../../docs/reviews/c3c-tui-facts.md).
+
 ## Entry points
 
 - [tui-app.tsx](tui-app.tsx)
