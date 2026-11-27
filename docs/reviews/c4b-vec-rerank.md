@@ -3,7 +3,7 @@
 Status: current
 Owner: docs/reviews/
 
-Deferred under #233 after [C4a](c4a-files-index.md), which is a required predecessor. No production code, dependency or supported environment variable is imported. The PR is stacked on the C4a deferral; CI runs only on PRs targeting main.
+Deferred under #233 after [C4a](c4a-files-index.md), which is a required predecessor. No production code, dependency or supported environment variable is imported. The PR is stacked on the C4a deferral. The main Test workflow runs only on PRs targeting main; the separate Bubblewrap checks also run on the stacked PR.
 
 ## Candidate and reproduction
 
