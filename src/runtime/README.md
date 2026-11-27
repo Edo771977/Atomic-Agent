@@ -48,6 +48,8 @@ Legacy Fusion model overrides apply to the orchestrator’s own fallback link an
 
 [composition/runtime-project.ts](composition/runtime-project.ts) (issue #39) is the person's side of `SessionState.project`. `runtime.projectState(sessionId)` returns the `ProjectGateView` a surface draws (types in `session/project-gate-view.ts`, built by `tools/fusion/project-gate-view.ts`); `runtime.projectDecision(sessionId, decision)` applies `applyProjectDecision` between turns only (`turn-running` while the session is busy in this process or its stored status is live with an owner process still alive, `SessionStore.liveTurnElsewhere`, a turn of another process on the state dir; a status a crashed process left behind does not block, issue #74), with hard caps, re-estimates and the cheaper/quality variants computed from the live team, prices, folder policy and limits (`liveProjectInputsFrom`; the daily limit holds the next milestone, `nextMilestoneOf`: a failed one at its gate, else the one approved or running, else the one an approval would start by the session's own rule, `milestoneToApproveNext`, issue #80), persists the session and returns the project and view or a typed error. Every decision and every turn that moves the gate (`onProjectTurnEnd`) emits `project_gate` with the full view.
 
+B7a4 keeps upstream #1576 deferred: no local-fallback question, answer file or HTTP route is added until operator consent cannot be forged with an inherited owner credential. Existing fallback policy and manual controls remain in force. [Review](../../docs/reviews/b7a4-local-last-resort.md).
+
 ## Task-specific reading
 
 Read docs/lifecycle.md before changing ownership, shutdown or steering; ../llm/docs/fallback.md before changing fallback wiring.
