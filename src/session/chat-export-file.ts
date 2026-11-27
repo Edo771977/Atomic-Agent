@@ -4,6 +4,8 @@ import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { getConfig, getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths } from "../config/index.js";
 import { chatExportFilename, type ChatExportFormat, type ChatExportOptions } from "./chat-export.js";
+import { instructionCaseKey } from "../config/project-instruction-paths.js";
+import { exportProjectDirectories, exportProjectRoots, protectedProjectExportPath } from "./export-project-paths.js";
 import type { SessionState } from "./session-state.js";
 
 export interface ChatExportRequest {
@@ -51,20 +53,16 @@ function inside(root: string, path: string): boolean {
 
 function assertDestination(path: string, directory: string, workspaces: readonly string[]): void {
   const paths = getConfig().paths;
-  const roots = [...new Set(workspaces.map(workspace => resolve(workspace)))];
+  const roots = exportProjectRoots(workspaces);
   const entries = [paths.stateDir + sep, ...getStateSecretPaths(paths), ...getTrustConfigPaths(paths),
-    ...getSkillWriteProtectionPaths(paths), ...roots.flatMap(root => [
-      join(root, ".agents") + sep, join(root, ".claude") + sep,
-      join(root, paths.projectSkillsDirName) + sep,
-      join(root, ".cursor", "skills") + sep, join(root, ".pi", "skills") + sep,
-      join(root, ".cursor", "rules") + sep,
-      ...["AGENTS.md", "AGENT.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md"].map(file => join(root, file)),
-    ])];
+    ...getSkillWriteProtectionPaths(paths), ...roots.flatMap(root =>
+      exportProjectDirectories(paths.projectSkillsDirName).map(dir => join(root, dir) + sep))];
   for (const candidate of [resolve(path), directory, canonical(path)]) {
+    if (protectedProjectExportPath(candidate, roots, paths.projectSkillsDirName)) throw new Error("protected project instruction export destination");
     for (const entry of entries) {
       const dir = /[\\/]$/.test(entry);
       const root = resolve(entry);
-      if ([root, canonical(root)].some(protectedPath => dir ? inside(protectedPath, candidate) : relative(protectedPath, candidate) === "")) {
+      if ([root, canonical(root)].some(protectedPath => dir ? inside(instructionCaseKey(protectedPath), instructionCaseKey(candidate)) : relative(instructionCaseKey(protectedPath), instructionCaseKey(candidate)) === "")) {
         throw new Error("protected state or trust export destination");
       }
     }

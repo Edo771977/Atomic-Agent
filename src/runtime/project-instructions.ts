@@ -1,3 +1,4 @@
+import { instructionCaseKey } from "../config/project-instruction-paths.js";
 import { existsSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, relative, resolve } from "node:path";
@@ -152,7 +153,7 @@ function loadInstructions(workingDir: string, diagnostics: Diagnostics, signal: 
   if (allow) paths = paths.filter(p => allow(slashed(p)));
   // An import of a discovered file that is not allowed would load it through the back door.
   // Letter case is folded where the file system ignores it, so `@agents.md` is `AGENTS.md`.
-  const fold = (p: string) => process.platform === "darwin" || process.platform === "win32" ? p.toLowerCase() : p;
+  const fold = (p: string) => instructionCaseKey(p);
   const blocked = new Set(allow ? discovered.filter(p => !allow(p)).map(fold) : []);
   const withheld = (relPath: string) => blocked.has(fold(relPath));
   if (paths.length > maxFiles) {

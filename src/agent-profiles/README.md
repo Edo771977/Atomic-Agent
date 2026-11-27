@@ -30,3 +30,5 @@ Project files follow [project folder trust](../skills/docs/project-trust.md): ea
 ## Validation
 
 `npx vitest run src/agent-profiles src/tools/fusion/task-profiles.test.ts src/runtime/project-trust.test.ts`.
+
+`PROJECT_AGENT_DIRS` is re-exported from [the shared instruction path definitions](../config/project-instruction-paths.ts), also used by export write protection. Directory discovery behavior and profile consent are unchanged.

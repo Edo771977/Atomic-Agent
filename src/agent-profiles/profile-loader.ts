@@ -31,7 +31,8 @@ import { BUILTIN_AGENT_PROFILES } from "./builtin-profiles.js";
  * the other sources. Discovery problems are diagnostics, never errors.
  */
 export const USER_AGENT_DIR_NAME = "agents";
-export const PROJECT_AGENT_DIRS: readonly string[] = [".atomic-agent/agents", ".claude/agents"];
+import { PROJECT_AGENT_DIRS } from "../config/project-instruction-paths.js";
+export { PROJECT_AGENT_DIRS } from "../config/project-instruction-paths.js";
 /** Files read per folder; a folder with more is cut there with a diagnostic. */
 export const MAX_PROFILES_PER_DIR = 128;
 
