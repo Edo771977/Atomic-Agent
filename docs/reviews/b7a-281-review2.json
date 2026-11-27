@@ -1,0 +1,406 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "integration": "18ada828b",
+  "sourceTree": "f644b5f1fe8fc8d068cc48a7c4cfc48e329b962d",
+  "origin": "https://github.com/Edo771977/Atomic-Agent.git",
+  "upstream": "https://github.com/AtomicBot-ai/atomic-agent.git",
+  "node": "v26.13.1",
+  "platform": "win32",
+  "checks": {
+    "lint": 0,
+    "importsCheck": 0,
+    "typecheckTests": 0,
+    "docsCheck": 0,
+    "existingTypeDebt": 674,
+    "newTypeErrors": 0
+  },
+  "suite": "npx vitest run src/session src/tui src/cli src/http src/error-reporting src/llm src/runtime/project-instructions.test.ts",
+  "main": {
+    "passed": 12279,
+    "failed": 25,
+    "skipped": 41,
+    "files": 1035
+  },
+  "final": {
+    "passed": 12545,
+    "failed": 25,
+    "skipped": 41,
+    "files": 1040
+  },
+  "mainFailures": [
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+  ],
+  "finalFailures": [
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+  ],
+  "addedFailures": [],
+  "resolvedFailures": [],
+  "controls": [
+    {
+      "point": 1,
+      "before": {
+        "report": "b7ar2-red-1.json",
+        "passed": 93,
+        "failed": 41,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: adjacent cells",
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: backslash hard break",
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: space hard break",
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: surrounding text",
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: docx detects a rendered vendor sentinel without known values: trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through adjacent body cells",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through adjacent header cells",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through space hard break",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through trimmed code with surrounding text",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: adjacent cells",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: backslash hard break",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: space hard break",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: surrounding text",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: html detects a rendered vendor sentinel without known values: trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through adjacent body cells",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through adjacent header cells",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through space hard break",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through trimmed code with surrounding text",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: adjacent cells",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: backslash hard break",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: space hard break",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: surrounding text",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: markdown detects a rendered vendor sentinel without known values: trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through adjacent body cells",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through adjacent header cells",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through space hard break",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through trimmed code prefix",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through trimmed code suffix",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through trimmed code with surrounding text",
+          "src/session/export-render-redaction.test.ts :: pdf detects a rendered vendor sentinel without known values: adjacent cells",
+          "src/session/export-render-redaction.test.ts :: pdf detects a rendered vendor sentinel without known values: backslash hard break",
+          "src/session/export-render-redaction.test.ts :: pdf detects a rendered vendor sentinel without known values: space hard break",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through adjacent body cells",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through adjacent header cells"
+        ]
+      },
+      "after": {
+        "report": "b7ar2-green-1.json",
+        "passed": 168,
+        "failed": 0,
+        "skipped": 0,
+        "files": 3,
+        "failures": []
+      }
+    },
+    {
+      "point": 2,
+      "before": {
+        "report": "b7ar2-red-2.json",
+        "passed": 0,
+        "failed": 16,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-literal-context.test.ts :: html keeps oversized fallback literal after bulleted lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: html keeps oversized fallback literal after bulleted lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: html keeps oversized fallback literal after ordered lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: html keeps oversized fallback literal after ordered lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: html renders one million literal characters after bulleted lists within two seconds",
+          "src/session/export-literal-context.test.ts :: html renders one million literal characters after ordered lists within two seconds",
+          "src/session/export-literal-context.test.ts :: markdown keeps oversized fallback literal after bulleted lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: markdown keeps oversized fallback literal after bulleted lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: markdown keeps oversized fallback literal after ordered lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: markdown keeps oversized fallback literal after ordered lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: pdf keeps oversized fallback literal after bulleted lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: pdf keeps oversized fallback literal after bulleted lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: pdf keeps oversized fallback literal after ordered lists (inner fence=false)",
+          "src/session/export-literal-context.test.ts :: pdf keeps oversized fallback literal after ordered lists (inner fence=true)",
+          "src/session/export-literal-context.test.ts :: pdf renders one million literal characters after bulleted lists within two seconds",
+          "src/session/export-literal-context.test.ts :: pdf renders one million literal characters after ordered lists within two seconds"
+        ]
+      },
+      "after": {
+        "report": "b7ar2-green-2-literal.json",
+        "passed": 16,
+        "failed": 0,
+        "skipped": 0,
+        "files": 1,
+        "failures": []
+      }
+    },
+    {
+      "points": [
+        3,
+        4
+      ],
+      "before": {
+        "report": "b7ar2-red-3-4.json",
+        "passed": 135,
+        "failed": 17,
+        "skipped": 0,
+        "files": 2,
+        "failures": [
+          "src/session/export-markdown-limit.test.ts :: documents the pre-existing stack-depth limit for nested quotes and lists",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through NBSP entity",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through decimal NBSP entity",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through hex NBSP entity",
+          "src/session/export-render-redaction.test.ts :: docx never reconstructs a known secret through literal NBSP",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through NBSP entity",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through decimal NBSP entity",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through hex NBSP entity",
+          "src/session/export-render-redaction.test.ts :: html never reconstructs a known secret through literal NBSP",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through NBSP entity",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through decimal NBSP entity",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through hex NBSP entity",
+          "src/session/export-render-redaction.test.ts :: markdown never reconstructs a known secret through literal NBSP",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through NBSP entity",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through decimal NBSP entity",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through hex NBSP entity",
+          "src/session/export-render-redaction.test.ts :: pdf never reconstructs a known secret through literal NBSP"
+        ]
+      }
+    },
+    {
+      "point": 3,
+      "after": {
+        "report": "b7ar2-green-3.json",
+        "passed": 150,
+        "failed": 0,
+        "skipped": 0,
+        "files": 1,
+        "failures": []
+      }
+    },
+    {
+      "allPointsAfter": {
+        "report": "b7ar2-focused-final.json",
+        "passed": 202,
+        "failed": 0,
+        "skipped": 0,
+        "files": 5,
+        "failures": []
+      }
+    }
+  ],
+  "performance": {
+    "previousControls": [
+      {
+        "format": "markdown",
+        "kind": "links",
+        "elapsedMs": 1.4375,
+        "mainMs": 6.2374999999999545
+      },
+      {
+        "format": "markdown",
+        "kind": "delimiters",
+        "elapsedMs": 1.3755000000001019,
+        "mainMs": 6.576999999999998
+      },
+      {
+        "format": "html",
+        "kind": "links",
+        "elapsedMs": 3.3537999999998647,
+        "mainMs": 576.049
+      },
+      {
+        "format": "html",
+        "kind": "delimiters",
+        "elapsedMs": 4.24350000000004,
+        "mainMs": 56.267599999999675
+      },
+      {
+        "format": "pdf",
+        "kind": "links",
+        "elapsedMs": 6.6460000000001855,
+        "mainMs": 568.9358000000002
+      },
+      {
+        "format": "pdf",
+        "kind": "delimiters",
+        "elapsedMs": 8.903899999999794,
+        "mainMs": 65.71500000000015
+      },
+      {
+        "format": "markdown",
+        "kind": "ordinary-1000-pairs",
+        "elapsedMs": 3.4944000000000415,
+        "mainMs": 14.1871000000001,
+        "ratio": 0.24630826595992253
+      }
+    ],
+    "flatMillion": [
+      {
+        "format": "markdown",
+        "pattern": "ordinary words ",
+        "elapsedMs": 21.00960000000009
+      },
+      {
+        "format": "markdown",
+        "pattern": "[x](",
+        "elapsedMs": 48.203899999999976
+      },
+      {
+        "format": "markdown",
+        "pattern": "*_`~",
+        "elapsedMs": 32.78989999999999
+      },
+      {
+        "format": "markdown",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 35.887699999999995
+      },
+      {
+        "format": "html",
+        "pattern": "ordinary words ",
+        "elapsedMs": 68.78960000000006
+      },
+      {
+        "format": "html",
+        "pattern": "[x](",
+        "elapsedMs": 68.75070000000005
+      },
+      {
+        "format": "html",
+        "pattern": "*_`~",
+        "elapsedMs": 54.78600000000006
+      },
+      {
+        "format": "html",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 67.78240000000005
+      },
+      {
+        "format": "pdf",
+        "pattern": "ordinary words ",
+        "elapsedMs": 161.18510000000015
+      },
+      {
+        "format": "pdf",
+        "pattern": "[x](",
+        "elapsedMs": 222.6583999999998
+      },
+      {
+        "format": "pdf",
+        "pattern": "*_`~",
+        "elapsedMs": 145.33429999999998
+      },
+      {
+        "format": "pdf",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 149.80520000000024
+      }
+    ],
+    "literalMillion": [
+      {
+        "format": "html",
+        "context": "bulleted",
+        "elapsedMs": 95.27030000000002
+      },
+      {
+        "format": "html",
+        "context": "ordered",
+        "elapsedMs": 78.19150000000002
+      },
+      {
+        "format": "pdf",
+        "context": "bulleted",
+        "elapsedMs": 231.11289999999997
+      },
+      {
+        "format": "pdf",
+        "context": "ordered",
+        "elapsedMs": 191.8661000000002
+      }
+    ]
+  },
+  "mainNestingProbe": [
+    {
+      "format": "html",
+      "kind": "quotes",
+      "depth": 10000,
+      "chars": 20007,
+      "result": "RangeError",
+      "message": "Maximum call stack size exceeded\nPlease report this to https://github.com/markedjs/marked."
+    },
+    {
+      "format": "html",
+      "kind": "lists",
+      "depth": 2000,
+      "chars": 4017999,
+      "result": "deadline"
+    },
+    {
+      "format": "pdf",
+      "kind": "quotes",
+      "depth": 10000,
+      "chars": 20007,
+      "result": "RangeError",
+      "message": "Maximum call stack size exceeded"
+    },
+    {
+      "format": "pdf",
+      "kind": "lists",
+      "depth": 2000,
+      "chars": 4017999,
+      "result": "deadline"
+    }
+  ],
+  "limitations": [
+    "No new structural-depth cap: the documented pre-existing stack/work limit remains for extreme nesting.",
+    "The previously documented raw-HTML presentation limit for external Markdown viewers remains.",
+    "Literal/redacted fallback can change Markdown formatting; performance budgets cover flat and the tested bounded-list-context documents."
+  ]
+}

@@ -3,6 +3,10 @@
 Status: current
 Owner: docs/reviews/
 
+Snapshot note: the [second PR 281 review](b7a-281-review2.md) corrects two later
+identified prefilter/fallback regressions and supersedes this receipt's final-state
+claims. Counts and timings below remain tied to its recorded source tree.
+
 This review continues PR #281 on its existing branch. Main `50b6d9601` was
 integrated before the corrections (`50c41d1f8`), including the already merged
 document-extraction PR #265. The [original nine-point receipt](b7a-export-followup2.md)

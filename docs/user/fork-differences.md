@@ -255,6 +255,8 @@ The next [export/report follow-up](../reviews/b7a-export-followup2.md) decodes H
 
 The [PR 281 review](../reviews/b7a-281-review.md) bounds redaction parsing, shares instruction-loader protection names across nested/ancestor project paths, caps HTTP exports at 20,000 stored turns and rejects Unicode dash/minus path words. Backslash and `<` retain projection. Linked candidate blocks may be conservatively redacted. External Markdown viewers hiding raw HTML tags/comments can still rejoin a key; this pre-existing presentation limit is explicitly documented, and the built-in HTML/PDF/Word formats keep raw HTML inert.
 
+The [second PR 281 review](../reviews/b7a-281-review2.md) retains inline checks where code-span trimming, forced breaks or adjacent cells can join visible text. Literal fallback closes list context with a fence longer than internal runs. NBSP entity projection is covered; the pre-existing extreme-nesting stack/work limit remains documented. Flat and bounded-list-context million-character controls retain a two-second rendering budget.
+
 ## Provider refusal reports
 
 B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
