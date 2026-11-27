@@ -162,7 +162,9 @@ export function toolCallTarget(tool: string, args: unknown, analyze = analyzeShe
       const rest = coerceShellArgs(command === undefined ? start.args : a.args) ?? [];
       const environment = Object.entries(record(a.env)).filter((entry): entry is [string, string] => typeof entry[1] === "string").map(([name, value]) => `${name}=${value}`);
       const target = toolCallTarget("os.shell.run", environment.length > 0 ? { cmd: "env", args: [...environment, cmd, ...rest] } : { cmd, args: rest }, analyze, cwd)!;
-      const script = command === undefined ? null : stdinScriptOf(cmd, rest, needsShellInterpretation(cmd, rest), str(a.stdin), cwd);
+      const scriptCmd = environment.length > 0 ? "env" : cmd;
+      const scriptArgs = environment.length > 0 ? [...environment, cmd, ...rest] : rest;
+      const script = command === undefined ? null : stdinScriptOf(scriptCmd, scriptArgs, needsShellInterpretation(scriptCmd, scriptArgs), str(a.stdin), cwd);
       target.resources = [...new Set([...target.resources, ...(script?.lines.flatMap(line => shellResources(line, [], "posix", undefined, cwd)) ?? [])])];
       if (script?.unreadable) target.unreadable = true;
       return target;

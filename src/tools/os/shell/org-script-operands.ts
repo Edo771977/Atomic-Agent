@@ -7,8 +7,11 @@ type ScriptAnalysis = "organization" | "personal";
 // Personal stdin detection retains its established option boundary. New
 // organization selectors must not silently change unrelated saved-rule matches.
 const PERSONAL_NODE_VALUES = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit", "--stack-size", "--stack_size", "--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file"];
-const ORGANIZATION_NODE_VALUES = [...PERSONAL_NODE_VALUES, "-C", "--max-semi-space-size", "--max-http-header-size", "--secure-heap", "--experimental-default-type", "--snapshot-blob"];
+const ORGANIZATION_NODE_VALUES = [...PERSONAL_NODE_VALUES, "-C", "--max-semi-space-size", "--max-http-header-size", "--secure-heap", "--experimental-default-type", "--snapshot-blob", "--cpu-prof-dir", "--heap-prof-dir", "--cpu-prof-name", "--heap-prof-name", "--heapsnapshot-signal", "--report-signal", "--report-dir", "--trace-event-categories", "--trace-event-file-pattern", "--watch-kill-signal", "--test-isolation"];
 const PERSONAL_NODE_OPERATIONAL = /^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--experimental-vm-modules|--preserve-symlinks(?:-main)?|--test-only|--(?:experimental-)?permission|--(?:no-)?experimental-require-module|--no-addons|--inspect(?:-brk)?(?:=.*)?)$/;
+// Arity knowledge, not an allowlist: other long flags remain readable without
+// stdin, but their following word cannot prove a file when stdin is supplied.
+const NODE_BOOLEAN_OPTIONS = new Set(["--cpu-prof", "--heap-prof", "--experimental-test-coverage", "--throw-deprecation", "--trace-exit", "--trace-sigint", "--experimental-detect-module", "--harmony", "--frozen-intrinsics", "--no-experimental-fetch", "--zero-fill-buffers", "--watch-preserve-output", "--openssl-legacy-provider", "--experimental-sqlite"]);
 
 /** Linear selector scan; does not interpret replacement text or compile a regex. */
 function sedExternalCommand(script: string): boolean {
@@ -114,7 +117,7 @@ export function scriptInput(words: readonly string[], cwd = process.cwd(), analy
 }
 
 /** Static option boundaries only: never inspect or execute a program's code. */
-export function interpreterScript(words: readonly string[], cwd = process.cwd(), analysis: ScriptAnalysis = "organization"): ScriptOperand | null {
+export function interpreterScript(words: readonly string[], cwd = process.cwd(), analysis: ScriptAnalysis = "organization", hasStdin = false): ScriptOperand | null {
   const name = programName(words[0] ?? "");
   const args = words.slice(1);
   if (/^(?:source|\.)$/.test(name)) return { kind: args[0] ? "file" : "unknown", operand: args[0] };
@@ -159,12 +162,13 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd(),
       if (/^--(?:help(?:-env|-xoptions|-all)?|version)$|^-[hV]$/.test(arg)) return { kind: "none" };
       if (!/^-[bBdEhiIOPqRsSuvVx]+$/.test(arg)) return { kind: "unknown" };
     } else if (name === "node") {
-      if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
       const shortValue = (analysis === "personal" ? /^-r./ : /^-[rC]./).test(arg);
-      const option = shortValue ? arg.slice(0, 2) : arg.split("=", 1)[0]!;
+      const rawOption = shortValue ? arg.slice(0, 2) : arg.split("=", 1)[0]!;
+      const option = analysis === "organization" && rawOption.startsWith("--") ? rawOption.replaceAll("_", "-") : rawOption;
+      if (/^-(?:e|p)(?:.|$)/.test(arg) || option === "--eval" || option === "--print") return { kind: "inline" };
       const value = shortValue ? arg.slice(2) : arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
       const values = analysis === "personal" ? PERSONAL_NODE_VALUES : ORGANIZATION_NODE_VALUES;
-      if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(value?.trimStart() ?? "")) nodeCodeLoad = true;
+      if ((["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) || analysis === "organization" && option === "--test-reporter") && /^data:/i.test(value?.trimStart() ?? "")) nodeCodeLoad = true;
       if (values.includes(option) || /^--allow-fs-/.test(option)) {
         if (value === undefined) return { kind: "unknown" };
         nodeInputType ||= option === "--input-type";
@@ -173,7 +177,8 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd(),
       }
       if (analysis === "organization" && option === "--run") return { kind: "none" };
       nodeInteractive ||= arg === "-i" || option === "--interactive";
-      if (/^(?:-v|--version|--help)$/.test(arg)) return { kind: "none" };
+      if (/^(?:-v|--version|--help)$/.test(option) && !arg.includes("=")) return { kind: "none" };
+      if (analysis === "organization" && hasStdin && option.startsWith("--") && !arg.includes("=") && value !== undefined && !value.startsWith("-") && !PERSONAL_NODE_OPERATIONAL.test(option) && !NODE_BOOLEAN_OPTIONS.has(option)) return { kind: "unknown" };
       // Operational long flags are open-ended. Code-bearing selectors above
       // remain restrictive; unknown short forms still have uncertain boundaries.
       if (analysis === "personal" ? !PERSONAL_NODE_OPERATIONAL.test(arg) : !arg.startsWith("--") && !/^(?:-c|-i)$/.test(arg)) return { kind: "unknown" };

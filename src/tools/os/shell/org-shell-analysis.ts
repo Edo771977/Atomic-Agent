@@ -144,9 +144,9 @@ const MAX_NESTED_SHELL_DEPTH = 4;
  * `eval` runs and what `find -exec` runs are split the same way and
  * listed after the command itself (ATO-1332).
  */
-export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix", cwd = process.cwd()): { segments: string[][]; unreadable: boolean } {
+export function analyzeShellRules(cmd: string, execArgs: readonly string[], useShell: boolean, dialect: ShellDialect = process.platform === "win32" ? "cmd" : "posix", cwd = process.cwd(), hasStdin = false, stdinScript?: string): { segments: string[][]; unreadable: boolean } {
   const syntax = useShell ? shellSyntax([cmd, ...execArgs].join(" "), dialect) : { segments: [[cmd, ...execArgs]], unreadable: false };
-  const state = { unreadable: syntax.unreadable, remaining: 2048, cwd, nodeOptions: process.env.NODE_OPTIONS };
+  const state = { unreadable: syntax.unreadable, remaining: 2048, cwd, nodeOptions: process.env.NODE_OPTIONS, hasStdin: hasStdin || useShell && /[|<]/.test([cmd, ...execArgs].join(" ")), stdinScript };
   if (useShell && /[|<]/.test([cmd, ...execArgs].join(" ")) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) state.unreadable = true;
   const segments = syntax.segments.flatMap(words => expandSegment(words, 0, state));
   return { segments, unreadable: state.unreadable };
@@ -192,7 +192,7 @@ function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
   return args.some(arg => /^(?:SHELL|\.SHELLFLAGS)=/.test(arg));
 }
 
-function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string; nodeOptions?: string }): string[][] {
+function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number; cwd: string; nodeOptions?: string; hasStdin: boolean; stdinScript?: string }): string[][] {
   if (--state.remaining < 0) { state.unreadable = true; return []; }
   let nodeOptions = state.nodeOptions;
   const updateOptions = (assignment: string | null) => {
@@ -216,7 +216,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
     if (tokens === null || tokens.some(token => token.kind !== "word" || token.dynamic)) state.unreadable = true;
     else {
       const optionWords = tokens.map(token => token.kind === "word" ? token.text : "");
-      if (["inline", "unknown"].includes(interpreterScript([inner[0]!, ...optionWords, ...args], state.cwd)?.kind ?? "")) state.unreadable = true;
+      if (["inline", "unknown"].includes(interpreterScript([inner[0]!, ...optionWords, ...args], state.cwd, "organization", state.hasStdin)?.kind ?? "")) state.unreadable = true;
     }
   }
   if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
@@ -225,17 +225,23 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   if (program === "tar" && (args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg)) || /^-?[A-Za-z]*I/.test(args[0] ?? ""))) state.unreadable = true;
   if (program === "zip" && args.slice(0, args.indexOf("--") === -1 ? args.length : args.indexOf("--")).some(arg => /^-TT/.test(arg))) state.unreadable = true;
   if (NESTED_SHELL_PROGRAMS.includes(program) && (words.some(word => /^(?:BASH_ENV|ENV|ZDOTDIR|SHELLOPTS|BASHOPTS)=/.test(word)) || args.some(arg => /^(?:--rcfile|--init-file)(?:=|$)/.test(arg)))) state.unreadable = true;
-  if (["inline", "unknown"].includes(interpreterScript(inner, state.cwd)?.kind ?? "")) state.unreadable = true;
+  if (["inline", "unknown"].includes(interpreterScript(inner, state.cwd, "organization", state.hasStdin)?.kind ?? "")) state.unreadable = true;
+  if (program === "node" && state.hasStdin && scriptInput(inner, state.cwd) === "stdin") state.unreadable = true;
   if (scriptInput(inner, state.cwd) === "unknown" || interpreterScript(inner, state.cwd)?.kind === "file" && scriptInput(inner, state.cwd) === "stdin" || NESTED_SHELL_PROGRAMS.includes(program) && !scanNestedShellOptions(inner.slice(1), program).readsStdin && scriptInput(inner, state.cwd) === "stdin") state.unreadable = true;
   const unwrapped = inner.length > 0 && inner.join("\0") !== words.join("\0");
   const listed = unwrapped ? [words, inner] : [words];
   if (depth >= MAX_NESTED_SHELL_DEPTH) { state.unreadable = true; return listed; }
   const lines = nestedShellScripts(words, state);
+  // Analyze supplied shell stdin in its actual visible environment, like -c.
+  // Do not feed that same payload recursively to programs inside the body.
+  const consumesStdinScript = state.stdinScript !== undefined && NESTED_SHELL_PROGRAMS.includes(program) && scriptInput(inner, state.cwd) === "stdin";
+  if (consumesStdinScript) lines.push({ line: state.stdinScript!, dialect: "posix" });
   if (inner.length > 1 && programName(inner[0]!) === "eval") lines.push({ line: inner.slice(1).join(" "), dialect: "posix" });
-  const nestedState = { ...state, nodeOptions };
+  const nestedState = { ...state, nodeOptions, stdinScript: consumesStdinScript ? undefined : state.stdinScript };
   const nested = lines.flatMap(({ line, dialect }) => {
     if (line.includes(UNKNOWN_SHELL_WORD)) { nestedState.unreadable = true; return []; }
     const syntax = shellSyntax(line, dialect); nestedState.unreadable ||= syntax.unreadable;
+    nestedState.hasStdin ||= /[|<]/.test(line);
     if (/[|<]/.test(line) && syntax.segments.some(words => readsScriptFromStdin(withoutWrappers(words), state.cwd))) nestedState.unreadable = true;
     return syntax.segments.flatMap(w => expandSegment(w, depth + 1, nestedState));
   });
@@ -368,10 +374,11 @@ export function stdinScriptOf(
   cwd = process.cwd(),
 ): { lines: string[]; unreadable: boolean } | null {
   if (stdin === undefined || stdin.trim() === "") return null;
-  const segments = shellRuleSegments(cmd, execArgs, useShell, undefined, cwd);
-  if (segments.some(words => scriptInput(words, cwd) === "unknown")) return { lines: [], unreadable: true };
+  const analysis = analyzeShellRules(cmd, execArgs, useShell, undefined, cwd, true, stdin);
+  const segments = analysis.segments;
+  const unreadable = analysis.unreadable || segments.some(words => scriptInput(words, cwd) === "unknown");
   const readers = segments.filter(words => readsScriptFromStdin(words, cwd));
-  if (readers.length === 0) return null;
+  if (readers.length === 0) return unreadable ? { lines: [], unreadable: true } : null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));
-  return { lines: shells.length > 0 ? [stdin] : [], unreadable: shells.length < readers.length || shells.length > 0 && analyzeShellRules(stdin, [], true, "posix", cwd).unreadable };
+  return { lines: shells.length > 0 ? [stdin] : [], unreadable: unreadable || shells.length < readers.length };
 }
