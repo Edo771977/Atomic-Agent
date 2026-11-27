@@ -3,7 +3,7 @@
 Status: current
 Owner: docs/reviews/
 
-Deferred with no production changes. Baseline: fork `origin/main` at `904476e2e099903833223beb4a0ace08b8d7a220`, fetched on 27 November 2026. Origin is `https://github.com/Edo771977/Atomic-Agent.git`; upstream is `https://github.com/AtomicBot-ai/atomic-agent.git`. [Commit inventory](b6a-upstream-commits.json): `348ae04fd`, then `ed2c6903b`, matching the branch row in the triage. B1 PR #246 was open and unmerged; `src/policy/README.md` is absent on this baseline. No policy implementation is assumed.
+Deferred in [fork PR #272](https://github.com/Edo771977/Atomic-Agent/pull/272). No production changes. Baseline: fork `origin/main` at `904476e2e099903833223beb4a0ace08b8d7a220`, fetched on 27 November 2026. Origin is `https://github.com/Edo771977/Atomic-Agent.git`; upstream is `https://github.com/AtomicBot-ai/atomic-agent.git`. [Commit inventory](b6a-upstream-commits.json): `348ae04fd`, then `ed2c6903b`, matching the branch row in the triage. B1 PR #246 was open and unmerged; `src/policy/README.md` is absent on this baseline. No policy implementation is assumed.
 
 ## Reproduced failures
 
