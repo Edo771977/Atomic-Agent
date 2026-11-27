@@ -3,6 +3,8 @@
 Status: current
 Owner: src/http/
 
+B7a1 leaves memory housekeeping restoration (#1708) deferred. Existing history routes retain read/admin scopes; lesson/procedure history and the additional restoration kinds stay unavailable. [Evidence](../../docs/reviews/b7a1-memory-history.md).
+
 This area owns http and openai-compatible ingress. Read [AGENTS.md](AGENTS.md) before changing it.
 
 ## Entry points
