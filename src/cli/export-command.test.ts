@@ -30,7 +30,7 @@ describe("atomic-agent export args (ATO-1054)", () => {
     expect(parseExportArgs([])).toMatch(/session id or --last/);
     expect(parseExportArgs(["s-1", "--last"])).toMatch(/not both/);
     expect(parseExportArgs(["s-1", "s-2"])).toMatch(/one session id/);
-    expect(parseExportArgs(["s-1", "--format", "pdf"])).toMatch(/unknown format: pdf/);
+    expect(parseExportArgs(["s-1", "--format", "rtf"])).toMatch(/unknown format: rtf/);
     expect(parseExportArgs(["s-1", "--out"])).toMatch(/--out needs a value/);
     expect(parseExportArgs(["s-1", "--bogus"])).toMatch(/unknown option/);
   });
@@ -128,9 +128,9 @@ describe("atomic-agent export: what reaches the file", () => {
     expect(stdout).not.toContain(KEY);
   });
 
-  it("refuses an incognito chat by id", async () => {
+  it.each(["md", "pdf"])("refuses an incognito chat by id in %s", async format => {
     seed({ ...chat("s-incog"), incognito: { since: 1, owner: "x" } });
-    expect(await exportCommand(["s-incog"])).toBe(1);
+    expect(await exportCommand(["s-incog", "--format", format])).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toMatch(/incognito/);
   });
