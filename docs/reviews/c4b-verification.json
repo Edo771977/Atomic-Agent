@@ -18,9 +18,173 @@
     "candidate_failed": 2,
     "deferral_passed_including_C4a": 9
   },
-  "focused": "pending",
-  "full_vs_main": "pending",
+  "focused": {
+    "passed": 12102,
+    "failed": 43,
+    "pending": 546,
+    "total": 12691,
+    "exit": 1,
+    "summary": "c4b-focused-comparison.json",
+    "additionalFailureNames": [
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "removes the backup folder when the first journal write fails"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws"
+      }
+    ],
+    "resolvedByCompleteRuns": [
+      {
+        "name": "keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes",
+        "checks": [
+          {
+            "report": "main full",
+            "status": "passed",
+            "duration_ms": 13939.4245
+          },
+          {
+            "report": "C4b full",
+            "status": "passed",
+            "duration_ms": 14665.646
+          }
+        ]
+      },
+      {
+        "name": "removes the backup folder when the first journal write fails",
+        "checks": [
+          {
+            "report": "main full",
+            "status": "passed",
+            "duration_ms": 7687.380399999965
+          },
+          {
+            "report": "C4b full",
+            "status": "passed",
+            "duration_ms": 6920.01529999997
+          }
+        ]
+      },
+      {
+        "name": "re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link",
+        "checks": [
+          {
+            "report": "main full",
+            "status": "passed",
+            "duration_ms": 9292.204700000002
+          },
+          {
+            "report": "C4b full",
+            "status": "passed",
+            "duration_ms": 11027.30819999997
+          }
+        ]
+      },
+      {
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "checks": [
+          {
+            "report": "main full",
+            "status": "passed",
+            "duration_ms": 10073.761999999988
+          },
+          {
+            "report": "C4b full",
+            "status": "passed",
+            "duration_ms": 10457.15850000002
+          }
+        ]
+      }
+    ],
+    "unresolvedAdditionalNames": []
+  },
+  "full_vs_main": {
+    "exit": 1,
+    "main": {
+      "passed": 30907,
+      "failed": 115,
+      "pending": 660
+    },
+    "final": {
+      "passed": 30920,
+      "failed": 111,
+      "pending": 660,
+      "total": 31691
+    },
+    "summary": "c4b-full-comparison.json",
+    "newFailureNames": [],
+    "newSuiteErrorFiles": [],
+    "mainOnlyFailureNames": [
+      {
+        "file": "src/cli/run-agent-approval.test.ts",
+        "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with an input redirect"
+      },
+      {
+        "file": "src/cli/run-agent-approval.test.ts",
+        "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with a background job"
+      },
+      {
+        "file": "src/cli/run-agent-approval.test.ts",
+        "name": "run: approvals with piped stdin (issue #95) --allow-command (issue #95) holds a line with a sequence"
+      },
+      {
+        "file": "src/tools/fusion/fusion-delegate-criteria.test.ts",
+        "name": "fusion.delegate rules a project's visual criteria (issue #40) a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)"
+      }
+    ],
+    "newTests": [
+      {
+        "name": "C4a file indexing remains deferred exposes no index owner, search tool, schema, descriptor or route",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for owner including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for admin including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for operator including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for member including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for viewer including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for anonymous including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4b optional vector extension and reranker remain deferred with C4a exposes no automatic native loader, vector mirror or reranker implementation",
+        "status": "passed"
+      },
+      {
+        "name": "C4b optional vector extension and reranker remain deferred with C4a does not advertise the unapproved reranker environment setting",
+        "status": "passed"
+      }
+    ]
+  },
   "note": "Windows autocrlf converted immutable archive and existing test source bytes. Tracked LF bytes restored locally; no archive, agent-step or production source content belongs to either deferral diff.",
   "full_command": "npm test -- --maxWorkers=6",
-  "full_initial": "Earlier two-worker full runs were stopped before completion, have no report, and are not counted."
+  "full_initial": "Earlier two-worker full runs were stopped before completion, have no report, and are not counted.",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "candidate_tree": "e22b1b6e0fbf249732bb31a65114e25b07c34cb6",
+  "replayed_tree": "e22b1b6e0fbf249732bb31a65114e25b07c34cb6",
+  "after_runs": "Production and test sources unchanged; rebase carries C4a evidence only."
 }

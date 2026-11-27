@@ -32,6 +32,8 @@ The entire five-commit candidate changes neither package.json nor package-lock.j
 
 The [absence tests](../../src/tools/files-vector-rerank-deferred.test.ts) fail on the candidate and pass on the deferral. [Verification](c4b-verification.json) records setup, static checks, the six-area selection and the complete-suite name comparison against clean main. The protected parallel-work paths remain unchanged.
 
+Setup, lint, imports, test typecheck and docs checks pass. The complete suite (`npm test -- --maxWorkers=6`, no quarantine) records 30,920 passes, 111 failures and 660 skips; clean main records 30,907 passes, 115 failures and 660 skips. The [complete comparison](c4b-full-comparison.json) has no additional failed name or suite-load error. All nine C4a/C4b tests pass in that run. The [six-area selection](c4b-focused-comparison.json) records 12,102 passes, 43 failures and 546 skips. Its four additional timeout names pass in both complete runs, with their original deadlines; their individual statuses and durations are retained in verification. The four main-only failures are not claimed as fixes. Production and test sources are unchanged after these runs; the stack rebase carries C4a evidence only.
+
 ## Before reopening
 
 First satisfy C4a. Resolve extension provenance before importing any package JavaScript or loading a native library: use a person/package-pinned absolute location with protected ancestors and content, reject working-directory/environment/agent-writable substitution, and preserve silent fallback for missing/load failures. Avoid install-script additions; audit any changed dependency as in B5. Test trusted success and rejected substitutions on supported platforms with actual binaries.

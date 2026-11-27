@@ -14,11 +14,11 @@
   },
   "failures": [
     {
-      "file": "tools/files-vector-rerank-deferred.test.ts",
+      "file": "src/tools/files-vector-rerank-deferred.test.ts",
       "name": "C4b optional vector extension and reranker remain deferred with C4a exposes no automatic native loader, vector mirror or reranker implementation"
     },
     {
-      "file": "tools/files-vector-rerank-deferred.test.ts",
+      "file": "src/tools/files-vector-rerank-deferred.test.ts",
       "name": "C4b optional vector extension and reranker remain deferred with C4a does not advertise the unapproved reranker environment setting"
     }
   ],
