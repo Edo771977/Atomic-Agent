@@ -212,6 +212,8 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 
 B7a5 imports the ATO-421 TUI startup marker with prerequisite ba8bf8343. The fork retains its engine wait ceilings, avoids assigning lock ownership to a pre-lock marker, and covers a first start before the models directory exists. Error and cancellation cleanup are tested. [Review](../reviews/b7a5-start-marker.md).
 
+W3.1 imports upstream #1777/#1798. Core's downloaded-binary check reports fixed explanations for missing binary, denied execution, wrong architecture, missing/failed library, busy port and early exit; its existing 15-second deadline has a fixed timeout reason. No process stderr, message, path or raw cause is retained. An idle Core keeps Studio's loaded diffusion model and releases Agent's lease; it shuts down after unload or when the module is absent. Real disposable processes cover shutdown and startup-marker cleanup after death. Fork wait ceilings, LocalEngineDownError and the B7b3 deferral stay intact. [Verification](../reviews/w31-core-install-idle.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
