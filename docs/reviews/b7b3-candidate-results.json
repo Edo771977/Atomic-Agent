@@ -1,0 +1,67 @@
+{
+  "passed": 2,
+  "failed": 9,
+  "skipped": 0,
+  "files": [
+    {
+      "file": "src/runtime/composition/b7b3-candidate-review.test.ts",
+      "status": "failed",
+      "message": "",
+      "tests": [
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract does not reach transport when provider policy refuses",
+          "status": "failed",
+          "failure": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract does not reach transport when egress policy refuses",
+          "status": "failed",
+          "failure": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract does not reach transport when LAN host policy refuses",
+          "status": "failed",
+          "failure": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract applies B1 web deny before the authenticated probe",
+          "status": "failed",
+          "failure": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract does not invoke fetch while offline",
+          "status": "failed",
+          "failure": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times\n\nReceived:"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract sends the configured synthetic key to the configured host only",
+          "status": "passed"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract refuses automatic redirects for a credential-bearing probe",
+          "status": "failed",
+          "failure": "AssertionError: expected [ 'error', 'manual' ] to include undefined\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/expect/dist/index.js:1156:15)"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract bounds response bytes before JSON decoding",
+          "status": "failed",
+          "failure": "AssertionError: expected 1 to be +0 // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/b7b3-candidate-review.test.ts:80:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract has an abort deadline for a signal-aware transport",
+          "status": "passed"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract bounds and removes control characters from the untrusted display label",
+          "status": "failed",
+          "failure": "AssertionError: expected 10013 to be less than or equal to 160\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/b7b3-candidate-review.test.ts:92:27\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        },
+        {
+          "name": "B7b3 candidate probe must meet the fork admission contract does not label a remote local-llama entry with this computer's managed model",
+          "status": "failed",
+          "failure": "AssertionError: expected 'this-computer-model' to be 'external-model' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/b7b3-candidate-review.test.ts:97:30\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+        }
+      ]
+    }
+  ]
+}
