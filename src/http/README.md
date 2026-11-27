@@ -391,3 +391,5 @@ The generic `409 turn-running` memory conflict does not conceal whether the serv
 Standard Webhooks also accepts the complete svix-id, svix-timestamp and svix-signature set (ATO-1542). Header sets are never mixed; webhook-* takes precedence. Signature, timestamp, replay and the fork's listener/authentication rules stay in force.
 
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../../docs/reviews/b4a-1671.md).
+
+The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval, offline and child credential refusal; encoded Basic authorization can escape through errors. Upstream provides no incoming-call or signature-verification slice in this commit. [B5 review](../../docs/reviews/b5c-twilio.md).
