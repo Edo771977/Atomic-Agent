@@ -1,0 +1,71 @@
+{
+  "base": "50b6d96012d5b12eb0f2c02cd1467d5a195adb17",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "npmCi": {
+    "exit": 0,
+    "lockfileChanged": false
+  },
+  "staticChecks": [
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T13:12:58.7395013+01:00"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T13:13:12.1019237+01:00"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T13:13:16.3238386+01:00"
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T13:13:50.4303174+01:00"
+    }
+  ],
+  "focused": {
+    "command": "npx vitest run src/session src/http src/runtime src/config src/llm --maxWorkers=8",
+    "exit": 1,
+    "counts": {
+      "numTotalTests": 8051,
+      "numPassedTests": 8032,
+      "numFailedTests": 13,
+      "numPendingTests": 6
+    },
+    "newTestsPassed": 7
+  },
+  "candidate": {
+    "upstream": [
+      "31783844561946cab87294d441bcb8d856839f70",
+      "dc5a4b980ef152d467f71d23822d86254fffc466"
+    ],
+    "cherryPickX": true,
+    "finalSafetyAssertions": {
+      "passed": 4,
+      "failed": 10
+    },
+    "originalControlsPassed": 72
+  },
+  "initialAttempts": [
+    "A conflict-join syntax error in the disposable candidate was repaired before counting safety assertions.",
+    "A sandbox-denied local HTTP run was repeated with loopback access; only the completed permitted run is safety evidence.",
+    "The initial focused run used two workers and was stopped to restart all focused checks with eight, without test exclusions. Its partial log is retained outside the PR."
+  ],
+  "productionCodeChanged": false,
+  "mainSelectedComparison": {
+    "command": "npx vitest run <six failing files> --maxWorkers=8",
+    "counts": {
+      "numTotalTests": 96,
+      "numPassedTests": 82,
+      "numFailedTests": 12,
+      "numPendingTests": 2
+    },
+    "sameNamedFailures": 12,
+    "additionalInitialNamePassedOnBothReruns": true,
+    "newTestsPassed": 7
+  }
+}
