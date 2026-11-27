@@ -9,7 +9,7 @@ describe("external code options are conservative only for organization policy", 
   it.each([
     ["git", "-c", "alias.fixture=!fixture", "fixture"], ["git", "-c", "core.sshCommand=fixture", "fetch"],
     ["git", "--paginate", "log"], ["git", "-c", "core.pager=fixture", "log"],
-    ["make", "fixture"], ["tar", "--to-command=fixture", "-xf", "fixture.tar"],
+    ["make", "--eval=fixture:;@fixture"], ["tar", "--to-command=fixture", "-xf", "fixture.tar"],
     ["tar", "--checkpoint-action=exec=fixture", "-cf", "fixture.tar", "fixture.txt"],
     ["vim", "fixture.txt"], ["gdb", "-ex", "fixture"],
     ["env", "BASH_ENV=/fixture/init", "bash", "-c", "printf fixture"],
