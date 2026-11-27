@@ -2,16 +2,17 @@
 // On the 2B starter model the agent answered a RAM question with "I have no
 // access to your hardware" and pointed at the cloud, although it has a shell
 // on the very machine. The answer is the chat reply (stdout of `run`), not a
-// file. The checker is deterministic: the real RAM of the machine running the
-// check (os.totalmem() at check time, +-1, GiB or GB) must appear in the
-// reply, and no refusal or "use the cloud" phrase may.
+// file produced by a model. This fork uses a fictional computer described by
+// computer.json in the temporary workspace, never the operator's hardware.
 
-import { totalmem } from "node:os";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { fail, pass } from "../lib/util.mjs";
 
 const GIB = 1024 ** 3;
 const GB = 1e9;
+export const SYNTHETIC_RAM_BYTES = 16 * GIB;
 
 /** Phrases of the ATO-1706 refusal; any one fails the run even with the right number. */
 export const REFUSAL_PHRASES = ["no access", "cannot access", "don't have access", "cloud"];
@@ -42,21 +43,20 @@ export function checkRamReply(text, totalBytes) {
 const o1 = {
   id: "o1",
   set: "core",
-  title: "answer about its own computer (RAM) instead of claiming no access (ATO-1706)",
+  title: "answer about a fictional computer's RAM from its workspace fixture (ATO-1706)",
   timeoutSec: 300,
   maxSteps: 10,
-  turns: () => ["How much RAM does this computer have? Answer with the number in GB."],
-  fixture() {
-    // Empty folder on purpose: the agent has to look at the machine, not a file.
-    // Recorded for the run folder only; the checker reads os.totalmem() again.
-    return { totalBytesAtFixture: totalmem() };
+  turns: () => ["The fictional computer for this task is described by computer.json in this workspace. How much RAM does it have? Read only that workspace file, not host hardware or files outside this workspace. Answer with the number in GB."],
+  fixture(dir) {
+    writeFileSync(join(dir, "computer.json"), JSON.stringify({ totalBytes: SYNTHETIC_RAM_BYTES }) + "\n");
+    return { totalBytesAtFixture: SYNTHETIC_RAM_BYTES };
   },
   check(_dir, _meta, ctx = {}) {
-    return checkRamReply(ctx.run?.stdout, totalmem());
+    return checkRamReply(ctx.run?.stdout, SYNTHETIC_RAM_BYTES);
   },
   /** Reference reply. The answer is chat text, so it goes into ctx.run.stdout, not the folder. */
   solve(_dir, _meta, ctx) {
-    const gib = Math.round(totalmem() / GIB);
+    const gib = Math.round(SYNTHETIC_RAM_BYTES / GIB);
     ctx.run = { ...(ctx.run ?? {}), stdout: `This computer has ${gib} GB of RAM.\n` };
   },
 };
