@@ -107,15 +107,14 @@ export class FragmentOutput {
       }
     }
     const size = prefixBytes + valueBytes;
-    if (valueBytes > 0 && size > this.remaining &&
-        this.remaining - prefixBytes < Buffer.byteLength(String.fromCodePoint(value.codePointAt(0)!))) {
-      this.framingLimited = !this.#hasItem;
+    if (this.#hasItem && (clipped || size > this.remaining)) {
       this.stop();
       return { text: "", status: "deferred" };
     }
-    const fitsFresh = !clipped && Buffer.byteLength(prefix.trimStart()) + valueBytes <= this.limit;
-    if (this.#hasItem && size > this.remaining && (fitsFresh || this.remaining <= prefixBytes)) {
-      this.stopped = this.truncated = true;
+    if (valueBytes > 0 && size > this.remaining &&
+        this.remaining - prefixBytes < Buffer.byteLength(String.fromCodePoint(value.codePointAt(0)!))) {
+      this.framingLimited = true;
+      this.stop();
       return { text: "", status: "deferred" };
     }
     const partial = clipped || size > this.remaining;

@@ -104,9 +104,13 @@ it.each(["eml", "mbox", "epub"] as const)(
       : format === "mbox" ? [mboxExtractor, mailbox(parts)] : [epubExtractor, await book(parts)];
     const input = { data, sourcePath: "fixture." + format };
     const first = await extract(input);
-    expect(first.text.includes("Large body")).toBe(true);
-    expect(first.warnings.some((warning) => /(?:part|message|chapter) 2 (?:was |is )?truncated/i.test(warning))).toBe(true);
-    expect(cursor(first.warnings)).toBe(3);
+    expect(first.text).toContain("First body");
+    expect(first.text.includes("Large body")).toBe(false);
+    expect(cursor(first.warnings)).toBe(2);
+    const middle = await extract({ ...input, pagesFrom: 2 });
+    expect(middle.text.includes("Large body")).toBe(true);
+    expect(middle.warnings.some((warning) => /(?:part|message|chapter) 2 (?:was |is )?truncated/i.test(warning))).toBe(true);
+    expect(cursor(middle.warnings)).toBe(3);
     const last = await extract({ ...input, pagesFrom: 3 });
     expect(last.text).toContain("Third body");
     expect(last.text).not.toContain("Large body");

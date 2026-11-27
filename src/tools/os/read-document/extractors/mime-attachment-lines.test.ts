@@ -10,16 +10,19 @@ const forwarded = (name: string) => delimiter + "Content-Type: message/rfc822\r\
 
 it.each([100, 300, 1000])("recovers every whole attachment line when following %i-byte windows", async (maxBytes) => {
   const names = Array.from({ length: 100 }, (_, n) => "fixture-" + n + ".bin");
-  const chunks = Array.from({ length: 200 }, (_, n) =>
-    plain("Body " + (n + 1) + " with a short note.") +
+  const bodies = Array.from({ length: 200 }, (_, n) => "Body " + (n + 1) + " with a short note.");
+  const chunks = bodies.map((body, n) =>
+    plain(body) +
     (n % 2 ? "" : n % 4 ? delimiter + binary(names[n / 2]!) : forwarded(names[n / 2]!)));
   const data = Buffer.from('Content-Type: multipart/mixed; boundary="fixture"\r\n\r\n' +
     chunks.join("") + "--fixture--");
   const seen = new Set<string>();
+  const shownBodies: string[] = [];
   let pagesFrom = 1;
   for (let call = 0; call < 500; call++) {
     const result = await emlExtractor({ data, sourcePath: "mixed.eml", maxBytes, pagesFrom });
     expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(maxBytes);
+    shownBodies.push(...result.text.split("\n").filter((line) => line.startsWith("Body ")));
     for (const line of result.text.split("\n").filter((value) => value.startsWith("- "))) {
       const complete = /^- (fixture-\d+\.bin) \(application\/octet-stream, 3 B\)$/.exec(line);
       expect(complete).not.toBeNull();
@@ -31,6 +34,7 @@ it.each([100, 300, 1000])("recovers every whole attachment line when following %
     pagesFrom = Number(cursor);
   }
   expect([...seen].sort()).toEqual(names.sort());
+  expect(shownBodies).toEqual(bodies);
 });
 
 it("keeps an oversized attachment line pending until a larger window can display it", async () => {
