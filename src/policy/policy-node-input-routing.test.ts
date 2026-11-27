@@ -82,3 +82,40 @@ describe("organization Node stdin follows the receiving command", () => {
     });
   }
 });
+
+function routingCases(family: string, lines: readonly string[], opaque = true) {
+  describe(family, () => {
+    for (const level of [1, 5] as const) for (const effect of ["deny", "ask"] as const) for (const surface of ["shell", "verify"] as const) {
+      it.each(lines)(`${effect}/${level}/${surface}: %s`, async line => {
+        vi.stubEnv("NODE_OPTIONS", undefined);
+        const analysis = analyzeShellRules(line, [], true, "posix", "/work");
+        const target = surface === "verify" ? toolCallTarget("verify.run", { cmd: "bash", args: ["-c", line], cwd: "/work" })! : { resources: analysis.segments.map(words => words.join(" ")), unreadable: analysis.unreadable };
+        const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "shell", resource: "unrelated-fixture*", effect }] };
+        expect(evaluatePolicy(policy, "shell", target.resources, target)?.effect ?? null).toBe(opaque ? effect : null);
+        let prompts = 0;
+        const gate = new ApprovalGate({ level, emit: req => { prompts++; gate.reject(req.approvalId, "fixture declines"); } });
+        gate.setOrgPolicy(req => policyRuleMatch(policy, req));
+        const req = { tool: surface === "verify" ? "verify.run" : "os.shell.run", category: "shell" as const, sessionId: "fixture", reason: "fixture", commandSegments: analysis.segments, commandUnreadable: target.unreadable };
+        expect(gate.ruleDecisionFor(req)).toBe(opaque ? effect : null);
+        if (opaque) {
+          expect((await gate.request(req)).approved).toBe(false);
+          expect(prompts).toBe(effect === "ask" ? 1 : 0);
+        }
+      });
+    }
+  });
+}
+
+routingCases("R9 syntax belongs to command positions", [
+  'printf fixture | { echo "}"; node --fixture-boolean x.js; }',
+  "printf fixture | { echo \\}; node --fixture-boolean x.js; }",
+  "printf fixture | for item in fixture; do 'done'; node --fixture-boolean x.js; done",
+  "printf fixture | if true; then 'fi'; node --fixture-boolean x.js; fi",
+  "printf fixture | if true; then \\fi; node --fixture-boolean x.js; fi",
+  "printf fixture | { echo } done; node --fixture-boolean x.js; }",
+  "printf fixture | case fixture in fixture) 'esac'; node --fixture-boolean x.js;; esac",
+  "printf fixture | case fixture in fixture) \\esac; node --fixture-boolean x.js;; esac",
+  "node --fixture-boolean x.js <", "printf fixture | ; node --fixture-boolean x.js",
+  ") node --fixture-boolean x.js", "done; node --fixture-boolean x.js",
+  "printf fixture |", "(node --fixture-boolean x.js",
+]);

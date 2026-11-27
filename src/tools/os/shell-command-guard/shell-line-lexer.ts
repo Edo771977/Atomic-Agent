@@ -18,6 +18,8 @@ export interface ShellWord {
   text: string;
   dynamic: boolean;
   expandHeredoc?: boolean;
+  literal?: boolean;
+  span?: readonly [number, number];
 }
 
 /**
@@ -136,6 +138,7 @@ export function lexShellLine(
   let inWord = false;
   let quoted = false;
   let dynamic = false;
+  let escaped = false, wordStart = 0;
   /** Set right after `<<`: the next word is a heredoc delimiter. */
   let pendingHeredoc: { stripTabs: boolean; inputFd?: number } | null = null;
 
@@ -147,12 +150,13 @@ export function lexShellLine(
       heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
-      tokens.push({ kind: "word", text: word, dynamic });
+      tokens.push({ kind: "word", text: word, dynamic, ...(keepInputFlow ? { literal: !quoted && !escaped && !dynamic, span: [wordStart, i] as const } : {}) });
     }
     word = "";
     inWord = false;
     quoted = false;
     dynamic = false;
+    escaped = false;
   };
   /** Start a quoted part; a `~` that opens a word quoted is not home. */
   const openQuote = (first: string | undefined): void => {
@@ -172,6 +176,7 @@ export function lexShellLine(
   let expressionEnd = -1;
   let i = 0;
   while (i < line.length) {
+    if (!inWord) wordStart = i;
     const c = line[i]!;
     if (c === "\n") {
       endWord();
@@ -187,6 +192,7 @@ export function lexShellLine(
       continue;
     }
     if (escape !== null && c === escape) {
+      escaped = true;
       const next = line[i + 1] ?? (dialect === "posix" ? c : undefined);
       if (next === undefined) return incomplete();
       // A line continuation joins the two lines.
