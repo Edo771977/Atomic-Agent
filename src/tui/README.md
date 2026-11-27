@@ -43,11 +43,15 @@ This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing i
 - [Plugins panel](plugins/README.md)
 - [Brand badges](brand/README.md)
 
+B7a5 holds the start-pending marker across the TUI's backend checks, device selection and port clearance, through settled startup or cancellation. A thrown start also clears it. [Lifecycle evidence](../../docs/reviews/b7a5-start-marker.md).
+
 ## Ownership and dependencies
 
 Feature views now live with their local state/input/orchestration/tests. Global TuiApp/state/actions/reducers/router/submit/layout remain composition points: moving every file into a feature would hide their cross-feature responsibility. ChatOrchestrator coordinates the whole TUI runtime/session lifecycle despite its historical name; runtime/domain owners retain resources.
 
 [Shared primitives and shell composition](components/README.md) classifies every remaining production component. Generic editor/list/logo/formatting and theme remain independent of feature implementations; shell composition can join features. Privacy/integrations/swarm retain their existing local components/ directories without artificial flattening.
+
+B7a4 keeps upstream #1576 deferred: no local-fallback question, answer file or HTTP route is added until operator consent cannot be forged with an inherited owner credential. Existing fallback policy and manual controls remain in force. [Review](../../docs/reviews/b7a4-local-last-resort.md).
 
 ## Task-specific reading
 

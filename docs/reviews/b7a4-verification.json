@@ -1,0 +1,64 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "upstream": [
+    {
+      "sha": "f72e0a38446352115cde15cebe42c4ffadee498d",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "feat(fallback): ask once whether to keep the local model as the last resort (ATO-1461)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    },
+    {
+      "sha": "e753f8307c5199c4ac996fe9f2afa8424558f93a",
+      "parents": "f72e0a38446352115cde15cebe42c4ffadee498d",
+      "subject": "Add Status and Owner to the append-local-question README, stub the question in the mouse test (ATO-1461)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    }
+  ],
+  "disposition": "deferred; no upstream/production code imported",
+  "checks": [
+    {
+      "command": "npm ci",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "focused",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-final"
+    }
+  ],
+  "reports": {},
+  "candidateAuditLog": "(node:84680) ExperimentalWarning: stripTypeScriptTypes is an experimental feature and might change at any time\r\n(Use `node --trace-warnings ...` to show where the warning was created)\r\n✖ marked child cannot persist keep (33.4776ms)\r\n✖ marked child cannot persist off (1048.8056ms)\r\n✖ a child with an inherited owner key cannot answer over the admin HTTP route (349.268ms)\r\nℹ tests 3\r\nℹ suites 0\r\nℹ pass 0\r\nℹ fail 3\r\nℹ cancelled 0\r\nℹ skipped 0\r\nℹ todo 0\r\nℹ duration_ms 2341.6008\r\n\r\n✖ failing tests:\r\n\r\ntest at docs\\reviews\\b7a4-candidate.mjs:23:37\r\n✖ marked child cannot persist keep (33.4776ms)\r\n  AssertionError [ERR_ASSERTION]: child recorded operator consent\r\n  \r\n  true !== false\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a4-candidate.mjs:33:12)\r\n      at Test.runInAsyncScope (node:async_hooks:226:14)\r\n      at Test.run (node:internal/test_runner/test:1402:25)\r\n      at Test.start (node:internal/test_runner/test:1262:17)\r\n      at startSubtestAfterBootstrap (node:internal/test_runner/harness:387:17) {\r\n    generatedMessage: false,\r\n    code: 'ERR_ASSERTION',\r\n    actual: true,\r\n    expected: false,\r\n    operator: 'strictEqual',\r\n    diff: 'simple'\r\n  }\r\n\r\ntest at docs\\reviews\\b7a4-candidate.mjs:23:37\r\n✖ marked child cannot persist off (1048.8056ms)\r\n  AssertionError [ERR_ASSERTION]: child changed persistent fallback\r\n  \r\n  false !== true\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a4-candidate.mjs:31:12)\r\n      at Test.runInAsyncScope (node:async_hooks:226:14)\r\n      at Test.run (node:internal/test_runner/test:1402:25)\r\n      at Test.processPendingSubtests (node:internal/test_runner/test:974:18)\r\n      at Test.postRun (node:internal/test_runner/test:1542:19)\r\n      at Test.run (node:internal/test_runner/test:1467:12)\r\n      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:387:3) {\r\n    generatedMessage: false,\r\n    code: 'ERR_ASSERTION',\r\n    actual: false,\r\n    expected: true,\r\n    operator: 'strictEqual',\r\n    diff: 'simple'\r\n  }\r\n\r\ntest at docs\\reviews\\b7a4-candidate.mjs:37:1\r\n✖ a child with an inherited owner key cannot answer over the admin HTTP route (349.268ms)\r\n  AssertionError [ERR_ASSERTION]: inherited owner credentials are not operator consent\r\n  + actual - expected\r\n  \r\n    {\r\n  +   answerFile: true,\r\n  +   appendLocal: false,\r\n  +   status: 200\r\n  -   answerFile: false,\r\n  -   appendLocal: true,\r\n  -   status: 403\r\n    }\r\n  \r\n      at TestContext.<anonymous> (file:///<local>/docs/reviews/b7a4-candidate.mjs:53:12)\r\n      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\r\n      at async Test.run (node:internal/test_runner/test:1409:7)\r\n      at async Test.processPendingSubtests (node:internal/test_runner/test:974:7) {\r\n    generatedMessage: false,\r\n    code: 'ERR_ASSERTION',\r\n    actual: { status: 200, appendLocal: false, answerFile: true },\r\n    expected: { status: 403, appendLocal: true, answerFile: false },\r\n    operator: 'deepStrictEqual',\r\n    diff: 'simple'\r\n  }\r\n",
+  "finalStaticChecks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "finalStaticChecksAllPassed": true
+}

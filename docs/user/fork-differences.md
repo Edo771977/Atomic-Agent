@@ -78,6 +78,8 @@ The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, do
 
 ## Memory backup and entry controls
 
+B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
+
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
 
 ## Fusion team
@@ -176,6 +178,10 @@ A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candid
 
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../reviews/b4b-subscription-signin.md).
 
+## Local engine startup
+
+B7a5 imports the ATO-421 TUI startup marker with prerequisite ba8bf8343. The fork retains its engine wait ceilings, avoids assigning lock ownership to a pre-lock marker, and covers a first start before the models directory exists. Error and cancellation cleanup are tested. [Review](../reviews/b7a5-start-marker.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
@@ -192,6 +198,10 @@ The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install
 ## ACP editor protocol
 
 The editor-launched ACP command from upstream #1646 remains deferred in B3. Its full three-commit branch was reviewed: the candidate admits marked tool children and guesses worker approval ownership from the sole busy chat. Upstream also supports persistent allow-always grants from editor replies. The fork exposes no ACP command or listener pending reliable attribution and preservation of its operator confirmation rules. [HTTP review](../../src/http/README.md)
+
+## Local fallback consent
+
+B7a4 defers upstream #1576 local-fallback consent. The candidate persistence owner accepts marked-child answers and the HTTP route adds no independent operator decision. No automatic question or answer file is enabled. [Evidence](../reviews/b7a4-local-last-resort.md).
 
 ## Setup and measurement
 
