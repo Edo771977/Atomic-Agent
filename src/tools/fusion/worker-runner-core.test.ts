@@ -1,4 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { installPolicy } from "../../policy/policy-active.js";
+import { ToolRegistry } from "../tool-registry.js";
+import { compressToolResult } from "../../compressor/result-compressor.js";
 
 import type { AgentLoopEvent, RunTurnResult } from "../../agent/agent-loop.js";
 import { createEmptySessionState } from "../../session/session-state.js";
@@ -91,6 +94,34 @@ function coreOptions(
 }
 
 describe("runWorkerTasksCore (ATO-1669)", () => {
+  it("keeps the parent's organization deny on the child's actual registry dispatch", async () => {
+    let executed = 0;
+    const registry = new ToolRegistry();
+    registry.register({ name: "os.shell.run", description: "synthetic fixture, never spawns", readonly: false,
+      run: async () => { executed++; return compressToolResult({ tool: "os.shell.run", status: "ok", output: "fixture" }); } });
+    installPolicy({ sources: [], mcpAllowlists: [], rules: [{ source: "system", index: 0, action: "shell", resource: "c1-blocked-command", effect: "deny" }] });
+    try {
+      const args = { cmd: "c1-blocked-command" };
+      const signal = new AbortController().signal;
+      await expect(registry.invoke("os.shell.run", args, { workingDir: "/repo", sessionId: "s-parent", stepIndex: 0, signal })).rejects.toThrow(/policy/i);
+      const { deps } = coreHarness("done");
+      let dispatched = false;
+      let childRefused = false;
+      deps.runTurn = async (session, _message, options) => {
+        dispatched = true;
+        await expect(registry.invoke("os.shell.run", args, { workingDir: session.workingDir, sessionId: session.id, stepIndex: 0, signal: options.signal! })).rejects.toThrow(/policy/i);
+        childRefused = true;
+        return { session, reason: "reply", stepCount: 1 };
+      };
+      await runWorkerTasksCore(deps, coreOptions({ origin: "subagent" }));
+      expect(dispatched).toBe(true);
+      expect(childRefused).toBe(true);
+      expect(executed).toBe(0);
+    } finally {
+      installPolicy(null);
+    }
+  });
+
   it("runs a worker turn with only core options and returns its parsed row", async () => {
     const { deps, calls, policies, events } = coreHarness("the answer");
     const results = await runWorkerTasksCore(deps, coreOptions());
