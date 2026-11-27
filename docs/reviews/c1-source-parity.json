@@ -19,5 +19,10 @@
   ],
   "laterMainChecked": "5da6478ff7b0d134994cec73fdce142ccad729e7",
   "laterMainOnlyDocumentation": true,
-  "laterMainMergeTreeSucceeded": true
+  "laterMainMergeTreeSucceeded": true,
+  "postBroadFixesCommit": "6410f5bcc9d708ffe8b087e34a76722bf7e61ff4",
+  "postBroadGeneratedHelpDelta": ["src/config/settings-docs.generated.ts"],
+  "postBroadRuntimeFunctionDelta": [],
+  "postBroadTestRunnerScopeDelta": ["scripts/run-windows-core-tests.mjs"],
+  "postBroadCorrectionsTargetedPassed": 17
 }
