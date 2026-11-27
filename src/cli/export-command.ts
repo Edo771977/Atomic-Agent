@@ -83,7 +83,7 @@ export async function exportCommand(args: string[]): Promise<number> {
     return 0;
   }
   const path = resolve(out);
-  const failed = writeExportFile(path, file.body, parsed.force);
+  const failed = writeExportFile(path, file.body, parsed.force, [process.cwd(), state.workingDir]);
   if (failed !== null) {
     process.stderr.write(`${failed}\n`);
     return 1;

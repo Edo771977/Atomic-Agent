@@ -99,7 +99,7 @@ export async function writeChatExport(
       ...options,
       describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
     });
-    const failed = writeExportFile(path, file.body, request.force === true);
+    const failed = writeExportFile(path, file.body, request.force === true, [cwd, state.workingDir]);
     if (failed) return `export failed (${path}): ${failed}`;
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") return "export failed: file already exists; use --force to overwrite it";

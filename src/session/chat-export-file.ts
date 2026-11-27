@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { closeSync, existsSync, lstatSync, openSync, realpathSync, renameSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { getConfig, getStateSecretPaths, getTrustConfigPaths } from "../config/index.js";
+import { getConfig, getSkillWriteProtectionPaths, getStateSecretPaths, getTrustConfigPaths } from "../config/index.js";
 import { chatExportFilename, type ChatExportFormat, type ChatExportOptions } from "./chat-export.js";
 import type { SessionState } from "./session-state.js";
 
@@ -49,18 +49,18 @@ function inside(root: string, path: string): boolean {
   return tail === "" || (tail !== ".." && !tail.startsWith(`..${sep}`) && !isAbsolute(tail));
 }
 
-const PROTECTED_DIRECTORIES = /(?:^|[\\/])(?:polic(?:y|ies)|skills|\.agents|\.claude|\.codex|\.cursor|\.atomic-agent)(?:[\\/]|$)/i;
-const PROTECTED_INSTRUCTIONS = /(?:^|[\\/])(?:(?:AGENTS?|CLAUDE|GEMINI|SKILL)\.md|policy\.(?:md|json|ya?ml|toml)|\.cursorrules)$/i;
-const COPILOT_INSTRUCTIONS = /(?:^|[\\/])\.github[\\/]copilot-instructions\.md$/i;
-
-function assertDestination(path: string, directory: string): void {
+function assertDestination(path: string, directory: string, workspaces: readonly string[]): void {
   const paths = getConfig().paths;
-  const entries = [paths.stateDir + sep, ...getStateSecretPaths(paths), ...getTrustConfigPaths(paths)];
+  const roots = [...new Set(workspaces.map(workspace => resolve(workspace)))];
+  const entries = [paths.stateDir + sep, ...getStateSecretPaths(paths), ...getTrustConfigPaths(paths),
+    ...getSkillWriteProtectionPaths(paths), ...roots.flatMap(root => [
+      join(root, ".agents") + sep, join(root, ".claude") + sep,
+      join(root, paths.projectSkillsDirName) + sep,
+      join(root, ".cursor", "skills") + sep, join(root, ".pi", "skills") + sep,
+      join(root, ".cursor", "rules") + sep,
+      ...["AGENTS.md", "AGENT.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md"].map(file => join(root, file)),
+    ])];
   for (const candidate of [resolve(path), directory, canonical(path)]) {
-    // Instructions and policy files must never become export destinations, including project skills.
-    if (PROTECTED_DIRECTORIES.test(candidate) || PROTECTED_INSTRUCTIONS.test(candidate) || COPILOT_INSTRUCTIONS.test(candidate)) {
-      throw new Error("protected policy or skill export destination");
-    }
     for (const entry of entries) {
       const dir = /[\\/]$/.test(entry);
       const root = resolve(entry);
@@ -72,11 +72,11 @@ function assertDestination(path: string, directory: string): void {
 }
 
 /** Exclusive create, or an adjacent owner-only temporary file atomically replacing a regular destination. */
-export function writeExportFile(path: string, body: string | Buffer, force: boolean): string | null {
+export function writeExportFile(path: string, body: string | Buffer, force: boolean, workspaces: readonly string[] = [process.cwd()]): string | null {
   let temporary: string | undefined;
   try {
     const directory = realpathSync.native(dirname(resolve(path)));
-    assertDestination(path, directory);
+    assertDestination(path, directory, workspaces);
     const target = join(directory, basename(path));
     try {
       const stat = lstatSync(target);
