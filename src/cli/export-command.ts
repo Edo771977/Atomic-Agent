@@ -1,4 +1,3 @@
-import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { getConfig } from "../config/index.js";
@@ -11,6 +10,9 @@ import {
 } from "../session/index.js";
 import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
+
+import { writeExportFile } from "../session/chat-export-file.js";
+export { writeExportFile } from "../session/chat-export-file.js";
 
 const HELP =
   [
@@ -83,23 +85,6 @@ export async function exportCommand(args: string[]): Promise<number> {
   }
   process.stderr.write(`exported ${state.id} -> ${path}\n`);
   return 0;
-}
-
-/**
- * Write the export to `path`: a new file only (`wx`) unless `force`.
- * Returns the message to print when it could not, else `null`. Exported
- * for tests.
- */
-export function writeExportFile(path: string, body: string | Buffer, force: boolean): string | null {
-  try {
-    writeFileSync(path, body, { flag: force ? "w" : "wx" });
-    return null;
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "EEXIST") {
-      return `${path} already exists; pass --force to overwrite it, or choose another --out`;
-    }
-    return `could not write ${path}: ${err instanceof Error ? err.message : String(err)}`;
-  }
 }
 
 export interface ParsedExportArgs {

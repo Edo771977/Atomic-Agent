@@ -1,9 +1,7 @@
-import { existsSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { extname, isAbsolute, join, resolve } from "node:path";
+import { extname } from "node:path";
 
 import {
-  chatExportFilename,
   encodeWinAnsi,
   exportChat,
   parseChatExportFormat,
@@ -14,7 +12,6 @@ import { describeToolCall } from "../../tools/describe-tool-call.js";
 import { getConfig } from "../../config/index.js";
 import { runtimeKnownSecrets } from "../../runtime/runtime-known-secrets.js";
 import { isIncognitoSession } from "../../session/incognito.js";
-import type { ChatExportOptions } from "../../session/chat-export.js";
 
 /**
  * `/export [md|docx|pdf|html] [path]` (ATO-1054): save the open chat as a
@@ -29,13 +26,9 @@ import type { ChatExportOptions } from "../../session/chat-export.js";
  * clipboard step here, the saved path is the answer.
  */
 
-export interface ChatExportRequest {
-  readonly format: ChatExportFormat;
-  /** As typed, or null for a file named after the chat in the current folder. */
-  readonly path: string | null;
-  readonly force?: boolean;
-  readonly incognitoConfirmed?: boolean;
-}
+export { resolveExportPath } from "../../session/chat-export-file.js";
+import { resolveExportPath, writeExportFile, type ChatExportRequest } from "../../session/chat-export-file.js";
+export type { ChatExportRequest } from "../../session/chat-export-file.js";
 
 const FORMAT_WORDS = new Set(["md", "markdown", "docx", "word", "pdf", "html", "htm"]);
 
@@ -78,48 +71,6 @@ export function parseExportCommand(rawArgs: string): ChatExportRequest {
   return { format: EXTENSION_FORMAT[extname(path).toLowerCase()] ?? "markdown", path, ...flags };
 }
 
-const EXTENSION: Record<ChatExportFormat, string> = { markdown: ".md", html: ".html", docx: ".docx", pdf: ".pdf" };
-
-/**
- * Where the file goes: `~` expanded, relative paths against `cwd`, a
- * folder (or a path ending in `/`) gets the chat's file name, a name
- * without an extension gets the format's. No path: the chat's file name
- * in `cwd`, numbered `name (2).md` rather than writing over a file.
- */
-export function resolveExportPath(
-  state: SessionState,
-  request: ChatExportRequest,
-  cwd: string,
-  home: string = homedir(),
-  options: ChatExportOptions = {},
-): string {
-  const fallback = chatExportFilename(state, request.format, options);
-  if (request.path === null) return firstFreePath(join(cwd, fallback));
-  const typed = request.path.replace(/^~(?=$|[\\/])/, home);
-  const full = isAbsolute(typed) ? typed : resolve(cwd, typed);
-  if (/[\\/]$/.test(typed) || isDirectory(full)) return join(full, fallback);
-  return extname(full) === "" ? `${full}${EXTENSION[request.format]}` : full;
-}
-
-function isDirectory(path: string): boolean {
-  try {
-    return statSync(path).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
-function firstFreePath(path: string): string {
-  if (!existsSync(path)) return path;
-  const ext = extname(path);
-  const base = path.slice(0, path.length - ext.length);
-  for (let n = 2; n < 1000; n += 1) {
-    const candidate = `${base} (${n})${ext}`;
-    if (!existsSync(candidate)) return candidate;
-  }
-  return path;
-}
-
 const FORMAT_LABEL: Record<ChatExportFormat, string> = { markdown: "Markdown", html: "HTML", docx: "Word", pdf: "PDF" };
 
 /**
@@ -143,7 +94,8 @@ export async function writeChatExport(
       ...options,
       describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
     });
-    writeFileSync(path, file.body, { flag: request.force === true ? "w" : "wx" });
+    const failed = writeExportFile(path, file.body, request.force === true);
+    if (failed) return `export failed (${path}): ${failed}`;
   } catch (error) {
     if ((error as NodeJS.ErrnoException)?.code === "EEXIST") return "export failed: file already exists; use --force to overwrite it";
     const reason = error instanceof Error ? error.message : String(error);

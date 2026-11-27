@@ -43,7 +43,7 @@ describe("/export writing the file (ATO-1054)", () => {
   let dir = "";
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "tui-export-"));
-    vi.stubEnv("ATOMIC_AGENT_STATE_DIR", dir);
+    vi.stubEnv("ATOMIC_AGENT_STATE_DIR", join(dir, "state"));
     resetConfigCache();
   });
   afterEach(() => {

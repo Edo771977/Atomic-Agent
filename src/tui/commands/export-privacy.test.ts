@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { inflateSync } from "node:zlib";
@@ -12,8 +12,9 @@ const sentinel = "b7a2_config_credential_91fe43a2";
 let dir: string;
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), "b7a2-export-"));
-  vi.stubEnv("ATOMIC_AGENT_STATE_DIR", dir);
-  writeFileSync(join(dir, "config.json"), JSON.stringify({version:USER_CONFIG_VERSION,llm:{activeTextProvider:"cloud",providers:[{id:"cloud",kind:"aimlapi",apiKey:sentinel,defaultChatModel:"fixture"}]}}));
+  vi.stubEnv("ATOMIC_AGENT_STATE_DIR", join(dir, "state"));
+  mkdirSync(join(dir, "state"));
+  writeFileSync(join(dir, "state", "config.json"), JSON.stringify({version:USER_CONFIG_VERSION,llm:{activeTextProvider:"cloud",providers:[{id:"cloud",kind:"aimlapi",apiKey:sentinel,defaultChatModel:"fixture"}]}}));
   resetConfigCache();
 });
 afterEach(() => { resetConfigCache(); vi.restoreAllMocks(); vi.unstubAllEnvs(); rmSync(dir,{recursive:true,force:true}); });
@@ -32,7 +33,7 @@ it("writes incognito only after the person's explicit TUI confirmation",async()=
 });
 it.each(["md","pdf","html","docx"])("masks configuration credentials in %s and the default filename",async format=>{
   expect(await writeChatExport(chat(),parseExportCommand(format),dir)).toMatch(/chat exported/);
-  const files=readdirSync(dir).filter(name=>name!=="config.json");
+  const files=readdirSync(dir).filter(name=>name!=="state");
   expect(files).toHaveLength(1);
   expect(files[0]).not.toContain(sentinel);
   const bytes=readFileSync(join(dir,files[0]!));
