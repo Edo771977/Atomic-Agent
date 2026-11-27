@@ -86,6 +86,10 @@ B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots l
 
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
 
+## Separate suggestion model
+
+C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment documentation. The candidate endpoint bypasses provider/host policy and Privacy Shield, attempts suggestions in offline mode and lacks validated credential/error handling. Existing suggestions through the configured model remain available. [Evidence and reopening tests](../reviews/c2b-next-step-endpoint.md).
+
 ## Fusion team
 
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).
