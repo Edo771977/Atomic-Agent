@@ -12,7 +12,9 @@ import { ProfileStore } from '../../src/memory/profile-store.ts';
 import { createHttpServer } from '../../src/http/http-server.ts';
 import { createRestoreMemoryChangeHandler } from '../../src/http/route-memory-history.ts';
 
-test('a child with an inherited owner key cannot restore a person-deleted note', {timeout:30_000},async()=>{
+for(const disabled of [false,true]) test(disabled
+  ? 'memory.notes.enabled=false makes restoration inert even for the owner'
+  : 'a child with an inherited owner key cannot restore a person-deleted note', {timeout:30_000},async()=>{
   const dir=mkdtempSync(join(tmpdir(),'b7a1-owner-boundary-'));
   const previousState=process.env.ATOMIC_AGENT_STATE_DIR;
   process.env.ATOMIC_AGENT_STATE_DIR=dir;
@@ -23,9 +25,17 @@ test('a child with an inherited owner key cannot restore a person-deleted note',
   const change=notes.getChangeLog().list()[0];
   assert.equal(change.by,'user');
   const owner='b7a1-synthetic-inherited-owner';
-  const server=await createHttpServer({runtime:{notesStore:notes,profileStore:profile,config:{}},host:'127.0.0.1',port:0,apiKey:owner,
+  const config={memory:{notes:{enabled:!disabled},profile:{enabled:!disabled},lessons:{enabled:!disabled},procedures:{enabled:!disabled}}};
+  const server=await createHttpServer({runtime:{notesStore:notes,profileStore:profile,config},host:'127.0.0.1',port:0,apiKey:owner,
     routes:[{method:'POST',path:'/api/memory/changes/{id}/restore',scope:'admin',handler:createRestoreMemoryChangeHandler()}]});
   try{
+    if(disabled){
+      const response=await fetch(`http://127.0.0.1:${server.port}/api/memory/changes/${change.id}/restore`,{method:'POST',headers:{authorization:`Bearer ${owner}`}});
+      await response.arrayBuffer();
+      assert.deepEqual({restored:notes.get(note.id)!==null,journalRestored:notes.getChangeLog().get(change.id).restoredAt!==null},
+        {restored:false,journalRestored:false},'disabled notes must not be restored or mark the journal restored');
+      return;
+    }
     const {stdout}=await promisify(execFile)(process.execPath,['-e',
       `fetch(process.env.B7A1_URL,{method:'POST',headers:{authorization:'Bearer '+process.env.B7A1_OWNER}}).then(r=>console.log(JSON.stringify({status:r.status}))).catch(()=>process.exit(2));`],
       {env:{...process.env,ATOMIC_AGENT_TOOL_CHILD:'1',B7A1_OWNER:owner,B7A1_URL:`http://127.0.0.1:${server.port}/api/memory/changes/${change.id}/restore`},timeout:20_000});

@@ -11,7 +11,7 @@ const body = source.replace(/^import[\s\S]*?from\s+"[^"]+";\r?\n/gm, '').replace
 const context = vm.createContext({ isNameProfileKey: () => false });
 vm.runInContext(stripTypeScriptTypes(body) + '\nglobalThis.restore = restoreMemoryChange;', context);
 const scope = JSON.stringify({key:'private-folder',allowedProviders:['local'],allowedEgress:[]});
-function run(extra = {}) {
+function run() {
   let restored;
   let marked = false;
   const before = {id:1,content:'kept',tags:[],constraintScope:scope,disabledAt:123,
@@ -19,9 +19,8 @@ function run(extra = {}) {
   const change = {id:1,kind:'note',op:'merge',target:'1',by:'agent',restoredAt:null,before};
   const notes = {getChangeLog:()=>({get:()=>change,markRestored:()=>{marked=true;}}),setTags:()=>true,
     restoreNote:snapshot=>{restored=snapshot;return snapshot;}};
-  context.restore(1,{notes,profile:{},...extra},2);
+  context.restore(1,{notes,profile:{}},2);
   return {restored,marked};
 }
 test('merge restore retains the absorbed constraint scope',()=>assert.equal(run().restored.constraintScope,scope));
 test('merge restore retains disabled state',()=>assert.equal(run().restored.disabledAt,123));
-test('disabled memory performs no restoration',()=>assert.equal(run({memoryEnabled:false}).restored,undefined));
