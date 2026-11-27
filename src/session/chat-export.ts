@@ -78,14 +78,15 @@ function maskPresentationText(text: string, known: readonly KnownSecret[]): stri
   // Match a conservative presentation projection while replacing the original
   // source range: Markdown delimiters/escapes, invisible/control characters and
   // compatibility forms must not hide a key until a renderer joins its pieces.
-  const project = (value: string) => decodeReferences(value).normalize("NFKD")
-    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
+  const project = projectPresentationText;
   const needles = known.map(secret => project(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
-  if (needles.length === 0) return maskSecrets(text, known);
+  if (needles.length === 0) return text;
+  const candidate = project(text);
+  if (!needles.some(needle => candidate.includes(needle))) return text;
   let projected = "";
   const starts: number[] = [];
   const ends: number[] = [];
-  for (const unit of text.matchAll(/&(?:amp;)*(?:#(?:x[\da-f]+|\d+)|[a-z][\da-z]+);|[\s\S]/giu)) {
+  for (const unit of text.matchAll(/&(?:amp;)*(?:#(?:x[\da-f]+|\d+);?|[a-z][\da-z]+;)|[\s\S]/giu)) {
     const value = project(unit[0]);
     for (let i = 0; i < value.length; i += 1) { starts.push(unit.index!); ends.push(unit.index! + unit[0].length); }
     projected += value;
@@ -104,7 +105,13 @@ function maskPresentationText(text: string, known: readonly KnownSecret[]): stri
     out += text.slice(consumed, Math.max(consumed, start)) + redactedMarker("secret");
     consumed = end;
   }
-  return maskSecrets(out + text.slice(consumed), known);
+  const masked = maskSecrets(out + text.slice(consumed), known);
+  return needles.some(needle => project(masked).includes(needle)) ? redactedMarker("secret") : masked;
+}
+
+function projectPresentationText(value: string): string {
+  return decodeReferences(value).normalize("NFKD")
+    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
 }
 
 /** Decode references for matching only; the original source offsets stay intact. */
@@ -139,12 +146,38 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
   if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[]/.test(text)) return maskSecrets(text, known);
   text = maskPresentationText(text, known);
   if (!/[*_`~&\[]/.test(text)) return text;
-  return Lexer.lex(text).map(token => {
-    const shown = inlineText([token]);
-    const masked = maskPresentationText(shown, known);
-    // Only a sensitive block loses inline markup. Keeping the safe plaintext
-    // prevents separate labels/runs from reassembling the key on a later parse.
-    return masked === shown ? token.raw : masked + (/\n*$/.exec(token.raw)?.[0] ?? "");
+  const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
+  let parserWorkLeft = 32_768;
+  return text.split(/(\n[\t ]*\n)/).map(block => {
+    if (!/[*_`~&\[]/.test(block)) return block;
+    const projected = projectPresentationText(block);
+    const possibleKey = () => needles.some(needle => {
+      let at = 0;
+      for (let i = 0; i < projected.length; i += 1) if (projected[i] === needle[at] && ++at === needle.length) return true;
+      return false;
+    });
+    // A reference label can be resolved by a definition in another block. Do
+    // not require document-wide lexing to detect that join: fail closed on a
+    // possible key subsequence in linked markup, regardless of reference scope.
+    if (block.includes("[")) {
+      const labels = projected.replace(/\]\[[^\]\r\n]*\]/g, "]").replace(/[\[\]]/g, "");
+      if (possibleKey() || maskSecrets(labels, known) !== labels) return redactedMarker("complex-markdown");
+    }
+    if (block.length > 2_048 || block.length > parserWorkLeft) {
+      if (possibleKey() || maskSecrets(projected, known) !== projected) return redactedMarker("complex-markdown");
+      // Literal code cannot join inline nodes, and keeps adversarial markup out
+      // of the document renderer's inline parser as well as our own parser.
+      return block.split("\n").map(line => line.length ? "    " + line : line).join("\n");
+    }
+    // Source projection already handles delimiter/entity-only known values.
+    // Only link/node syntax or a possible normal detector match needs parsing.
+    if (!block.includes("[") && maskSecrets(projected, known) === projected) return block;
+    parserWorkLeft -= block.length;
+    return Lexer.lex(block).map(token => {
+      const shown = inlineText([token]);
+      const masked = maskPresentationText(shown, known);
+      return masked === shown ? token.raw : masked + (/\n*$/.exec(token.raw)?.[0] ?? "");
+    }).join("");
   }).join("");
 }
 

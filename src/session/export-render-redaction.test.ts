@@ -21,6 +21,7 @@ const variants = [
   ["escaped initial entity", "&amp;#115;entinel_731key"],
   ["underscore link label", "sentinel[_](https://example.invalid)731key"],
   ["prefix link label", "[sentinel](https://example.invalid)_731key"],
+  ["reference link label", "[sentinel][ref]_731key\n\n[ref]: https://example.invalid"],
   ["invisible", "sentinel_\u200b731key"],
   ["fullwidth", fullwidth(secret)],
   ["escape", "sentinel\\_731key"],
@@ -68,6 +69,7 @@ it.each([
   "Authorization: Bearer ABCD**EFghijkLMN0123456789abcdEF**",
   "Authorization: Bearer ABCD`EFghijkLMN0123456789abcdEF`",
   "Authorization: Bearer A&#66;CDEFghijkLMN0123456789abcdEF",
+  "Authorization: [Bearer][ref] ABCDEFghijkLMN0123456789abcdEF\n\n[ref]: https://example.invalid",
 ])("HTML preserves normal credential detection after parsing: %s", async markdown => {
   const shown = await visible("html", renderChatHtml(markdown, "fixture", { knownSecrets: [] }));
   expect(decodeHTML(shown)).not.toContain("ABCDEFghijkLMN0123456789abcdEF");
