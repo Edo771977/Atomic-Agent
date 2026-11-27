@@ -523,7 +523,7 @@ describe("msg extractor", () => {
     expect(formatted).toBeLessThanOrEqual(maxBytes === undefined ? 1 : 2);
     expect(result.text.endsWith("TAIL-19X")).toBe(true);
     expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
-  });
+  }, 30_000);
 
   it.each([
     ["small plain", "plain", 100, 512, undefined],

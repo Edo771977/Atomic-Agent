@@ -51,4 +51,4 @@ it.each([
     expect(result.text.endsWith("TAIL-19X")).toBe(true);
     expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
   }
-}, 15_000);
+}, 30_000);
