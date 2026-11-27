@@ -3,6 +3,8 @@ import type { OpenAiHttpDeps } from "./openai-http.js";
 import { openAiPostJson } from "./openai-http.js";
 import { normaliseMessageContent, normaliseOpenAiUsage } from "./openai-normalise-response.js";
 import { modelParamProfile, resolveTemperature } from "./model-params.js";
+import { temperatureLessonFromError } from "./allowed-temperature.js";
+import { bodyAfterTemperatureLesson } from "./temperature-resend.js";
 
 /**
  * The provider's body passthrough, applied to the describe call the way
@@ -17,7 +19,7 @@ export interface DescribeImageBodyOptions {
    * Anthropic Messages API, `OpenAiProviderOptions.wire`): the body is
    * translated last and posted to its route, and the reply translated
    * back, exactly as for a unary turn. Image parts become native image
-   * blocks (`image_url` data URL → base64 source).
+   * blocks (`image_url` data URL â†’ base64 source).
    */
   wire?: {
     readonly chatPath: string;
@@ -109,15 +111,19 @@ export async function postUserPartsViaOpenAi(
   const wire = bodyOptions.wire;
   const path = wire ? wire.chatPath : `${apiPathPrefix}/chat/completions`;
   const start = Date.now();
-  const sent = await openAiPostJson(
-    deps,
-    path,
-    wire ? wire.toWireBody(body) : body,
-    request,
-  );
-  const json = wire
-    ? wire.fromWireResponse(sent, { url: `${deps.baseUrl}${path}`, label: deps.label })
-    : sent;
+  const send = async (attemptBody: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const sent = await openAiPostJson(deps, path, wire ? wire.toWireBody(attemptBody) : attemptBody, request);
+    return wire ? wire.fromWireResponse(sent, { url: `${deps.baseUrl}${path}`, label: deps.label }) : sent;
+  };
+  let json: Record<string, unknown>;
+  try {
+    json = await send(body);
+  } catch (err) {
+    const resend = request.signal?.aborted ? undefined
+      : bodyAfterTemperatureLesson(model, temperatureLessonFromError(err), body);
+    if (resend === undefined) throw err;
+    json = await send(resend);
+  }
   const message =
     (
       json.choices as Array<{ message?: Record<string, unknown> }> | undefined
@@ -125,7 +131,7 @@ export async function postUserPartsViaOpenAi(
   let text = normaliseMessageContent(message.content).trim();
   // Reasoning-only response: the model answered inside its think channel
   // and left `content` empty. The reasoning body is the best available
-  // description — better than returning an empty string the tool caller
+  // description â€” better than returning an empty string the tool caller
   // treats as "saw nothing".
   if (text.length === 0 && typeof message.reasoning_content === "string") {
     text = message.reasoning_content.trim();
