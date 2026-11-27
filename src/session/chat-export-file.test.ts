@@ -31,3 +31,9 @@ it("returns a failure and keeps the destination when an adjacent temporary canno
   expect(readFileSync(path, "utf8")).toBe("original");
   expect(readdirSync(root).sort()).toEqual(["chat.md", "state"]);
 });
+
+it("documents the 0600 permission transition on forced replacement", () => {
+  const guide = readFileSync(new URL("./README.md", import.meta.url), "utf8");
+  expect(guide).toMatch(/--force[^\n]*0600/);
+  expect(guide).toMatch(/does not copy the previous file mode/);
+});
