@@ -199,6 +199,10 @@ The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install
 
 The editor-launched ACP command from upstream #1646 remains deferred in B3. Its full three-commit branch was reviewed: the candidate admits marked tool children and guesses worker approval ownership from the sole busy chat. Upstream also supports persistent allow-always grants from editor replies. The fork exposes no ACP command or listener pending reliable attribution and preservation of its operator confirmation rules. [HTTP review](../../src/http/README.md)
 
+## Local fallback consent
+
+B7a4 defers upstream #1576 local-fallback consent. The candidate persistence owner accepts marked-child answers and the HTTP route adds no independent operator decision. No automatic question or answer file is enabled. [Evidence](../reviews/b7a4-local-last-resort.md).
+
 ## Setup and measurement
 
 - **`atomic-agent setup fusion`.** One step from install to "cloud plans, local executes" ([#13](https://github.com/Edo771977/atomic-agent/pull/13)).

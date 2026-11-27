@@ -51,6 +51,8 @@ Feature views now live with their local state/input/orchestration/tests. Global 
 
 [Shared primitives and shell composition](components/README.md) classifies every remaining production component. Generic editor/list/logo/formatting and theme remain independent of feature implementations; shell composition can join features. Privacy/integrations/swarm retain their existing local components/ directories without artificial flattening.
 
+B7a4 keeps upstream #1576 deferred: no local-fallback question, answer file or HTTP route is added until operator consent cannot be forged with an inherited owner credential. Existing fallback policy and manual controls remain in force. [Review](../../docs/reviews/b7a4-local-last-resort.md).
+
 ## Task-specific reading
 
 Read docs/interface.md for input/layout/orchestrator edits; the underlying domain AGENTS.md when changing its settings or operations.
