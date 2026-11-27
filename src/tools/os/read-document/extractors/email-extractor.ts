@@ -48,15 +48,21 @@ export const emlExtractor: Extractor = async (input) => {
   };
   const text = renderMessage(raw, 0, warnings, budget, output, "", range);
   const attachmentOffset = range.start - range.seen - 1;
-  if (attachmentOffset >= 0 && attachmentOffset < range.attachments.length) {
+  if (input.pagesFrom !== undefined && attachmentOffset >= 0 && attachmentOffset < range.attachments.length) {
     const listing = new FragmentOutput(output.limit);
-    const rows = range.attachments.slice(attachmentOffset);
-    const displayed = listing.append(attachmentList(rows));
+    const displayed = appendAttachmentLines(listing, "", range.attachments, attachmentOffset);
+    const remaining = attachmentOffset + displayed.count < range.attachments.length;
+    if (remaining) {
+      const next = range.start + displayed.count;
+      warnings.push(displayed.count === 0
+        ? `No complete MIME attachment line fits within maxBytes. Increase maxBytes and use pagesFrom=${next} to retry.`
+        : attachmentContinuation(next));
+    }
     return {
       format: "eml",
-      text: displayed.trim(),
+      text: displayed.text,
       warnings: dedupe(warnings),
-      ...(listing.truncated && { truncated: true }),
+      ...(remaining && { truncated: true }),
     };
   }
   if (range.partial !== undefined) {
@@ -73,14 +79,13 @@ export const emlExtractor: Extractor = async (input) => {
     warnings.push(`MIME pagesFrom=${range.start} exceeds the ${range.seen} available body parts.`);
   }
   if (range.pendingAttachment !== undefined) {
-    const next = range.seen + range.pendingAttachment + 1;
-    warnings.push(`MIME attachments were deferred. Use pagesFrom=${next} to read the remaining attachment list.`);
+    warnings.push(attachmentContinuation(range.seen + range.pendingAttachment + 1));
   }
   return {
     format: "eml",
     text: text.trim(),
     warnings: dedupe(warnings),
-    ...((budget.exhausted || output.truncated) && { truncated: true }),
+    ...((budget.exhausted || output.truncated || range.pendingAttachment !== undefined) && { truncated: true }),
   };
 };
 
@@ -126,6 +131,10 @@ export const mboxExtractor: Extractor = async (input) => {
     const item = separators ? `--- message ${n} ---\n${text}` : text;
     const shown = output.appendItem(chunks.length && item ? "\n\n" : "", item, message.truncated);
     if (shown.text) chunks.push(shown.text);
+    if (message.attachmentListingLimited && shown.status !== "deferred") {
+      output.truncated = true;
+      warnings.push(`MBOX attachments for message ${n} were deferred. Increase maxBytes and retry with pagesFrom=${n} to read the complete list.`);
+    }
     if (shown.status === "partial") {
       const continuation = n < total ? ` Use pagesFrom=${n + 1} to continue with the next message.` : "";
       warnings.push(`MBOX message ${n} was truncated.${continuation}`);
@@ -340,8 +349,10 @@ function renderMessage(
   const body = renderPart(part, depth, warnings, attachments, budget, output, bodyPrefix, range);
   const attachmentOffset = range?.attachments.length ?? 0;
   if (range) for (const attachment of attachments) range.attachments.push(attachment);
-  const deferAttachments = () => {
-    if (range && attachments.length > 0) range.pendingAttachment ??= attachmentOffset;
+  const deferAttachments = (displayed = 0) => {
+    if (displayed === attachments.length) return;
+    if (range) range.pendingAttachment ??= attachmentOffset + displayed;
+    else output.attachmentListingLimited = true;
   };
   if (range && depth > 0) {
     // A forwarded message that contains only attachments belongs to the
@@ -358,13 +369,26 @@ function renderMessage(
   }
   if (attachments.length > 0) {
     const attachmentPrefix = body ? "\n\n" : bodyPrefix;
-    return body + output.append(attachmentPrefix + attachmentList(attachments));
+    const listing = appendAttachmentLines(output, attachmentPrefix, attachments);
+    deferAttachments(listing.count);
+    return body + listing.text;
   }
   return body || (head ? output.append(prefix + head) : "");
 }
 
-function attachmentList(attachments: string[]): string {
-  return `Attachments:\n${attachments.map((attachment) => `- ${attachment}`).join("\n")}`;
+function attachmentContinuation(index: number): string {
+  return `MIME attachments were deferred. Use pagesFrom=${index} to read the remaining attachment list.`;
+}
+
+function appendAttachmentLines(output: FragmentOutput, prefix: string, attachments: string[], start = 0) {
+  const rows: string[] = [];
+  for (let index = start; index < attachments.length; index++) {
+    const leading = rows.length ? "\n" : prefix + "Attachments:\n";
+    const row = leading + "- " + attachments[index];
+    if (Buffer.byteLength(row) > output.remaining) break;
+    rows.push(output.append(row));
+  }
+  return { text: rows.join(""), count: rows.length };
 }
 
 function renderTextPart(
@@ -467,7 +491,8 @@ function renderPart(
 
   const isText = mime === "text/plain" || mime === "text/html";
   if (!isText || attached) {
-    const label = decodeHeaderWords(disposition.params.filename ?? type.params.name ?? "") || "(unnamed)";
+    const label = decodeHeaderWords(disposition.params.filename ?? type.params.name ?? "")
+      .replace(/[\r\n]+/g, " ").trim() || "(unnamed)";
     attachments.push(`${label} (${mime}, ${formatSize(attachmentSize(part.body, encoding))})`);
     return "";
   }

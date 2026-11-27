@@ -69,6 +69,7 @@ export class FragmentOutput {
   stopped = false;
   partialItem = false;
   framingLimited = false;
+  attachmentListingLimited = false;
 
   constructor(readonly limit: number) {}
 
