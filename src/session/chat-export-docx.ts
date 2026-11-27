@@ -1,5 +1,6 @@
 import JSZip from "jszip";
 import { Lexer, type Token, type Tokens } from "marked";
+import { maskChatExportText, type ChatExportOptions } from "./chat-export.js";
 
 /**
  * Markdown to a Word document (ATO-1054), with no Word, pandoc or
@@ -190,7 +191,8 @@ function table(t: Tokens.Table): string {
 }
 
 /** `word/document.xml` for `markdown`. Exported for tests. */
-export function markdownToDocumentXml(markdown: string): string {
+export function markdownToDocumentXml(markdown: string, options: ChatExportOptions = {}): string {
+  markdown = maskChatExportText(markdown, options);
   const body = blocks(Lexer.lex(markdown)).join("");
   return (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' +
@@ -232,11 +234,12 @@ export async function renderMarkdownDocx(
   markdown: string,
   title: string,
   now: number = Date.now(),
+  options: ChatExportOptions = {},
 ): Promise<Buffer> {
   const zip = new JSZip();
   zip.file("[Content_Types].xml", CONTENT_TYPES);
   zip.file("_rels/.rels", PACKAGE_RELS);
-  zip.file("docProps/core.xml", coreProps(title, now));
-  zip.file("word/document.xml", markdownToDocumentXml(markdown));
+  zip.file("docProps/core.xml", coreProps(maskChatExportText(title, options), now));
+  zip.file("word/document.xml", markdownToDocumentXml(markdown, options));
   return zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 }

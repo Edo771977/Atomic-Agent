@@ -1,6 +1,8 @@
 import { deflateSync } from "node:zlib";
 
 import { Lexer, type Token, type Tokens } from "marked";
+import { knownSecretsFromEnv } from "../error-reporting/secret-detector.js";
+import { maskChatExportText, type ChatExportOptions } from "./chat-export.js";
 
 /**
  * Markdown to a PDF (ATO-1054) with Node alone: no browser, no PDF
@@ -286,7 +288,7 @@ function wrap(pieces: readonly Piece[], width: number, size: number): Piece[][] 
 class PdfLayout {
   readonly writer = new PageWriter();
 
-  constructor(private readonly enc: WinAnsiEncoder) {}
+  constructor(private readonly enc: WinAnsiEncoder, private readonly options: ChatExportOptions) {}
 
   private inline(tokens: readonly Token[] | undefined, font: FontKey, out: Piece[]): Piece[] {
     for (const token of tokens ?? []) this.inlineToken(token, font, out);
@@ -346,6 +348,9 @@ class PdfLayout {
   }
 
   private paragraph(pieces: readonly Piece[], size: number, options: LineOptions, after: number): void {
+    const joined = pieces.map(piece => piece.text).join("");
+    const masked = maskChatExportText(joined, this.options);
+    if (masked !== joined) pieces = [{ text: masked, font: "R" }];
     const indent = options.indent ?? 0;
     wrap(pieces, CONTENT_W - indent, size).forEach((line, i) => {
       this.writer.line(line, size, i === 0 ? options : { ...options, marker: undefined });
@@ -383,7 +388,7 @@ class PdfLayout {
         const perLine = Math.max(1, Math.floor((CONTENT_W - indent) / (CODE_SIZE * 0.6)));
         let marker = options.marker;
         for (const raw of (token as Tokens.Code).text.split("\n")) {
-          const text = this.enc.encode(raw);
+          const text = maskChatExportText(this.enc.encode(raw), this.options);
           const chunks = text.length === 0 ? [""] : (text.match(new RegExp(`.{1,${perLine}}`, "g")) ?? [""]);
           for (const chunk of chunks) {
             this.writer.line([{ text: chunk, font: "M" }], CODE_SIZE, { ...options, indent, shade: true, marker });
@@ -534,12 +539,13 @@ function serialize(pages: readonly string[][], title: string, now: number): Buff
 }
 
 /** A `.pdf` file holding `markdown`, titled `title`. */
-export function renderMarkdownPdf(markdown: string, title: string, now: number = Date.now()): Buffer {
+export function renderMarkdownPdf(markdown: string, title: string, now: number = Date.now(), options: ChatExportOptions = {}): Buffer {
   const enc = new WinAnsiEncoder();
-  const layout = new PdfLayout(enc);
-  layout.blocks(Lexer.lex(markdown));
+  const knownSecrets = (options.knownSecrets ?? knownSecretsFromEnv()).map(secret => ({ ...secret, value: encodeWinAnsi(secret.value).text }));
+  const layout = new PdfLayout(enc, { ...options, knownSecrets });
+  layout.blocks(Lexer.lex(maskChatExportText(markdown, options)));
   if (enc.changed > 0) layout.note(enc.changed);
-  return serialize(layout.writer.pages, title, now);
+  return serialize(layout.writer.pages, maskChatExportText(title, options), now);
 }
 
 /** Exported for tests: the encoder on its own. */
