@@ -44,3 +44,5 @@ original session. Successful activation leaves the current panel open.
 Interactive starts skip the optional throughput benchmark and reuse any cached
 measurement. Background backend checks share lifecycle ownership without blocking
 Send while the current daemon is healthy.
+
+B7a5 wraps the complete queued public start with the shared start-pending marker, including pre-daemon backend/device/port work. The marker stays until start failure or cancellation settles and is removed in finally. [Tests](start-pending-lifecycle.test.ts).

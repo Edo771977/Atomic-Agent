@@ -48,6 +48,8 @@ Legacy Fusion model overrides apply to the orchestrator’s own fallback link an
 
 [composition/runtime-project.ts](composition/runtime-project.ts) (issue #39) is the person's side of `SessionState.project`. `runtime.projectState(sessionId)` returns the `ProjectGateView` a surface draws (types in `session/project-gate-view.ts`, built by `tools/fusion/project-gate-view.ts`); `runtime.projectDecision(sessionId, decision)` applies `applyProjectDecision` between turns only (`turn-running` while the session is busy in this process or its stored status is live with an owner process still alive, `SessionStore.liveTurnElsewhere`, a turn of another process on the state dir; a status a crashed process left behind does not block, issue #74), with hard caps, re-estimates and the cheaper/quality variants computed from the live team, prices, folder policy and limits (`liveProjectInputsFrom`; the daily limit holds the next milestone, `nextMilestoneOf`: a failed one at its gate, else the one approved or running, else the one an approval would start by the session's own rule, `milestoneToApproveNext`, issue #80), persists the session and returns the project and view or a typed error. Every decision and every turn that moves the gate (`onProjectTurnEnd`) emits `project_gate` with the full view.
 
+B7a4 keeps upstream #1576 deferred: no local-fallback question, answer file or HTTP route is added until operator consent cannot be forged with an inherited owner credential. Existing fallback policy and manual controls remain in force. [Review](../../docs/reviews/b7a4-local-last-resort.md).
+
 ## Task-specific reading
 
 Read docs/lifecycle.md before changing ownership, shutdown or steering; ../llm/docs/fallback.md before changing fallback wiring.
@@ -63,3 +65,5 @@ Context compaction is owned by [context-compaction.ts](context-compaction.ts) an
 When the director, plan reviewer or worker receives an active lesson from a provider-constrained project, runtime refuses memory writes and skips reflection for the rest of the turn. The stable tool prefix stays the same. Segmented reflection skips any window containing an exposed turn, including after its lesson has been retired. Compaction still saves its checkpoint, but skips the memory flush when the compacted span includes part or all of an exposed turn.
 
 Side questions use a separate btw: routing partition and do not mutate the owning chat or its stable prefix. Every call has a fresh Privacy Shield archive, including draft, concurrent same-chat, failed, cancelled and incognito calls. The temporary archive is never inserted into the session registry.
+
+B7a5 recognizes start_pending before the managed engine lock exists. A free-lock marker has no lockOwner attribution and keeps the existing no-process wait ceiling; actual live/reused lock-owner behavior is preserved. [Review](../../docs/reviews/b7a5-start-marker.md).

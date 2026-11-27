@@ -1,0 +1,1020 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "upstream": [
+    {
+      "sha": "ba8bf83430108512021948f72f33283519b55492",
+      "parents": "89d65615e36b763b35bc81c1e64304bd2d0e5c7c",
+      "subject": "fix(agent): wait for a chat start that has not reached the engine lock yet (ATO-421)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    },
+    {
+      "sha": "499fc102f14fb915404bb6f16278f65eda3092a4",
+      "parents": "ba8bf83430108512021948f72f33283519b55492",
+      "subject": "fix(tui): hold the start marker across the TUI's whole start (ATO-421)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    }
+  ],
+  "disposition": "cherry-picked separately with -x, followed by fork adaptations",
+  "checks": [
+    {
+      "command": "npm ci",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "focused",
+      "exitCode": 1
+    },
+    {
+      "command": "full",
+      "actualCommand": "npm test -- --reporter=json --outputFile=../b7a5-full-early.json",
+      "exitCode": 1,
+      "execution": "independent complete run; queued duplicate prevented after focused completed"
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0,
+      "rerun": "types-final"
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-final"
+    }
+  ],
+  "reports": {
+    "red": {
+      "counts": {
+        "numTotalTests": 2,
+        "numPassedTests": 0,
+        "numFailedTests": 2,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before the TUI's backend work and removes it after a thrown start",
+          "status": "failed",
+          "failures": [
+            "Error: expected [Function] to throw error including 'synthetic backend failure' but got 'ENOENT: no such file or directory, op…'\n    at Assertion.__VITEST_REJECTS__ (file:///<local>/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///<local>/node_modules/chai/index.js:1607:27)\n    at Reflect.get (<anonymous>)\n    at Object.proxyGetter [as get] (file:///<local>/node_modules/chai/index.js:1696:22)\n    at <local>/src/tui/local-models/start-pending-lifecycle.t"
+          ]
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected false to be true // Object.is equality\n    at <local>/src/tui/local-models/start-pending-lifecycle.test.ts:33:32\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        }
+      ]
+    },
+    "green": {
+      "counts": {
+        "numTotalTests": 91,
+        "numPassedTests": 91,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process dead reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process no_pid reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process alive reads alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process unknown reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) external mode is never judged: the operator's server may come back by itself",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link openrouter is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link my-llama is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link undefined is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) behind a cloud provider the local link is a fallback tail: a cloud outage keeps its wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) a probe that throws reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link, as the active provider, reads atomic_chat_app without probing the managed engine (ATO-1278)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link as a fallback behind another provider stays unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) passes the liveness branch through as the reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) names why the engine was not looked at",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) a probe that throws is unknown, never dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) agrees with readLocalEngineState on the state",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether a model process exists when the lock hides the pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether the lock's owner is a live process or one still writing its pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) a probe that throws is unknown, never none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) is not asked when the lock is not what made the reading unknown, nor for other links",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse reports the lock's age beside a live owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner pid that started after the lock was written is a reused pid, not the lock's owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner probe that throws or finds nothing leaves the owner live with no age",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse the live-owner ceiling outlasts Atomic Core's own model load timeout, and the no-process ceiling",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a start on its way before the lock (ATO-421) asks whether a model process exists, so the no-process ceiling bounds the wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is written as a start begins and removed as it ends",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is removed when the start throws",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) nested marks in one process keep the marker until the outermost ends",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) never removes another starter's marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker another live process holds counts; a gone owner's does not",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) this process's own leftover marker counts only while it holds a start",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker older than the stale bound, or from before the last boot, is no start",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) an empty marker counts only while it is fresh",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) no pid file is no_pid: never started, or stopped",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) an empty or garbled pid record is no_pid, like readRunningPid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a live recorded pid is alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a recorded pid that is gone is dead, and the pid file is left in place",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a process owned by another user counts as running",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) an engine operation under way (start, load, install) is unknown even with no pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a stale operation lock whose owner is gone does not hide a dead engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a probe that throws is unknown, never dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) names the branch for each pid reading",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock held by another live process is a start or load under way: still unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock this process holds is still unknown, and says so",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock whose owner is dead, with no engine pid, reads no_pid: the turn can end",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock written before the last boot is stale even when its pid now names a live process",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a pid file written before the last boot is dead even when the pid is reused",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock held longer than any honest operation does not hide a dead engine (ATO-1433)",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a fresh lock held by another live process still keeps the wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) an unreadable lock is not a start under way: the pid decides (ATO-1433)",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) reads the pid file even while the engine lock is held",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) no pid file, an empty one or a gone pid is none",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) another user's process counts as running",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) no pid file with a start on its way is unknown (start_pending), not no_pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a dead recorded pid with a start on its way (the restart after a crash) is start_pending",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) never hides a live model process behind the marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a marker probe that throws leaves the reading as it was",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) reads the real marker a start writes",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a managed Core turn reports the engine, the outage and the probed process state",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure names the managed llama-server engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure external mode never probes a process",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a cloud turn carries the provider but no local engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure prefers the link that threw over the configured active provider",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure passes the failed request's URL and the managed ports on for the route tags (ATO-872)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure leaves the URL out when the error carries none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a probe that throws reports unknown instead of losing the event",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) marks the refusal and probes the managed engine's liveness",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) sees the refusal under the turn's local_engine_down ending",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) never probes an external server's process",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) does not probe liveness when the connection was not refused",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) carries why the engine was judged so, and the lock as read (ATO-1275)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) an explaining probe that throws reports unknown with no reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) a liveness probe that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) reads it for a managed local-llama failure",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) never reads it for an external server or a cloud link",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) a log read that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a config read that throws still returns the outage numbers",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: a taken managed port (ATO-1277) marks a LocalPortTakenError as a port held by another program",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: a taken managed port (ATO-1277) a plain 401 carries no such mark",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: what the outage wait decided on (ATO-1432) carries the first and last verdict from the outage, as the turn read them",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: what the outage wait decided on (ATO-1432) an outage with no verdict carries none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a refusal with the engine dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a refusal with the engine no_pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it with the engine alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it with the engine unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a start that never got its model up (start_pending, ATO-421)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it for an external server or a failure that was not a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) a log read that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: true)",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: false)",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "passed"
+        }
+      ]
+    },
+    "candidate": {
+      "counts": {
+        "numTotalTests": 90,
+        "numPassedTests": 89,
+        "numFailedTests": 1,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process dead reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process no_pid reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process alive reads alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process unknown reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) external mode is never judged: the operator's server may come back by itself",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link openrouter is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link my-llama is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link undefined is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) behind a cloud provider the local link is a fallback tail: a cloud outage keeps its wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) a probe that throws reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link, as the active provider, reads atomic_chat_app without probing the managed engine (ATO-1278)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link as a fallback behind another provider stays unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) passes the liveness branch through as the reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) names why the engine was not looked at",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) a probe that throws is unknown, never dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) agrees with readLocalEngineState on the state",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether a model process exists when the lock hides the pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether the lock's owner is a live process or one still writing its pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) a probe that throws is unknown, never none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) is not asked when the lock is not what made the reading unknown, nor for other links",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse reports the lock's age beside a live owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner pid that started after the lock was written is a reused pid, not the lock's owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner probe that throws or finds nothing leaves the owner live with no age",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse the live-owner ceiling outlasts Atomic Core's own model load timeout, and the no-process ceiling",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a start on its way before the lock (ATO-421) asks whether a model process exists, so the no-process ceiling bounds the wait",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected { state: 'unknown', …(3) } to deeply equal { state: 'unknown', …(2) }\n    at <local>/src/runtime/local-engine-state.test.ts:170:8\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<local>/node_modules/@vitest/runner/d"
+          ]
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is written as a start begins and removed as it ends",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) is removed when the start throws",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) nested marks in one process keep the marker until the outermost ends",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) never removes another starter's marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker another live process holds counts; a gone owner's does not",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) this process's own leftover marker counts only while it holds a start",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) a marker older than the stale bound, or from before the last boot, is no start",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/chat-start-pending.test.ts :: chat start pending marker (ATO-421) an empty marker counts only while it is fresh",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) no pid file is no_pid: never started, or stopped",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) an empty or garbled pid record is no_pid, like readRunningPid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a live recorded pid is alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a recorded pid that is gone is dead, and the pid file is left in place",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a process owned by another user counts as running",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) an engine operation under way (start, load, install) is unknown even with no pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a stale operation lock whose owner is gone does not hide a dead engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedEngineLiveness (ATO-772) a probe that throws is unknown, never dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) names the branch for each pid reading",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock held by another live process is a start or load under way: still unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock this process holds is still unknown, and says so",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock whose owner is dead, with no engine pid, reads no_pid: the turn can end",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock written before the last boot is stale even when its pid now names a live process",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a pid file written before the last boot is dead even when the pid is reused",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a lock held longer than any honest operation does not hide a dead engine (ATO-1433)",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) a fresh lock held by another live process still keeps the wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness (ATO-1275) an unreadable lock is not a start under way: the pid decides (ATO-1433)",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) reads the pid file even while the engine lock is held",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) no pid file, an empty one or a gone pid is none",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: readManagedModelProcess (ATO-1434) another user's process counts as running",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) no pid file with a start on its way is unknown (start_pending), not no_pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a dead recorded pid with a start on its way (the restart after a crash) is start_pending",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) never hides a live model process behind the marker",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) a marker probe that throws leaves the reading as it was",
+          "status": "passed"
+        },
+        {
+          "name": "src/local-llm/server/engine-liveness.test.ts :: explainManagedEngineLiveness: a chat start on its way (ATO-421) reads the real marker a start writes",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a managed Core turn reports the engine, the outage and the probed process state",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure names the managed llama-server engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure external mode never probes a process",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a cloud turn carries the provider but no local engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure prefers the link that threw over the configured active provider",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure passes the failed request's URL and the managed ports on for the route tags (ATO-872)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure leaves the URL out when the error carries none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a probe that throws reports unknown instead of losing the event",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) marks the refusal and probes the managed engine's liveness",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) sees the refusal under the turn's local_engine_down ending",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) never probes an external server's process",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) does not probe liveness when the connection was not refused",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) carries why the engine was judged so, and the lock as read (ATO-1275)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) an explaining probe that throws reports unknown with no reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure refused connections (ATO-421) a liveness probe that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) reads it for a managed local-llama failure",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) never reads it for an external server or a cloud link",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure the managed engine's fault from its log (ATO-1279) a log read that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure a config read that throws still returns the outage numbers",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: a taken managed port (ATO-1277) marks a LocalPortTakenError as a port held by another program",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: a taken managed port (ATO-1277) a plain 401 carries no such mark",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: what the outage wait decided on (ATO-1432) carries the first and last verdict from the outage, as the turn read them",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: what the outage wait decided on (ATO-1432) an outage with no verdict carries none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a refusal with the engine dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a refusal with the engine no_pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it with the engine alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it with the engine unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) reads it for a start that never got its model up (start_pending, ATO-421)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) never reads it for an external server or a failure that was not a refusal",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/composition/llm-failure-context.test.ts :: describeLlmFailure: why the engine's process is gone (ATO-1435) a log read that throws reports unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before the TUI's backend work and removes it after a thrown start",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "passed"
+        }
+      ]
+    },
+    "prerequisite-red": {
+      "counts": {
+        "numTotalTests": 2,
+        "numPassedTests": 0,
+        "numFailedTests": 2,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before the TUI's backend work and removes it after a thrown start",
+          "status": "failed",
+          "failures": [
+            "Error: expected [Function] to throw error including 'synthetic backend failure' but got 'ENOENT: no such file or directory, op…'\n    at Assertion.__VITEST_REJECTS__ (file:///<local>/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///<local>/node_modules/chai/index.js:1607:27)\n    at Reflect.get (<anonymous>)\n    at Object.proxyGetter [as get] (file:///<local>/node_modules/chai/index.js:1696:22)\n    at <local>/src/tui/local-models/start-pending-lifecycle.t"
+          ]
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected false to be true // Object.is equality\n    at <local>/src/tui/local-models/start-pending-lifecycle.test.ts:33:32\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        }
+      ]
+    },
+    "adaptation-red": {
+      "counts": {
+        "numTotalTests": 28,
+        "numPassedTests": 26,
+        "numFailedTests": 2,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process dead reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process no_pid reads dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process alive reads alive",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) managed local-llama with the process unknown reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) external mode is never judged: the operator's server may come back by itself",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link openrouter is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link my-llama is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) link undefined is not the managed engine",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) behind a cloud provider the local link is a fallback tail: a cloud outage keeps its wait",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) a probe that throws reads unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link, as the active provider, reads atomic_chat_app without probing the managed engine (ATO-1278)",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: readLocalEngineState (ATO-772) the Atomic Chat link as a fallback behind another provider stays unknown",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) passes the liveness branch through as the reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) names why the engine was not looked at",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) a probe that throws is unknown, never dead",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState (ATO-1432) agrees with readLocalEngineState on the state",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether a model process exists when the lock hides the pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) says whether the lock's owner is a live process or one still writing its pid",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) a probe that throws is unknown, never none",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a held lock with no model process (ATO-1434) is not asked when the lock is not what made the reading unknown, nor for other links",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse reports the lock's age beside a live owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner pid that started after the lock was written is a reused pid, not the lock's owner",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse an owner probe that throws or finds nothing leaves the owner live with no age",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: the lock owner's age and pid reuse the live-owner ceiling outlasts Atomic Core's own model load timeout, and the no-process ceiling",
+          "status": "passed"
+        },
+        {
+          "name": "src/runtime/local-engine-state.test.ts :: explainLocalEngineState: a start on its way before the lock (ATO-421) asks whether a model process exists, so the no-process ceiling bounds the wait",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected { state: 'unknown', …(3) } to deeply equal { state: 'unknown', …(2) }\n    at <local>/src/runtime/local-engine-state.test.ts:170:8\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<local>/node_modules/@vitest/runner/d"
+          ]
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: true)",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: false)",
+          "status": "failed",
+          "failures": [
+            "Error: expected [Function] to throw error including 'synthetic backend failure' but got 'ENOENT: no such file or directory, op…'\n    at Assertion.__VITEST_REJECTS__ (file:///<local>/node_modules/@vitest/expect/dist/index.js:1747:17)\n    at Assertion.propertyGetter (file:///<local>/node_modules/chai/index.js:1607:27)\n    at Reflect.get (<anonymous>)\n    at Object.proxyGetter [as get] (file:///<local>/node_modules/chai/index.js:1696:22)\n    at <local>/src/tui/local-models/start-pending-lifecycle.t"
+          ]
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "passed"
+        }
+      ]
+    },
+    "final-lifecycle": {
+      "counts": {
+        "numTotalTests": 3,
+        "numPassedTests": 3,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: true)",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: holds the marker before backend work and removes it after a thrown start (directory exists: false)",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/local-models/start-pending-lifecycle.test.ts :: keeps the marker until shutdown cancellation settles the in-flight start",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "finalStaticChecks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "finalStaticChecksAllPassed": true
+}
