@@ -15,7 +15,7 @@ import { sendError, sendJson, type HttpHandler } from "./request-context.js";
  * `encoding` is `utf8` for Markdown and HTML and `base64` for DOCX and
  * PDF. The client writes `content` to wherever the person chose. The
  * desktop prints the `html` format itself (Electron `printToPDF`), which
- * keeps every script; `pdf` is the browserless writer the terminal uses.
+ * keeps all writing systems; `pdf` is the browserless writer the terminal uses.
  *
  * `format` defaults to Markdown and also takes `md` / `word`; anything
  * else is `400`. `tools=0` leaves out the one-line-per-tool-step list.

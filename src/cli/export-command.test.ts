@@ -128,9 +128,9 @@ describe("atomic-agent export: what reaches the file", () => {
     expect(stdout).not.toContain(KEY);
   });
 
-  it("refuses an incognito chat by id", async () => {
+  it.each(["md", "pdf"])("refuses an incognito chat by id in %s", async format => {
     seed({ ...chat("s-incog"), incognito: { since: 1, owner: "x" } });
-    expect(await exportCommand(["s-incog"])).toBe(1);
+    expect(await exportCommand(["s-incog", "--format", format])).toBe(1);
     expect(stdout).toBe("");
     expect(stderr).toMatch(/incognito/);
   });

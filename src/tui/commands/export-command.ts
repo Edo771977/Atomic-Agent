@@ -11,6 +11,10 @@ import {
   type SessionState,
 } from "../../session/index.js";
 import { describeToolCall } from "../../tools/describe-tool-call.js";
+import { getConfig } from "../../config/index.js";
+import { runtimeKnownSecrets } from "../../runtime/runtime-known-secrets.js";
+import { isIncognitoSession } from "../../session/incognito.js";
+import type { ChatExportOptions } from "../../session/chat-export.js";
 
 /**
  * `/export [md|docx|pdf|html] [path]` (ATO-1054): save the open chat as a
@@ -20,7 +24,7 @@ import { describeToolCall } from "../../tools/describe-tool-call.js";
  * conversation to that file in the current folder and says where: bare
  * `/export` here writes Markdown named after the chat into the folder
  * the terminal was started in, never over an existing file; a path is
- * written as given (overwriting, as Claude Code and `--out` do). Claude
+ * written as given, with exclusive creation unless `--force` is supplied. Claude
  * Code's bare `/export` opens a copy-or-save dialog; there is no
  * clipboard step here, the saved path is the answer.
  */
@@ -29,6 +33,8 @@ export interface ChatExportRequest {
   readonly format: ChatExportFormat;
   /** As typed, or null for a file named after the chat in the current folder. */
   readonly path: string | null;
+  readonly force?: boolean;
+  readonly incognitoConfirmed?: boolean;
 }
 
 const FORMAT_WORDS = new Set(["md", "markdown", "docx", "word", "pdf", "html", "htm"]);
@@ -54,16 +60,22 @@ function unquote(text: string): string {
  * it names none), so `/export notes` writes `notes.md`.
  */
 export function parseExportCommand(rawArgs: string): ChatExportRequest {
+  const flags: { force?: boolean; incognitoConfirmed?: boolean } = {};
+  rawArgs = rawArgs.replace(/^\s*(?:(?:--force|--confirm-incognito)(?:\s+|$))+/, prefix => {
+    if (prefix.includes("--force")) flags.force = true;
+    if (prefix.includes("--confirm-incognito")) flags.incognitoConfirmed = true;
+    return "";
+  });
   const args = rawArgs.trim();
-  if (args.length === 0) return { format: "markdown", path: null };
+  if (args.length === 0) return { format: "markdown", path: null, ...flags };
   const first = args.split(/\s+/, 1)[0] ?? "";
   if (FORMAT_WORDS.has(first.toLowerCase())) {
     const format = parseChatExportFormat(first) ?? "markdown";
     const path = unquote(args.slice(first.length));
-    return { format, path: path.length > 0 ? path : null };
+    return { format, path: path.length > 0 ? path : null, ...flags };
   }
   const path = unquote(args);
-  return { format: EXTENSION_FORMAT[extname(path).toLowerCase()] ?? "markdown", path };
+  return { format: EXTENSION_FORMAT[extname(path).toLowerCase()] ?? "markdown", path, ...flags };
 }
 
 const EXTENSION: Record<ChatExportFormat, string> = { markdown: ".md", html: ".html", docx: ".docx", pdf: ".pdf" };
@@ -79,8 +91,9 @@ export function resolveExportPath(
   request: ChatExportRequest,
   cwd: string,
   home: string = homedir(),
+  options: ChatExportOptions = {},
 ): string {
-  const fallback = chatExportFilename(state, request.format);
+  const fallback = chatExportFilename(state, request.format, options);
   if (request.path === null) return firstFreePath(join(cwd, fallback));
   const typed = request.path.replace(/^~(?=$|[\\/])/, home);
   const full = isAbsolute(typed) ? typed : resolve(cwd, typed);
@@ -119,14 +132,20 @@ export async function writeChatExport(
   cwd: string = process.cwd(),
 ): Promise<string> {
   if (!state || !state.turns.some((t) => t.kind === "user")) return "nothing to export yet: this chat has no messages";
+  if (isIncognitoSession(state) && request.incognitoConfirmed !== true) {
+    return "incognito chat: exporting leaves a permanent file. To confirm, repeat /export with --confirm-incognito before the format and path.";
+  }
   let path = "";
   try {
-    path = resolveExportPath(state, request, cwd);
+    const options = { knownSecrets: runtimeKnownSecrets(getConfig()) };
+    path = resolveExportPath(state, request, cwd, homedir(), options);
     const file = await exportChat(state, request.format, {
+      ...options,
       describeToolCall: (call) => describeToolCall({ name: call.tool, args: call.args, ok: call.ok }).line,
     });
-    writeFileSync(path, file.body);
+    writeFileSync(path, file.body, { flag: request.force === true ? "w" : "wx" });
   } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "EEXIST") return "export failed: file already exists; use --force to overwrite it";
     const reason = error instanceof Error ? error.message : String(error);
     return `export failed${path ? ` (${path})` : ""}: ${reason}`;
   }

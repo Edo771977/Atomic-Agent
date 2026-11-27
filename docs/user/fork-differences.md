@@ -248,6 +248,10 @@ Child process environment filtering depends on the launcher. The shell builder n
 
   See [#76](https://github.com/Edo771977/atomic-agent/pull/76).
 
+## Chat document export
+
+B7a2 imports upstream #1715 PDF export. The TUI requires an explicit --confirm-incognito for each incognito export and --force before overwriting. The CLI and HTTP refuse incognito. All content and generated filenames mask runtime-known configuration credentials. The PDF writer uses no network or active content and adds no dependencies. [Review](../reviews/b7a2-chat-pdf.md).
+
 ## Still open
 
 - [#33](https://github.com/Edo771977/atomic-agent/issues/33): multi-model team and an approvable assignment plan.

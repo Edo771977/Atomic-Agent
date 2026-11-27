@@ -2,7 +2,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { resetConfigCache } from "../../config/index.js";
 
 import { createEmptySessionState, type SessionState } from "../../session/session-state.js";
 import { parseExportCommand, resolveExportPath, writeChatExport } from "./export-command.js";
@@ -42,9 +43,13 @@ describe("/export writing the file (ATO-1054)", () => {
   let dir = "";
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), "tui-export-"));
+    vi.stubEnv("ATOMIC_AGENT_STATE_DIR", dir);
+    resetConfigCache();
   });
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
+    vi.unstubAllEnvs();
+    resetConfigCache();
   });
 
   it("resolves home, folders and missing extensions", () => {
@@ -64,9 +69,9 @@ describe("/export writing the file (ATO-1054)", () => {
     expect(second).toBe(`chat exported as Markdown: ${join(dir, "Trip plan (2).md")}`);
   });
 
-  it("overwrites a path that was named, as Claude Code's /export does", async () => {
+  it("overwrites an explicit path only with force", async () => {
     writeFileSync(join(dir, "c.md"), "old");
-    await writeChatExport(chat(), { format: "markdown", path: "c.md" }, dir);
+    await writeChatExport(chat(), { format: "markdown", path: "c.md", force: true }, dir);
     expect(readFileSync(join(dir, "c.md"), "utf8")).toContain("Lisbon");
   });
 
@@ -83,7 +88,7 @@ describe("/export writing the file (ATO-1054)", () => {
     const empty = { ...chat(), turns: [] };
     expect(await writeChatExport(empty, { format: "markdown", path: null }, dir)).toMatch(/nothing to export/);
     expect(await writeChatExport(chat(), { format: "markdown", path: "missing/x.md" }, dir)).toMatch(
-      /^export failed \(.*missing\/x\.md\): /,
+      /^export failed \(.*missing[\\/]x\.md\): /,
     );
   });
 });
