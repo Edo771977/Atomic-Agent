@@ -301,6 +301,8 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let openAnchor = -1;
   let anchorOpening = -1;
   let anchorHasPrefix = false;
+  let anchorHasLabel = false;
+  let anchorHref = "";
   let firstAnchorBlock = -1;
   let openParagraph = -1;
   let openBlocks = 0;
@@ -324,7 +326,10 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   };
   const appendText = (text: string) => {
     if (!text) return;
-    if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = true;
+    if (openAnchor >= 0 && firstAnchorBlock < 0) {
+      anchorHasPrefix = true;
+      anchorHasLabel ||= /[^\s\u0085]/u.test(text);
+    }
     if (!inText && /[^\s\u0085]/u.test(text)) {
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       inText = true;
@@ -358,9 +363,11 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       // Leave intervening blocks intact and preserve the linked text
       // before the first block. Reuse its output slot to avoid splicing.
       if (anchorHasPrefix) {
-        if (length + 4 > HTML_SOURCE_CHARS) return stop("size");
-        parts[firstAnchorBlock] = "</a>" + parts[firstAnchorBlock];
-        length += 4;
+        const fallback = anchorHasLabel ? "" : escapeMarkup(anchorHref.trim());
+        if (length + fallback.length + 4 > HTML_SOURCE_CHARS) return stop("size");
+        parts[firstAnchorBlock] = fallback + "</a>" + parts[firstAnchorBlock];
+        textMarkupLength += fallback.length;
+        length += fallback.length + 4;
       } else {
         parts[anchorOpening] = "";
       }
@@ -466,7 +473,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           (name === "img" && (usableUrlAttribute(attributes.src) || /[^\s\u0085]/u.test(attributes.alt ?? "")))) {
         // A visible void element separates otherwise consecutive breaks.
         whitespaceRun = 0;
-        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = true;
+        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = anchorHasLabel = true;
       }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
@@ -498,6 +505,8 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           openAnchor = emitted.length - 1;
           anchorOpening = parts.length;
           anchorHasPrefix = false;
+          anchorHasLabel = false;
+          anchorHref = attributes.href ?? "";
         } else if (openAnchor >= 0 && firstAnchorBlock < 0 && !INLINE_ELEMENTS.has(name)) {
           firstAnchorBlock = parts.length;
         }

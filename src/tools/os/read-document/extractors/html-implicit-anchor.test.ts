@@ -20,5 +20,6 @@ it("preserves the first URL when its prefix is whitespace before an overlapping 
   const html = "<a href='/first'> <div><a href='/second'>Second</a></div></a>";
   const result = boundedHtmlToMarkdown(html, []).text;
   expect(result.match(/\]\(\/first\)/g)).toHaveLength(1);
+  expect(result).toContain("[/first](/first)");
   expect(result).toContain("[Second](/second)");
 });
