@@ -145,7 +145,7 @@ export function policyCallRefusal(policy: EffectivePolicy, tool: string, args: u
     for (const command of commands) {
       if (typeof command.cmd !== "string") continue;
       const args = coerceShellArgs(command.args) ?? [];
-      if (changesPolicyChildMetadata(command.cmd, args, needsShellInterpretation(command.cmd, args), analyze)) return `${tool} was not run: inherited organization policy metadata is reserved for the operator.`;
+      if (changesPolicyChildMetadata(command.cmd, args, needsShellInterpretation(command.cmd, args), analyze)) return `${tool} was not run: inherited organization policy metadata is reserved for the operator. Preserve inherited ATOMIC_AGENT_TOOL_CHILD, ATOMIC_AGENT_POLICY_STATE_DIR, ATOMIC_AGENT_POLICY_SYSTEM_PATH and ATOMIC_AGENT_POLICY_FILE_PINS unchanged; use env -u NAME to remove only unrelated variables instead of resetting the environment.`;
     }
   }
   if (policy.rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow")) {
