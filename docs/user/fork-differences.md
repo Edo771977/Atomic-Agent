@@ -173,6 +173,10 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 - **Runtime-written changes and replies.** The runtime writes the changed lines, replies are compact while tasks are green, and a syntax pass runs before delegation ([#10](https://github.com/Edo771977/atomic-agent/pull/10)).
 - **Verified delivery.** Only green tasks merge under isolation ([#11](https://github.com/Edo771977/atomic-agent/pull/11)). Verified candidate delivery has rollback, artifact evidence and measured routing ([#16](https://github.com/Edo771977/atomic-agent/pull/16), [#17](https://github.com/Edo771977/atomic-agent/pull/17), [#22](https://github.com/Edo771977/atomic-agent/pull/22), [#25](https://github.com/Edo771977/atomic-agent/pull/25)). Its recovery command is `atomic-agent fusion recover`.
 
+## WhatsApp channel
+
+The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install hooks, inbound text is unframed, and auth/QR paths are outside the protected inventories. No dependency or runtime/turn-controller change is imported. [Evidence and reopening tests](../reviews/b5b-whatsapp.md).
+
 ## ACP editor protocol
 
 The editor-launched ACP command from upstream #1646 remains deferred in B3. Its full three-commit branch was reviewed: the candidate admits marked tool children and guesses worker approval ownership from the sole busy chat. Upstream also supports persistent allow-always grants from editor replies. The fork exposes no ACP command or listener pending reliable attribution and preservation of its operator confirmation rules. [HTTP review](../../src/http/README.md)
