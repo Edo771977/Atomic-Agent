@@ -134,6 +134,9 @@ function inlineText(tokens: readonly Token[]): string {
 /** Mask both source forms and the inline presentation of each parsed block. */
 export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
   const known = options.knownSecrets ?? knownSecretsFromEnv();
+  // Plain printable ASCII has no presentation transform to project. Controls
+  // stay on the slow path because document encoders can remove them.
+  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[]/.test(text)) return maskSecrets(text, known);
   text = maskPresentationText(text, known);
   if (!/[*_`~&\[]/.test(text)) return text;
   return Lexer.lex(text).map(token => {

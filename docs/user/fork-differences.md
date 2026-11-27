@@ -241,7 +241,9 @@ The B4a import of upstream #1671 is deferred: a marked child can read/delete a s
 
 ## B7a follow-up hardening
 
-The follow-up to #273/#274/#277 shares guarded export writes, masks presentation-equivalent keys in PDF/HTML/Word, bounds HTTP rendering and refuses tool-child CLI exports. Refusal types use eight fixed literals and params come only from structured fields. TUI startup markers are managed-only, with the existing 90-second pending/no-process ceiling pinned by a regression. [Review and validation](../reviews/b7a-followup-hardening.md).
+The follow-up to #273/#274/#277 shares guarded export writes, masks presentation-equivalent keys in PDF/HTML/Word, bounds HTTP rendering and refuses tool-child CLI exports. Refusal types use twelve fixed literals and params come only from structured fields. TUI startup markers are managed-only, with the existing 90-second pending/no-process ceiling pinned by a regression. [Review and validation](../reviews/b7a-followup-hardening.md).
+
+The next [export/report follow-up](../reviews/b7a-export-followup2.md) decodes HTML references and checks joined Markdown labels, budgets only included export text, uses effective protected roots, documents replacement permissions/concurrency and advisory CLI marking, tightens TUI path syntax, adds four reviewed report types and skips projection for plain printable ASCII.
 
 ## Provider refusal reports
 

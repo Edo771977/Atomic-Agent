@@ -145,3 +145,5 @@ HTML references (numeric, hexadecimal and named) are decoded only in the secret-
 With `--force`, the writer requests mode `0600` for the replacement and does not copy the previous file mode. On filesystems honoring POSIX mode bits this makes the replacement owner-readable/writable even when the old file had broader permissions.
 
 Destination checks and writes are separate filesystem operations. A process able to replace the resolved parent directory during export can redirect a write; the writer does not bind operations to an open directory descriptor. Choose an export directory you control and keep its parents stable while exporting, including with `--force`. This is the same directory-ownership assumption documented for `--api-key-file` in the [CLI guide](../cli/README.md).
+
+Plain printable ASCII without `*`, `_`, backtick, `~`, `&` or `[` skips the presentation projection and still runs the normal known-value/credential masker. ASCII control characters retain projection because document encoders can remove them.
