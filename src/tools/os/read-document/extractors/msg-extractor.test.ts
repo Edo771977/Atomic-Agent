@@ -464,6 +464,94 @@ describe("msg extractor", () => {
     expect(result.text).toBe("Date: Tue, 17 Nov 2026 08:00:00 +0000\nSubject: Hi");
   });
 
+  it("shares one body budget across one hundred embedded Outlook messages", async () => {
+    const attachments = Array.from({ length: 100 }, (_, n) => ({
+      name: "__attach_version1.0_#" + n.toString(16).padStart(8, "0"),
+      children: [
+        props(8, [[0x3705, 0x0003, long(5)]]),
+        {
+          name: "__substg1.0_3701000D",
+          children: [props(24, []), str(0x0037, "Child " + n),
+            { name: b(0x1013), data: Buffer.from("<p>Embedded body " + n + " " + "x".repeat(125_000) + "</p>") }],
+        },
+      ],
+    }));
+    const { buffer } = buildCfb([str(0x1000, "Parent body"), ...attachments], 4096);
+    const result = await msgExtractor({ data: buffer, sourcePath: "fixture.msg", maxBytes: 1024 * 1024 });
+    expect(result.text.startsWith("Parent body")).toBe(true);
+    expect(result.text.includes("Embedded body 0")).toBe(true);
+    expect(result.text.includes("Embedded body 99")).toBe(false);
+    expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(1024 * 1024);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/Outlook.*budget/i));
+  });
+
+  it.each([1_000_000, 200_000])("keeps links in the outer Outlook body with maxBytes %i", async (maxBytes) => {
+    const html = Buffer.from("<p>" + "<a href='/reference'>Article link</a> ".repeat(5300) + "</p>");
+    const data = buildCfb([{ name: b(0x1013), data: html }], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "wiki.msg", maxBytes });
+    expect(result.text.match(/\[Article link\]\(\/reference\)/g)).toHaveLength(5300);
+    expect(Buffer.byteLength(result.text)).toBeLessThanOrEqual(maxBytes);
+  });
+
+  it("keeps a table in the outer Outlook body with a small output allowance", async () => {
+    const html = Buffer.from("<head><style>/*" + "x".repeat(2_260_000) + "*/</style></head>" +
+      "<table><tr><th>Item</th><th>Notes</th></tr>" +
+      "<tr><td>Item</td><td>Note</td></tr>".repeat(1250) + "</table>");
+    const data = buildCfb([{ name: b(0x1013), data: html }], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "outlook-big.msg", maxBytes: 200_000 });
+    expect(result.text).toContain("| --- | --- |");
+    expect(result.text.match(/\| Item \| Note \|/g)).toHaveLength(1250);
+  });
+
+  it.each([undefined, 12 * 1024 * 1024])("bounds wide sibling joins across twenty embedded messages (%s)", async (maxBytes) => {
+    const listing = "<p><b>Ordinary entry text</b></p>".repeat(9000);
+    const attachments = Array.from({ length: 20 }, (_, n) => ({
+      name: "__attach_version1.0_#" + n.toString(16).padStart(8, "0"),
+      children: [
+        props(8, [[0x3705, 0x0003, long(5)]]),
+        {
+          name: "__substg1.0_3701000D",
+          children: [props(24, []), { name: b(0x1013), data: Buffer.from(listing + "<p>TAIL-" + n + "X</p>") }],
+        },
+      ],
+    }));
+    const { buffer } = buildCfb([str(0x1000, "Parent"), ...attachments], 4096);
+    const result = await msgExtractor({ data: buffer, sourcePath: "siblings.msg", maxBytes });
+    const formatted = result.text.split("--- attached message ---")
+      .filter((message) => message.includes("**Ordinary entry text**")).length;
+    expect(formatted).toBeGreaterThan(0);
+    expect(formatted).toBeLessThanOrEqual(maxBytes === undefined ? 1 : 2);
+    expect(result.text.endsWith("TAIL-19X")).toBe(true);
+    expect(result.warnings).toContainEqual(expect.stringMatching(/formatting budget exhausted/i));
+  }, 30_000);
+
+  it.each([
+    ["small plain", "plain", 100, 512, undefined],
+    ["capped plain", "plain", 600, 512, "shared"],
+    ["small HTML", "html", 100, 512, undefined],
+    ["capped Markdown", "html", 600, 512, "shared"],
+    ["Markdown output cap", "html", 620_000, 1_000_000, "HTML"],
+    ["HTML body cap", "html", 820_000, 1_000_000, "HTML"],
+    ["shared fallback cap", "html", 820_000, 200_000, "shared"],
+    ["complete node-limit fallback", "dense", 15_010, 1_000_000, undefined],
+  ] as const)("reports the actual truncation cause in a single-body MSG (%s)", async (_name, format, length, maxBytes, cause) => {
+    const content = "Body start " + "x".repeat(length);
+    const property = format === "plain" ? str(0x1000, content) :
+      { name: b(0x1013), data: Buffer.from(format === "dense" ? "<p>Row</p>".repeat(length) : "<p>" + content + "</p>") };
+    const data = buildCfb([property], 4096).buffer;
+    const result = await msgExtractor({ data, sourcePath: "body.msg", maxBytes });
+    expect(result.truncated === true).toBe(cause !== undefined);
+    const cutWarnings = result.warnings.filter((warning) => /truncat/i.test(warning));
+    if (cause === "HTML") {
+      expect(cutWarnings).toContainEqual(expect.stringMatching(/HTML.*393216.*characters/i));
+      expect(cutWarnings.some((warning) => /shared extraction budget/i.test(warning))).toBe(false);
+    } else if (cause === "shared") {
+      expect(cutWarnings).toContainEqual(expect.stringMatching(/Outlook.*shared extraction budget/i));
+    } else {
+      expect(cutWarnings).toEqual([]);
+    }
+  });
+
   it("keeps going with a warning when one property stream is corrupt", async () => {
     const { buffer } = buildCfb(sampleMessage("Body text"));
     const off = buffer.indexOf(Buffer.from(`${u(0x0037)}\0`, "utf16le"));

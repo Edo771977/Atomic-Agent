@@ -15,3 +15,11 @@ it.each([
   expect(result).toContain("[one](1)");
   if (_tag !== "select" && _tag !== "button") expect(result).toContain("[two](2)");
 });
+
+it("preserves the first URL when its prefix is whitespace before an overlapping div", () => {
+  const html = "<a href='/first'> <div><a href='/second'>Second</a></div></a>";
+  const result = boundedHtmlToMarkdown(html, []).text;
+  expect(result.match(/\]\(\/first\)/g)).toHaveLength(1);
+  expect(result).toContain("[/first](/first)");
+  expect(result).toContain("[Second](/second)");
+});

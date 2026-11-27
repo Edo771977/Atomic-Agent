@@ -38,9 +38,11 @@ const INLINE_ELEMENTS = new Set([
 ]);
 const HTML_SOURCE_CHARS = 768 * 1024;
 const HTML_OUTPUT_CHARS = 576 * 1024;
-const HTML_PLAIN_CHARS = 384 * 1024;
+export const HTML_PLAIN_CHARS = 384 * 1024;
 const HTML_FORMAT_DEPTH = 128;
 const HTML_FORMAT_NODES = 30_000;
+const HTML_WIDE_SIBLINGS = 6_000;
+const HTML_JOIN_WORK_LIMIT = 3 * 1024 * 1024;
 const HTML_WHITESPACE_RUN = 128;
 const HTML_QUOTE_DEPTH = 32;
 const HTML_TABLE_DEPTH = 64;
@@ -57,7 +59,7 @@ const ATTRIBUTES = new Map([
   ["th", ["colspan"]],
 ]);
 
-type FormatLimit = "size" | "depth" | "nodes" | "output";
+type FormatLimit = "size" | "depth" | "nodes" | "output" | "sibling joins";
 
 class HtmlFormatLimit extends Error {
   constructor(readonly limit: FormatLimit) { super(limit); }
@@ -179,10 +181,10 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
     },
     replacement: (content) => {
       // A table parser removes one backslash from an escaped pipe before
-      // parsing code spans. Encode the literal backslash and leave the
-      // pipe for the table's usual Markdown escaping.
+      // parsing inline markup. Inside this code tag a doubled backslash
+      // renders literally, and the table adds its own escape to the pipe.
       const encoded = content.replace(/\r\n?|\n/g, " ").replace(/[!-/:-@\x5b-\x60{}~]/g, (char) =>
-        "&#" + char.charCodeAt(0) + ";",
+        char === "\\" ? "\\\\" : "&#" + char.charCodeAt(0) + ";",
       );
       return "<code>" + encoded + "</code>";
     },
@@ -233,6 +235,7 @@ function makeTurndown(flattenWideTable: () => void): TurndownService {
 export interface HtmlMarkdown {
   text: string;
   title?: string;
+  truncated?: boolean;
 }
 
 function escapeMarkup(value: string): string {
@@ -293,11 +296,17 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   let preWhitespaceTrimmed = false;
   let inText = false;
   let renderedDepth = 0;
+  const siblings: number[] = [0];
+  let widestSiblings = 0;
   let openAnchor = -1;
   let anchorOpening = -1;
+  let anchorHasPrefix = false;
   let anchorHasLabel = false;
+  let anchorHref = "";
   let firstAnchorBlock = -1;
   let openParagraph = -1;
+  let openBlocks = 0;
+  let paragraphBlocks = 0;
   const emitted: Array<string | undefined> = [];
   const flattened = { depth: false, quotes: false, tables: false };
 
@@ -310,14 +319,21 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     parts.push(text);
     length += cost;
   };
+  const countSibling = () => {
+    const count = (siblings[renderedDepth] ?? 0) + 1;
+    siblings[renderedDepth] = count;
+    widestSiblings = Math.max(widestSiblings, count);
+  };
   const appendText = (text: string) => {
     if (!text) return;
-    if (openAnchor >= 0 && firstAnchorBlock < 0 && !anchorHasLabel && /[^\s\u0085]/u.test(text)) {
-      anchorHasLabel = true;
+    if (openAnchor >= 0 && firstAnchorBlock < 0) {
+      anchorHasPrefix = true;
+      anchorHasLabel ||= /[^\s\u0085]/u.test(text);
     }
     if (!inText && /[^\s\u0085]/u.test(text)) {
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       inText = true;
+      countSibling();
     }
     if (text.length > HTML_SOURCE_CHARS - length) return stop("size");
     const escaped = escapeMarkup(text);
@@ -330,6 +346,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
       firstAnchorBlock = -1;
     }
     if (tag === "p") openParagraph = -1;
+    if (!INLINE_ELEMENTS.has(tag)) openBlocks--;
     renderedDepth--;
     append(`</${tag}>`);
   };
@@ -345,10 +362,12 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
     if (firstAnchorBlock >= 0) {
       // Leave intervening blocks intact and preserve the linked text
       // before the first block. Reuse its output slot to avoid splicing.
-      if (anchorHasLabel) {
-        if (length + 4 > HTML_SOURCE_CHARS) return stop("size");
-        parts[firstAnchorBlock] = "</a>" + parts[firstAnchorBlock];
-        length += 4;
+      if (anchorHasPrefix) {
+        const fallback = anchorHasLabel ? "" : escapeMarkup(anchorHref.trim());
+        if (length + fallback.length + 4 > HTML_SOURCE_CHARS) return stop("size");
+        parts[firstAnchorBlock] = fallback + "</a>" + parts[firstAnchorBlock];
+        textMarkupLength += fallback.length;
+        length += fallback.length + 4;
       } else {
         parts[anchorOpening] = "";
       }
@@ -433,8 +452,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         // The parser can leave a paragraph on its stack when an inline
         // wrapper intervenes. Close it here only while still in its inline
         // scope. Closing through a cell or row would move text out of it.
-        if (openParagraph >= 0 && PARAGRAPH_CLOSERS.has(name) &&
-            emitted.slice(openParagraph + 1, -1).every((tag) => !tag || INLINE_ELEMENTS.has(tag))) {
+        if (openParagraph >= 0 && openBlocks === paragraphBlocks && PARAGRAPH_CLOSERS.has(name)) {
           closeEmittedFrom(openParagraph);
         }
         if (openAnchor >= 0 && name === "a") closeOpenAnchor();
@@ -455,7 +473,7 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
           (name === "img" && (usableUrlAttribute(attributes.src) || /[^\s\u0085]/u.test(attributes.alt ?? "")))) {
         // A visible void element separates otherwise consecutive breaks.
         whitespaceRun = 0;
-        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasLabel = true;
+        if (openAnchor >= 0 && firstAnchorBlock < 0) anchorHasPrefix = anchorHasLabel = true;
       }
       if (++nodes > HTML_FORMAT_NODES) return stop("nodes");
       if (name === "blockquote" && quotes > HTML_QUOTE_DEPTH) {
@@ -477,17 +495,25 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
         flattened.depth = true;
         return;
       }
+      countSibling();
       if (!isVoid) {
         renderedDepth++;
+        siblings[renderedDepth] = 0;
+        if (!INLINE_ELEMENTS.has(name)) openBlocks++;
         emitted[emitted.length - 1] = name;
         if (name === "a" && !recognizeSelfClosing) {
           openAnchor = emitted.length - 1;
           anchorOpening = parts.length;
+          anchorHasPrefix = false;
           anchorHasLabel = false;
+          anchorHref = attributes.href ?? "";
         } else if (openAnchor >= 0 && firstAnchorBlock < 0 && !INLINE_ELEMENTS.has(name)) {
           firstAnchorBlock = parts.length;
         }
-        if (name === "p" && !recognizeSelfClosing) openParagraph = emitted.length - 1;
+        if (name === "p" && !recognizeSelfClosing) {
+          openParagraph = emitted.length - 1;
+          paragraphBlocks = openBlocks;
+        }
       }
       append(openingTag(name, attributes));
     },
@@ -517,7 +543,14 @@ function prepareHtml(html: string, recognizeSelfClosing: boolean) {
   parser.end(html);
   const title = rawTitle?.trim() || undefined;
   const markup = parts.join("");
-  const work = markup.length - textMarkupLength + 16 * nodes;
+  const markupWork = markup.length - textMarkupLength + 16 * nodes;
+  // A failed preparation also scanned the source before pausing.
+  const preparationWork = limit ? Math.max(markupWork, Math.min(html.length, parser.endIndex + 1)) : markupWork;
+  // Turndown's sibling join reads the growing output for each child. Charge
+  // wide groups for that repeated scan before constructing the DOM.
+  const joinWork = Math.ceil(Math.max(0, widestSiblings - HTML_WIDE_SIBLINGS) * textMarkupLength / 512);
+  const work = preparationWork + joinWork;
+  if (joinWork > HTML_JOIN_WORK_LIMIT) limit ??= "sibling joins";
   return { markup, title, limit, flattened, work, preWhitespaceTrimmed };
 }
 
@@ -532,10 +565,13 @@ export function boundedHtmlToMarkdown(
   warnings: string[],
   xhtml = isXhtml(html),
   budget?: FragmentBudget,
+  plainLimit = budget?.maxOutputBytes ?? HTML_PLAIN_CHARS,
+  wholeDocument = false,
 ): HtmlMarkdown {
   const prepared = budget?.canFormat === false ? undefined : prepareHtml(html, xhtml);
   let limit = prepared?.limit;
-  if (prepared && !limit && (!budget || budget.takeWork(prepared.work))) {
+  const canRender = prepared && (!budget || budget.takeWork(prepared.work, wholeDocument));
+  if (prepared && !limit && canRender) {
     try {
       let wideTable = false;
       const text = makeTurndown(() => { wideTable = true; }).turndown(prepared.markup)
@@ -546,7 +582,7 @@ export function boundedHtmlToMarkdown(
       if (prepared.flattened.tables) warnings.push(`HTML table nesting beyond ${HTML_TABLE_DEPTH} levels was flattened in its outer cell.`);
       if (prepared.preWhitespaceTrimmed) warnings.push("Long runs of preformatted whitespace were trimmed; the next line's indentation was retained.");
       if (wideTable) warnings.push(`HTML table width exceeded ${HTML_TABLE_COLUMNS} columns. Only the wide table was flattened.`);
-      return { text: budget ? budget.includeText(text) : text, title: prepared.title };
+      return { text, title: prepared.title };
     } catch (error) {
       if (!(error instanceof HtmlFormatLimit)) throw error;
       limit = error.limit;
@@ -557,14 +593,14 @@ export function boundedHtmlToMarkdown(
     nodes: `node count (${HTML_FORMAT_NODES})`,
     size: `source size (${HTML_SOURCE_CHARS} characters)`,
     output: `output size (${HTML_OUTPUT_CHARS} characters)`,
+    "sibling joins": "wide sibling joins",
   };
-  // Input was already charged by the container. Limit this streaming
-  // pass by the remaining output room instead of charging the source twice.
-  const plainLimit = budget?.textRemaining ?? HTML_PLAIN_CHARS;
+  // Parse up to a fresh item's allowance; the caller accounts for framing
+  // and decides whether the item fits in the current output window.
   const { text, cut } = readBoundedHtmlText(html, DROP_ELEMENTS, plainLimit);
   warnings.push(limit
     ? `HTML exceeded the formatting limit for ${descriptions[limit]}. Showing plain text with formatting omitted.`
     : "HTML formatting budget exhausted. Showing plain text with formatting omitted.");
-  if (cut && !budget) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
-  return { title: prepared?.title, text: budget ? budget.includeText(text, cut) : text };
+  if (cut && plainLimit === HTML_PLAIN_CHARS) warnings.push(`HTML plain text was truncated at ${plainLimit} characters.`);
+  return { title: prepared?.title, text, ...(cut && { truncated: true }) };
 }

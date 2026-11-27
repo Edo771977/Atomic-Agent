@@ -6,7 +6,7 @@ it("shares the extraction budget across messages in an mbox slice", async () => 
     "From sender@example.test Mon Jan 1 00:00:00 2024\n" +
     "Content-Type: text/html\n\n<h2>Message " + n + "</h2>";
   const data = Buffer.from(Array.from({ length: 140 }, (_, n) => message(n)).join("\n\n"));
-  const result = await mboxExtractor({ data, sourcePath: "mailbox.mbox", maxBytes: 60 });
+  const result = await mboxExtractor({ data, sourcePath: "mailbox.mbox", maxBytes: 170 });
   expect(result.pageCount).toBe(140);
   expect(result.text).toContain("## Message 0");
   expect(result.text).not.toContain("## Message 139");
