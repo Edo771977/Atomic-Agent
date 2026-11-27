@@ -153,6 +153,10 @@ routingCases("R9 exec prefixes and uncertain persistence", [
   "exec -a fixture < fixture; node --fixture-boolean x.js",
   "eval 'exec < fixture'; node --fixture-boolean x.js",
 ]);
+routingCases("R9 literal exec prefixes preserve empty sources", [
+  "command exec < /dev/null; node --fixture-boolean x.js",
+  "FIXTURE=value exec < /dev/null; node --fixture-boolean x.js",
+], false);
 
 routingCases("R9 command substitutions inherit their owning input", [
   'printf fixture | echo "$(node --fixture-boolean x.js)"',
@@ -211,4 +215,8 @@ routingCases("R9 known null input overrides inherited streams", [
 routingCases("R9 real streams supersede known null input", [
   "exec < /dev/null; printf fixture | node --fixture-boolean x.js",
   "exec < /dev/null; exec < fixture; node --fixture-boolean x.js",
+]);
+routingCases("R9 unresolved nonzero descriptors across shells remain conservative", [
+  "exec 3< /dev/null; sh -c 'exec 0<&3; node --fixture-boolean x.js'",
+  "exec 3< /dev/null; sh -c 'node --fixture-boolean x.js <&3'",
 ]);
