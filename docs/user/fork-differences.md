@@ -241,6 +241,10 @@ The upstream #1639 Python-to-MCP bridge remains deferred in B6a. CLI trust strin
 
 The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
 
+## Crawling a site
+
+B7b1 imports upstream #1714 gzip sitemaps and start redirects. A move requires both the site-name check and the exact validated public DNS address set of the start host; the actual curl pin is checked again after each resolution. Every URL passes offline, organization policy, project egress and URL-data consent before transport, including robots, sitemap and cached-page reuse. Sitemap admission is capped at 2,000,000 decompressed bytes. Automatic crawl JavaScript rendering remains deferred. [Review](../reviews/b7b1-crawl.md).
+
 ## Folder constraints for confidential data
 
 - **Per-folder rules.** `projects.constraints` lists the providers and egress classes each folder allows ([#34](https://github.com/Edo771977/atomic-agent/pull/34)). Settings: [settings reference](settings-reference.md).
@@ -327,5 +331,3 @@ Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client req
 La sesta revisione B1 usa selettori espliciti per il codice Node, compreso NODE_OPTIONS, e mantiene ordinari i flag lunghi operativi. Make legge gruppi corti e abbreviazioni GNU univoche; /dev/null e uno script vuoto per Make e shell. Il reset che rimuove i metadati registrati da una policy locale caricata e intenzionalmente rifiutato, con indicazioni per conservare le variabili ereditate. La guida esplicita limiti sed e differenze personali stdin.
 
 La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy organizzativa e distingue valori separati, reporter data: e stdin ambiguo, anche tramite NODE_OPTIONS e verify. Il parser personale mantiene le proprie tabelle. I glob letterali in --allow-fs-* vanno quotati per conservare la prudenza del lexer condiviso. Make, reset dell'ambiente e /dev/null mantengono i contratti verificati.
-
-B7b1 imports upstream #1714 gzip sitemaps and start redirects. A move requires both the site-name check and the exact validated public DNS address set of the start host; the actual curl pin is checked again after each resolution. Every URL passes offline, organization policy, project egress and URL-data consent before transport, including robots, sitemap and cached-page reuse. Sitemap admission is capped at 2,000,000 decompressed bytes. Automatic crawl JavaScript rendering remains deferred. [Review](../reviews/b7b1-crawl.md).

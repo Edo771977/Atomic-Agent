@@ -475,7 +475,7 @@
     ]
   },
   "finalWeb": {
-    "passed": 518,
+    "passed": 520,
     "failed": 0,
     "skipped": 0,
     "totalFiles": 40,
@@ -503,6 +503,14 @@
           },
           {
             "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not let duplicate DNS answers hide a missing start address",
+            "status": "passed"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries ignores DNS repetition and order when the public address sets agree",
             "status": "passed"
           },
           {
@@ -639,6 +647,167 @@
           {
             "name": "B7b1 decompressed sitemap budget reads a large uncompressed sitemap only up to 2 MB in bytes",
             "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "dnsSetRed": {
+    "passed": 0,
+    "failed": 2,
+    "skipped": 34,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (301)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (302)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (307)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries follows a DNS-verified same-site start redirect (308)",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not equate matching site names whose DNS addresses differ",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not let duplicate DNS answers hide a missing start address",
+            "status": "failed",
+            "failure": "AssertionError: expected 'ok' to be 'error' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:61:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries ignores DNS repetition and order when the public address sets agree",
+            "status": "failed",
+            "failure": "AssertionError: expected 'error' to be 'ok' // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7a-20261127/atomic-b7b1-20261127/src/tools/os/web/crawl-fork-boundary.test.ts:69:27\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 301 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 302 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 307 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://127.0.0.1/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://169.254.169.254/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'http://[::1]/' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'https://www.docs.example.com/private' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries refuses 308 redirect to 'file:///fixture' before transport",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries checks every hop in a chain, including a private DNS answer after a safe hop",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces B1 on each redirect",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries does not request a rebound public address after admitting a start move",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries requires the fork's URL-data consent before a same-site redirect or its robots request",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces project egress before DNS even for direct invocation",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries enforces configured project constraints when no runtime policy frame was installed",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries rechecks tightened project egress after a response and before its redirect",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries starts neither DNS nor requests offline",
+            "status": "skipped"
+          },
+          {
+            "name": "B7b1 crawl URL and response boundaries reads a gzip sitemap as bounded bytes and frames page text as untrusted data",
+            "status": "skipped"
           }
         ]
       }

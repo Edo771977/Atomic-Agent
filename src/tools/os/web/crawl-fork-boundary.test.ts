@@ -53,6 +53,22 @@ describe("B7b1 crawl URL and response boundaries", () => {
     expect(result.status).toBe("error");
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
+  it("does not let duplicate DNS answers hide a missing start address", async () => {
+    const first = { address: "93.184.216.34", family: 4 };
+    const second = { address: "8.8.8.8", family: 4 };
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : url === origin + "/" ? { status: 302, location: moved + "/guide" } : { status: 200, body: html }, async host => host.startsWith("www.") ? [first, first] : [first, second]);
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
+  });
+  it("ignores DNS repetition and order when the public address sets agree", async () => {
+    const first = { address: "93.184.216.34", family: 4 };
+    const second = { address: "8.8.8.8", family: 4 };
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : url === origin + "/" ? { status: 302, location: moved + "/guide" } : { status: 200, body: html }, async host => host.startsWith("www.") ? [second, first, first] : [first, second]);
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("ok");
+    expect(f.requested).toContain(moved + "/guide");
+  });
   it.each([301, 302, 307, 308].flatMap(status => ["http://127.0.0.1/", "http://169.254.169.254/", "http://[::1]/", "https://www.docs.example.com/private", "file:///fixture"].map(target => ({ status, target }))))("refuses $status redirect to $target before transport", async ({ status, target }) => {
     const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status, location: target }, async host => [{ address: host.startsWith("www.") ? "127.0.0.1" : "93.184.216.34", family: 4 }]);
     const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);

@@ -107,7 +107,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
         return errorResult(args, offline.message, true, { offline: true, host: offline.host });
       }
       let start: URL;
-      let siteAddresses: readonly string[];
+      let siteAddresses: ReadonlySet<string>;
       try {
         start = parseHttpUrl(args.url);
       } catch (err) {
@@ -127,7 +127,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
 
       try {
         // Fail on a private address here, not later as "robots.txt unreachable".
-        siteAddresses = await assertHostAllowed(start, { lookup: options.lookup });
+        siteAddresses = new Set(await assertHostAllowed(start, { lookup: options.lookup }));
       } catch (err) {
         return errorResult(args, (err as Error).message, err instanceof SsrfBlockedError);
       }
@@ -155,7 +155,8 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
       const validateAddresses = (url: URL, addresses: readonly string[]): void => {
         // Names alone do not establish site identity. Be conservative:
         // every address must equal the start host's validated DNS set.
-        if (addresses.length !== siteAddresses.length || addresses.some(ip => !siteAddresses.includes(ip))) {
+        const resolved = new Set(addresses);
+        if (resolved.size !== siteAddresses.size || [...resolved].some(ip => !siteAddresses.has(ip))) {
           throw new Error(`${url.host}: resolved addresses differ from the crawl's starting site`);
         }
         assertEgress();
