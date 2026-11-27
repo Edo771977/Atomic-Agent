@@ -33,7 +33,7 @@ interface TextPartRange {
   resumeAt?: number;
   partial?: number;
   attachments: string[];
-  pendingAttachment?: number;
+  pendingAttachment?: { offset: number; subject?: string };
 }
 
 export const emlExtractor: Extractor = async (input) => {
@@ -88,7 +88,9 @@ export const emlExtractor: Extractor = async (input) => {
     warnings.push("MIME headers were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.");
   }
   if (range.pendingAttachment !== undefined && nextBody === undefined) {
-    warnings.push(attachmentContinuation(range.seen + range.pendingAttachment + 1));
+    const { offset, subject } = range.pendingAttachment;
+    const owner = subject ? ` The next attachment belongs to "${subject}".` : "";
+    warnings.push(attachmentContinuation(range.seen + offset + 1) + owner);
   }
   return {
     format: "eml",
@@ -384,8 +386,14 @@ function renderMessage(
   if (range) for (const attachment of attachments) range.attachments.push(attachment);
   const deferAttachments = (displayed = 0) => {
     if (displayed === attachments.length) return;
-    if (range) range.pendingAttachment ??= attachmentOffset + displayed;
-    else output.attachmentListingLimited = true;
+    if (range) {
+      if (range.pendingAttachment) return;
+      const subject = lines.find((line) => line.startsWith("Subject: "))
+        ?.slice("Subject: ".length).replace(/[\r\n]+/g, " ").trim().slice(0, 80);
+      range.pendingAttachment = { offset: attachmentOffset + displayed, subject };
+    } else {
+      output.attachmentListingLimited = true;
+    }
   };
   if (range && depth > 0) {
     // A forwarded message that contains only attachments belongs to the
