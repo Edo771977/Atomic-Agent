@@ -1,0 +1,32 @@
+{
+  "license": "GPL-3.0",
+  "repository": {
+    "url": "git+https://github.com/WhiskeySockets/libsignal-node.git",
+    "type": "git"
+  },
+  "scripts": {
+    "release": "release-it",
+    "changelog:last": "conventional-changelog -p angular -r 2",
+    "changelog:update": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
+    "changelog:preview": "conventional-changelog -p angular -u"
+  },
+  "dist": {
+    "shasum": "b2cbd46f795b1723168db95a07cbdff813a2f76f",
+    "tarball": "https://registry.npmjs.org/libsignal/-/libsignal-6.0.0.tgz",
+    "fileCount": 22,
+    "integrity": "sha512-d/5V3YFtDljbFMufz4ncyUYGYhJl+vzAe+c2EFFBQ6bz1h8Q3IOMEGXYMzlibU60I+e8GagMMpji18iez3P1hA==",
+    "signatures": [
+      {
+        "sig": "MEUCIEam86R16+ZMOpX+WcF3bMIxH4pBW7rJ02fW7xx/2vJoAiEAp6s6+kVKHVb2hL83P9tpfXVFo6kQzLayxZeib9iI+9M=",
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U"
+      }
+    ],
+    "attestations": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/libsignal@6.0.0",
+      "provenance": {
+        "predicateType": "https://slsa.dev/provenance/v1"
+      }
+    },
+    "unpackedSize": 130229
+  }
+}

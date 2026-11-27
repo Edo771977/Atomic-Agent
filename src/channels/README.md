@@ -34,3 +34,5 @@ Read docs/adapters.md for Telegram/Discord/Swarm changes; ../approval/AGENTS.md 
 ## Validation
 
 `npx vitest run src/channels`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
+
+The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install hooks, inbound text is unframed, and auth/QR paths are outside the protected inventories. No dependency or runtime/turn-controller change is imported. [B5 review](../../docs/reviews/b5b-whatsapp.md).

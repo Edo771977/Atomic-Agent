@@ -1,0 +1,11 @@
+{
+  "base": "6dd01db055bc5b2f0d186f037b1ad10bf4fae28e",
+  "disposition": "deferred; no upstream production commits imported",
+  "commits": [
+    {
+      "commit": "58ced8698de25ff20f2643b83637ffc4df1725fe",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "feat(telephony): Twilio adapter with the user's own key (ATO-24)"
+    }
+  ]
+}

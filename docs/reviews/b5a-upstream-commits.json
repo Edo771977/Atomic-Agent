@@ -1,0 +1,36 @@
+{
+  "base": "6dd01db055bc5b2f0d186f037b1ad10bf4fae28e",
+  "disposition": "deferred; no upstream production commits imported",
+  "commits": [
+    {
+      "commit": "ca1f9d2e89e24c55da89c1bd77337d04b83e145f",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "feat(mail): auto-start mail tasks only from the user's own addresses (ATO-601)"
+    },
+    {
+      "commit": "7b38db07fe4e000f3501162242eea57201c70e40",
+      "parents": "ca1f9d2e89e24c55da89c1bd77337d04b83e145f",
+      "subject": "Type startPaused on the created tasks in the mail trigger test (ATO-601)"
+    },
+    {
+      "commit": "a4c354b417959a0ac00df535c0c4025ed3fbc5b9",
+      "parents": "ca1f9d2e89e24c55da89c1bd77337d04b83e145f",
+      "subject": "Tasks from your own mailbox over IMAP: IDLE push, polling fallback, attachments (ATO-601)"
+    },
+    {
+      "commit": "8de2d3636c8cc405c17e670ebdae8690a19e47d9",
+      "parents": "a4c354b417959a0ac00df535c0c4025ed3fbc5b9",
+      "subject": "IMAP mail trigger: auto-start only the mailbox's own address, other senders wait paused"
+    },
+    {
+      "commit": "0a44b153dcadbc1eefae88382fa2d2b7166b521a",
+      "parents": "8de2d3636c8cc405c17e670ebdae8690a19e47d9",
+      "subject": "IMAP trigger: read the sender outside quoted names, pause tasks without an authserv-id"
+    },
+    {
+      "commit": "4f4e4f124809102738c0a239a8fd8baf5293862a",
+      "parents": "0a44b153dcadbc1eefae88382fa2d2b7166b521a",
+      "subject": "Mask encoded words when reading From, fix the IMAP tests' types and fixtures (ATO-601)"
+    }
+  ]
+}
