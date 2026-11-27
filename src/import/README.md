@@ -13,6 +13,8 @@ Two sources are not another coding agent's state dir: [claude-app](claude-app/cl
 
 Entry point: [index.ts](index.ts). Read the root instruction route and the underlying domain instructions before cross-domain changes.
 
+C3a keeps chat-export facts extraction (#1584) deferred. The collector, extractor and saver remain unavailable until operator approval, runtime credential masking and enforced output limits are established. Existing session importers remain available. [Evidence](../../docs/reviews/c3a-user-facts.md).
+
 Checks: `npx vitest run src/import` when tests are present; `npm run lint`; `npm run docs:check`.
 
 Atomic Desktop import skips incognito tasks and tasks bound to incognito source chats, including legacy tasks without the privacy flag. The session privacy check reads the source snapshot even for a tasks-only import. Skipped tasks and their run history are not copied; only their count enters the summary.
