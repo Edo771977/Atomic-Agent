@@ -119,3 +119,15 @@ routingCases("R9 syntax belongs to command positions", [
   ") node --fixture-boolean x.js", "done; node --fixture-boolean x.js",
   "printf fixture |", "(node --fixture-boolean x.js",
 ]);
+
+routingCases("R9 pipelines survive newlines and comments", [
+  "printf fixture |\nnode --fixture-boolean x.js",
+  "printf fixture |\n\nnode --fixture-boolean x.js",
+  "printf fixture | # fixture\n# fixture\n\nnode --fixture-boolean x.js",
+  "printf fixture |\n{ node --fixture-boolean x.js; }",
+  "sh -c 'printf fixture |\n# fixture\nnode --fixture-boolean x.js'",
+]);
+routingCases("R9 outgoing multiline pipeline stays ordinary", [
+  "node --fixture-boolean x.js |\n# fixture\ncat",
+  "node --fixture-boolean x.js\nprintf fixture |\ncat",
+], false);

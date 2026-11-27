@@ -33,7 +33,7 @@ export interface ShellWord {
  */
 export type ShellToken =
   | ({ kind: "word" } & ShellWord)
-  | { kind: "separator"; pipe?: true }
+  | { kind: "separator"; pipe?: true; newline?: true }
   | { kind: "open" }
   | { kind: "close" }
   | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string"; inputFd?: number };
@@ -181,7 +181,7 @@ export function lexShellLine(
     if (c === "\n") {
       endWord();
       if (pendingHeredoc !== null) return incomplete();
-      tokens.push(SEPARATOR);
+      tokens.push(keepInputFlow ? { kind: "separator", newline: true } : SEPARATOR);
       i = skipHeredocBodies(line, i + 1, heredocs);
       heredocs.length = 0;
       continue;

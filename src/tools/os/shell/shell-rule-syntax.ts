@@ -50,6 +50,7 @@ export function shellSyntax(line: string, dialect: ShellDialect, depth = 0): { s
     if (command.length > 0) { segments.push(command); inputs.push(frame().current); }
   };
   for (const token of tokens) {
+    if (token.kind === "separator" && token.newline && pendingPipe) continue;
     if (token.kind === "separator" && pendingPipe) unreadable = true;
     if (token.kind === "redirect") {
       if (token.inputFd === 0) frame().current.redirected = true;
