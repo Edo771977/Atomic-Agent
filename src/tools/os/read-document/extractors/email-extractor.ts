@@ -69,9 +69,11 @@ export const emlExtractor: Extractor = async (input) => {
       ...(remaining && { truncated: true }),
     };
   }
+  const nextBody = range.resumeAt ??
+    (range.partial !== undefined && range.partial < range.seen ? range.partial + 1 : undefined);
   if (range.partial !== undefined) {
-    const continuation = range.partial < range.seen
-      ? ` Use pagesFrom=${range.partial + 1} to continue with the next part.`
+    const continuation = nextBody !== undefined
+      ? ` Use pagesFrom=${nextBody} to continue with the next part.`
       : "";
     warnings.push(`MIME part ${range.partial} was truncated.${continuation}`);
   } else if (range.resumeAt !== undefined) {
@@ -85,7 +87,7 @@ export const emlExtractor: Extractor = async (input) => {
   if (output.framingCompacted) {
     warnings.push("MIME headers were abbreviated or omitted to fit the body. Increase maxBytes to show the full headers.");
   }
-  if (range.pendingAttachment !== undefined) {
+  if (range.pendingAttachment !== undefined && nextBody === undefined) {
     warnings.push(attachmentContinuation(range.seen + range.pendingAttachment + 1));
   }
   return {
@@ -121,12 +123,15 @@ export const mboxExtractor: Extractor = async (input) => {
   const separators = input.pageSeparators !== false;
   const chunks: string[] = [];
   const extracted: number[] = [];
+  const deferredAttachments: number[] = [];
+  let hasBodyContinuation = false;
   for (let n = start; n <= end; n++) {
     if (extracted.length >= maxPages) break;
     const marker = separators ? `--- message ${n} ---\n` : "";
     const markerBytes = Buffer.byteLength(marker);
     if (markerBytes > output.limit) {
       output.stop();
+      hasBodyContinuation = true;
       warnings.push(`The MBOX message marker exceeds maxBytes. Increase maxBytes and use pagesFrom=${n} to retry.`);
       break;
     }
@@ -134,6 +139,7 @@ export const mboxExtractor: Extractor = async (input) => {
     const text = renderMessage(messages[n - 1]!, 0, warnings, budget, message, "").trim();
     if (message.framingLimited) {
       output.stop();
+      hasBodyContinuation = true;
       warnings.push(extracted.length > 0
         ? `MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`
         : `No message text was shown because the MBOX headers leave no room within maxBytes. Increase maxBytes and use pagesFrom=${n} to retry this message.`);
@@ -141,6 +147,7 @@ export const mboxExtractor: Extractor = async (input) => {
     }
     if (budget.exhausted && !message.partialItem) {
       output.stop();
+      hasBodyContinuation = true;
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
@@ -153,14 +160,16 @@ export const mboxExtractor: Extractor = async (input) => {
     }
     if (message.attachmentListingLimited && shown.status !== "deferred") {
       output.truncated = true;
-      warnings.push(`MBOX attachments for message ${n} were deferred. Increase maxBytes and retry with pagesFrom=${n} to read the complete list.`);
+      deferredAttachments.push(n);
     }
     if (shown.status === "partial") {
-      const continuation = n < total ? ` Use pagesFrom=${n + 1} to continue with the next message.` : "";
+      hasBodyContinuation = n < total;
+      const continuation = hasBodyContinuation ? ` Use pagesFrom=${n + 1} to continue with the next message.` : "";
       warnings.push(`MBOX message ${n} was truncated.${continuation}`);
       break;
     }
     if (shown.status === "deferred") {
+      hasBodyContinuation = true;
       warnings.push(`MBOX text budget exhausted at message ${n}. Use pagesFrom=${n} to resume.`);
       break;
     }
@@ -171,6 +180,10 @@ export const mboxExtractor: Extractor = async (input) => {
     warnings.push(
       `stopped at maxPages=${maxPages}; ${remaining} more message(s) not read (use pagesFrom)`,
     );
+  }
+  for (const n of deferredAttachments) {
+    const priority = hasBodyContinuation ? " Follow the body continuation first." : "";
+    warnings.push(`MBOX attachments for message ${n} were deferred. Increase maxBytes and retry with pagesFrom=${n} to read the complete list.${priority}`);
   }
   return result(chunks.join("").trim(), extracted);
 };
