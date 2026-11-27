@@ -16,11 +16,11 @@ const policy: EffectivePolicy = { sources: [], mcpAllowlists: [], rules: [{ sour
 describe("relative and proc script streams", () => {
   it.each([
     ["../dev/stdin", "/work", "stdin"], ["../../proc/self/fd/3", "/work/project", "unknown"],
-    ["/dev/null", "/work", "unknown"], ["/proc/version", "/work", "unknown"],
+    ["/dev/null", "/work", "none"], ["/proc/version", "/work", "unknown"],
     ["thread-self/fd/0", "/proc", "stdin"], ["/proc/self/task/42/fd/0", "/work", "stdin"],
     ["/proc/123/task/456/fd/0", "/work", "stdin"],
   ])("classifies %s from %s", (operand, cwd, expected) => expect(scriptStream(operand, cwd)).toBe(expected));
-  it.each([["python3", ["../dev/null"]], ["awk", ["-f", "../proc/version"]], [".", ["../proc/version"]], ["make", ["-f", "../dev/null"]]] as const)("keeps shell and verify decisions restrictive for %s", (cmd, args) => {
+  it.each([["python3", ["../dev/null"]], ["awk", ["-f", "../proc/version"]], [".", ["../proc/version"]], ["make", ["-f", "../dev/fd/3"]]] as const)("keeps shell and verify decisions restrictive for %s", (cmd, args) => {
     for (const tool of ["os.shell.run", "verify.run"]) {
       const target = toolCallTarget(tool, { kind: "command", cmd, args, cwd: "/work", stdin: "fixture" })!;
       for (const effect of ["deny", "ask"] as const) expect(evaluatePolicy({ ...policy, rules: [{ ...policy.rules[0]!, effect }] }, "shell", target.resources, target)?.effect).toBe(effect);

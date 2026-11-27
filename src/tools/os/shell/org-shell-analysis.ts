@@ -157,7 +157,10 @@ export function shellRuleSegments(cmd: string, execArgs: readonly string[], useS
 }
 
 function makeScriptIsOpaque(args: readonly string[], cwd: string): boolean {
-  const opaqueFile = (file: string | undefined) => file === undefined || scriptStream(file, cwd) !== null;
+  const opaqueFile = (file: string | undefined) => {
+    const stream = scriptStream(file, cwd);
+    return file === undefined || stream === "stdin" || stream === "unknown";
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i]!;
     if (arg === "--") break;

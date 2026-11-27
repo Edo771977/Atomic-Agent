@@ -81,11 +81,12 @@ export function resolveScriptCwd(cwd: string | undefined, workingDir = process.c
 }
 
 /** Descriptor identities cannot be inferred from a different stdin payload. */
-export function scriptStream(operand: string | undefined, cwd = process.cwd()): "stdin" | "unknown" | null {
+export function scriptStream(operand: string | undefined, cwd = process.cwd()): "stdin" | "unknown" | "none" | null {
   if (operand === undefined) return null;
   if (operand.includes("\0")) return "unknown";
   if (operand === "-") return "stdin";
   const path = posix.resolve(resolveScriptCwd(undefined, cwd), operand);
+  if (path === "/dev/null") return "none";
   if (path === "/dev/stdin" || path === "/dev/fd/0" || /^\/proc\/(?:self|thread-self|\d+)\/(?:task\/(?:self|thread-self|\d+)\/)?fd\/0$/.test(path)) return "stdin";
   return /^\/(?:dev|proc)(?:\/|$)/.test(path) ? "unknown" : null;
 }
@@ -98,15 +99,18 @@ export function scriptInput(words: readonly string[], cwd = process.cwd(), analy
     if (options.runsCommand) return null;
     for (let i = 0; i < args.length; i++) {
       const arg = args[i]!;
-      if (arg === "--") return scriptStream(args[i + 1], cwd);
+      if (arg === "--") { const stream = scriptStream(args[i + 1], cwd); return stream === "none" ? null : stream; }
       if (/^(?:--rcfile|--init-file|[-+][A-Za-z]*[oO])$/.test(arg)) { i++; continue; }
       if (arg.startsWith("-") || arg.startsWith("+")) continue;
-      return scriptStream(arg, cwd);
+      const stream = scriptStream(arg, cwd); return stream === "none" ? null : stream;
     }
     return null;
   }
   const script = interpreterScript(words, cwd, analysis);
-  return script?.stdin === true || script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
+  const stream = script?.stdin === true || script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
+  // Keep the existing conservative interpreter/DSL decisions; only shell and
+  // Make empty-script handling is relaxed here.
+  return stream === "none" ? "unknown" : stream;
 }
 
 /** Static option boundaries only: never inspect or execute a program's code. */
