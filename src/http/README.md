@@ -395,3 +395,5 @@ The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval,
 HTTP chat export returns `413 export_too_large` above 2,000 included transcript records or 1,000,000 UTF-16 units of rendered text (with bounded heading/formatting overhead). The budget follows `tools`: user/reply text, delivered-file paths and requested tool descriptions count; duplicated cloud context, loaded skills, snapshots/facts and unrequested raw tool data do not. Visibility and incognito checks precede the limit. Larger transcripts remain exportable from the operator terminal.
 
 An independent ceiling of 20,000 total stored turns applies even with `tools=0`, including omitted tool results. This bounds transcript scanning and positional tool-result matching before synchronous rendering. Ordinary tool sessions below this ceiling still use the requested-transcript budget above.
+
+C2a keeps upstream #1570 deferred: previous-replies and restore-previous-reply routes are unavailable until archive bounds, strict normalization, incognito storage and shared turn ownership are established. [Candidate evidence and reopening tests](../../docs/reviews/c2a-previous-replies.md).

@@ -48,3 +48,5 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 B7a3 reads Google array-form error bodies and status alongside the fork's param field. This preserves invalid-sampling failover behavior; only closed-vocabulary refusal details reach reporting. [Review](../../docs/reviews/b7a3-provider-refusals.md).
 
 Local provider errors retain their parsed type for local handling. External refusal reports admit only the [closed type vocabulary](../error-reporting/README.md); including the reviewed fixed literals `exceed_context_size_error`, `unavailable_error`, `not_supported_error` and `insufficient_quota`. Arbitrary provider types stay local.
+
+C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).

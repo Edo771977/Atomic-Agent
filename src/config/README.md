@@ -83,3 +83,5 @@ Read [compatibility](docs/compatibility.md) for schema/default/migration changes
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../../docs/reviews/b4a-1671.md).
 
 [Project instruction paths](project-instruction-paths.ts) owns the shared root/foreign instruction names, Cursor rules directory, project subagent-profile directories and platform case key. Discovery and export write protection consume these same definitions.
+
+C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).

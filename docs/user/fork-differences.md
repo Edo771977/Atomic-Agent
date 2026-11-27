@@ -76,11 +76,19 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 
 The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [Evidence and reopening tests](../reviews/b5a-imap.md).
 
+## Regeneration history
+
+C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answer bytes, accepts malformed archive fields, persists extra history in incognito and restores without acquiring turn ownership. Existing rollback behavior remains available. [Evidence and reopening tests](../reviews/c2a-previous-replies.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
 
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
+
+## Separate suggestion model
+
+C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment documentation. The candidate endpoint bypasses provider/host policy and Privacy Shield, attempts suggestions in offline mode and lacks validated credential/error handling. Existing suggestions through the configured model remain available. [Evidence and reopening tests](../reviews/c2b-next-step-endpoint.md).
 
 ## Fusion team
 

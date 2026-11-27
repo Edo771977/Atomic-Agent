@@ -69,3 +69,5 @@ Side questions use a separate btw: routing partition and do not mutate the ownin
 B7a5 recognizes start_pending before the managed engine lock exists. A free-lock marker has no lockOwner attribution and keeps the existing no-process wait ceiling; actual live/reused lock-owner behavior is preserved. [Review](../../docs/reviews/b7a5-start-marker.md).
 
 Instruction discovery and export write protection share [the instruction/profile path definitions](../config/project-instruction-paths.ts), including Darwin/Windows case folding. Export protection covers nested names and ancestors through the Git top level using the same credential-filtered Git lookup.
+
+C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
