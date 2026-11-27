@@ -202,9 +202,9 @@ function readsScriptFromStdin(words: readonly string[], cwd: string): boolean {
   const name = programName(head);
   const args = words.slice(1);
   if (POWERSHELL_RE.test(name)) return powershellReadsStdin(args);
-  if (scriptInput(words, cwd) === "stdin") return true;
+  if (scriptInput(words, cwd, "personal") === "stdin") return true;
   // Unknown option semantics must retain main's conservative stdin fallback.
-  if (interpreterScript(words, cwd)?.kind !== "unknown" || !/^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/.test(name)) return false;
+  if (interpreterScript(words, cwd, "personal")?.kind !== "unknown" || !/^(?:python\d*(?:\.\d+)?|node|ruby|perl|php|osascript)$/.test(name)) return false;
   if (args.some(arg => /^-[A-Za-z]*[cemrEp]$|^--(?:eval|print)(?:=|$)/.test(arg))) return false;
   const operand = args.find(arg => arg === "-" || !arg.startsWith("-"));
   return operand === undefined || operand === "-";
@@ -249,7 +249,7 @@ export function stdinScriptOf(
   if (stdin === undefined || stdin.trim() === "") return null;
   // Only locate actual stdin readers here; personal prefix/opaque-code decisions remain separate.
   const segments = scriptSourceSegments(cmd, execArgs, useShell, undefined, cwd);
-  if (segments.some(words => scriptInput(words, cwd) === "unknown")) return { lines: [], unreadable: true };
+  if (segments.some(words => scriptInput(words, cwd, "personal") === "unknown")) return { lines: [], unreadable: true };
   const readers = segments.filter(words => readsScriptFromStdin(words, cwd));
   if (readers.length === 0) return null;
   const shells = readers.filter((words) => NESTED_SHELL_PROGRAMS.includes(programName(words[0]!)));

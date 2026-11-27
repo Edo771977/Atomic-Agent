@@ -8,6 +8,7 @@ const ordinary: Array<[string, string[]]> = [
   ["node", ["--expose-gc", "fixture.js"]], ["node", ["--no-deprecation", "fixture.js"]],
   ["node", ["--trace-uncaught", "fixture.js"]], ["node", ["--max-old-space-size=128", "fixture.js"]],
   ["node", ["--stack-trace-limit=20", "fixture.js"]], ["node", ["--experimental-strip-types", "fixture.ts"]],
+  ["node", ["--fixture-unknown", "fixture.js"]],
   ["sed", ["-n", "{s/a/b/;p;}", "fixture.txt"]], ["sed", ["1,3 { s/a/b/; p; }", "fixture.txt"]],
   ["sed", ["/a/ { p; }", "fixture.txt"]],
   ["awk", ['BEGIN { if (1 || 0) print "fixture" }']], ["awk", ["/a|b/ { print $0 }", "fixture.txt"]],
@@ -15,7 +16,7 @@ const ordinary: Array<[string, string[]]> = [
 ];
 const external: Array<[string, string[]]> = [
   ["make", ["--eval=all:;@fixture"]], ["make", ["-f", "-"]], ["make", ["SHELL=fixture"]],
-  ["node", ["--eval", "void 0"]], ["node", ["--fixture-unknown", "fixture.js"]],
+  ["node", ["--eval", "void 0"]],
   ["node", ["--import=data:text/javascript,void 0", "fixture.js"]],
   ["sed", ["{1e fixture;}"]], ["sed", ["{s/a/b/e;}"]],
   ["awk", ['BEGIN { system("fixture") }']], ["awk", ['{ print $0 | "fixture" }']],

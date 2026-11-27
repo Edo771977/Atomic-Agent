@@ -2,6 +2,13 @@ import { programName, NESTED_SHELL_PROGRAMS, scanNestedShellOptions } from "../s
 import { posix } from "node:path";
 
 export type ScriptOperand = { kind: "inline" | "file" | "stdin" | "none" | "unknown"; operand?: string; stdin?: true };
+type ScriptAnalysis = "organization" | "personal";
+
+// Personal stdin detection retains its established option boundary. New
+// organization selectors must not silently change unrelated saved-rule matches.
+const PERSONAL_NODE_VALUES = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit", "--stack-size", "--stack_size", "--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file"];
+const ORGANIZATION_NODE_VALUES = [...PERSONAL_NODE_VALUES, "-C", "--max-semi-space-size", "--max-http-header-size", "--secure-heap", "--experimental-default-type", "--snapshot-blob"];
+const PERSONAL_NODE_OPERATIONAL = /^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--experimental-vm-modules|--preserve-symlinks(?:-main)?|--test-only|--(?:experimental-)?permission|--(?:no-)?experimental-require-module|--no-addons|--inspect(?:-brk)?(?:=.*)?)$/;
 
 /** Linear selector scan; does not interpret replacement text or compile a regex. */
 function sedExternalCommand(script: string): boolean {
@@ -83,7 +90,7 @@ export function scriptStream(operand: string | undefined, cwd = process.cwd()): 
   return /^\/(?:dev|proc)(?:\/|$)/.test(path) ? "unknown" : null;
 }
 
-export function scriptInput(words: readonly string[], cwd = process.cwd()): "stdin" | "unknown" | null {
+export function scriptInput(words: readonly string[], cwd = process.cwd(), analysis: ScriptAnalysis = "organization"): "stdin" | "unknown" | null {
   const name = programName(words[0] ?? ""), args = words.slice(1);
   if (NESTED_SHELL_PROGRAMS.includes(name)) {
     const options = scanNestedShellOptions(args, name);
@@ -98,12 +105,12 @@ export function scriptInput(words: readonly string[], cwd = process.cwd()): "std
     }
     return null;
   }
-  const script = interpreterScript(words, cwd);
+  const script = interpreterScript(words, cwd, analysis);
   return script?.stdin === true || script?.kind === "stdin" ? "stdin" : script?.kind === "file" ? scriptStream(script.operand, cwd) : null;
 }
 
 /** Static option boundaries only: never inspect or execute a program's code. */
-export function interpreterScript(words: readonly string[], cwd = process.cwd()): ScriptOperand | null {
+export function interpreterScript(words: readonly string[], cwd = process.cwd(), analysis: ScriptAnalysis = "organization"): ScriptOperand | null {
   const name = programName(words[0] ?? "");
   const args = words.slice(1);
   if (/^(?:source|\.)$/.test(name)) return { kind: args[0] ? "file" : "unknown", operand: args[0] };
@@ -130,9 +137,10 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd())
   }
   let nodeInputType = false;
   let nodeCodeLoad = false;
+  let nodeInteractive = false;
   const selected = (operand: string | undefined): ScriptOperand => {
     const stdin = operand === undefined || scriptStream(operand, cwd) === "stdin";
-    if (name === "node" && (nodeCodeLoad || nodeInputType && stdin)) return { kind: "inline", ...(stdin ? { stdin: true } : {}) };
+    if (name === "node" && (nodeCodeLoad || (nodeInputType || nodeInteractive) && stdin)) return { kind: "inline", ...(stdin ? { stdin: true } : {}) };
     return operand === undefined ? { kind: "stdin" } : { kind: operand === "-" ? "stdin" : "file", operand };
   };
   for (let i = 0; i < args.length; i++) {
@@ -148,19 +156,23 @@ export function interpreterScript(words: readonly string[], cwd = process.cwd())
       if (!/^-[bBdEhiIOPqRsSuvVx]+$/.test(arg)) return { kind: "unknown" };
     } else if (name === "node") {
       if (/^-(?:e|p)(?:.|$)|^--(?:eval|print)(?:=|$)/.test(arg)) return { kind: "inline" };
-      const shortRequire = /^-r./.test(arg);
-      const option = shortRequire ? "-r" : arg.split("=", 1)[0]!;
-      const value = shortRequire ? arg.slice(2) : arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
-      const values = ["-r", "--require", "--import", "--input-type", "--loader", "--experimental-loader", "--conditions", "--inspect-port", "--title", "--icu-data-dir", "--openssl-config", "--redirect-warnings", "--report-directory", "--report-filename", "--diagnostic-dir", "--unhandled-rejections", "--test-name-pattern", "--test-skip-pattern", "--test-concurrency", "--test-reporter", "--test-reporter-destination", "--test-shard", "--test-timeout", "--max-old-space-size", "--stack-trace-limit", "--stack-size", "--stack_size", "--env-file", "--env-file-if-exists", "--watch-path", "--disable-warning", "--dns-result-order", "--localstorage-file"];
+      const shortValue = (analysis === "personal" ? /^-r./ : /^-[rC]./).test(arg);
+      const option = shortValue ? arg.slice(0, 2) : arg.split("=", 1)[0]!;
+      const value = shortValue ? arg.slice(2) : arg.includes("=") ? arg.slice(arg.indexOf("=") + 1) : args[i + 1];
+      const values = analysis === "personal" ? PERSONAL_NODE_VALUES : ORGANIZATION_NODE_VALUES;
       if (["-r", "--require", "--import", "--loader", "--experimental-loader"].includes(option) && /^data:/i.test(value?.trimStart() ?? "")) nodeCodeLoad = true;
       if (values.includes(option) || /^--allow-fs-/.test(option)) {
         if (value === undefined) return { kind: "unknown" };
         nodeInputType ||= option === "--input-type";
-        if (!arg.includes("=") && !shortRequire) i++;
+        if (!arg.includes("=") && !shortValue) i++;
         continue;
       }
+      if (analysis === "organization" && option === "--run") return { kind: "none" };
+      nodeInteractive ||= arg === "-i" || option === "--interactive";
       if (/^(?:-v|--version|--help)$/.test(arg)) return { kind: "none" };
-      if (!/^(?:-c|--check|--test|--watch|--trace-warnings|--trace-deprecation|--no-warnings|--enable-source-maps|--use-strict|--pending-deprecation|--expose-gc|--no-deprecation|--trace-uncaught|--abort-on-uncaught-exception|--(?:no-)?experimental-strip-types|--experimental-vm-modules|--preserve-symlinks(?:-main)?|--test-only|--(?:experimental-)?permission|--(?:no-)?experimental-require-module|--no-addons|--inspect(?:-brk)?(?:=.*)?)$/.test(arg)) return { kind: "unknown" };
+      // Operational long flags are open-ended. Code-bearing selectors above
+      // remain restrictive; unknown short forms still have uncertain boundaries.
+      if (analysis === "personal" ? !PERSONAL_NODE_OPERATIONAL.test(arg) : !arg.startsWith("--") && !/^(?:-c|-i)$/.test(arg)) return { kind: "unknown" };
     } else if (name === "perl" || name === "ruby") {
       if (arg.startsWith("--")) {
         if (name === "ruby" && ["--encoding", "--external-encoding", "--internal-encoding"].includes(arg.split("=", 1)[0]!)) { if (!arg.includes("=")) i++; continue; }
