@@ -7,6 +7,7 @@ const reserved = (word: string) => RESERVED.has(word.toUpperCase().replace(/^env
 /** A visible argv check, not an integrity boundary against arbitrary same-account code. */
 export function changesPolicyChildMetadata(cmd: string, args: readonly string[], useShell: boolean, analyze = analyzeShellRules): boolean {
   if (!/ATOMIC_AGENT_(?:TOOL_CHILD|POLICY_)|\benv(?:\.exe)?\b|\bexec\b/i.test([cmd, ...args].join(" "))) return false;
+  const resetDropsMetadata = [...RESERVED].some(name => process.env[name] !== undefined);
   const segments = analyze(cmd, args, useShell).segments.flatMap(words => [words, ...shellWrapperSegments(words)]);
   return segments.some(words => {
     if (words.some((word, index) => word.includes("=") && reserved(word) && (index === 0 || ["env", "export", "set"].includes(programName(words[0] ?? ""))))) return true;
@@ -15,7 +16,7 @@ export function changesPolicyChildMetadata(cmd: string, args: readonly string[],
     if (name === "exec") {
       for (let i = 1; i < words.length && words[i]?.startsWith("-") && words[i] !== "--"; i++) {
         for (const flag of words[i]!.slice(1)) {
-          if (flag === "c") return true;
+          if (flag === "c" && resetDropsMetadata) return true;
           if (flag === "a") { if (words[i] === "-a") i++; break; }
         }
       }
@@ -24,13 +25,13 @@ export function changesPolicyChildMetadata(cmd: string, args: readonly string[],
     for (let i = 1; i < words.length; i++) {
       const word = words[i]!;
       if (word === "--") break;
-      if (word === "-" || word === "--ignore-environment") return true;
+      if (word === "-" || word === "--ignore-environment") { if (resetDropsMetadata) return true; continue; }
       if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(word)) continue;
       if (!word.startsWith("-")) break;
       if (/^--(?:unset|chdir|split-string)$/.test(word)) { i++; continue; }
       if (word.startsWith("--")) continue;
       for (let j = 1; j < word.length; j++) {
-        if (word[j] === "i") return true;
+        if (word[j] === "i" && resetDropsMetadata) return true;
         if ("uCPS".includes(word[j]!)) { if (j === word.length - 1) i++; break; }
       }
     }

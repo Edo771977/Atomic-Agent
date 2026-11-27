@@ -1,8 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { policyCallRefusal } from "./policy-enforce.js";
 import type { EffectivePolicy } from "./policy-evaluator.js";
 
 const policy: EffectivePolicy = { sources: [{ kind: "url", state: "loaded", location: "https://fixture.test" }], mcpAllowlists: [], rules: [] };
+beforeEach(() => vi.stubEnv("ATOMIC_AGENT_POLICY_FILE_PINS", "[]"));
+afterEach(() => vi.unstubAllEnvs());
 describe("visible child environment reset and export changes", () => {
   it.each([
     ["env", ["-i", "fixture-command"]], ["env", ["--ignore-environment", "fixture-command"]],
