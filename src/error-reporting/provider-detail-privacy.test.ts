@@ -15,6 +15,6 @@ it.each(["customer_private_731", "sk_credential_sentinel_731", "C:\\private\\fil
   for(const key of ["upstream_reason","upstream_error_param","upstream_error_code"]) expect(String(tags[key])).not.toContain(sentinel);
 });
 it("keeps recognized closed-vocabulary codes and structural paths",()=>{
-  expect(extractUpstreamErrorDetail({status:400,body:{code:"invalid_value",text:'{"param":"messages[9].content[2].text"}'}})).toMatchObject({upstreamErrorCode:"invalid_value",upstreamErrorParam:"messages[].content[].text"});
+  expect(extractUpstreamErrorDetail({status:400,body:{code:"invalid_value",param:"messages[9].content[2].text",text:'{"param":"messages[9].content[2].text"}'}})).toMatchObject({upstreamErrorCode:"invalid_value",upstreamErrorParam:"messages[].content[].text"});
   expect(extractUpstreamErrorDetail({status:400,body:{code:"private_identifier",status:"INVALID_ARGUMENT",text:"invalid"}}).upstreamErrorCode).toBe("INVALID_ARGUMENT");
 });

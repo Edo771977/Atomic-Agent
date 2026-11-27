@@ -231,6 +231,7 @@ describe("extractUpstreamErrorDetail (ATO-1673)", () => {
     const err = providerFailure(400, {
       type: "invalid_request_error",
       code: "invalid_value",
+      param: "messages.3.content.0.text",
       message: "messages.3.content.0.text: text content blocks must be non-empty",
       text: '{"error":{"message":"messages.3.content.0.text: text content blocks must be non-empty, user said: draft my resignation letter"}}',
     });

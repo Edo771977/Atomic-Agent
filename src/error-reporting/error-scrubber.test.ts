@@ -574,7 +574,7 @@ it("round2-8 masks a registered serve key in allowlisted error messages", () => 
 });
 
 describe("scrubError upstream detail (ATO-1673)", () => {
-  it("sends the reason, blamed field and code of a Gemini refusal, never its text", () => {
+  it("sends Gemini reason/code but infers no blamed field from prose", () => {
     // The body exactly as the HTTP client builds it, from Google's array form.
     const raw =
       '[{"error":{"code":400,"message":"* GenerateContentRequest.contents[3].parts[0].function_call: Function call is missing a thought_signature in functionCall parts; draft my resignation letter","status":"INVALID_ARGUMENT"}}]';
@@ -590,9 +590,7 @@ describe("scrubError upstream detail (ATO-1673)", () => {
     });
     const ev = scrubError(wrapper, { source: "llm_failure", category: "transport" });
     expect(ev.upstreamReason).toBe("missing_thought_signature");
-    expect(ev.upstreamErrorParam).toBe(
-      "GenerateContentRequest.contents[].parts[].function_call",
-    );
+    expect(ev.upstreamErrorParam).toBeUndefined();
     expect(ev.upstreamErrorCode).toBe("INVALID_ARGUMENT");
     expect(JSON.stringify(ev)).not.toContain("resignation");
     expect(JSON.stringify(ev)).not.toContain("functionCall parts");
