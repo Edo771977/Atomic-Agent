@@ -1,0 +1,237 @@
+{
+  "candidate": {
+    "passed": 37,
+    "failed": 4,
+    "skipped": 0,
+    "totalFiles": 4,
+    "files": [
+      {
+        "file": "src/llm/run-mode/resolve-run-mode.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "resolveRunMode keeps measured routing absent by default and resolves only explicit opt-in",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode enables candidate integration only when explicitly selected",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode derives local from a llama-server active provider when the block is absent",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode derives cloud from a cloud active provider when the block is absent",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode finds the legs by kind: first llama-server is the worker, active cloud is the orchestrator",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode falls back to the first cloud provider when the active one is local",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode honours pinned legs",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode pins the legacy orchestrator, worker, role and side calls to the configured models",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode keeps escalation between distinct models of a shared legacy provider",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode drops to the derived mode when the operator switched provider by hand",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode degrades fusion with no cloud provider to local",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode degrades fusion to cloud-only when there is no second provider",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode degrades a stored cloud mode with no cloud provider",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode assumes local for an unresolvable active provider and never leaves primary empty",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode accepts a subscription-cli provider as the orchestrator",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode labels the models from the provider default and the managed daemon, unless pinned",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode never labels a foreign llama.cpp worker with the managed model (ATO-1562)",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode applies the worker defaults and honours overrides",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode with the legs swapped runs the orchestrator locally and the workers in the cloud when pinned that way",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode with the legs swapped never puts the same provider on both legs by default",
+            "status": "passed"
+          },
+          {
+            "name": "fusion escalation target (ATO-942) defaults to the orchestrator leg, off for automatic use",
+            "status": "passed"
+          },
+          {
+            "name": "fusion escalation target (ATO-942) is null when the only candidate is the worker leg itself",
+            "status": "passed"
+          },
+          {
+            "name": "fusion escalation target (ATO-942) honours a pinned provider, the advisor switch, the replace flag and the cap",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode — task tree (ATO-940) is absent unless enabled",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode — task tree (ATO-940) defaults to depth 2 and 24 nodes when enabled",
+            "status": "passed"
+          },
+          {
+            "name": "resolveRunMode — task tree (ATO-940) treats depth 1 as the flat fan-out and honours the configured limits",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/runtime/composition/external-llama-deferred.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for https://external.example.test",
+            "status": "failed",
+            "failure": "AssertionError: expected { runTurn: [Function runTurn], …(36) } to not have property \"servedModelOf\"\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/external-llama-deferred.test.ts:27:48\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for http://192.168.1.20:8080",
+            "status": "failed",
+            "failure": "AssertionError: expected { runTurn: [Function runTurn], …(36) } to not have property \"servedModelOf\"\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/external-llama-deferred.test.ts:27:48\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for http://127.0.0.1:8080",
+            "status": "failed",
+            "failure": "AssertionError: expected { runTurn: [Function runTurn], …(36) } to not have property \"servedModelOf\"\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/external-llama-deferred.test.ts:27:48\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred keeps the new untrusted served-label module absent",
+            "status": "failed",
+            "failure": "AssertionError: expected true to be false // Object.is equality\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/src/runtime/composition/external-llama-deferred.test.ts:30:94\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-candidate-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          }
+        ]
+      },
+      {
+        "file": "src/tools/fusion/served-model-label.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "servedModelName (ATO-1562) prefers the server's alias, and shows a path as its file name",
+            "status": "passed"
+          },
+          {
+            "name": "servedModelName (ATO-1562) is null when the server names no model",
+            "status": "passed"
+          },
+          {
+            "name": "reconcileWorkerLabel (ATO-1562) labels with the served model and says so when the pick differs",
+            "status": "passed"
+          },
+          {
+            "name": "reconcileWorkerLabel (ATO-1562) says nothing when the pick matches or nothing was picked, and keeps the pick without a served name",
+            "status": "passed"
+          },
+          {
+            "name": "SaidOnce is true once per session and text",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/tui/composer-switch/composer-engine-rows.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "Fusion seat rows for a provider on another computer (ATO-1066) names a LAN server as a computer on your network, not a cloud provider",
+            "status": "passed"
+          },
+          {
+            "name": "Fusion seat rows for a provider on another computer (ATO-1066) keeps the cloud label for a real cloud provider",
+            "status": "passed"
+          },
+          {
+            "name": "Fusion seat rows for a provider on another computer (ATO-1066) does not call this machine's own server a computer on the network",
+            "status": "passed"
+          },
+          {
+            "name": "Fusion seat rows for a provider on another computer (ATO-1066) says the same in the workers switch",
+            "status": "passed"
+          },
+          {
+            "name": "Fusion model rows for a llama.cpp server that is not ours (ATO-1563) offers one row saying what is loaded, which cannot be picked",
+            "status": "passed"
+          },
+          {
+            "name": "Fusion model rows for a llama.cpp server that is not ours (ATO-1563) says only that the server decides when it names no model",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "deferral": {
+    "passed": 4,
+    "failed": 0,
+    "skipped": 0,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/runtime/composition/external-llama-deferred.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for https://external.example.test",
+            "status": "passed"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for http://192.168.1.20:8080",
+            "status": "passed"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred does not wire a served-model probe for http://127.0.0.1:8080",
+            "status": "passed"
+          },
+          {
+            "name": "B7b3 external llama probe remains deferred keeps the new untrusted served-label module absent",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  }
+}

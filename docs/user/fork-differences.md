@@ -110,6 +110,8 @@ C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment 
 
 ## Fusion team
 
+B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).
+
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).
 - **A reviewer per task.**
   - It gives a structured verdict and has at most two passes; then the director decides ([#44](https://github.com/Edo771977/atomic-agent/pull/44)).

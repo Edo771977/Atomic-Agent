@@ -90,3 +90,5 @@ Fusion team pickers (issue #37, [fusion-team-picker.ts](fusion-team-picker.ts), 
 Export file writes share [the destination guard](../session/chat-export-file.ts): state, trust inventories, policy and skill paths are refused in lexical and resolved forms. File links are refused. Ordinary writes use exclusive creation; `--force` replaces via an adjacent owner-only temporary file and rename. Export to a working folder outside agent state.
 
 `/export` accepts `--force` and `--confirm-incognito` before or after the format and path. Quote paths that contain option-like words; an unknown unquoted option is refused before rendering or writing.
+
+B7b3 keeps #1563's external-server model row deferred with its #1562 classification/probe prerequisite. Existing selectors remain available; this is not a claim that an external llama.cpp actually honors their requested model. [Review](../../docs/reviews/b7b3-external-llama.md).
