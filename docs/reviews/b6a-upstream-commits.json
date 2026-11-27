@@ -1,0 +1,16 @@
+[
+  {
+    "sha": "348ae04fdfa0a37d8874a2a2d4e0f50a9802af47",
+    "parents": [
+      "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64"
+    ],
+    "subject": "feat(import): bridge trusted Hermes Python plugins as local MCP servers (ATO-953)"
+  },
+  {
+    "sha": "ed2c6903b36055e0e097466041ba33cc0702f9c5",
+    "parents": [
+      "348ae04fdfa0a37d8874a2a2d4e0f50a9802af47"
+    ],
+    "subject": "fix(import): harden the Hermes plugin bridge shim and trust matching (ATO-953)"
+  }
+]

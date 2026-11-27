@@ -61,7 +61,7 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).not.toMatch(/\n- /);
   });
 
-  it("answers HTML and a base64 DOCX", async () => {
+  it("answers HTML, a base64 DOCX and a base64 PDF", async () => {
     seed("ex-3");
     const html = (await (await get("ex-3", "?format=html")).json()) as ExportBody;
     expect(html.encoding).toBe("utf8");
@@ -70,11 +70,14 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(docx).toMatchObject({ format: "docx", filename: "Trip plan.docx", encoding: "base64" });
     const zip = await JSZip.loadAsync(Buffer.from(docx.content, "base64"));
     expect(await zip.file("word/document.xml")!.async("string")).toContain("Lisbon");
+    const pdf = (await (await get("ex-3", "?format=pdf")).json()) as ExportBody;
+    expect(pdf).toMatchObject({ format: "pdf", filename: "Trip plan.pdf", mimeType: "application/pdf", encoding: "base64" });
+    expect(Buffer.from(pdf.content, "base64").subarray(0, 8).toString("latin1")).toBe("%PDF-1.4");
   });
 
   it("refuses an unknown format and a missing session", async () => {
     seed("ex-4");
-    expect((await get("ex-4", "?format=pdf")).status).toBe(400);
+    expect((await get("ex-4", "?format=rtf")).status).toBe(400);
     expect((await get("nope")).status).toBe(404);
   });
 
@@ -133,10 +136,10 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).not.toContain(key);
   });
 
-  it("refuses an incognito chat with 409", async () => {
+  it.each(["md", "pdf"])("refuses an incognito chat with 409 in %s", async format => {
     const state = seed("exp-incog");
     harness.runtime.sessionStore.save({ ...state, incognito: harness.runtime.sessionStore.newIncognitoMark() });
-    const res = await get("exp-incog");
+    const res = await get("exp-incog", `?format=${format}`);
     expect(res.status).toBe(409);
     expect(JSON.stringify(await res.json())).toMatch(/incognito/);
   });

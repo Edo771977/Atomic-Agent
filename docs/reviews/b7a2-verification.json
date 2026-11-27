@@ -1,0 +1,501 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "environment": {
+    "os": "Windows",
+    "node": "v26.13.1",
+    "install": "npm ci"
+  },
+  "upstream": [
+    {
+      "sha": "061d019cc7f05c3f648a938d3ede5e112bbc74ce",
+      "parents": "6d1f14fcd4ae08e592a71fe52f0146c5aa7bab64",
+      "subject": "Export a chat to PDF from the terminal and add /export to the TUI (ATO-1054)",
+      "authorEmail": "273119990+sosidudku1@users.noreply.github.com"
+    }
+  ],
+  "disposition": "cherry-picked separately with -x, followed by fork adaptations",
+  "checks": [
+    {
+      "command": "npm ci",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run lint",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run imports:check",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0
+    },
+    {
+      "command": "focused",
+      "exitCode": 1
+    },
+    {
+      "command": "npm run typecheck:tests",
+      "exitCode": 0,
+      "rerun": "types-final"
+    },
+    {
+      "command": "npm run docs:check",
+      "exitCode": 0,
+      "rerun": "docs-final"
+    }
+  ],
+  "reports": {
+    "red": {
+      "counts": {
+        "numTotalTests": 8,
+        "numPassedTests": 1,
+        "numFailedTests": 7,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: refuses incognito before any file is written",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'chat exported as PDF: <local>\\…' to match /incognito.*confirm/i\n    at <local>/src/tui/commands/export-privacy.test.ts:24:87\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: writes incognito only after the person's explicit TUI confirmation",
+          "status": "failed",
+          "failures": [
+            "Error: ENOENT: no such file or directory, open '<local>\\AppData\\Local\\Temp\\b7a2-export-x1qGko\\private.pdf'\n    at readFileSync (node:fs:624:20)\n    at <local>/src/tui/commands/export-privacy.test.ts:29:10\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in md and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'b7a2_config_credential_91fe43a2 scrip…' not to contain 'b7a2_config_credential_91fe43a2'\n    at <local>/src/tui/commands/export-privacy.test.ts:35:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in pdf and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'b7a2_config_credential_91fe43a2 scrip…' not to contain 'b7a2_config_credential_91fe43a2'\n    at <local>/src/tui/commands/export-privacy.test.ts:35:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in html and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'b7a2_config_credential_91fe43a2 scrip…' not to contain 'b7a2_config_credential_91fe43a2'\n    at <local>/src/tui/commands/export-privacy.test.ts:35:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in docx and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'b7a2_config_credential_91fe43a2 scrip…' not to contain 'b7a2_config_credential_91fe43a2'\n    at <local>/src/tui/commands/export-privacy.test.ts:35:24\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: preserves explicit destinations without force and permits an explicit forced write",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'chat exported as Markdown: C:\\Users\\e…' to match /exists.*--force/\n    at <local>/src/tui/commands/export-privacy.test.ts:41:78\n    at async file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: renders PDF as inert local text without network resources",
+          "status": "passed"
+        }
+      ]
+    },
+    "green": {
+      "counts": {
+        "numTotalTests": 36,
+        "numPassedTests": 28,
+        "numFailedTests": 8,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) defaults to Markdown on stdout with tool lines",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) takes --last, --format, --out and --no-tools",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) refuses bad usage with a reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) writing --out does not overwrite an existing file without --force",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) writing --out overwrites with --force and writes a new file either way",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export: what reaches the file masks a provider key stored in config.json, not only the .env ones",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export: what reaches the file refuses an incognito chat by id",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) answers Markdown by default, with tool steps in words",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) leaves tool steps out with tools=0",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) answers HTML, a base64 DOCX and a base64 PDF",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) refuses an unknown format and a missing session",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) does not put a credential from a command step in the export",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) masks a provider key stored in config.json (ATO-1077 set), not only the .env ones",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) refuses an incognito chat with 409",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) writes a header, objects at the offsets the xref lists, and a trailer",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) draws the text and numbers one page for a short chat",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) starts new pages for a long chat and counts them in the page tree",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) wraps long lines inside the margins and escapes PDF string syntax",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) transliterates or replaces what WinAnsi lacks, and says so at the end",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) keeps lists, code blocks, quotes and tables as text",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) defaults to Markdown in the current folder",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) takes a format word, then a path that may hold spaces or quotes",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) picks the format from the extension when no format word is given",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) resolves home, folders and missing extensions",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected '/home/me/x.pdf' to be 'C:\\home\\me\\x.pdf' // Object.is equality\n    at <local>/src/tui/commands/export-command.test.ts:57:87\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<local>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<local>/node_modules/@vitest/runner/dist/c"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) writes Markdown named after the chat and never over an earlier export",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) overwrites an explicit path only with force",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) writes a PDF and mentions the font limit only when the chat needs it",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) says why when there is nothing to export or the folder is missing",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: refuses incognito before any file is written",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: writes incognito only after the person's explicit TUI confirmation",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:30:107\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in md and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:34:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in pdf and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:34:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in html and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:34:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in docx and the default filename",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:34:72\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: preserves explicit destinations without force and permits an explicit forced write",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /exists.*--force/\n    at <local>/src/tui/commands/export-privacy.test.ts:53:78\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: renders PDF as inert local text without network resources",
+          "status": "failed",
+          "failures": [
+            "AssertionError: expected 'export failed: invalid config: llm.ac…' to match /chat exported/\n    at <local>/src/tui/commands/export-privacy.test.ts:60:81\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          ]
+        }
+      ]
+    },
+    "final-targeted": {
+      "counts": {
+        "numTotalTests": 42,
+        "numPassedTests": 42,
+        "numFailedTests": 0,
+        "numPendingTests": 0
+      },
+      "tests": [
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) defaults to Markdown on stdout with tool lines",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) takes --last, --format, --out and --no-tools",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) refuses bad usage with a reason",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) writing --out does not overwrite an existing file without --force",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export args (ATO-1054) writing --out overwrites with --force and writes a new file either way",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export: what reaches the file masks a provider key stored in config.json, not only the .env ones",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export: what reaches the file refuses an incognito chat by id in md",
+          "status": "passed"
+        },
+        {
+          "name": "src/cli/export-command.test.ts :: atomic-agent export: what reaches the file refuses an incognito chat by id in pdf",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/export-pdf-visibility.test.ts :: conceals incognito and withheld PDF exports from viewer",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/export-pdf-visibility.test.ts :: conceals incognito and withheld PDF exports from member",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/export-pdf-visibility.test.ts :: conceals incognito and withheld PDF exports from operator",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/export-pdf-visibility.test.ts :: conceals incognito and withheld PDF exports from admin",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) answers Markdown by default, with tool steps in words",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) leaves tool steps out with tools=0",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) answers HTML, a base64 DOCX and a base64 PDF",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) refuses an unknown format and a missing session",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) does not put a credential from a command step in the export",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) masks a provider key stored in config.json (ATO-1077 set), not only the .env ones",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) refuses an incognito chat with 409 in md",
+          "status": "passed"
+        },
+        {
+          "name": "src/http/route-session-export.test.ts :: GET /api/sessions/{id}/export (ATO-1054) refuses an incognito chat with 409 in pdf",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) writes a header, objects at the offsets the xref lists, and a trailer",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) draws the text and numbers one page for a short chat",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) starts new pages for a long chat and counts them in the page tree",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) wraps long lines inside the margins and escapes PDF string syntax",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) transliterates or replaces what WinAnsi lacks, and says so at the end",
+          "status": "passed"
+        },
+        {
+          "name": "src/session/chat-export-pdf.test.ts :: chat export to PDF (ATO-1054) keeps lists, code blocks, quotes and tables as text",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) defaults to Markdown in the current folder",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) takes a format word, then a path that may hold spaces or quotes",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export arguments (ATO-1054) picks the format from the extension when no format word is given",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) resolves home, folders and missing extensions",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) writes Markdown named after the chat and never over an earlier export",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) overwrites an explicit path only with force",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) writes a PDF and mentions the font limit only when the chat needs it",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-command.test.ts :: /export writing the file (ATO-1054) says why when there is nothing to export or the folder is missing",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: refuses incognito before any file is written",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: writes incognito only after the person's explicit TUI confirmation",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in md and the default filename",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in pdf and the default filename",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in html and the default filename",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: masks configuration credentials in docx and the default filename",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: preserves explicit destinations without force and permits an explicit forced write",
+          "status": "passed"
+        },
+        {
+          "name": "src/tui/commands/export-privacy.test.ts :: renders PDF as inert local text without network resources",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "finalStaticChecks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "finalStaticChecksAllPassed": true,
+  "postPublicationMainIntegration": {
+    "forkMain": "28b0c9b36e8a0879390dd9e6fe2b74a11c996530",
+    "originallyTestedHead": "48fe8ef899692f78b435891186bed5821bde8eac",
+    "productionSourceChanges": [],
+    "dependencyChanges": [],
+    "conflict": "src/http/README.md appended notes; both PDF and B5c notes preserved",
+    "checks": {
+      "lint": 0,
+      "imports": 0,
+      "typecheckTests": 0,
+      "docs": 0
+    },
+    "addedMainTest": {
+      "command": "npx vitest run src/http/b5c-twilio-deferred.test.ts",
+      "passed": 2,
+      "failed": 0
+    },
+    "focusedAndBaselineCountsRemainFrom": "904476e2e099903833223beb4a0ace08b8d7a220"
+  }
+}

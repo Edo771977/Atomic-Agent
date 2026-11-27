@@ -12,6 +12,14 @@ The fork was last brought in step with upstream on 17 November 2026:
 - `main`: [#57](https://github.com/Edo771977/atomic-agent/pull/57), a one-time merge of upstream `main`, tracked in [#56](https://github.com/Edo771977/atomic-agent/issues/56).
 - The desktop line: [#61](https://github.com/Edo771977/atomic-agent/pull/61), upstream `desktop-v0.0.9` merged into `desktop-main`, tracked in [#59](https://github.com/Edo771977/atomic-agent/issues/59).
 
+After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/atomic-agent/pull/1740) comes in one change at a time with `git cherry-pick -x`, in the series of [#233](https://github.com/Edo771977/atomic-agent/issues/233).
+
+- Each imported change has a review and tests that failed before the import.
+- Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
+- [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
+
+These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
+
 Selective imports for offline use and chat data cleanup:
 
 - `fix/ato-1085-offline-telemetry` (`1ab6b946dbaa8e458aca8e7c675bd930e9b84b72`): drop telemetry, feature flag lookups and update checks in offline mode.
@@ -69,6 +77,8 @@ Everything below exists only in this fork. Links are to the fork's pull requests
 The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [Evidence and reopening tests](../reviews/b5a-imap.md).
 
 ## Memory backup and entry controls
+
+B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
 
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
 
@@ -168,6 +178,10 @@ A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candid
 
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../reviews/b4b-subscription-signin.md).
 
+## Local engine startup
+
+B7a5 imports the ATO-421 TUI startup marker with prerequisite ba8bf8343. The fork retains its engine wait ceilings, avoids assigning lock ownership to a pre-lock marker, and covers a first start before the models directory exists. Error and cancellation cleanup are tested. [Review](../reviews/b7a5-start-marker.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
@@ -185,6 +199,10 @@ The B5b WhatsApp Web channel (#1672) is deferred: Baileys/protobufjs add install
 
 The editor-launched ACP command from upstream #1646 remains deferred in B3. Its full three-commit branch was reviewed: the candidate admits marked tool children and guesses worker approval ownership from the sole busy chat. Upstream also supports persistent allow-always grants from editor replies. The fork exposes no ACP command or listener pending reliable attribution and preservation of its operator confirmation rules. [HTTP review](../../src/http/README.md)
 
+## Local fallback consent
+
+B7a4 defers upstream #1576 local-fallback consent. The candidate persistence owner accepts marked-child answers and the HTTP route adds no independent operator decision. No automatic question or answer file is enabled. [Evidence](../reviews/b7a4-local-last-resort.md).
+
 ## Setup and measurement
 
 - **`atomic-agent setup fusion`.** One step from install to "cloud plans, local executes" ([#13](https://github.com/Edo771977/atomic-agent/pull/13)).
@@ -196,6 +214,10 @@ The editor-launched ACP command from upstream #1646 remains deferred in B3. Its 
   - A Windows core CI gate.
 
 The B4c Composio account CLI/TUI import (#1687/#1688) is deferred: connected accounts are readable from a marked child, and account selection changes the stable prompt prefix. Existing ATO-548 configuration and session pins are unchanged. [Review and reopening requirements](../reviews/b4c-composio-accounts.md).
+
+## Hermes Python plugins
+
+The upstream #1639 Python-to-MCP bridge remains deferred in B6a. CLI trust strings do not provide the fork's TUI confirmation, content identity or child write protection; changed plugin code executes without renewed trust. No bridge or shim is shipped. [Review and reproducible tests](../reviews/b6a-hermes-bridge.md).
 
 ## MCP over HTTP
 
@@ -216,6 +238,10 @@ The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport 
   - No phone push is sent.
 
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../reviews/b4a-1671.md).
+
+## Provider refusal reports
+
+B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
 
 ## Security and reliability
 
@@ -250,12 +276,20 @@ Child process environment filtering depends on the launcher. The shell builder n
 
   See [#76](https://github.com/Edo771977/atomic-agent/pull/76).
 
+## Chat document export
+
+B7a2 imports upstream #1715 PDF export. The TUI requires an explicit --confirm-incognito for each incognito export and --force before overwriting. The CLI and HTTP refuse incognito. All content and generated filenames mask runtime-known configuration credentials. The PDF writer uses no network or active content and adds no dependencies. [Review](../reviews/b7a2-chat-pdf.md).
+
 ## Still open
 
 - [#33](https://github.com/Edo771977/atomic-agent/issues/33): multi-model team and an approvable assignment plan.
 - [#35](https://github.com/Edo771977/atomic-agent/issues/35): the Windows test run (install, Fusion costs, folder constraints, approvals, project quality).
 - [#47](https://github.com/Edo771977/atomic-agent/issues/47): the desktop line and its project card.
 - [#80](https://github.com/Edo771977/atomic-agent/issues/80): the Windows acceptance checks for the rollback and milestone fixes.
+
+## Phone calls
+
+The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval, offline and child credential refusal; encoded Basic authorization can escape through errors. Upstream provides no incoming-call or signature-verification slice in this commit. [Evidence and reopening tests](../reviews/b5c-twilio.md).
 
 ## OS sandbox for commands
 
@@ -266,3 +300,4 @@ La terza revisione B1 della policy (#246) ripristina il parser delle regole pers
 La quarta revisione B1 preserva la prudenza delle regole personali di main per opzioni di interprete ignote. La localizzazione effettiva di stdin oltre flag con valori e il rifiuto di descrittori estranei a verify restano un irrigidimento intenzionale anche senza policy. Make ordinario, inclusione POSIX, flag operativi Node e DSL sed/awk evitano falsi positivi; stream normalizzati, shell ampliate/BusyBox e selettori esterni restano prudenti. I metadati child sono indicativi, con controlli best-effort sui reset visibili, e richiedono isolamento OS per codice arbitrario. I limiti delle famiglie meno comuni sono nella [guida policy](../../src/policy/README.md#less-common-families-and-follow-up) e nel [seguito #266](https://github.com/Edo771977/Atomic-Agent/issues/266).
 
 La quinta revisione B1 completa make eval/file-stream, distingue flag operativi e codice Node e risolve gli stream relativi dalla cwd di ogni chiamata fino ai consumatori verify/read-scope/egress. I reset visibili sono rifiutati quando rimuovono metadati presenti nel padre. L’inventario Git ora distingue i selettori davvero coperti dai programmi/configurazioni non analizzati; indirizzi/opzioni sed e alias dinamici di stdin restano limiti documentati nel seguito #266. La guida e i test elencano gli irrigidimenti personali intenzionali senza policy.
+Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client requests unrestricted network even without consent and while offline. An enabled port needs host grants enforced on the server process, folder egress and protected-path inventories. Existing MCP stdio stays outside this command wrapper. macOS already has a Seatbelt command backend with host loopback retained; Windows has no backend. No production behavior changes. [Review and reproducible tests](../reviews/b6b-mcp-sandbox.md).

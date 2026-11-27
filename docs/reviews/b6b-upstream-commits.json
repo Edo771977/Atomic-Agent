@@ -1,0 +1,44 @@
+[
+  {
+    "sha": "1a959f7e617e3cbb7d07d98eede3b91df54e65d9",
+    "parents": [
+      "93c6763d3cb3dae1fc6664e204fe098280337aed"
+    ],
+    "subject": "feat(mcp): run stdio MCP servers in the Safe Mode sandbox, per-server opt-out (ATO-620)"
+  },
+  {
+    "sha": "b40853a5615c671963a4fcbf3b35a5c1d00efc79",
+    "parents": [
+      "1603f5bf8c610d8c5e182119850d730e5a5a0840"
+    ],
+    "subject": "fix(mcp): keep the state dir hidden from a server installed in it, drop SSH_AUTH_SOCK (ATO-620)"
+  },
+  {
+    "sha": "756e34729f10b00c1e578425e2b3349628f74528",
+    "parents": [
+      "b40853a5615c671963a4fcbf3b35a5c1d00efc79"
+    ],
+    "subject": "fix(mcp): reopen only a server's exact files, hide the ssh-agent socket (ATO-620)"
+  },
+  {
+    "sha": "d9c5044e4a21363e40cc957ab5a64d838c500822",
+    "parents": [
+      "756e34729f10b00c1e578425e2b3349628f74528"
+    ],
+    "subject": "feat(mcp): hide ~/.npmrc, shell rc files and the Docker socket from sandboxed servers, allowDocker opt-in (ATO-620)"
+  },
+  {
+    "sha": "aa18421f9b9dc79baa4179bafb2c16944e8fd5e8",
+    "parents": [
+      "d9c5044e4a21363e40cc957ab5a64d838c500822"
+    ],
+    "subject": "Let the sandbox stat the folders above a reopened path, use valid server names in the config test (ATO-620)"
+  },
+  {
+    "sha": "4bee18579184f2a0a7bfe5e08d372c03eb6d2172",
+    "parents": [
+      "aa18421f9b9dc79baa4179bafb2c16944e8fd5e8"
+    ],
+    "subject": "Use a value parseBool refuses in the allowDocker test (ATO-620)"
+  }
+]

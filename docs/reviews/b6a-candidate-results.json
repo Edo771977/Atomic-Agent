@@ -1,0 +1,151 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "platform": "win32",
+  "beforeCandidate": [
+    {
+      "file": "b6a-candidate.test.ts",
+      "suiteError": "Cannot find module './hermes-plugins.js' imported from <audit-checkout>/src/import/hermes/b6a-candidate.test.ts",
+      "tests": []
+    }
+  ],
+  "exactCandidate": [
+    {
+      "file": "b6a-candidate.test.ts",
+      "suiteError": null,
+      "tests": [
+        {
+          "name": "control: import without trust installs no plugin",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "requires a human TUI decision rather than a CLI trust string",
+          "status": "failed",
+          "failure": "AssertionError: expected [ { name: 'hermes-safe', …(4) } ] to deeply equal []"
+        },
+        {
+          "name": "refuses plugin registration by ATOMIC_AGENT_TOOL_CHILD",
+          "status": "failed",
+          "failure": "AssertionError: expected [ { name: 'hermes-safe', …(4) } ] to deeply equal []"
+        },
+        {
+          "name": "refuses shim replacement by ATOMIC_AGENT_TOOL_CHILD",
+          "status": "failed",
+          "failure": "AssertionError: expected '# harmless replacement\\n' to be '#!/usr/bin/env python3\\n\"\"\"Serve one …' // Object.is equality"
+        },
+        {
+          "name": "protects the shim from writes through the fork trust inventory",
+          "status": "failed",
+          "failure": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "puts the child marker in the actual shared MCP environment",
+          "status": "failed",
+          "failure": "AssertionError: expected undefined to be '1' // Object.is equality"
+        },
+        {
+          "name": "selects an absolute Python interpreter on linux",
+          "status": "failed",
+          "failure": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "selects an absolute Python interpreter on darwin",
+          "status": "failed",
+          "failure": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "selects an absolute Python interpreter on win32",
+          "status": "failed",
+          "failure": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "does not execute a changed plugin under its saved trust",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "does not transfer trust to the same key in another home",
+          "status": "failed",
+          "failure": "AssertionError: expected 1 to be +0 // Object.is equality"
+        },
+        {
+          "name": "control: a unique folder key wins over another manifest with that name",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "control: ambiguous manifest names do not receive trust",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "refuses an author-chosen path-like trust alias",
+          "status": "failed",
+          "failure": "AssertionError: expected 1 to be +0 // Object.is equality"
+        },
+        {
+          "name": "refuses a case-only author alias for a different folder",
+          "status": "failed",
+          "failure": "AssertionError: expected 1 to be +0 // Object.is equality"
+        },
+        {
+          "name": "refuses a plugin whose executable file is a symlink outside its folder",
+          "status": "skipped",
+          "failure": ""
+        },
+        {
+          "name": "control: builder uses the shared stdio environment and default approval",
+          "status": "passed",
+          "failure": ""
+        }
+      ]
+    }
+  ],
+  "initialAuditAbsenceNegativeControl": [
+    {
+      "file": "b6a-hermes-bridge-deferred.test.ts",
+      "suiteError": null,
+      "tests": [
+        {
+          "name": "keeps Hermes Python execution unavailable through import options",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "does not turn a caller-supplied trust string into an import domain",
+          "status": "failed",
+          "failure": "AssertionError: expected [ 'sessions', 'cron', 'plugins' ] to not include 'plugins'"
+        },
+        {
+          "name": "keeps the Hermes bridge module and executable shim absent",
+          "status": "failed",
+          "failure": "AssertionError: ./hermes-plugins.ts: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "does not publish or bundle a Hermes execution shim",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        }
+      ]
+    }
+  ],
+  "deliveredReproductionScript": [
+    {
+      "phase": "before",
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "suiteErrors": [
+        "Cannot find module './hermes-plugins.js' imported from <audit-checkout>/src/import/hermes/b6a-candidate.test.ts"
+      ]
+    },
+    {
+      "phase": "candidate",
+      "passed": 4,
+      "failed": 12,
+      "skipped": 1,
+      "suiteErrors": []
+    }
+  ],
+  "environmentFixture": "The final reproduction tests the actual serve key name ATOMIC_AGENT_API_KEY (not a placeholder alias)."
+}

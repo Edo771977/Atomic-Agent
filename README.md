@@ -30,7 +30,9 @@ Drives your browser, edits files, runs approved commands, and remembers context 
 ---
 
 > [!IMPORTANT]
-> **This is a fork of [AtomicBot-ai/atomic-agent](https://github.com/AtomicBot-ai/atomic-agent).** It was last synced with upstream on 17 November 2026 (upstream `v0.8.0` and desktop `v0.0.9`).
+> **This is a fork of [AtomicBot-ai/atomic-agent](https://github.com/AtomicBot-ai/atomic-agent).** It was last merged with upstream on 17 November 2026 (upstream `v0.8.0` and desktop `v0.0.9`).
+>
+> Since then, upstream's later work has come in one change at a time with `git cherry-pick -x`, after review (the upstream batch [#1740](https://github.com/AtomicBot-ai/atomic-agent/pull/1740)). Some upstream features are held back until they meet the fork's security rules. For each upstream change, the **[upstream triage](docs/user/upstream-2026-11-triage.md)** says whether it was imported, with which pull request, or why it is held back. Because the imports are new commits, GitHub's "commits behind" count does not go down. Use the triage to see what is imported.
 >
 > **What the fork adds:**
 > - **Fusion team.** Director, worker and reviewer seats, with a reviewer per chat; a ChatGPT/Codex subscription can be the reviewer.
@@ -39,6 +41,10 @@ Drives your browser, edits files, runs approved commands, and remembers context 
 > - **More reliable local workers.** Workers check their own work, and only green tasks are delivered.
 > - **Fusion setup and measurement.** `atomic-agent setup fusion` sets it up and `atomic-agent fusion report` measures it.
 > - **Safer chat rollback.** Partial restores, skipped files and a check that the plan has not changed since the preview.
+> - **Privacy Shield.** Personal data and credentials are masked before a prompt reaches a cloud model and restored in the answer. Each chat and each auxiliary call has its own archive, so one chat or token cannot recover another's values.
+> - **Incognito chats and named access tokens.** `serve` needs a key. Named tokens have roles (viewer, member, operator, admin). Incognito chats are owner-only and look like unknown IDs to named tokens.
+> - **Optional OS sandbox and outbound-data checks.** Shell commands can run in a sandbox with the network off. URLs that would carry data out need approval. A shared OpenAI or vendor key goes only to its official host or this machine.
+> - **Hardened document reading.** Size and work limits for Outlook `.msg`, Office, HTML, EPUB and email, so a crafted file cannot exhaust memory or CPU.
 > - **Windows fixes.**
 >
 > Full list, with the PR behind each change: **[docs/user/fork-differences.md](docs/user/fork-differences.md)**.

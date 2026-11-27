@@ -43,11 +43,15 @@ This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing i
 - [Plugins panel](plugins/README.md)
 - [Brand badges](brand/README.md)
 
+B7a5 holds the start-pending marker across the TUI's backend checks, device selection and port clearance, through settled startup or cancellation. A thrown start also clears it. [Lifecycle evidence](../../docs/reviews/b7a5-start-marker.md).
+
 ## Ownership and dependencies
 
 Feature views now live with their local state/input/orchestration/tests. Global TuiApp/state/actions/reducers/router/submit/layout remain composition points: moving every file into a feature would hide their cross-feature responsibility. ChatOrchestrator coordinates the whole TUI runtime/session lifecycle despite its historical name; runtime/domain owners retain resources.
 
 [Shared primitives and shell composition](components/README.md) classifies every remaining production component. Generic editor/list/logo/formatting and theme remain independent of feature implementations; shell composition can join features. Privacy/integrations/swarm retain their existing local components/ directories without artificial flattening.
+
+B7a4 keeps upstream #1576 deferred: no local-fallback question, answer file or HTTP route is added until operator consent cannot be forged with an inherited owner credential. Existing fallback policy and manual controls remain in force. [Review](../../docs/reviews/b7a4-local-last-resort.md).
 
 ## Task-specific reading
 
@@ -68,6 +72,8 @@ Root terminal detection/restoration/output, turn/session attribution, provider-o
 Context maintenance commands are `/compact` and `/compact show`. They use the common menu registry and runtime control inbox, including during a running turn. See [context compaction](../runtime/docs/compaction.md).
 
 Compaction has a session-scoped live indicator: queued requests wait visibly for the current step, running summaries show a spinner, elapsed time and source token estimate, including between turns. The stop button cancels the operation; between turns Esc and Ctrl+C also cancel it, respecting overlay/selection precedence. Switching chats retains each chat's activity without mixing notices or changing agent turn status. [Live integration tests](context/compaction-live.test.tsx) exercise typed commands, queuing, completion, summary viewing and mouse cancellation against the real runtime with scripted model responses.
+
+B7a2 adds /export [--force] [--confirm-incognito] [md|pdf|html|docx] [path]. Incognito requires the explicit --confirm-incognito flag on that invocation; the refusal explains that the file persists. Existing paths require --force. Content and default filenames use runtimeKnownSecrets, including config credentials. [Review](../../docs/reviews/b7a2-chat-pdf.md).
 
 `/goal <criteria>` sets a goal on the open chat and starts working on it ([goal mode](../agent/goal/README.md)): criteria one per line or split by `;`, a `check: <cmd>` item is a shell check. `/goal check add <cmd>`, `/goal check clear`, `/goal status`, `/goal pause|resume|clear` act on it; parsing is [goal-command.ts](commands/goal-command.ts) and the decisions [goal-commands.ts](goal/goal-commands.ts). While the chat's goal is active every message runs goal rounds; the status bar shows `Goal: 3/5 criteria green · round 2/10` and each evaluation leaves a line in the chat.
 

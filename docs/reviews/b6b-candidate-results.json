@@ -1,0 +1,130 @@
+{
+  "baseline": "904476e2e099903833223beb4a0ace08b8d7a220",
+  "platform": "win32",
+  "beforeCandidate": [
+    {
+      "file": "b6b-candidate.test.ts",
+      "suiteError": null,
+      "tests": [
+        {
+          "name": "control: sandbox-off leaves the transport unwrapped",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "control: enabled sandbox reaches the wrapper",
+          "status": "failed",
+          "failure": "AssertionError: expected +0 to be 1 // Object.is equality"
+        },
+        {
+          "name": "closes the sandbox network by default",
+          "status": "failed",
+          "failure": "AssertionError: expected undefined to be false // Object.is equality"
+        },
+        {
+          "name": "does not widen a boolean consent into access to every host",
+          "status": "failed",
+          "failure": "AssertionError: expected undefined to be false // Object.is equality"
+        },
+        {
+          "name": "keeps sandbox network closed in offline mode",
+          "status": "failed",
+          "failure": "AssertionError: expected undefined to be false // Object.is equality"
+        },
+        {
+          "name": "passes fork protected paths to the shared policy",
+          "status": "failed",
+          "failure": "AssertionError: expected 0 to be greater than 0"
+        },
+        {
+          "name": "control: explicit per-server opt-out leaves the transport unwrapped",
+          "status": "passed",
+          "failure": ""
+        }
+      ]
+    }
+  ],
+  "exactCandidate": [
+    {
+      "file": "b6b-candidate.test.ts",
+      "suiteError": null,
+      "tests": [
+        {
+          "name": "control: sandbox-off leaves the transport unwrapped",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "control: enabled sandbox reaches the wrapper",
+          "status": "passed",
+          "failure": ""
+        },
+        {
+          "name": "closes the sandbox network by default",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "does not widen a boolean consent into access to every host",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "keeps sandbox network closed in offline mode",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "passes fork protected paths to the shared policy",
+          "status": "failed",
+          "failure": "AssertionError: expected 0 to be greater than 0"
+        },
+        {
+          "name": "control: explicit per-server opt-out leaves the transport unwrapped",
+          "status": "passed",
+          "failure": ""
+        }
+      ]
+    }
+  ],
+  "note": "The initial platform negative control failed because its temp fixture overlapped state, not because of the candidate. It was fixed separately; only the first two absence assertions establish candidate rejection.",
+  "initialAuditAbsenceNegativeControl": [
+    {
+      "file": "b6b-mcp-sandbox-deferred.test.ts",
+      "suiteError": null,
+      "tests": [
+        {
+          "name": "does not activate an MCP sandbox opt-out or Docker grant through configuration",
+          "status": "failed",
+          "failure": "AssertionError: expected { name: 'probe', enabled: true, …(2) } to not have property \"sandbox\""
+        },
+        {
+          "name": "keeps the deferred MCP launch wrapper and path reopening helper absent",
+          "status": "failed",
+          "failure": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "preserves main's optional command sandbox and actual platform distinction",
+          "status": "failed",
+          "failure": "AssertionError: expected false to be true // Object.is equality"
+        }
+      ]
+    }
+  ],
+  "deliveredReproductionScript": [
+    {
+      "phase": "before",
+      "passed": 2,
+      "failed": 5,
+      "skipped": 0,
+      "suiteErrors": []
+    },
+    {
+      "phase": "candidate",
+      "passed": 3,
+      "failed": 4,
+      "skipped": 0,
+      "suiteErrors": []
+    }
+  ]
+}
