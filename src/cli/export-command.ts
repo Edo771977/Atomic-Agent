@@ -10,6 +10,7 @@ import {
 } from "../session/index.js";
 import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
+import { AGENT_TOOL_CHILD_ENV } from "../sandbox/command-env.js";
 
 import { writeExportFile } from "../session/chat-export-file.js";
 export { writeExportFile } from "../session/chat-export-file.js";
@@ -41,6 +42,10 @@ export async function exportCommand(args: string[]): Promise<number> {
   if (args.includes("-h") || args.includes("--help")) {
     process.stdout.write(HELP);
     return 0;
+  }
+  if (process.env[AGENT_TOOL_CHILD_ENV] !== undefined) {
+    process.stderr.write("chat export is unavailable from agent tools; export from the person's terminal or TUI\n");
+    return 1;
   }
   const parsed = parseExportArgs(args);
   if (typeof parsed === "string") {

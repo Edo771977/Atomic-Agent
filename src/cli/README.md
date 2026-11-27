@@ -145,3 +145,5 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 B7a5 holds the shared chat-start.pending marker across models start, including preflight before daemon launch. It is PID-only and removed when startup settles.
 
 Export file writes share [the destination guard](../session/chat-export-file.ts): state, trust inventories, policy and skill paths are refused in lexical and resolved forms. File links are refused. Ordinary writes use exclusive creation; `--force` replaces via an adjacent owner-only temporary file and rename. Export to a working folder outside agent state.
+
+`export` refuses every marked agent tool-child invocation before opening the session store, including explicit session IDs, `--last` and file/stdout output. The CLI has no authenticated current-session binding or read-scope context; the person exports from their terminal or the TUI.
