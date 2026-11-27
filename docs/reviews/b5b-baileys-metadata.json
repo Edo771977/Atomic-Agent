@@ -1,0 +1,51 @@
+{
+  "version": "7.0.0-rc14",
+  "license": "MIT",
+  "repository": {
+    "url": "git+ssh://git@github.com/WhiskeySockets/Baileys.git"
+  },
+  "maintainers": [
+    "purpshell <rajeh.taher.rt@gmail.com>",
+    "auties00 <alautiero@gmail.com>",
+    "shelltear <veetipunnonen02@gmail.com>"
+  ],
+  "scripts": {
+    "build:all": "npm run build && npm run build:docs",
+    "build:docs": "typedoc",
+    "build": "tsc -P tsconfig.build.json && tsc-esm-fix --tsconfig=tsconfig.build.json --ext=.js",
+    "changelog:last": "conventional-changelog -p angular -r 2",
+    "changelog:preview": "conventional-changelog -p angular -u",
+    "changelog:update": "conventional-changelog -p angular -i CHANGELOG.md -s -r 0",
+    "example": "tsx ./Example/example.ts",
+    "gen:protobuf": "sh WAProto/GenerateStatics.sh",
+    "format": "prettier --write \"src/**/*.{ts,js,json,md}\"",
+    "lint": "tsc && eslint src --ext .js,.ts",
+    "lint:fix": "npm run format && npm run lint -- --fix",
+    "prepack": "npm run build",
+    "prepare": "npm run build",
+    "preinstall": "node ./engine-requirements.js",
+    "release": "release-it",
+    "test": "node --experimental-vm-modules ./node_modules/.bin/jest --testMatch '**/*.test.ts'",
+    "test:e2e": "NODE_TLS_REJECT_UNAUTHORIZED=0 node --experimental-vm-modules ./node_modules/.bin/jest --runInBand --forceExit --testMatch '**/*.test-e2e.ts'",
+    "update:version": "tsx ./scripts/update-version.ts"
+  },
+  "dist": {
+    "integrity": "sha512-pewtrljhWx5JTUBvvkXZz1fL3JPiwzjBsnhx/DWf2LWBx1cZNH7J/sF22xDehba5mySWUQU4a1Pwt7lWARUxaA==",
+    "shasum": "d4495d44c839b16bc6da0eb3e3f2aeda38376040",
+    "tarball": "https://registry.npmjs.org/baileys/-/baileys-7.0.0-rc14.tgz",
+    "fileCount": 401,
+    "unpackedSize": 8460427,
+    "attestations": {
+      "url": "https://registry.npmjs.org/-/npm/v1/attestations/baileys@7.0.0-rc14",
+      "provenance": {
+        "predicateType": "https://slsa.dev/provenance/v1"
+      }
+    },
+    "signatures": [
+      {
+        "keyid": "SHA256:DhQ8wR5APBvFHLF/+Tc+AYvPOdTpcIDqOhxsBHRwC7U",
+        "sig": "MEUCIDH08hzO7+R1VOpljvctwthbPFmfTZg8tgikFDO0LTGHAiEA703XfrW5dRk+s8oab9e4L5TTcUvatlJ477QQnEv50+s="
+      }
+    ]
+  }
+}

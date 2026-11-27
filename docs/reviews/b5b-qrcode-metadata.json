@@ -1,0 +1,33 @@
+{
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gtanner/qrcode-terminal.git"
+  },
+  "scripts": {
+    "test": "./node_modules/jshint/bin/jshint lib vendor && node example/basic.js && ./node_modules/mocha/bin/mocha -R nyan"
+  },
+  "dist": {
+    "integrity": "sha512-EXtzRZmC+YGmGlDFbXKxQiMZNwCLEO6BANKXG4iCtSIM0yqc/pappSx3RIKr4r0uh5JsBckOXeKrB3Iz7mdQpQ==",
+    "shasum": "bb5b699ef7f9f0505092a3748be4464fe71b5819",
+    "tarball": "https://registry.npmjs.org/qrcode-terminal/-/qrcode-terminal-0.12.0.tgz",
+    "fileCount": 21,
+    "unpackedSize": 96504,
+    "signatures": [
+      {
+        "keyid": "SHA256:jl3bwswu80PjjokCgh0o2w5c2U4LhQAE57gj9cz1kzA",
+        "sig": "MEYCIQDQ8vh4p7fHGbHXzm8VhlcsXF0zB3p/gvOchPncrtnSfwIhAJ2Nn3EMTSnjyQOvFXxmNq9o/goYCkElnlQ/AQy698sD"
+      }
+    ]
+  },
+  "artifactInspection": {
+    "command": "npm pack qrcode-terminal@0.12.0 --ignore-scripts --pack-destination <temporary> --json",
+    "legacyLicensesField": [
+      {
+        "type": "Apache 2.0"
+      }
+    ],
+    "licenseFile": "Apache License Version 2.0, January 2004",
+    "sha512IntegrityMatchesLock": true,
+    "installScriptsExecuted": false
+  }
+}
