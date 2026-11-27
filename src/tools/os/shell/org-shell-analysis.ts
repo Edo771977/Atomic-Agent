@@ -1,4 +1,4 @@
-import { interpreterScript, scriptInput } from "./org-script-operands.js";
+import { interpreterScript, scriptInput, scriptStream } from "./org-script-operands.js";
 import { shellSyntax, UNKNOWN_SHELL_WORD } from "./shell-rule-syntax.js";
 import { lexShellLine, type ShellDialect } from "../shell-command-guard/shell-line-lexer.js";
 import {
@@ -148,6 +148,22 @@ export function shellRuleSegments(cmd: string, execArgs: readonly string[], useS
   return analyzeShellRules(cmd, execArgs, useShell, dialect).segments;
 }
 
+function makeScriptIsOpaque(args: readonly string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i]!;
+    if (arg === "--") break;
+    if (/^(?:-E|--eval(?:=|$))/.test(arg)) return true;
+    let file: string | undefined;
+    if (/^(?:-f|--file|--makefile)$/.test(arg)) {
+      file = args[++i];
+      if (file === undefined) return true;
+    } else if (/^-f./.test(arg)) file = arg.slice(2).replace(/^=/, "");
+    else if (/^--(?:file|makefile)=/.test(arg)) file = arg.slice(arg.indexOf("=") + 1);
+    if (file !== undefined && scriptStream(file) !== null) return true;
+  }
+  return args.some(arg => /^(?:SHELL|\.SHELLFLAGS)=/.test(arg));
+}
+
 function expandSegment(words: string[], depth: number, state: { unreadable: boolean; remaining: number }): string[][] {
   if (--state.remaining < 0) { state.unreadable = true; return []; }
   const inner = withoutWrappers(words);
@@ -158,7 +174,7 @@ function expandSegment(words: string[], depth: number, state: { unreadable: bool
   const program = programName(inner[0] ?? "");
   const args = inner.slice(1);
   if (program === "git" && (words.some(word => /^(?:GIT_(?:CONFIG|PAGER|SSH|EDITOR)|GIT_SSH_COMMAND)/.test(word)) || args.some(arg => /^(?:alias\.[^=]+|core\.(?:pager|sshcommand|editor)|sequence\.editor)=/i.test(arg) || /^--(?:paginate|exec-path)(?:=|$)/.test(arg)))) state.unreadable = true;
-  if (/^g?make$/.test(program) && args.some((arg, index) => /^(?:--eval(?:=|$)|(?:SHELL|\.SHELLFLAGS)=|--(?:file|makefile)=-$)/.test(arg) || /^(?:-f|--file|--makefile)$/.test(arg) && args[index + 1] === "-")) state.unreadable = true;
+  if (/^g?make$/.test(program) && makeScriptIsOpaque(args)) state.unreadable = true;
   if (/^(?:vi|[rg]?vim(?:diff)?|[rg]?view|nvim(?:diff)?|nview|evim|eview|ex|gex|gdb)$/.test(program) && !args.some(arg => /^(?:--version|--help)$/.test(arg))) state.unreadable = true;
   if (program === "tar" && (args.some(arg => /^(?:--(?:to-command|checkpoint-action|use-compress-program)(?:=|$)|-I)/.test(arg)) || /^-?[A-Za-z]*I/.test(args[0] ?? ""))) state.unreadable = true;
   if (program === "zip" && args.slice(0, args.indexOf("--") === -1 ? args.length : args.indexOf("--")).some(arg => /^-TT/.test(arg))) state.unreadable = true;
