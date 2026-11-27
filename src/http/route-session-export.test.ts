@@ -73,6 +73,30 @@ describe("GET /api/sessions/{id}/export (ATO-1054)", () => {
     expect(body.content).not.toMatch(/\n- /);
   });
 
+  it("bounds total stored turns even when tool results are excluded", async () => {
+    const state = seed("ex-total-turns");
+    for (const count of [1_000, 10_000, 20_000]) {
+      state.turns = [
+        { kind: "user", text: "short question", at: 1 },
+        ...Array.from({ length: count - 2 }, () => ({ kind: "tool_result" as const, tool: "os.fs.read", status: "ok" as const, summary: "omitted", at: 2 })),
+        { kind: "assistant_reply", text: "short answer", at: 3 },
+      ];
+      harness.runtime.sessionStore.save(state);
+      const started = performance.now();
+      const response = await get(state.id, "?tools=0");
+      expect(response.status).toBe(200);
+      expect((await response.json() as ExportBody).content).toContain("short answer");
+      expect(performance.now() - started).toBeLessThan(2_000);
+    }
+    state.turns.push({ kind: "tool_result", tool: "os.fs.read", status: "ok", summary: "one over", at: 4 });
+    harness.runtime.sessionStore.save(state);
+    for (const tools of [0, 1]) {
+      const response = await get(state.id, `?tools=${tools}`);
+      expect(response.status).toBe(413);
+      expect(await response.json()).toMatchObject({ error: { code: "export_too_large" } });
+    }
+  });
+
   it("budgets only the requested transcript with tools=0, excluding tool payloads and duplicated context", async () => {
     const state = seed("ex-projection");
     const ignored = "ignored context ".repeat(80_000);

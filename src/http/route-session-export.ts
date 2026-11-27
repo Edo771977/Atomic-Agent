@@ -8,6 +8,9 @@ import { sendError, sendJson, type HttpHandler } from "./request-context.js";
 
 /** Bound Markdown parsing, redaction and document layout on the HTTP event loop. */
 function exportTooLarge(state: SessionState, includeTools: boolean): boolean {
+  // Tool-result matching also scans stored turns, even if tools=0. Bound
+  // that work independently of the smaller requested-transcript budget.
+  if (state.turns.length > 20_000) return true;
   let records = 0;
   let chars = (readSessionTitle(state.metadata)?.length ?? 60) + 100;
   for (const turn of state.turns) {
