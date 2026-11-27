@@ -64,6 +64,10 @@ The official installer (`curl … atomicagent.io/install`) and upstream's releas
 
 Everything below exists only in this fork. Links are to the fork's pull requests.
 
+## Mailbox-triggered tasks
+
+The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, domain-wide auto-start and the trustFromHeader bypass can start unverified tasks, and the credential resolver does not refuse tool children. Existing Atomic Mail behavior and #240 extractor fixes are preserved. [Evidence and reopening tests](../reviews/b5a-imap.md).
+
 ## Memory backup and entry controls
 
 CLI and TUI share an owner-only SQLite backup and a transactional merge for notes and active profile facts. The fork checks the schema, rejects backups containing detected credentials, and keeps each recovered note in its original constraint scope. The terminal lists disabled entries and can re-enable them. State changes are recorded in the memory journal for undo. The HTTP archive connection and entry toggle API are pending. See [using durable memory](memory.md).
