@@ -22,3 +22,5 @@ Reproduce with `rg -n '"fusion"' src --glob '*.ts' --glob '!*.test.ts' --glob '!
 - prompt/answer-style.ts: positive channel mapping gives neither an answer channel.
 
 Other fusion matches describe run mode, tool names, project records or UI channels, not turn origins. Subagent tool registration is not part of C1b.
+
+The full suite's Windows scope-drift test initially rejects the two new worker test files as unclassified. Both are added to criticalFiles, alongside the existing worker runner, rather than deferred or excluded. The scope checks and both whole test files then pass with the generated-reference check (17 tests).

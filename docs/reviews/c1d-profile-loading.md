@@ -12,3 +12,5 @@ The settings reload and admission tests, actual fresh config reads, stable-prefi
 README conflict resolution retains the fork's split-profile inheritance, profile shadowing warnings, checkpoint accounting and verification/candidate contracts. config.json remains a protected person-owned file.
 
 The prefix assertion also uses the complete prompt builder on the same open session in both local and cloud modes. Two actual config edits change the loaded instructions and subsequent task brief; the complete stablePrefix stays byte-identical and excludes those instructions. All three settings-import tests pass with this stronger session-level check.
+
+The full suite catches a later generated-reference drift: C1d changes the schema JSDoc from not-yet-loaded profiles to the implemented loading order, after C1c's generation. Regenerating both reference outputs updates that description. The generator's exact-byte test then passes; no runtime function changes.
