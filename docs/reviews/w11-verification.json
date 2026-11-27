@@ -1,0 +1,834 @@
+{
+  "base": "5da6478ff7b0d134994cec73fdce142ccad729e7",
+  "verifiedCodeCommit": "1bbf05fa2726c2cc4a8af865e4c07a7eff39264d",
+  "environment": {
+    "platform": "Windows",
+    "node": "26.13.1",
+    "npm": "11.20.0",
+    "isolatedAgentState": true
+  },
+  "install": {
+    "command": "npm ci --no-audit --no-fund",
+    "exitCode": 0,
+    "dependencyAndLockfileChanges": false
+  },
+  "checks": [
+    {
+      "check": "lint",
+      "exitCode": 0
+    },
+    {
+      "check": "imports",
+      "exitCode": 0
+    },
+    {
+      "check": "types",
+      "exitCode": 0
+    },
+    {
+      "check": "docs",
+      "exitCode": 0
+    },
+    {
+      "check": "vitest",
+      "exitCode": 1
+    }
+  ],
+  "documentationFinal": {
+    "command": "npm run docs:check",
+    "exitCode": 0,
+    "activeFiles": 352
+  },
+  "extendedSuite": {
+    "command": "npx vitest run src/prompt src/llm src/tools/fusion",
+    "files": "18 failed | 375 passed (393)",
+    "tests": "168 failed | 5718 passed | 11 skipped (5897)",
+    "duration": "1945.11s (transform 21.26s, setup 9.77s, import 81.16s, tests 3627.02s, environment 21ms)",
+    "failures": [
+      {
+        "file": "src/tools/fusion/branch-diff.test.ts",
+        "test": "the saved patch of a held-back task > reproduces the workspace with git apply (git worktree)"
+      },
+      {
+        "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+        "test": "frozen disposable-directory policy > discards newly created ignored directories and never merges existing caches in worktree"
+      },
+      {
+        "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+        "test": "frozen disposable-directory policy > freezes project, info and global rules before dispatch, including for a repository subdirectory"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "shared dependency directories > isolates a repo whose ignored node_modules exceeds the copy budget across tasks"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "shared dependency directories > links ignored folders inside a dependency directory that keeps a tracked placeholder"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "direct-mode copy budget > links an ignored venv/ to the original instead of copying it into the base and every task"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "direct-mode copy budget > does not charge an unchanged tracked file to the copy budget"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "work the ignore rules keep out of a direct merge > reports a file created in a new ignored directory instead of dropping it silently"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "work the ignore rules keep out of a direct merge > needs the orchestrator when declared files lie under an ignored path"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "work the ignore rules keep out of a direct merge > needs the orchestrator when a file provide lie under an ignored path"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "work the ignore rules keep out of a direct merge > recognizes native case aliases in ignored files without hiding partial delivery"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "work the ignore rules keep out of a direct merge > recognizes native case aliases in ignored provides without hiding partial delivery"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "workspace removal never lets git walk a generated link > removes the workspace folders with Node before git forgets the worktrees"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "workspace removal never lets git walk a generated link > sweeps dead independent Git stores without changing source worktree registrations"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "tracked paths under excluded directory names > merges a tracked change under a directory named build and never merges ignored dist, which is linked"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "tracked paths under excluded directory names > reports a tracked change under a directory named build as touched for the recovery patch"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "private branch dependencies > shares ignored caches and dependencies with the original by links in direct mode"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "private branch dependencies > does not charge a linked ignored directory to the copy limit"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "private branch dependencies > delivers a green task's outputs and ignored files, its cache writes landing through the link"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "private branch dependencies > refuses missing snapshot inputs instead of silently dispatching an incomplete workspace"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "declared-file status in a fresh private workspace > reports no_changes for an idle worker in a worktree workspace made just before it ran"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "test": "declared-file status in a fresh private workspace > still sees an immediate same-size shell edit in a worktree workspace"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "createBranchSet > makes detached private repositories holding uncommitted and untracked work without source registrations"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "createBranchSet > sweeps dead private folders without pruning source Git registrations or deleting a live run"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > merges two tasks that edited different files"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > merges two tasks that edited different parts of one file"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > leaves a conflicting file untouched and hands back a merge task"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > refuses a declared input the task wiped"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > reports a path it cannot write as a conflict and still merges the rest"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > discards a failed task's changes"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > names the files a cancelled task's dropped workspace did not apply (#29)"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > holds a row that finished without a reply as a patch instead of merging it unseen (#29)"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "runIsolatedWave > removes the workspaces when the run throws"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "fusion.delegate with isolation > worktree: a task reaches the checkpoint only after its merge"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "test": "fusion.delegate with isolation > worktree: each worker runs in its own workspace and the work lands in the folder"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "keeps independent Git metadata for every workspace and preserves dirty/index/untracked bytes"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "keeps nested tasks and the final planned source independent from the candidate and each other"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "preserves dirty tracked sibling-package bytes outside the selected monorepo subdirectory"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "never imports source remotes, includes, or mutable config into private workspace metadata"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "preserves available source branch/tag refs and commit history as private data"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "preserves the available history of a shallow source without following its original remote"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "preserves a linked source worktree's split index, shared indexes and common worktree registrations"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "never freshens aged source split-index metadata during private inventory queries"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "keeps info/global ignore inputs as frozen private data for nested Git classification"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "test": "executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "test": "actual tracked working-tree snapshot > preserves actual bytes despite cached-clean CRLF normalization"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "test": "actual tracked working-tree snapshot > preserves actual bytes despite eol attribute normalization"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "test": "actual tracked working-tree snapshot > charges tracked byte overlays to the cumulative private-copy limit"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "test": "snapshot line ending identity > preserves original \"\\n\" bytes with core.autocrlf enabled and merges a single-task edit"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "test": "snapshot line ending identity > preserves original \"\\r\\n\" bytes with core.autocrlf enabled and merges a single-task edit"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "test": "measures exactly the complete unchanged future branch-set copy (Git=true)"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "test": "preserves the Git method without mutating or refreshing source metadata"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "test": "retains folder fallback for a source with unmerged"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "test": "refuses loss of Git after planning instead of falling back to an unreserved folder copy"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-portability.test.ts",
+        "test": "keeps a candidate's dependency bytes private after a link fallback"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "refuses the measured whole final copy before workers for untracked payload"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "refuses the measured whole final copy before workers for ignored-file payload"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "refuses the measured whole final copy before workers for ignored-directory payload"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "includes tracked byte overlays in the measured final copy"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "test": "keeps later worker growth a separate final-budget rejection"
+      },
+      {
+        "file": "src/tools/fusion/candidate-durability.test.ts",
+        "test": "flushes a writable pre-image backup of a read-only original and records its original mode"
+      },
+      {
+        "file": "src/tools/fusion/candidate-durability.test.ts",
+        "test": "rejects a genuine permission error from a write-capable flush"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "rejects candidate mutation while final checks inspect a private stable source"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "checks a frozen source even if candidate bytes change and are restored during the check"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "preserves collected final manifest when original drift rejects promotion"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "charges the frozen final source to the candidate's remaining cumulative byte budget"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "binds promoted and zero-change receipts only after final delivery verification"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "refuses a custom runner that cannot attest each actual protected-input execution"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "leaves actual protected-input integrity unknown when cancellation prevents its completion"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "test": "rejects mutation of otherwise unchanged project code during final checks"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rejects individually valid files with incompatible final API and retains a patch"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "fails closed for missing check evidence and protects declared inputs"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rolls back partial delivery on failure without overwriting a concurrent user edit"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rejects cancellation occurring inside the final integration check"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rejects custom final-check output changes instead of delivering bytes the checks did not test"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses cancelled or oversized staging and retains overgrown candidates for manual recovery"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "copies held task patches out of the candidate before cleanup"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "promotes inside a Git subdirectory while retaining dirty and untracked original bytes"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "promotes a tracked file under a directory named like a dependency/build folder"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "never promotes deletion of ignored standalone files"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "never promotes modification of ignored standalone files"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses to promote changes to the project's agent state directory (a deleted rules file)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses to promote changes to the project's agent state directory (a rewritten rules file)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses to promote changes to the project's agent state directory (a new state file)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "promotes through a symlinked alias of the project root without writing a separate tree there (folder copy)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rejects a tracked file renamed onto an ignored name instead of silently deleting it"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rejects a declared provide that only exists under an ignored path"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "promotes but reports new ignored paths it kept private"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "verifies only the paths it promotes instead of re-hashing the untouched original tree per step"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "treats a user edit between the step's verification and the rename as a concurrent change"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "marks a delivered promotion committed before removing its journal and reports a journal it could not remove"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "rolls back a directory it created even when setting its mode fails"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "removes the backup folder when the first journal write fails"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "re-checks parent identity at commit, refusing a rename through a parent swapped for a link"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses to delete a directory that still holds ignored or disposable original entries, naming them"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "stages a worktree candidate whose source directory has mode 509"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "stages a worktree candidate whose source directory has mode 448"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "stages a folder copy candidate whose source directory has mode 509"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "stages a folder copy candidate whose source directory has mode 448"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses nested agent state at \"pkg\\\\.atomic-agent\""
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses nested agent state at \"pkg\\\\deep\\\\.ATOMIC-AGENT.\""
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "refuses nested agent state at \"pkg\\\\.atomic-agent \""
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "test": "preserves passing final checks alongside an uncheckable UI check"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+        "test": "checks absolute alias file references using the actual verification execution copy"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+        "test": "checks a requested root alias file URL inside the execution copy, preserving query and fragment"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+        "test": "checks a protected PowerShell path-list through the requested root alias (\"=\")"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+        "test": "checks a protected PowerShell path-list through the requested root alias (\" = \")"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-references.test.ts",
+        "test": "rejects a candidate when an attached redirection must read changed execution-copy bytes"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-references.test.ts",
+        "test": "checks a protected PowerShell path-list import from the execution copy"
+      },
+      {
+        "file": "src/tools/fusion/candidate-path-references.test.ts",
+        "test": "checks a protected PowerShell import with whitespace around the path-list assignment"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "keeps local candidate skills trusted by the real project (moved=false)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "keeps local candidate skills trusted by the real project (moved=true)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "requested candidate rejects cross-file mismatch without publishing either individually valid file"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "promotes the final checked fanout and preserves original rules and dirty files"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "archives check-run records and only delivered candidate manifests (pass=true)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "archives check-run records and only delivered candidate manifests (pass=false)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "holds passing output when the user changes the original during execution"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "protects a relative declared input from a worker's filesystem delete at final promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "protects a absolute declared input from a worker's filesystem delete at final promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "protects a relative declared input from a worker's filesystem shrink at final promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "protects a absolute declared input from a worker's filesystem shrink at final promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "enforces original saved path denies and relative declared inputs on actual candidate file tools"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "enforces original saved path denies and absolute declared inputs on actual candidate file tools"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "keeps a genuine relative input glob advisory at dispatch and promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "keeps a genuine absolute input glob advisory at dispatch and promotion"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the basename of absolute declared inputs during delete"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the basename of absolute declared inputs during shrink"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the basename of absolute declared inputs during fswrite"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the whole path of absolute declared inputs during delete"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the whole path of absolute declared inputs during shrink"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "uses native case identity for the whole path of absolute declared inputs during fswrite"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "records executed candidate task telemetry after final promotion decision (pass=false)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "rejects protected check input writes inside the actual verify execution copy (persistent)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "rejects protected check input writes inside the actual verify execution copy (restored)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "privately verifies a protected input under excluded dist with the built-in runner"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "privately verifies a protected input under excluded node_modules with the built-in runner"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "binds an absolute protected check reference to the actual execution copy"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "preserves terminal candidate disposition when post-decision secret metadata fails (pass=false)"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "test": "the configured copy limit (`tools.verify.maxCopyBytes`) > retains the dependency-copy refusal cause when worker dependency growth exhausts final staging"
+      },
+      {
+        "file": "src/tools/fusion/fusion-delegate-criteria.test.ts",
+        "test": "fusion.delegate rules a project's visual criteria (issue #40) > a candidate that is not promoted keeps no passed criterion; a promoted one does (issue #74)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds back a task whose own check fails, saves its patch, and merges the green one"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > runs a check no task owns after the merge, on the merged folder"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > re-runs a judged-red task in the workspace it was judged in and merges it once green"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > keeps a task still red after its retry out of the folder, as a patch"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds a task the judge could not verify as needs_orchestrator, so its dependent is held too"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds back a task whose changed file fails the syntax pass in its workspace"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > re-runs a gated check on the merged folder when a later wave changed the task's file"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > re-runs both tasks' gated checks after a three-way merge of the same file"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds back a needs_input task whose own check fails, keeping its question"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "merge only green tasks (isolation) > holds back a needs_input task whose changed file fails the syntax pass"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "held-back patches and kept workspaces (isolation) > names patches apart, ignores the patch folder, and drops a stale patch once the task merges green"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "held-back patches and kept workspaces (isolation) > removes a kept workspace when something after the waves throws"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "test": "the judge reads the task's diff (isolation) > sees an edit past the first 6,000 chars and lists a touched file nobody declared"
+      },
+      {
+        "file": "src/tools/fusion/regression-gate.test.ts",
+        "test": "a change must not break a case that already passed (issue #106) > in candidate integration, a check is kept as the contract wrote it, not as rebased into the call's private workspace (issue #106 review)"
+      }
+    ],
+    "modifiedTimeoutsSkipsOrQuarantine": false
+  },
+  "mainComparison": {
+    "base": "5da6478ff7b0d134994cec73fdce142ccad729e7",
+    "command": "npx vitest run src/tools/fusion/fusion-candidate.test.ts -t 'requested candidate rejects cross-file mismatch|protects a relative declared input from a worker.s filesystem delete'",
+    "tests": 2,
+    "failed": 2,
+    "reason": "Both selected cases also timed out at 15000ms in an unmodified main checkout on the same host. This is a representative comparison, not a full baseline run.",
+    "dependencySetup": "Reused the exact installed W1.2 node_modules through a junction; no dependency or tracked-file changes."
+  },
+  "realModelDownloadsOrPaidEvals": false,
+  "prefix": {
+    "base": "b68349f2b410cb6198576fc2db7b5f9f2ed430a8",
+    "sourceBytesEqual": true,
+    "results": [
+      {
+        "compact": false,
+        "toolTransport": "grammar",
+        "toolRole": "full",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": false,
+        "toolTransport": "grammar",
+        "toolRole": "builder",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": false,
+        "toolTransport": "grammar",
+        "toolRole": "orchestrator",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": false,
+        "toolTransport": "native_tools",
+        "toolRole": "full",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": false,
+        "toolTransport": "native_tools",
+        "toolRole": "builder",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": false,
+        "toolTransport": "native_tools",
+        "toolRole": "orchestrator",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "grammar",
+        "toolRole": "full",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "grammar",
+        "toolRole": "builder",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "grammar",
+        "toolRole": "orchestrator",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "native_tools",
+        "toolRole": "full",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "native_tools",
+        "toolRole": "builder",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      },
+      {
+        "compact": true,
+        "toolTransport": "native_tools",
+        "toolRole": "orchestrator",
+        "byteForByteEqualAfterRemovingOnlyNewLine": true
+      }
+    ],
+    "persistedTest": {
+      "command": "npx vitest run src/prompt/stable-prefix.test.ts",
+      "passed": 10,
+      "independentSessionsPerMode": 2
+    }
+  },
+  "ramBench": {
+    "syntheticBytes": 17179869184,
+    "taskInputs": [
+      "computer.json in the temporary workspace"
+    ],
+    "checkerInputs": [
+      "SYNTHETIC_RAM_BYTES constant",
+      "ctx.run.stdout"
+    ],
+    "hostHardwareOrOutsideFileReadsByTaskFixtureCheckerOrReference": false,
+    "selectedHermeticTests": {
+      "passed": 6,
+      "unselected": 46,
+      "realModelsStarted": 0
+    },
+    "dryRunProfile": "quick",
+    "modelMatrixAndProfilesUnchanged": true,
+    "excludedFromProductionTsRootsAndImportGraphAndDefaultVitest": true
+  }
+}

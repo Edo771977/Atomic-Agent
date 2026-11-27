@@ -18,6 +18,8 @@ After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/ato
 - Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
 - [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
 
+W1.1 selectively imports upstream #1776 and #1788: a static own-computer persona line and an offline RAM bench fixture. The fork uses a fictional 16 GiB computer described only by computer.json in the temporary workspace; the checker reads captured replies and constants, not host hardware or outside files. The model matrix and profiles remain those of main. No dependencies or install hooks change. Four-mode pre-port byte comparisons and independent-session checks guard the stable prefix. [Verification](../reviews/w11-verification.json).
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:
