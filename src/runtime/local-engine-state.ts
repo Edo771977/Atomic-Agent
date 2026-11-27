@@ -125,6 +125,8 @@ export function explainLocalEngineState(
       found = "unknown";
     }
     if (report.reason === "lock_writing") return { ...verdict, modelProcess: found, lockOwner: "pending" };
+    // The start marker precedes acquisition: it is not evidence of a live lock owner.
+    if (report.reason === "start_pending") return { ...verdict, modelProcess: found };
     // A live owner gets its own ceiling, counted from when it took the
     // lock; a pid that started after that cannot be the owner (reused).
     let owner: CoreOperationLockOwner | null;
@@ -143,11 +145,17 @@ export function explainLocalEngineState(
   return verdict;
 }
 
-/** The liveness reasons that mean "a start or load holds the engine lock". */
+/**
+ * The liveness reasons that mean "a start or load is under way": it holds
+ * the engine lock, or (ATO-421) a start has not reached the lock yet.
+ * Either way the wait asks whether a model process exists, so one with
+ * nothing behind it ends at ATO-1434's ceiling.
+ */
 const LOCK_HELD_REASONS: ReadonlySet<ManagedEngineLivenessReason> = new Set([
   "lock_held",
   "lock_held_self",
   "lock_writing",
+  "start_pending",
 ]);
 
 function localEngineStateOf(state: ManagedEngineLiveness): LocalEngineState {

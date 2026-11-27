@@ -176,6 +176,10 @@ A2A discovery and task RPC from upstream #1638 remain deferred in B3. The candid
 
 The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the candidate token store permits marked-child reads/deletes and its paths are absent from the fork protection inventories. Existing subscription CLI seats and unwired generic OAuth primitives are unchanged. [Review and reopening requirements](../reviews/b4b-subscription-signin.md).
 
+## Local engine startup
+
+B7a5 imports the ATO-421 TUI startup marker with prerequisite ba8bf8343. The fork retains its engine wait ceilings, avoids assigning lock ownership to a pre-lock marker, and covers a first start before the models directory exists. Error and cancellation cleanup are tested. [Review](../reviews/b7a5-start-marker.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).

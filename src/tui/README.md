@@ -43,6 +43,8 @@ This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing i
 - [Plugins panel](plugins/README.md)
 - [Brand badges](brand/README.md)
 
+B7a5 holds the start-pending marker across the TUI's backend checks, device selection and port clearance, through settled startup or cancellation. A thrown start also clears it. [Lifecycle evidence](../../docs/reviews/b7a5-start-marker.md).
+
 ## Ownership and dependencies
 
 Feature views now live with their local state/input/orchestration/tests. Global TuiApp/state/actions/reducers/router/submit/layout remain composition points: moving every file into a feature would hide their cross-feature responsibility. ChatOrchestrator coordinates the whole TUI runtime/session lifecycle despite its historical name; runtime/domain owners retain resources.

@@ -63,3 +63,5 @@ Context compaction is owned by [context-compaction.ts](context-compaction.ts) an
 When the director, plan reviewer or worker receives an active lesson from a provider-constrained project, runtime refuses memory writes and skips reflection for the rest of the turn. The stable tool prefix stays the same. Segmented reflection skips any window containing an exposed turn, including after its lesson has been retired. Compaction still saves its checkpoint, but skips the memory flush when the compacted span includes part or all of an exposed turn.
 
 Side questions use a separate btw: routing partition and do not mutate the owning chat or its stable prefix. Every call has a fresh Privacy Shield archive, including draft, concurrent same-chat, failed, cancelled and incognito calls. The temporary archive is never inserted into the session registry.
+
+B7a5 recognizes start_pending before the managed engine lock exists. A free-lock marker has no lockOwner attribution and keeps the existing no-process wait ceiling; actual live/reused lock-owner behavior is preserved. [Review](../../docs/reviews/b7a5-start-marker.md).
