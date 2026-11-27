@@ -7,6 +7,8 @@ This area owns tool registry and adapters. Read [AGENTS.md](AGENTS.md) before ch
 
 ## Entry points
 
+C4a keeps files.search and its background chosen-folder index unavailable until scanning, persistence, embeddings and search share the fork's protected-input, read-scope and secret-masking boundaries. [Review and reopening tests](../../docs/reviews/c4a-files-index.md).
+
 - [tool-registry.ts](tool-registry.ts): `dispatchGuard` / `refusalBeforeDispatch` refuse a call before hooks, approval and the tool itself
 - [tool-egress.ts](tool-egress.ts): which calls send content off the machine, by `allowedEgress` class, and the per-folder refusal ([provider policy](../llm/docs/provider-policy.md#egress-allowedegress))
 - [URL data guard](os/web/url-data-guard.ts): dispatch checks for data-bearing URLs in HTTP GET, web fetch and explicit browser navigation, with per-hop checks in the guarded curl paths.

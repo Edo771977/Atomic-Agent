@@ -1,0 +1,82 @@
+{
+  "report": "atomic-c4a-upstream-tests.json",
+  "success": false,
+  "tests": {
+    "passed": 61,
+    "failed": 16,
+    "pending": 0,
+    "total": 77
+  },
+  "suites": {
+    "passed": 10,
+    "failed": 14,
+    "pending": 0
+  },
+  "failures": [
+    {
+      "file": "http/http-scopes.test.ts",
+      "name": "ROUTE_SCOPES names a scope for every authenticated route (add one for a new route)"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) cites a PDF page with the open-parameters fragment"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) cites a time in seconds with the media fragment and m:ss in the label"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) cites any other file without a fragment"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) percent-encodes the path: spaces, hash, question mark, parentheses and brackets"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) keeps non-ASCII names readable in the label and encoded in the URL"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) a page wins over a time, and a bad page or time falls back to the plain link"
+    },
+    {
+      "file": "tools/files/file-cite.test.ts",
+      "name": "citeFor: the link the model pastes as is (contract w6-memory-files) fileUrlFor escapes the markdown link breakers only"
+    },
+    {
+      "file": "tools/files/file-index-store.test.ts",
+      "name": "likePrefix escapes LIKE wildcards in the folder path"
+    },
+    {
+      "file": "tools/files/file-index.test.ts",
+      "name": "FileIndex: add a folder, index it, search it finds the PDF page and hands back a ready citation"
+    },
+    {
+      "file": "tools/files/file-index.test.ts",
+      "name": "FileIndex with local embeddings embeds chunks as documents and finds a passage by meaning alone"
+    },
+    {
+      "file": "tools/files/files-search-tool.test.ts",
+      "name": "files.search returns each hit with its cite, path, page and snippet"
+    },
+    {
+      "file": "tools/files/files-search-tool.test.ts",
+      "name": "files.search resolves `folder` like other file tools (~ and relative to the working dir)"
+    },
+    {
+      "file": "tools/files/files-search-tool.test.ts",
+      "name": "files.search turns a folder outside My files into a validation error"
+    },
+    {
+      "file": "tools/files/folder-validation.test.ts",
+      "name": "validateFolder: one error code per reason too_broad: the disk root, the home folder, homes root, system folders and the agent's state"
+    },
+    {
+      "file": "tools/files/folder-validation.test.ts",
+      "name": "isInside is strict and does not match a sibling with the same prefix"
+    }
+  ],
+  "suiteErrors": []
+}
