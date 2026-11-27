@@ -59,22 +59,22 @@ describe("perTurnModelRefusal: the model must be known for the entry", () => {
 describe("perTurnModelRefusal: a fusion team member's model is known for its provider (issue #37)", () => {
   const withTeam = (team: unknown): ResolvedLlmConfig => ({
     ...resolved,
-    providers: [...resolved.providers, { id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" } }],
+    providers: [...resolved.providers, { id: "claude", kind: "subscription-cli", subscriptionCli: { cli: "claude" } }],
     ...(team === undefined ? {} : { runMode: { fusion: { team } } }),
   }) as unknown as ResolvedLlmConfig;
 
   it("refuses a subscription CLI's model no source knows", () => {
-    expect(perTurnModelRefusal(withTeam(undefined), "codex", "model-team")).toMatch(/model-team/);
+    expect(perTurnModelRefusal(withTeam(undefined), "claude", "model-team")).toMatch(/model-team/);
   });
 
   it.each(["directors", "workers", "reviewers"])("takes a model the team lists for that provider among its %s", (role) => {
-    const team = { directors: ["compat:base-model"], [role]: ["codex:model-team"] };
-    expect(perTurnModelRefusal(withTeam(team), "codex", "model-team")).toBeNull();
+    const team = { directors: ["compat:base-model"], [role]: ["claude:model-team"] };
+    expect(perTurnModelRefusal(withTeam(team), "claude", "model-team")).toBeNull();
   });
 
   it("a member on another provider does not make the model known here", () => {
     const team = { directors: ["compat:model-team"] };
-    expect(perTurnModelRefusal(withTeam(team), "codex", "model-team")).not.toBeNull();
+    expect(perTurnModelRefusal(withTeam(team), "claude", "model-team")).not.toBeNull();
   });
 });
 

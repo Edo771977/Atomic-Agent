@@ -1,3 +1,4 @@
+import { SUBSCRIPTION_CLI_KIND } from "../config/provider-auth-mode.js";
 import { isLocalServerUrl } from "../llm/provider/openai/local-server-url.js";
 import { getCachedOpenAiCompatModelsForBaseUrl } from "../llm/provider/openai/fetch-openai-compat-models.js";
 import { getCachedGeminiModelsForPanel } from "../llm/provider/gemini/fetch-gemini-models.js";
@@ -24,6 +25,11 @@ export function perTurnModelRefusal(
   }
   const entry = resolved.providers.find((p) => p.id === providerId);
   if (entry === undefined) return `cannot pin turn to llm provider "${providerId}": not configured`;
+  // Codex's ChatGPT login chooses its model; refuse before any worker or client starts.
+  if (entry.kind === SUBSCRIPTION_CLI_KIND && entry.subscriptionCli?.cli === "codex" &&
+      model.trim() !== (entry.defaultChatModel ?? entry.model)?.trim()) {
+    return `"${providerId}" runs the Codex CLI, which uses the model its ChatGPT login picks; a per-turn model does not work there`;
+  }
   if (entry.kind === "llama-server" ||
       (isLocalServerUrl(entry.baseUrl ?? entry.url) && !(options.fusionWorker && entry.kind === "openai-compatible"))) {
     return `"${providerId}" is a local model, which is shared by all projects; a per-turn model works on cloud providers only`;
