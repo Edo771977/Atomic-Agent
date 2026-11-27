@@ -1,0 +1,198 @@
+{
+  "base": "6dd01db055bc5b2f0d186f037b1ad10bf4fae28e",
+  "environment": {
+    "platform": "Windows",
+    "node": "v26.13.1",
+    "npm": "11.20.0",
+    "baseline": "main at the same base; original Windows EOL checkout restored to Git blob bytes for documentation checksum validation"
+  },
+  "npmCi": {
+    "exitCode": 0,
+    "foregroundLifecycleOutput": [
+      "> esbuild@0.28.2 postinstall"
+    ],
+    "packageAndLockUnchanged": true
+  },
+  "checks": {
+    "lint": 0,
+    "imports:check": 0,
+    "typecheck:tests": 1
+  },
+  "testTypeDiagnosticsIdenticalToMain": true,
+  "docsCheck": {
+    "exitCode": 0,
+    "output": "> atomic-agent@0.8.0 docs:check\n> node scripts/check-docs.mjs\n\ndocs: 332 active files, 21 instruction files; maximum chain 8659/24576 bytes; links, metadata, pointers and archive coverage passed",
+    "initialCheckoutEolChecksumFailureCorrected": true
+  },
+  "mainFull": {
+    "passed": 30639,
+    "failed": 85,
+    "skipped": 658,
+    "total": 31382
+  },
+  "requiredFocused": {
+    "passed": 5758,
+    "failed": 13,
+    "skipped": 6,
+    "total": 5777
+  },
+  "focusedComparisonByFileAndFullName": {
+    "commonFailingNames": [
+      "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+      "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+      "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+      "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it"
+    ],
+    "additionalFailingNames": [],
+    "mainFailingNamesAbsentFromThisRun": [],
+    "mainSuiteErrors": {},
+    "currentSuiteErrors": {}
+  },
+  "absenceTests": {
+    "src/http/b5c-twilio-deferred.test.ts :: keeps the unapproved dialer and Twilio credential reader absent": "passed",
+    "src/http/b5c-twilio-deferred.test.ts :: does not expose Twilio configuration, calls, status or inbound webhook routes": "passed"
+  },
+  "productionChanges": [],
+  "lastPrFull": {
+    "passed": 30647,
+    "failed": 79,
+    "skipped": 658,
+    "total": 31384
+  },
+  "fullComparisonByFileAndFullName": {
+    "commonFailingNames": [
+      "src/agent-profiles/profile-loader.test.ts :: loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+      "src/agent/progress/read-coverage.test.ts :: read-coverage detection end to end sees a symlink and its target as one file",
+      "src/channels/build-extra-channels.test.ts :: buildExtraChannels builds every definition with its own config and inbox, and returns the enabled ids",
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+      "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+      "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+      "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+      "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+      "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+      "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+      "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+      "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+      "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+      "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+      "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+      "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+      "src/local-llm/backend/backend-installer-stable-repo.test.ts :: direct engine downloads from the stable turboquant repo (ATO-619) recreates the shared-library symlinks the stable Linux zips carry",
+      "src/local-llm/core/core-contract.test.ts :: Core host contract accepts its own data folder reported through a symlinked path",
+      "src/memory/voting/vote-store.test.ts :: VoteStore decayAllScores decays 1000 rows in bulk SQL within a single transaction (scorecard 7a.D.4)",
+      "src/plugins/plugin-install.test.ts :: plugin install drops symlinks while copying",
+      "src/runtime/composition/runtime-egress-guard.test.ts :: runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "src/runtime/project-trust.test.ts :: project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy hides credential folders and the agent's state",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy keeps the state directory hidden when it contains the working folder",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy protects a configured model key outside the state root",
+      "src/sandbox/os-sandbox.test.ts :: buildOsSandboxPolicy writes go to the project and temp only",
+      "src/sandbox/os-sandbox.test.ts :: round 3 point 4: refuses a workspace inside state and passes an explicit chdir",
+      "src/sandbox/os-sandbox.test.ts :: round 3 point 5: protects root home and privileged etc files",
+      "src/sandbox/os-sandbox.test.ts :: round 4 point 4: mounts a workspace toolchain read-only after the writable workspace",
+      "src/sandbox/os-sandbox.test.ts :: round 4 point 5: a large dependency tree stays read-only without blocking shell launch",
+      "src/sandbox/os-sandbox.test.ts :: wrapWithOsSandbox wraps with sandbox-exec on macOS, paths as -D parameters",
+      "src/skills/eval/checks.test.ts :: runCheck command that runs too long fails as a timeout",
+      "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir adds nothing for a symlink inside the skill: its target is scanned itself",
+      "src/skills/hub/scan-skill-dir.test.ts :: scanSkillDir flags a symlink pointing outside the skill instead of following it",
+      "src/skills/hub/skill-lock.test.ts :: skill lock covers symlinks by their link text",
+      "src/skills/install-local-skill.test.ts :: installLocalSkill installs the scanned staging copy, keeps relative links and cleans up",
+      "src/skills/skill-loader.test.ts :: loadSkills shared ~/.agents/skills folder (ATO-706) follows a symlinked skill folder but refuses a SKILL.md that resolves outside it",
+      "src/skills/skill-script-runner.test.ts :: runSkillScript runs a bash script by .sh extension",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy confines a symlinked shared skill to its own resolved folder",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy keeps a shared Atomic/global directory global even through a path alias",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy never imports project symlinks outside the workspace",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy reads a global skill symlinked to a folder elsewhere but keeps project skills confined",
+      "src/skills/workspace-skills.test.ts :: session workspace skills and live policy stores canonical workspace policy without modifying the project",
+      "src/tools/fusion/branch-private-git.test.ts :: executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+      "src/tools/fusion/branch-private-git.test.ts :: keeps nested tasks and the final planned source independent from the candidate and each other",
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes deletion of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: never promotes modification of ignored standalone files",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes a tracked file under a directory named like a dependency/build folder",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes but reports new ignored paths it kept private",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes inside a Git subdirectory while retaining dirty and untracked original bytes",
+      "src/tools/fusion/candidate-integration.test.ts :: promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+      "src/tools/fusion/candidate-integration.test.ts :: refuses to delete a directory that still holds ignored or disposable original entries, naming them",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a declared provide that only exists under an ignored path",
+      "src/tools/fusion/candidate-integration.test.ts :: rejects a tracked file renamed onto an ignored name instead of silently deleting it",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 448",
+      "src/tools/fusion/candidate-integration.test.ts :: stages a worktree candidate whose source directory has mode 509",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+      "src/tools/read-scope/state-secrets.test.ts :: classifies direct procfs reads even without state secret files",
+      "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc && cat self/environ",
+      "src/tools/read-scope/state-secrets.test.ts :: round2-4 recognizes cd /proc/self && cat environ",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags find /proc/123 -type f without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags grep -r synthetic /proc/self without reading a real credential",
+      "src/tools/read-scope/state-secrets.test.ts :: third round flags pushd /proc/self && cat environ without reading a real credential"
+    ],
+    "additionalFailingNames": [
+      "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits"
+    ],
+    "mainFailingNamesAbsentFromThisRun": [
+      "scripts/e2e-csv-sales.test.ts :: an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+      "src/llm/grammar/build-grammar.test.ts :: buildGrammarForTools — the per-request grammar replaces only the tool-name rule and leaves every other line byte-identical",
+      "src/llm/grammar/build-grammar.test.ts :: the reasoning budget (F49) keeps the string small — llama.cpp expands {0,N} server-side, the request does not carry it",
+      "src/tools/fusion/branch-merge.test.ts :: fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+      "src/tools/fusion/candidate-integration.test.ts :: fails closed for missing check evidence and protects declared inputs",
+      "src/tools/fusion/fusion-candidate.test.ts :: uses native case identity for the basename of absolute declared inputs during shrink",
+      "src/tools/fusion/merge-gate.test.ts :: held-back patches and kept workspaces (isolation) names patches apart, ignores the patch folder, and drops a stale patch once the task merges green"
+    ],
+    "mainSuiteErrors": {},
+    "currentSuiteErrors": {},
+    "additionalSuiteErrorFiles": []
+  },
+  "isolatedRerun": {
+    "command": "npx vitest run src/tools/fusion/candidate-copy-budget.test.ts --maxWorkers=1 -t \"716800 tracked payload bytes\"",
+    "results": {
+      "main": {
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "skipped": 9,
+          "total": 10
+        },
+        "selectedCase": {
+          "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits": "passed"
+        },
+        "suiteErrors": {}
+      },
+      "lastPr": {
+        "counts": {
+          "passed": 1,
+          "failed": 0,
+          "skipped": 9,
+          "total": 10
+        },
+        "selectedCase": {
+          "src/tools/fusion/candidate-copy-budget.test.ts :: retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits": "passed"
+        },
+        "suiteErrors": {}
+      }
+    },
+    "note": "The selected case passes on both checkouts. Nine other cases were filtered, not quarantined. Original full-suite counts and the additional failing name remain preserved; no test timeout, source, exclusion or type allowance changed."
+  }
+}
