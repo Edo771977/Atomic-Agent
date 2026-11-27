@@ -83,3 +83,5 @@ Read [compatibility](docs/compatibility.md) for schema/default/migration changes
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../../docs/reviews/b4a-1671.md).
 
 C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
+
+C1c adds the optional person-authored llm.runMode.agentProfiles dictionary. Shape parsing normalizes names, reports invalid entries and preserves skipped disk entries during unrelated saves. Runtime loading is a separate slice; accepting configuration does not authorize tools or providers. config.json remains protected from agent children.
