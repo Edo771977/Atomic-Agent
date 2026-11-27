@@ -30,7 +30,7 @@ describe("relative and proc script streams", () => {
   });
   it.each(["thread-self/fd/0", "self/task/42/fd/0"])("associates supplied shell verification stdin at %s", operand => {
     expect(stdinScriptOf("bash", [operand], false, "fixture-command", "/proc")).toEqual({ lines: ["fixture-command"], unreadable: false });
-    const args = { kind: "command" as const, cmd: "bash", args: [operand], stdin: "fixture-command", cwd: "/proc", timeoutMs: 1000 };
+    const args = { kind: "command" as const, cmd: "bash", args: [operand], stdin: "fixture-command", cwd: "/proc", timeoutMs: 1000, network: false, seconds: 1 };
     expect(verifyRunStdinScript(args, "/proc")).toEqual({ lines: ["fixture-command"], unreadable: false });
     expect(toolCallTarget("verify.run", args)?.resources).toContain("fixture-command");
     expect(verifyRunShellCalls(args, "/work").map(call => call.cmd)).toContain("fixture-command");
