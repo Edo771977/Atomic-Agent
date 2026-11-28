@@ -25,6 +25,8 @@ Project files follow [project folder trust](../skills/docs/project-trust.md): ea
 
 [builtin-profiles.ts](builtin-profiles.ts): `explore` (find code, role `explore`), `review` (find bugs, role `review`, keeps `verify.*`), `research` (web and local files, role `explore`). All three are read-only: no writes, no shell, no browser clicks or typing. A trusted project file, a user file or a settings entry of the same name replaces one, and with no `tools` list that replacement is not read-only: the task row's `profile` (`{ name, source, tools }`, `tools: "all"`), a row note and the brief's `PROFILE <name> (<source>)` block say so.
 
+Built-ins remain available when an optional feature is disabled: catalog admission removes unregistered tools, so `research` with the browser disabled keeps its registered web/file reads. If none remain, it keeps only reply and discovery, never unrestricted worker tools. Explicitly forbidden tools still reject a built-in. Person-authored profiles continue to reject unknown or unavailable selections; the worker policy remains ANDed with every admitted allowlist at dispatch.
+
 ## Wiring
 
 `src/tools/fusion/task-profiles.ts` applies profiles to a fan-out's tasks; `worker-prompt.ts` quotes the instructions; `worker-tool-policy.ts` `workerToolFilterFor` builds the turn's tool filter. The runtime passes `resolveAgentProfiles` in `src/runtime/composition/runtime-tool-catalog.ts`, with the settings from `readSettingsAgentProfiles` (falling back to `getConfig()`). Profiles exist only in Fusion: an ordinary turn has no subagent tool to name one with.

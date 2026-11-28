@@ -187,15 +187,24 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
       if (options.toolPolicy !== undefined && profile.tools !== undefined) {
         const compiled = compileToolAllowlist(profile.tools);
         const { names, allows } = options.toolPolicy;
-        const invalid = compiled.unknown.length > 0 || compiled.patterns.some(pattern => {
-          const matching = names.filter(name => pattern.endsWith(".*")
-            ? name.startsWith(pattern.slice(0, -1)) : name === pattern);
-          return matching.length === 0 || matching.some(name => !allows(name));
-        });
+        const selections = compiled.patterns.map(pattern => ({ pattern,
+          matching: names.filter(name => pattern.endsWith(".*")
+            ? name.startsWith(pattern.slice(0, -1)) : name === pattern),
+        }));
+        const invalid = compiled.unknown.length > 0 || selections.some(({ pattern, matching }) =>
+          (!pattern.endsWith(".*") && !allows(pattern))
+          || (matching.length === 0 && profile.source !== "builtin")
+          || matching.some(name => !allows(name)));
         if (invalid) {
           rejectedNames.add(profile.name);
           diagnostics.push(`agent profile ${profile.name}: rejected unknown or forbidden tool selection`);
           return;
+        }
+        if (profile.source === "builtin") {
+          const available = selections.filter(selection => selection.matching.length > 0).map(selection => selection.pattern);
+          // Built-ins describe optional features too. Missing tools are removed,
+          // but an empty result must not become an unrestricted default worker.
+          profile = { ...profile, tools: available.length > 0 ? available : ["reply"] };
         }
       }
       byName.set(profile.name, profile);
