@@ -1,0 +1,71 @@
+{
+  "fixtures": "Synthetic inputs, no real credentials or external services",
+  "records": [
+    {
+      "report": "b7b2-review-ascii-red.json",
+      "sha256": "c1220d9c392d5e0f3e1972982364e860a95eed4d995d5d2c2c3d925ee9faad4f",
+      "passed": 27,
+      "failed": 5,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "resolveToolName refuses the non-ASCII Kelvin sign before lowercasing it to an ASCII k",
+          "message": "AssertionError: expected 'os.fs.key' to be null"
+        },
+        {
+          "name": "resolveToolName refuses a BOM before trimming or unwrapping ﻿os.fs.write",
+          "message": "AssertionError: expected 'os.fs.write' to be null"
+        },
+        {
+          "name": "resolveToolName refuses a BOM before trimming or unwrapping os.fs.write﻿",
+          "message": "AssertionError: expected 'os.fs.write' to be null"
+        },
+        {
+          "name": "resolveToolName refuses a BOM before trimming or unwrapping \"﻿os.fs.write\"",
+          "message": "AssertionError: expected 'os.fs.write' to be null"
+        },
+        {
+          "name": "resolveToolName refuses a non-ASCII name even before the exact-name fast path",
+          "message": "AssertionError: expected 'mcp.brave.Key' to be null"
+        }
+      ],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-ascii-green.json",
+      "sha256": "d7c6696ebd6b265bd3f3557ed24da8405c82ae197631041d23742b7da53051f5",
+      "passed": 46,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-ascii-catalog-red.json",
+      "sha256": "cbba60220a37440428213e415b503e546adcc32c34271c079f0365b51994c59b",
+      "passed": 36,
+      "failed": 2,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "resolveToolName does not fold a registered non-ASCII os.fs.key candidate back into an ASCII alias",
+          "message": "AssertionError: expected 'os.fs.Key' to be null"
+        },
+        {
+          "name": "resolveToolName does not fold a registered non-ASCII mcp.brave.key candidate back into an ASCII alias",
+          "message": "AssertionError: expected 'mcp.brave.Key' to be null"
+        }
+      ],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-final-targeted.json",
+      "sha256": "1545d5d31dab22f40f08bca773e7810edbed50bef45a7cdc1a3d8f32003b6c08",
+      "passed": 126,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    }
+  ]
+}

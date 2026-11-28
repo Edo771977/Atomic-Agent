@@ -1,0 +1,44 @@
+{
+  "fixtures": "Synthetic inputs, no real credentials or external services",
+  "records": [
+    {
+      "report": "b7b2-review-markers-red.json",
+      "sha256": "2d7a2bff0ed9ee2d695596c3c6eab94af71b15e936cf0ee55f2eba43b7ef746b",
+      "passed": 31,
+      "failed": 5,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "resolveToolName on separator and wrapping forms drops quotes, an empty call and trailing punctuation but refuses a chat-template tail",
+          "message": "AssertionError: expected 'os.fs.read' to be null"
+        },
+        {
+          "name": "resolveToolName refuses template markers does not truncate or accept os.fs.write<|channel|>analysis",
+          "message": "AssertionError: expected 'os.fs.write' to be null"
+        },
+        {
+          "name": "resolveToolName refuses template markers does not truncate or accept mcp.brave.web_search<|channel|>analysis",
+          "message": "AssertionError: expected 'mcp.brave.web_search' to be null"
+        },
+        {
+          "name": "resolveToolName refuses template markers does not truncate or accept os.fs.read<|special|>",
+          "message": "AssertionError: expected 'os.fs.read<|special|>' to be null"
+        },
+        {
+          "name": "resolveToolName refuses template markers does not truncate or accept os.fs.read&lt;|special|>",
+          "message": "AssertionError: expected 'os.fs.read&lt;|special|>' to be null"
+        }
+      ],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-markers-green.json",
+      "sha256": "59ffe89e284d7dc9b1b0fbb3b71f3d2aad5db7c7aee657a81aea1e219bac31c8",
+      "passed": 50,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    }
+  ]
+}

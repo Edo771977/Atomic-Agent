@@ -1,0 +1,16 @@
+
+ RUN  v4.1.12 <checkout>
+
+ ✓ src/tools/fusion/merge-gate.test.ts (19 tests | 17 skipped) 20764ms
+     ✓ re-runs a gated check on the merged folder when a later wave changed the task's file  9989ms
+     ✓ holds back a needs_input task whose changed file fails the syntax pass  10774ms
+ ✓ src/tools/fusion/branch-isolation-safety.test.ts (28 tests | 27 skipped) 9530ms
+     ✓ needs the orchestrator when a file provide lie under an ignored path  9529ms
+
+ Test Files  2 passed (2)
+      Tests  3 passed | 44 skipped (47)
+   Start at  23:56:43
+   Duration  35.02s (transform 3.51s, setup 59ms, import 4.30s, tests 30.29s, environment 0ms)
+
+JSON report written to C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/b7b2-diagnostic-b7b2.json
+[atomic-agent] created default config at C:\Users\edoar\AppData\Local\Packages\openai.codex_2p2nqsd0c76g0\AC\#!sandbox.{17fb5347-ef8a-40ec-95d8-37302564dc01}\Temp\atomic-agent-test-VLSOMA\config.json

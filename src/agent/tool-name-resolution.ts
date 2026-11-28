@@ -15,35 +15,135 @@ import type { ToolRegistry } from "../tools/tool-registry.js";
  * membership check in the step executor throws for the whole batch, so
  * a 30-minute turn ended with `reason=failed` over a separator.
  *
- * The candidates are deliberately narrow — separator confusion and
- * case, nothing else. This is not fuzzy matching: `os.fs.write` must
- * never resolve to `os.fs.trash` because the two are close. A name that
- * does not resolve exactly, or by fixing the separator it was clearly
- * trying to use, is still unknown and still fails.
+ * The candidates are deliberately narrow — separator confusion, case,
+ * and wrapping the model or its chat template added. This is not fuzzy
+ * matching: `os.fs.write` must never resolve to `os.fs.trash` because
+ * the two are close. Every character of the tool's own name must be
+ * there, in order; only separators, case and wrapping may differ, and
+ * the form must point at exactly one registered tool. Anything else is
+ * still unknown and gets the error result naming the closest tools
+ * (`policies/unknown-tool.ts`).
  */
 export function resolveToolName(
   name: string,
   registry: Pick<ToolRegistry, "has" | "list">,
 ): string | null {
+  // Refuse Unicode aliases, including Kelvin folding and a BOM that trim
+  // would silently remove. Do this before the exact-name shortcut too.
+  if (/[^\x00-\x7f]/.test(name)) return null;
+  if (name.includes("<|") || name.includes("&lt;|")) return null;
   if (registry.has(name)) return name;
 
-  // `fusion_delegate` → `fusion.delegate`, `os_fs_write` → `os.fs.write`.
-  // Tried before `__` because a single-underscore name is the common
-  // miss and the double form is what `nameUnescape` already handled.
-  const singleToDot = name.replace(/_/g, ".");
-  if (singleToDot !== name && registry.has(singleToDot)) return singleToDot;
+  // Every nonexact spelling must consider the complete catalog. A fast
+  // separator/case match could otherwise choose the first of two MCP
+  // names with the same shape and evade the ambiguity check below.
+  return resolveByShape(name, registry.list().map((definition) => definition.name));
+}
 
-  // A name that arrived still escaped: the text-JSON fallback path does
-  // not run `nameUnescape`, so `fusion__delegate` can reach here whole.
-  const doubleToDot = name.replace(/__/g, ".");
-  if (doubleToDot !== name && registry.has(doubleToDot)) return doubleToDot;
+const FUNCTIONS_PREFIX = "functions.";
 
-  // Case only, over the two forms above as well — some models
-  // capitalise the first letter of a tool name.
-  const lower = name.toLowerCase();
-  for (const { name: candidate } of registry.list()) {
-    if (candidate.toLowerCase() === lower) return candidate;
-    if (candidate.toLowerCase() === singleToDot.toLowerCase()) return candidate;
+/**
+ * Remove only surrounding quotes/backticks, an empty call and trailing
+ * punctuation. Template markers are refused before reaching this helper.
+ */
+function stripWrapping(name: string): string {
+  let value = name.trim();
+  // Handle both `"tool"()` and `"tool()"` without accepting arguments.
+  for (let pass = 0; pass < 2; pass++) {
+    value = value.replace(/[:;,.!?]+$/, "")
+      .replace(/^["'`]+|["'`]+$/g, "")
+      .replace(/\(\s*\)$/, "").trim();
   }
-  return null;
+  return value;
+}
+
+/**
+ * Built-in separator/case spelling. MCP server and raw-tool boundaries
+ * use the separate, stricter comparison below.
+ */
+function shapeKey(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[._-]+/g, ".")
+    .replace(/^\.+|\.+$/g, "");
+}
+
+/** The one element of `matches`, or `null` when there are none or several. */
+function only(matches: ReadonlySet<string>): string | null {
+  return matches.size === 1 ? [...matches][0]! : null;
+}
+
+/**
+ * The forms an emitted name is compared under: as written, and without
+ * the `functions.` namespace OpenAI-style templates put in front of
+ * every function (`functions.os.fs.read`, `functions__os__fs__read`).
+ */
+function emittedKeys(name: string): string[] {
+  const key = shapeKey(stripWrapping(name));
+  if (key.length === 0) return [];
+  return key.startsWith(FUNCTIONS_PREFIX) && key.length > FUNCTIONS_PREFIX.length
+    ? [key, key.slice(FUNCTIONS_PREFIX.length)]
+    : [key];
+}
+
+/**
+ * The whole name in another spelling of exactly one registered tool:
+ * separators and case for built-ins; MCP names first keep an explicit,
+ * registered server identity and then compare only its raw tools.
+ * Wrapping (`"os.fs.read"`,
+ * `os.fs.read()`) and the `functions.` namespace. Two raw tools that
+ * share a spelling within one MCP server resolve to neither.
+ *
+ * A name with part of the real one missing is not resolved, however
+ * likely the match: `write_file` may be meant for `os.fs.write` or an
+ * MCP filesystem server's `write_file`, `github.create_issue` for the
+ * built-in GitHub tool or an MCP server's. Those get the error result
+ * naming the candidates, and the model picks (ATO-1674).
+ */
+function resolveByShape(name: string, registered: readonly string[]): string | null {
+  const keys = emittedKeys(name);
+  if (keys.length === 0) return null;
+  const asciiRegistered = registered.filter(candidate => !/[^\x00-\x7f]/.test(candidate));
+  const matches = mcpMatches(stripWrapping(name), asciiRegistered);
+  for (const candidate of asciiRegistered) {
+    if (/^mcp\./i.test(candidate)) continue;
+    if (keys.includes(shapeKey(candidate))) matches.add(candidate);
+  }
+  return only(matches);
+}
+
+/** MCP dots remain structural; only underscores/hyphens within a tool segment vary. */
+function mcpToolKey(raw: string): string {
+  return raw.toLowerCase().replace(/[_-]+/g, "_");
+}
+
+function mcpMatches(name: string, registered: readonly string[]): Set<string> {
+  const catalog = registered.flatMap(qualified => {
+    const parts = /^mcp\.([^.]+)\.(.+)$/i.exec(qualified);
+    return parts ? [{ qualified, server: parts[1]!, raw: parts[2]! }] : [];
+  });
+  const forms = [name];
+  const wrapper = /^functions(?:\.|__)/i.exec(name);
+  if (wrapper) forms.push(name.slice(wrapper[0].length));
+  const routes: { server: string; raw: string; escaped: boolean }[] = [];
+  for (const server of new Set(catalog.map(tool => tool.server))) {
+    for (const form of forms) {
+      for (const separator of [".", "__"]) {
+        const prefix = `mcp${separator}${server}${separator}`;
+        if (form.toLowerCase().startsWith(prefix.toLowerCase()) && form.length > prefix.length) {
+          routes.push({ server, raw: form.slice(prefix.length), escaped: separator === "__" });
+        }
+      }
+    }
+  }
+  // No separator folding, prefix guessing or first/longest-server choice.
+  // Even a unique raw tool cannot disambiguate two server identities.
+  if (new Set(routes.map(route => route.server)).size !== 1) return new Set();
+  const keys = new Set(routes.flatMap(route => [
+    mcpToolKey(route.raw),
+    // Preserve wire dots without choosing over a literal double underscore.
+    ...(route.escaped ? [mcpToolKey(route.raw.replaceAll("__", "."))] : []),
+  ]));
+  return new Set(catalog.filter(tool => tool.server === routes[0]!.server && keys.has(mcpToolKey(tool.raw)))
+    .map(tool => tool.qualified));
 }
