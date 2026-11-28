@@ -115,14 +115,17 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       stoppedBecause = "start-moved";
       return false;
     }
+    let robots: RobotsDecision;
     try {
       await input.authorizeMove(target);
+      robots = target.origin === scope.start.origin ? scope.robots : await input.robotsFor(target);
     } catch (error) {
-      errors.push({ url: target.href, message: (error as Error).message });
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push({ url: target.href, message });
+      notes.push(`The start page ${from} was not followed: admission of ${target.toString()} failed (${message}).`);
       stoppedBecause = "start-moved";
       return false;
     }
-    const robots = target.origin === scope.start.origin ? scope.robots : await input.robotsFor(target);
     if (!politeness.allows(robots, target)) {
       notes.push(`The start page ${from} redirects to ${target.toString()}, which robots.txt of ${target.host} does not allow.`);
       block(normaliseCrawlUrl(target));

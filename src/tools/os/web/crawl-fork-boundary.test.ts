@@ -12,6 +12,7 @@ import { buildOsWebCrawlTool, type OsWebCrawlOptions } from "./web-crawl.js";
 import { ApprovalGate } from "../../../approval/approval-gate.js";
 import type { runCommand as RunCommand } from "../../../sandbox/command-runner.js";
 import type { HostLookup } from "./web-fetch-ssrf-guard.js";
+import { CurlUnavailableError } from "./ensure-curl.js";
 
 const origin = "https://docs.example.com";
 const moved = "https://www.docs.example.com";
@@ -87,11 +88,51 @@ describe("B7b1 crawl URL and response boundaries", () => {
     await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
-  it("does not request a rebound public address after admitting a start move", async () => {
+  it("reports a rebound public address before reading the moved host's robots", async () => {
     let movedLookups = 0;
     const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" }, async host => [{ address: host.startsWith("www.") && ++movedLookups > 1 ? "8.8.8.8" : "93.184.216.34", family: 4 }]);
-    await expect(f.tool.run({ url: origin, maxDepth: 0 }, f.ctx)).rejects.toThrow(/resolved addresses differ/);
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(result.details.stoppedBecause).toBe("start-moved");
+    expect(result.details.errors).toEqual([expect.objectContaining({ url: moved + "/guide", message: expect.stringContaining("resolved addresses differ") })]);
+    expect(result.details.notes).toEqual([expect.stringContaining("resolved addresses differ")]);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
+  });
+  it("returns a report and note when DNS fails in the moved robots preflight", async () => {
+    let movedLookups = 0;
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" }, async host => {
+      if (host.startsWith("www.") && ++movedLookups > 1) throw new Error("synthetic DNS failure");
+      return [{ address: "93.184.216.34", family: 4 }];
+    });
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(result.details.errors).toEqual([expect.objectContaining({ message: expect.stringContaining("synthetic DNS failure") })]);
+    expect(result.details.notes).toEqual([expect.stringContaining("synthetic DNS failure")]);
+    expect(result.summary).toContain("synthetic DNS failure");
+    expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
+  });
+  it("returns a report and note when B1 denies the destination before robots preflight", async () => {
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" }, async host => {
+      if (host.startsWith("www.")) installPolicy(mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" }, file: parsePolicyFile({ rules: [{ action: "webfetch", resource: moved + "/*", effect: "deny" }] }) }]));
+      return [{ address: "93.184.216.34", family: 4 }];
+    });
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(result.details.errors).toHaveLength(1);
+    expect(result.details.notes).toEqual([expect.stringMatching(/denied|blocked|policy/i)]);
+    expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
+  });
+  it("returns a report and note when the moved robots reader throws", async () => {
+    const f = fixture(url => {
+      if (url === moved + "/robots.txt") throw new CurlUnavailableError();
+      return url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" };
+    });
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(result.details.errors).toHaveLength(1);
+    expect(result.details.notes).toEqual([expect.stringContaining("curl")]);
+    expect(f.requested).toContain(moved + "/robots.txt");
+    expect(f.requested).not.toContain(moved + "/guide");
   });
   it("allows public DNS rotation on pages after the new host's robots admission", async () => {
     let movedLookups = 0;
