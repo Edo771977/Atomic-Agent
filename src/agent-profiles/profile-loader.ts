@@ -184,6 +184,11 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
     if (rejectedNames.has(profile.name)) return;
     const existing = byName.get(profile.name);
     if (existing === undefined) {
+      if (profile.tools?.length === 0) {
+        rejectedNames.add(profile.name);
+        diagnostics.push(`agent profile ${profile.name} from ${origin(profile)} was rejected: empty tools list []`);
+        return;
+      }
       if (options.toolPolicy !== undefined && profile.tools !== undefined) {
         const compiled = compileToolAllowlist(profile.tools);
         const { names, allows } = options.toolPolicy;

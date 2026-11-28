@@ -5,6 +5,8 @@ Owner: src/config/
 
 This area owns configuration and compatibility. Read [AGENTS.md](AGENTS.md) before changing it.
 
+Explicit empty llm.runMode.agentProfiles tool lists are preserved rather than treated as an absent key. Profile admission rejects them with a visible warning and reserves the profile name; omitting tools remains the separate choice to inherit the worker ceiling.
+
 File trigger creation, edits and configuration saves strictly validate the optional session ID before replacing the saved file. When reading an existing file, only triggers with invalid IDs such as `compaction/Y` are discarded, with one diagnostic per file and rejected set per process. Other settings and valid triggers such as `codex:Y` still load. Pure reads preserve the original bytes and snapshot hash; migration saves the usable configuration. This avoids blocking startup or repeating a task-creation error on every event.
 
 ## Entry points

@@ -162,9 +162,8 @@ function validateProfileFields(
     } else {
       const cleaned = [...new Set((list as string[]).map((t) => t.trim()).filter(Boolean))];
       if (cleaned.length > MAX_PROFILE_TOOLS) problems.push(`tools has more than ${MAX_PROFILE_TOOLS} entries`);
-      // An empty list is "no allowlist", like an absent key: a profile that
-      // can call nothing at all cannot do a task.
-      else if (cleaned.length > 0) tools = cleaned;
+      // Keep explicit emptiness for admission to reject, never inherit all tools.
+      else tools = cleaned;
     }
   }
 

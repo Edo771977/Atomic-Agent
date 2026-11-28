@@ -18,6 +18,7 @@ import { createRuntimeSessionFactories } from "../../runtime/composition/runtime
 import { FUSION_WORKER_ID_PREFIX, type FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { loadAgentProfiles } from "../../agent-profiles/profile-loader.js";
+import { readSettingsAgentProfiles } from "../../agent-profiles/settings-profiles.js";
 import { DEFAULT_TOOL_DESCRIPTORS } from "../../prompt/tool-descriptors.js";
 import { isWorkerVisibleTool } from "./worker-tool-policy.js";
 import type { ToolContext } from "../tool-registry.js";
@@ -200,6 +201,32 @@ describe("C1 second review: rejected profile names", () => {
       expect(result.summary).toContain("Warning:");
       expect(result.summary).toContain("llm.runMode.agentProfiles.invalid");
       expect(result.summary).toContain("no.such.tool");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe("C1 second review: empty settings allowlists", () => {
+  it.each([
+    { label: "empty array", tools: [] },
+    { label: "blank array", tools: [" ", ""] },
+    { label: "blank comma list", tools: " , " },
+  ])("rejects $label visibly instead of inheriting all tools", async ({ tools }) => {
+    const root = mkdtempSync(join(tmpdir(), "c1-empty-profile-"));
+    try {
+      const configFile = join(root, "config.json");
+      writeFileSync(configFile, JSON.stringify({ llm: { runMode: { agentProfiles: { auditor: { prompt: "No tools", tools } } } } }));
+      expect(readSettingsAgentProfiles(configFile, () => undefined)?.auditor?.tools).toEqual([]);
+      const profiles = loadAgentProfiles({ workingDir: root, stateDir: root, configFile, startupTrust: [],
+        settingsProfiles: () => readSettingsAgentProfiles(configFile, () => undefined),
+        toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool } });
+      const runTurn = vi.fn(async () => turnResult());
+      const result = await buildFusionDelegateTool(deps({ resolveAgentProfiles: () => profiles, runTurn })).run(
+        { tasks: [{ id: "r", instructions: "Read", profile: "auditor" }] }, ctx({ workingDir: root }));
+      expect(profiles.get("auditor")).toBeUndefined();
+      expect(result.details.reason).toBe("unknown-profile");
+      expect(result.summary).toContain("llm.runMode.agentProfiles.auditor");
+      expect(result.summary).toMatch(/empty tools/i);
+      expect(runTurn).not.toHaveBeenCalled();
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 });

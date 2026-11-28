@@ -66,9 +66,9 @@ describe("parseAgentProfilesConfig (ATO-1667)", () => {
     expect(parseAgentProfilesConfig(null, FIELD)).toBeUndefined();
   });
 
-  it("treats an empty tools list as no allowlist, as a profile file does", () => {
+  it("preserves an explicit empty tools list for admission to reject", () => {
     expect(parseAgentProfilesConfig({ a: { prompt: "x", tools: [] } }, FIELD)).toEqual({
-      a: { prompt: "x" },
+      a: { prompt: "x", tools: [] },
     });
   });
 
@@ -77,7 +77,7 @@ describe("parseAgentProfilesConfig (ATO-1667)", () => {
       parseAgentProfilesConfig({ split: { prompt: "x", tools: "Read, Grep,,os.fs.read , Read" } }, FIELD),
     ).toEqual({ split: { prompt: "x", tools: ["Read", "Grep", "os.fs.read"] } });
     expect(parseAgentProfilesConfig({ blank: { prompt: "x", tools: " , " } }, FIELD)).toEqual({
-      blank: { prompt: "x" },
+      blank: { prompt: "x", tools: [] },
     });
   });
 

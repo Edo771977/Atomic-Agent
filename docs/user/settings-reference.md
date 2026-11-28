@@ -549,7 +549,7 @@ In the TUI, `/settings <words>` searches the same list. The desktop app shows it
 | `llm.runMode.agentProfiles.*.description` | `string` | `unset` | What the profile is for, shown to the planner. At most 1,000 chars. |
 | `llm.runMode.agentProfiles.*.prompt` | `string` | `unset` | The instructions the worker reads before its task (a file's body). At most 16,000 chars. |
 | `llm.runMode.agentProfiles.*.model` | `string` | `unset` | A fusion role (`plan`, `build`, `review`, `explore`, `utility`), a model name or provider id, or `inherit`. |
-| `llm.runMode.agentProfiles.*.tools` | `string[]` | `unset` | Tool allowlist (our names, `prefix.*` or Claude Code names), a list or one comma-separated string as in a profile file; read as a list. Absent or empty: the worker keeps its usual tools. |
+| `llm.runMode.agentProfiles.*.tools` | `string[]` | `unset` | Tool allowlist (our names, `prefix.*` or Claude Code names), a list or one comma-separated string as in a profile file; read as a list. Absent: the worker keeps its usual tools. An explicit empty list is preserved and rejected with a visible warning when the profile loads. |
 | `llm.openrouter.preferCacheRoutes` | `boolean` | `unset` | Steer models whose caching depends on the route toward the routes that cache — today `google/…` models to Google AI Studio, which cached 83 % of input where Vertex cached 1–4 % — unless the entry configured `providerPreferences` of its own. |
 | `llm.costTracking.enabled` | `boolean` | `unset` | Track the cost of cloud calls. Default `false`. |
 | `llm.costTracking.showInStatusBar` | `boolean` | `unset` | Add today's spend, all sessions together, to the composer readout (ATO-649): `$0.31 · today $1.20`. The session's own cost is shown either way (ATO-569). |

@@ -36,7 +36,8 @@ export type UserAgentProfileConfig = {
   /**
    * Tool allowlist (our names, `prefix.*` or Claude Code names), a list or
    * one comma-separated string as in a profile file; read as a list.
-   * Absent or empty: the worker keeps its usual tools.
+   * Absent: the worker keeps its usual tools. An explicit empty list is
+   * preserved and rejected with a visible warning when the profile loads.
    */
   tools?: string[];
 };
@@ -97,8 +98,8 @@ function parseAgentProfileEntry(raw: unknown, field: string): UserAgentProfileCo
     if (cleaned.length > MAX_PROFILE_TOOLS) {
       throw new ConfigValidationError(`${field}.tools`, `more than ${MAX_PROFILE_TOOLS} entries`);
     }
-    // An empty list is "no allowlist", as in a profile file.
-    if (cleaned.length > 0) out.tools = cleaned;
+    // Preserve explicit emptiness: dropping the field would grant default tools.
+    out.tools = cleaned;
   }
 
   return out;

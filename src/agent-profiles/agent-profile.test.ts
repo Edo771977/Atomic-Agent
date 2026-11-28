@@ -30,9 +30,9 @@ describe("parseAgentProfileFile (ATO-566)", () => {
     expect(parsed).toMatchObject({ ok: true, profile: { name: "explorer", tools: ["os.fs.read"] } });
   });
 
-  it("treats an empty tools list as no allowlist", () => {
+  it("preserves an explicit empty tools list for admission to reject", () => {
     const parsed = parseAgentProfileFile("---\ntools: []\n---\nBody", "x");
-    expect(parsed.ok && parsed.profile.tools).toBe(undefined);
+    expect(parsed.ok && parsed.profile.tools).toEqual([]);
   });
 
   it("loads a file with no frontmatter as a body named after the file", () => {
