@@ -25,6 +25,17 @@ const task = (result: ConversationTurn): ConversationTurn[] => [
 ];
 
 describe("W2 packer preserves fork retention", () => {
+  it("never expands a short body when the truncation note would cost more than it saves", () => {
+    const original = resultFor("os.http.request", "x".repeat(250));
+    if (original.kind !== "tool_result") throw new Error("fixture");
+    const bounded = packConversation(task(original), 50).visibleTurns[2];
+    if (bounded?.kind !== "tool_result") throw new Error("missing result");
+    const before = renderToolResultBody(original, { inCurrentMacroTurn: true });
+    const after = renderToolResultBody(bounded, { inCurrentMacroTurn: true });
+    expect(after.length).toBeLessThanOrEqual(before.length);
+    expect(estimateTokens(after)).toBeLessThanOrEqual(estimateTokens(before));
+  });
+
   it("only removes payload already visible under each tool's renderer", () => {
     for (const tool of ["os.http.request", "os.fs.read", "os.shell.run", "fusion.delegate", "os.web.fetch"]) {
       for (const summary of [body, `$ gog mail list\n${body}`]) {
