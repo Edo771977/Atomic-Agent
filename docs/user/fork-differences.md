@@ -18,6 +18,10 @@ After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/ato
 - Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
 - [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
 
+W1.1 selectively imports upstream #1776 and #1788: a static own-computer persona line and an offline RAM bench fixture. The fork uses a fictional 16 GiB computer described only by computer.json in the temporary workspace; the checker reads captured replies and constants, not host hardware or outside files. The model matrix and profiles remain those of main. No dependencies or install hooks change. Four-mode pre-port byte comparisons and independent-session checks guard the stable prefix. [Verification](../reviews/w11-verification.json).
+
+W1.2 imports only the model-routing regression tests from upstream #1864/#1908 and removes their four resolved type-debt entries (five diagnostics), confirmed by typecheck:tests:reduce on the fork. The escalation test maps upstream turnModel to the existing fork model/pinModel fields. Fork fixture levels, team member selection, receipt attribution and production code are preserved; no C1/B7b prerequisite is imported. Both new tests pass on main and fail under temporary assertion inversions. [Verification](../reviews/w12-verification.json).
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:
@@ -107,6 +111,8 @@ CLI and TUI share an owner-only SQLite backup and a transactional merge for note
 C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment documentation. The candidate endpoint bypasses provider/host policy and Privacy Shield, attempts suggestions in offline mode and lacks validated credential/error handling. Existing suggestions through the configured model remain available. [Evidence and reopening tests](../reviews/c2b-next-step-endpoint.md).
 
 ## Fusion team
+
+B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).
 
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).
 - **A reviewer per task.**
