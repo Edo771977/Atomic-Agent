@@ -25,6 +25,25 @@ const task = (result: ConversationTurn): ConversationTurn[] => [
 ];
 
 describe("W2 packer preserves fork retention", () => {
+  it("retains exact paging offsets and full hidden-line counts through a second read cut", () => {
+    const turns = [
+      userTurn("inspect both files", 1),
+      assistantToolCallTurn({ tool: "os.fs.read", args: { path: "a.txt", offset: 101 }, at: 2 }),
+      assistantToolCallTurn({ tool: "os.fs.read", args: { path: "b.txt", offset: 501 }, at: 3 }),
+      resultFor("os.fs.read"), resultFor("os.fs.read"),
+    ];
+    const rendered = packedConversationTurns(packConversation(turns, 2_000));
+    for (const [index, start] of [[3, 101], [4, 501]] as const) {
+      const result = rendered[index];
+      if (result?.kind !== "tool_result") throw new Error("missing read");
+      const shown = Number(/first (\d+) lines/.exec(result.body)?.[1]);
+      const hidden = Number(/(\d+) more lines/.exec(result.body)?.[1]);
+      expect(shown).toBeGreaterThan(0);
+      expect(result.body).toContain(`offset: ${start + shown}`);
+      expect(shown + hidden).toBe(2_000);
+    }
+  });
+
   it.each([500, 1_000, 2_000])("keeps the shell spill pointer in the prompt at budget %s", async (budget) => {
     const base = mkdtempSync(join(tmpdir(), "w2-pack-spill-pointer-"));
     try {

@@ -1117,10 +1117,17 @@ function boundPinnedToolBodies(
   const visible = turns.slice(startIndex);
   const { tokenCosts, repeats, limit, capTokens, currentStart } = args;
   if (suffixTokens(tokenCosts, repeats, startIndex) <= limit) return visible;
+  let pendingReadStarts: (number | undefined)[] = [];
   for (let offset = 0; offset < visible.length; offset += 1) {
     const turn = visible[offset];
     const i = startIndex + offset;
+    if (turn?.kind === "user" || turn?.kind === "assistant_reply") {
+      pendingReadStarts = [];
+    } else if (turn?.kind === "assistant_tool_call" && turn.tool === "os.fs.read") {
+      pendingReadStarts.push(readStartLineOf(turn.args));
+    }
     if (turn?.kind !== "tool_result") continue;
+    const readStartLine = turn.tool === "os.fs.read" ? pendingReadStarts.shift() : undefined;
     const previous = repeats.previous[i] ?? -1;
     if (previous >= startIndex) {
       // Repeat detection also compares summaries. Carry the same cut to
@@ -1133,7 +1140,7 @@ function boundPinnedToolBodies(
       continue;
     }
     if ((tokenCosts[i] ?? 0) <= capTokens) continue;
-    visible[offset] = boundToolResult(turn, capTokens, i >= currentStart);
+    visible[offset] = boundToolResult(turn, capTokens, i >= currentStart, readStartLine);
   }
   return visible;
 }
@@ -1151,17 +1158,21 @@ function boundToolResult(
   turn: Extract<ConversationTurn, { kind: "tool_result" }>,
   capTokens: number,
   fresh: boolean,
+  readStartLine: number | undefined,
 ): ConversationTurn {
   // Narrow the existing renderer's projection, never the stored body:
   // in particular a fresh gog shell result keeps its head, whereas an
   // ordinary shell result keeps its tail. A new cap must not reveal
   // bytes that the fork's existing tool-specific cap already hid.
-  const sourceBody = renderToolResultBody(turn, { inCurrentMacroTurn: fresh });
-  const source = { ...turn, summary: sourceBody };
+  const sourceBody = renderToolResultBody(turn, { inCurrentMacroTurn: fresh, readStartLine });
+  // Re-cut file reads from the original lines, not from a projection
+  // whose paging note would be counted as file content. The new char
+  // cap never exceeds that original projection, so no hidden line returns.
+  const source = { ...turn, summary: turn.tool === "os.fs.read" ? turn.summary : sourceBody };
   let chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(capTokens * 3.6));
   let bounded = turn;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    bounded = { ...turn, summary: boundSummary(source, chars) };
+    bounded = { ...turn, summary: boundSummary(source, Math.min(chars, sourceBody.length), readStartLine) };
     if (tokenCostForTurn(bounded, fresh) <= capTokens) break;
     if (chars <= BOUNDED_BODY_MIN_CHARS) break;
     chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(chars / 2));
@@ -1176,10 +1187,11 @@ function boundToolResult(
 function boundSummary(
   turn: Extract<ConversationTurn, { kind: "tool_result" }>,
   chars: number,
+  readStartLine: number | undefined,
 ): string {
   const { summary } = turn;
   if (summary.length <= chars) return summary;
-  if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, undefined);
+  if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, readStartLine);
   if (turn.tool === "os.shell.run") {
     const note = `[context window: part of this result is not shown; ${summary.startsWith("[output clipped;") ? "read the saved output file instead" : "do not rerun the command solely to recover output"}]`;
     if (isGogShellResult(turn)) return `${summary.slice(0, chars)}\n… ${note}`;
