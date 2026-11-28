@@ -120,6 +120,7 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
       await input.authorizeMove(target);
       robots = target.origin === scope.start.origin ? scope.robots : await input.robotsFor(target);
     } catch (error) {
+      if (error instanceof CurlUnavailableError || input.signal.aborted) throw error;
       const message = error instanceof Error ? error.message : String(error);
       errors.push({ url: target.href, message });
       notes.push(`The start page ${from} was not followed: admission of ${target.toString()} failed (${message}).`);
