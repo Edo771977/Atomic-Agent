@@ -1,0 +1,529 @@
+{
+  "before": {
+    "passed": 2,
+    "failed": 6,
+    "skipped": 0,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/agent/tool-name-policy-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority rejects every ambiguous nonexact spelling regardless of registry order",
+            "status": "failed",
+            "failure": "AssertionError: expected 'mcp.a.b_c' to be null\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/tool-name-policy-boundary.test.ts:49:115\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority does not let an MCP short name capture a misspelled internal tool",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority holds a wrapped reply's unsupported claim before dispatch",
+            "status": "failed",
+            "failure": "ToolExecutionError: tool not registered in this agent: functions.reply\n    at admitUnregisteredCalls (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-unknown-tools.ts:51:9)\n    at prepareStepDispatch (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-evidence.ts:165:3)"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on functions.os.fs.write",
+            "status": "failed",
+            "failure": "ToolExecutionError: tool not registered in this agent: functions.os.fs.write\n    at admitUnregisteredCalls (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-unknown-tools.ts:51:9)\n    at prepareStepDispatch (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-evidence.ts:165:3)"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on \"OS_FS_WRITE\"()",
+            "status": "failed",
+            "failure": "ToolExecutionError: tool not registered in this agent: \"OS_FS_WRITE\"()\n    at admitUnregisteredCalls (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-unknown-tools.ts:51:9)\n    at prepareStepDispatch (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-evidence.ts:165:3)"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 1",
+            "status": "failed",
+            "failure": "AssertionError: expected [ 'functions.os.fs.write', …(1) ] to deeply equal [ 'os.fs.read' ]\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/tool-name-policy-boundary.test.ts:89:58\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 5",
+            "status": "failed",
+            "failure": "AssertionError: expected [ 'functions.os.fs.write', …(1) ] to deeply equal [ 'os.fs.read' ]\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/tool-name-policy-boundary.test.ts:89:58\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+          }
+        ]
+      }
+    ]
+  },
+  "upstream": {
+    "passed": 6,
+    "failed": 2,
+    "skipped": 0,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/agent/tool-name-policy-boundary.test.ts",
+        "status": "failed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority rejects every ambiguous nonexact spelling regardless of registry order",
+            "status": "failed",
+            "failure": "AssertionError: expected 'mcp.a.b_c' to be null\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/tool-name-policy-boundary.test.ts:49:115\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority does not let an MCP short name capture a misspelled internal tool",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority holds a wrapped reply's unsupported claim before dispatch",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on functions.os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on \"OS_FS_WRITE\"()",
+            "status": "failed",
+            "failure": "ToolExecutionError: tool not registered in this agent: \"OS_FS_WRITE\"()\n    at admitUnregisteredCalls (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-unknown-tools.ts:89:9)\n    at prepareStepDispatch (C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b2-20261127/src/agent/step/step-evidence.ts:164:3)"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 1",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 5",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "adapted": {
+    "passed": 76,
+    "failed": 0,
+    "skipped": 0,
+    "totalFiles": 6,
+    "files": [
+      {
+        "file": "src/agent/agent-loop-tool-filter.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "worker tool-filter dispatch authorization refuses excluded memory writes recovered from native",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses excluded memory writes recovered from text",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses excluded memory writes recovered from reasoning",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses excluded memory writes recovered from grammar",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses the canonical excluded tool after resolving tasks.schedule",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses the canonical excluded tool after resolving tasks__schedule",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses the canonical excluded tool after resolving tasks_schedule",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses the canonical excluded tool after resolving TASKS_SCHEDULE",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses discovery of excluded memory.notes.store",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses discovery of excluded tasks.schedule",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization refuses discovery of excluded os.screen.click",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization preserves discovery of allowed out-of-role tools",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization preserves a worker finish for its own ephemeral session",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization enforces a custom turn filter independently of the worker exclusion list",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization keeps an allowed read when 'fusion.delegate' would be refused before approval trim",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization keeps an allowed read when 'FUSION_DELEGATE' would be refused before approval trim",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization keeps an allowed read when 'os.fs.write' would be refused before approval trim",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization keeps an allowed read when 'os__fs__write' would be refused before approval trim",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization keeps an allowed gated batch unattended when every emitted call passes the filter",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization does not persist a schema excluded by a custom filter through tool.search",
+            "status": "passed"
+          },
+          {
+            "name": "worker tool-filter dispatch authorization still loads an eligible out-of-role schema through tool.search",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/agent/tool-name-policy-boundary.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority rejects every ambiguous nonexact spelling regardless of registry order",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority does not let an MCP short name capture a misspelled internal tool",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority holds a wrapped reply's unsupported claim before dispatch",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on functions.os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on \"OS_FS_WRITE\"()",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 1",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 5",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/agent/tool-name-resolution.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "resolveToolName returns an exact name untouched",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName fixes the separator a model got one underscore short",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName resolves a name that arrived still escaped",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName resolves case on its own and over a fixed separator",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName refuses to guess between near neighbours",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName returns null for a name that is nothing like a registered tool",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName on separator and wrapping forms resolves an MCP name whose own part has underscores, written all single-underscore",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName on separator and wrapping forms resolves a server name written with `_` for its `-`",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName on separator and wrapping forms drops the `functions.` namespace of OpenAI-style templates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName on separator and wrapping forms drops quotes, an empty call, trailing punctuation and a chat-template tail",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing write_file is not resolved and the error result names the candidates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing delete_file is not resolved and the error result names the candidates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing github.create_issue is not resolved and the error result names the candidates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing create_issue is not resolved and the error result names the candidates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing mcp.create_issue is not resolved and the error result names the candidates",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing does not resolve a namespace-less Composio name either",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing refuses two tools that share one spelling",
+            "status": "passed"
+          },
+          {
+            "name": "resolveToolName with part of the real name missing still refuses a name that is a different tool, not a different spelling",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/agent/step/step-batch-lifecycle.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "step batch lifecycle owner seams does not yield between valid reasoning and parsed-tool admission",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams does not yield between repair reasoning and parsed-tool admission",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams reads live grants before the level and runs an unattended mutation batch in emitted order",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams replaces an initial progress note with the note from the repaired batch",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams parses the repaired native batch against the descriptors the request was built from",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams holds an unsupported check claim once, preserves the refused call and merges the next-step notice",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams holds an unverified claim in a reply written as `functions.reply`",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams trims a batch whose approval-gated call is spelled another way, as for its registered name",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams commits results in model order after the second tool finishes first",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams folds a project update in order and turns a refused one into the call's error (issue #39)",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams records the progress note before a cancelled batch raises its terminal failure",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams preserves local cancellation when an embedded milestone was reported",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams preserves cloud cancellation when an embedded milestone was reported",
+            "status": "passed"
+          },
+          {
+            "name": "step batch lifecycle owner seams refuses wave splitting for invalid args even when the batch is entirely pure reads",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/llm/reliability/unregistered-tool-failure.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "isUnregisteredToolStreak (ATO-1674) is the near-miss streak the unknown-tool limit ends a turn with",
+            "status": "passed"
+          },
+          {
+            "name": "isUnregisteredToolStreak (ATO-1674) finds it under a wrapper",
+            "status": "passed"
+          },
+          {
+            "name": "isUnregisteredToolStreak (ATO-1674) is not a streak on a name that is close to no tool",
+            "status": "passed"
+          },
+          {
+            "name": "isUnregisteredToolStreak (ATO-1674) is not any other tool or transport failure",
+            "status": "passed"
+          }
+        ]
+      },
+      {
+        "file": "src/runtime/composition/runtime-traces.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "runtime trace ownership and deferred event routing keeps explicit trace disable above an entrypoint default and allocates no recorder file",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing starts a newly opened trace with current-turn metadata without mutating stored stamps",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing tests the actual bounded LRU owner rather than an independently reimplemented map",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing preserves active recorder identity through over-cap bursts and defers deletion until release",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing exempts each new entry while every prior recorder is pinned",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing routes concurrent ALS frames separately and permits explicit parent events inside a worker frame",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing records a request-budget notice in the owning session's trace",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing keeps hook-before-usage-before-host order and does not leak usage after its separate clear",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing resolves the error reporter at failure time and still delivers unattributed host events",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing does not report Groq's plan-limit 413, and still reports other failures (ATO-1283)",
+            "status": "passed"
+          },
+          {
+            "name": "runtime trace ownership and deferred event routing does not report a near-miss unknown-tool streak, and still reports other tool failures (ATO-1674)",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  },
+  "finalBoundary": {
+    "passed": 14,
+    "failed": 0,
+    "skipped": 0,
+    "totalFiles": 1,
+    "files": [
+      {
+        "file": "src/agent/tool-name-policy-boundary.test.ts",
+        "status": "passed",
+        "message": "",
+        "tests": [
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority rejects every ambiguous nonexact spelling regardless of registry order",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority does not let an MCP short name capture a misspelled internal tool",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority holds a wrapped reply's unsupported claim before dispatch",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on functions.os.fs.write",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority enforces B1 edit deny on \"OS_FS_WRITE\"()",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 1",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority uses the same filter and approval trim at level 5",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority preserves actual approval decisions at level 1",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority preserves actual approval decisions at level 5",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority keeps read confinement at dispatch after resolving a wrapped name",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority keeps declared input replacement protection after resolution",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority keeps cancellation before invocation of a resolved tool",
+            "status": "passed"
+          },
+          {
+            "name": "B7b2 resolved tool names keep dispatch authority does not rewrite the prompt or catalog during resolution",
+            "status": "passed"
+          }
+        ]
+      }
+    ]
+  }
+}

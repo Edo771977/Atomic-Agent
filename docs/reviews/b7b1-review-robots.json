@@ -1,0 +1,36 @@
+{
+  "fixtures": "Synthetic DNS, policy and transport; no real connections",
+  "records": [
+    {
+      "report": "b7b1-review-robots-red.json",
+      "sha256": "e2321d7eb02ff188eed2b5d9c17f6a116fcf9c62fc074008ecd8e6315aace36a",
+      "passed": 36,
+      "failed": 4,
+      "failures": [
+        {
+          "name": "B7b1 crawl URL and response boundaries reports a rebound public address before reading the moved host's robots",
+          "message": "Error: www.docs.example.com: resolved addresses differ from the crawl's starting site"
+        },
+        {
+          "name": "B7b1 crawl URL and response boundaries returns a report and note when DNS fails in the moved robots preflight",
+          "message": "SsrfBlockedError: DNS resolution failed for www.docs.example.com: synthetic DNS failure"
+        },
+        {
+          "name": "B7b1 crawl URL and response boundaries returns a report and note when B1 denies the destination before robots preflight",
+          "message": "Error: os.web.fetch was not run: blocked by your organization's policy (system policy rule 1: deny webfetch \"https://www.docs.example.com/*\")."
+        },
+        {
+          "name": "B7b1 crawl URL and response boundaries returns a report and note when the moved robots reader throws",
+          "message": "CurlUnavailableError: curl is required for HTTP/web tools but was not found on PATH. On Windows 10 1803+ curl.exe ships with the OS — update Windows, or install curl and ensure it is on PATH."
+        }
+      ]
+    },
+    {
+      "report": "b7b1-review-robots-green.json",
+      "sha256": "3ec5938ab196765700a4e889b7616040ac0301e852723b6b20ed3fa9c10f6b91",
+      "passed": 50,
+      "failed": 0,
+      "failures": []
+    }
+  ]
+}

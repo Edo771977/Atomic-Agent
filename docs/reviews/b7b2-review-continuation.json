@@ -1,0 +1,40 @@
+{
+  "fixtures": "Synthetic inputs, no real credentials or external services",
+  "records": [
+    {
+      "report": "b7b2-review-continuation-red.json",
+      "sha256": "de9c532d6200dc61ef43912e6854387568d05ed1154e9828387087d6bd05eee6",
+      "passed": 14,
+      "failed": 4,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "step batch lifecycle owner seams joins 'functions.reply' continuation text before progress extraction on the 'initial' path",
+          "message": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "step batch lifecycle owner seams joins 'Reply' continuation text before progress extraction on the 'initial' path",
+          "message": "AssertionError: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "step batch lifecycle owner seams joins 'functions.reply' continuation text before progress extraction on the 'repaired' path",
+          "message": "AssertionError: expected 'rest' to be 'first part rest' // Object.is equality"
+        },
+        {
+          "name": "step batch lifecycle owner seams joins 'Reply' continuation text before progress extraction on the 'repaired' path",
+          "message": "AssertionError: expected 'rest' to be 'first part rest' // Object.is equality"
+        }
+      ],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-continuation-green.json",
+      "sha256": "172b152b24d2a8a1243b474d20080c1a492d5d1b3e67e27a59131e37fa336f96",
+      "passed": 42,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    }
+  ]
+}

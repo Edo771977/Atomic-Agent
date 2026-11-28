@@ -1,0 +1,545 @@
+{
+  "base": "7511497b0",
+  "environment": "Windows, Node v26.13.1; restricted process/network/filesystem execution; default Windows 2-worker suite configuration. Paired named controls use maxWorkers=1.",
+  "checks": {
+    "npm ci": 0,
+    "npm run lint": 0,
+    "npm run imports:check": 0,
+    "npm run typecheck:tests": 0,
+    "npm run docs:check": 0
+  },
+  "focused": {
+    "command": "npx vitest run src/agent src/policy src/tools src/mcp src/llm src/local-llm src/tui src/http src/runtime",
+    "exitCode": 1,
+    "counts": {
+      "passed": 24110,
+      "failed": 1018,
+      "skipped": 575
+    },
+    "commonFailures": 950,
+    "additionalFailures": 68,
+    "suiteFailures": [
+      {
+        "file": "src/tools/os/web/crawl-js-page.test.ts",
+        "message": "Cannot find module '/@id/<checkout>/src/tools/os/web/crawl-js-page.test.ts'"
+      }
+    ],
+    "comparison": "b7b1-focused-comparison.json",
+    "paired": {
+      "files": [
+        "b7b1-focused-controls.json",
+        "b7b1-diagnostic-controls.json"
+      ],
+      "statuses": {
+        "candidate-passed": 67,
+        "both-failed": 1
+      },
+      "records": [
+        {
+          "file": "src/policy/policy-mutation-consumers.test.ts",
+          "name": "actual mutation paths across consumers Fusion validates the complete promotion list before copying any file",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+          "name": "declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave merges two tasks that edited different files",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave merges two tasks that edited different parts of one file",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave refuses a declared input the task wiped",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave discards a failed task's changes",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-merge.test.ts",
+          "name": "runIsolatedWave removes the workspaces when the run throws",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "bounds Git object imports separately from the payload copy allowance and fails closed",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "stops an actual pack stream at the byte ceiling and cleans both importing stores",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/branch-private-git.test.ts",
+          "name": "cancels a private import during the snapshot without writing source metadata or leaving incomplete stores",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "fails closed for missing check evidence and protects declared inputs",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses to promote changes to the project's agent state directory (a deleted rules file)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses to promote changes to the project's agent state directory (a rewritten rules file)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses to promote changes to the project's agent state directory (a new state file)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "rolls back a directory it created even when setting its mode fails",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "removes the backup folder when the first journal write fails",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "accepted trade-off: a concurrent write to an unrelated path during delivery is neither detected nor overwritten",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "stages a folder copy candidate whose source directory has mode 509",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "stages a folder copy candidate whose source directory has mode 448",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses nested agent state at \"pkg//.atomic-agent\"",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses nested agent state at \"pkg//deep//.ATOMIC-AGENT.\"",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "refuses nested agent state at \"pkg//.atomic-agent \"",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/candidate-integration.test.ts",
+          "name": "preserves passing final checks alongside an uncheckable UI check",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "keeps local candidate skills trusted by the real project (moved=false)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "keeps local candidate skills trusted by the real project (moved=true)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "uses native case identity for the basename of absolute declared inputs during delete",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "uses native case identity for the basename of absolute declared inputs during shrink",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "uses native case identity for the whole path of absolute declared inputs during delete",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "uses native case identity for the whole path of absolute declared inputs during shrink",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/fusion-candidate.test.ts",
+          "name": "records executed candidate task telemetry after final promotion decision (pass=false)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+          "main": "failed",
+          "candidate": "failed",
+          "category": "both-failed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/fusion/merge-gate.test.ts",
+          "name": "the judge reads the task's diff (isolation) sees an edit past the first 6,000 chars and lists a touched file nobody declared",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+          "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+          "main": "passed",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+          "name": "B7b1 crawl URL and response boundaries does not let duplicate DNS answers hide a missing start address",
+          "main": "not-present",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+          "name": "B7b1 crawl URL and response boundaries ignores DNS repetition and order when the public address sets agree",
+          "main": "not-present",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        },
+        {
+          "file": "src/tools/os/web/crawl-fork-boundary.test.ts",
+          "name": "B7b1 crawl URL and response boundaries enforces configured project constraints when no runtime policy frame was installed",
+          "main": "not-present",
+          "candidate": "passed",
+          "category": "candidate-passed"
+        }
+      ]
+    }
+  },
+  "finalSpecific": {
+    "web": {
+      "passed": 517,
+      "failed": 0
+    },
+    "rendererAbsence": {
+      "passed": 2,
+      "failed": 0
+    }
+  },
+  "rawReports": [
+    {
+      "file": "b7b-main-full.json",
+      "sha256": "d8af82717f44aebf3d4ccd1c59ba6e714d29a3e6a7fd87ecf376f178d8246d9f"
+    },
+    {
+      "file": "b7b1-focused.json",
+      "sha256": "37dd0c1c15bd9ae21ffd230f766ee1461ed48bd790c2094eec2672fb5a92c94f"
+    },
+    {
+      "file": "b7b1-web-final.json",
+      "sha256": "a9f1ecff73290933084c2445214d102704997c65a77de19b1b90c1c6f2a8ed22"
+    }
+  ],
+  "notes": [
+    "Every primary added failure is retained. Only names failing on the candidate but passing on main in the first paired control receive one further sequential paired diagnostic, with default-reporter logs. The paired summary uses the latest diagnostic per name; the original runs remain linked. Passing an isolated retry is not a passing broad/full suite.",
+    "The broad run overlapped the final fixes: its three added boundary failures are red evidence, resolved in final web 517/517. Its one suite-load failure is the JS classifier test selected before that deliberately deferred module/test was removed. The final entire web selection and explicit renderer/module absence checks pass. No broad all-green result is claimed."
+  ]
+}

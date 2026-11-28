@@ -1,0 +1,14 @@
+{
+  "fixtures": "Synthetic inputs, no real credentials or external services",
+  "records": [
+    {
+      "report": "b7b2-review-final-targeted.json",
+      "sha256": "1545d5d31dab22f40f08bca773e7810edbed50bef45a7cdc1a3d8f32003b6c08",
+      "passed": 126,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    }
+  ]
+}

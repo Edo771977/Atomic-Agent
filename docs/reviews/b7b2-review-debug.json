@@ -1,0 +1,28 @@
+{
+  "fixtures": "Synthetic inputs, no real credentials or external services",
+  "records": [
+    {
+      "report": "b7b2-review-debug-red.json",
+      "sha256": "3bdbf20045b3742a95086d231f77e6cf49caa162035cc2f9c9dabf847da9eca3",
+      "passed": 18,
+      "failed": 1,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "step batch lifecycle owner seams bounds the emitted tool name in the admission-backstop debug record",
+          "message": "AssertionError: expected \"debug\" to be called with arguments: [ …(2) ]"
+        }
+      ],
+      "loadFailures": []
+    },
+    {
+      "report": "b7b2-review-debug-green.json",
+      "sha256": "469ac3eeeccf327c82600eda9a6c76d7b76324c4e189b5c85f8a1e096ff2a483",
+      "passed": 79,
+      "failed": 0,
+      "skipped": 0,
+      "failures": [],
+      "loadFailures": []
+    }
+  ]
+}

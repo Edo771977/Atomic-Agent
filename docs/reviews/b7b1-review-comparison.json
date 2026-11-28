@@ -1,0 +1,171 @@
+{
+  "baseline": "7511497b0 complete npm test; comparison is by file/fullName, checkout roots and slash direction only are normalized",
+  "baselineReportSha256": "d8af82717f44aebf3d4ccd1c59ba6e714d29a3e6a7fd87ecf376f178d8246d9f",
+  "report": "b7b1-review-focused.json",
+  "reportSha256": "190c67e8438799d79b0060250cad174ed7b8a14e448125325a47da31049ca7b1",
+  "counts": {
+    "passed": 6750,
+    "failed": 25,
+    "skipped": 154,
+    "files": 311
+  },
+  "web": {
+    "passed": 389,
+    "failed": 0
+  },
+  "common": 25,
+  "additional": [],
+  "failures": [
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope a symlink inside the workspace that points outside is NOT workspace",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-sq4sjH/elsewhere' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-sq4sjH/workspace/link-out'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope a symlinked workspace root still contains its own files (realpath both sides)",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-7ROFEQ/workspace' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-7ROFEQ/ws-link'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope C1: trust-config guard (config.json / .env) directory entries (trailing separator) catches a symlink into the directory",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-vr7lF1/home/.atomic-agent/plugins/installed/x' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-vr7lF1/workspace/linked'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "moves, links and extraction around a project's store (issue #109 review a2) a .atomic that is a symlink is caught by its name and by its target",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-atomic-OLwU3E/real-store' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-scope-atomic-OLwU3E/sub/.atomic'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-move-plan.test.ts",
+      "name": "planMoves refuses a folder moved into itself through a symlinked parent",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-move-plan-jCYHuQ/proj/sub' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/fs-move-plan-jCYHuQ/link'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-write-retarget.test.ts",
+      "name": "os.fs.write retarget asks again when the new target sits on a different rung",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, mkdir 'C:/Users/edoar/.atomic-agent-retarget-test'"
+    },
+    {
+      "file": "src/tools/os/git/git-credentials.test.ts",
+      "name": "the inline helper, run by real git hands github.com the token from the child env as x-access-token",
+      "baseline": "failed",
+      "message": "AssertionError: expected 128 to be +0 // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push pushes the current branch with -u and reports the upstream",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (56004) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push pushes a named branch without -u when asked",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (70304) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push previews the command and the remote before asking",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (60284) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push surfaces a rejected push as the tool's error",
+      "baseline": "failed",
+      "message": "Error: git push -q origin main failed in C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/atomic-git-fR0RLn:       0 [main] sh (78480) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools add → push → fetch → pull round-trips through the bare remote with git_remote approvals",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (95952) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools a pull reports what it did to the tree even when the diffstat is long",
+      "baseline": "failed",
+      "message": "Error: git push -q -u origin main failed in C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{f55f4d31-4d27-430c-8d2b-496f80dc2d20}/Temp/atomic-git-work-UtPEJ5:       0 [main] sh (91032) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools clones into the working directory by repo name and refuses an existing destination",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/proc/proc-kill.test.ts",
+      "name": "os.proc.kill kills a live process and it dies",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list returns a non-empty process list with this process in it",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list filters by substring (case-insensitive)",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list respects limit",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list keeps the column header and rows past the old 12-line tail",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list does not truncate a one-row filtered listing",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--url=docs.example/?q=first%0Asecond\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--get\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"-G\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--url-query=q@payload.txt\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell.test.ts",
+      "name": "os.shell.run says when it ran with no arguments (F40) notes a bare invocation when args is absent",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    }
+  ],
+  "loadFailures": []
+}
