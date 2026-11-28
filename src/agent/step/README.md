@@ -10,3 +10,5 @@ step-inference.ts prepares the request and consumes the existing completion stre
 Checks: `npx vitest run src/agent`; `npm run lint`; `npm run typecheck:tests`. Read [batching](../docs/batching.md) for dispatch or [recovery](../docs/recovery.md) for retries and progress.
 
 Tool-name resolution happens at the first parsed-batch policy boundary, before terminal evidence and approval trim. It copies renamed calls rather than changing the provider payload or stable tool descriptors. Built-in spellings must be unambiguous across the complete registry. MCP resolution first requires a unique, explicitly bounded registered server, then compares only its raw tools without folding their dots. Final dispatch retains the fork's tool-filter and organization policy checks.
+
+For a cut-answer continuation, names are resolved before the reply rewrite; its joined text reaches progress-note extraction on both initial and repaired parse paths. The rewrite does not change the provider payload or prepared stable prompt.

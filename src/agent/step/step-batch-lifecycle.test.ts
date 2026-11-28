@@ -12,7 +12,8 @@ import type { StepEvent } from "../step-events.js";
 import { BatchValidationError } from "./step-errors.js";
 import { createStepBatchPolicy, validateBatch } from "./step-batch-policy.js";
 import { prepareStepInference } from "./step-inference.js";
-import { prepareStepRepair, finishStepRepair } from "./step-parsing.js";
+import { prepareStepRepair, finishStepRepair, parseDepsFor } from "./step-parsing.js";
+import { rewriteContinuedReply } from "./answer-continuation.js";
 import { parseStepBatch, finishStepBatchRepair } from "./step-batch-parsing.js";
 import { prepareStepDispatch } from "./step-evidence.js";
 import { commitStepBatch } from "./step-commit.js";
@@ -59,6 +60,26 @@ function register(deps: StepDependencies, name: string): void {
 }
 
 describe("step batch lifecycle owner seams", () => {
+  it.each(["initial", "repaired"].flatMap(path => ["functions.reply", "Reply"].map(emitted => ({ path, emitted }))))("joins $emitted continuation text before progress extraction on the $path path", ({ path, emitted }) => {
+    const { ctx, deps } = fixture();
+    register(deps, "reply");
+    register(deps, "os.fs.read");
+    const calls = [{ tool: emitted, args: { text: "rest" } }, { tool: "os.fs.read", args: { path: "/fixture/file" } }];
+    const completion = result(calls);
+    const prepared = prepareStepInference(ctx, deps);
+    const originalPrompt = prepared.prompt.text;
+    const policy = createStepBatchPolicy(ctx, deps, () => false);
+    const args = { ctx, deps, prepared, completion, policy, assumesOpenReasoning: () => false,
+      rewrite: (batch: ToolCallBatch) => rewriteContinuedReply(batch, "first part ") };
+    const parsed = path === "initial" ? parseStepBatch(args) : finishStepBatchRepair(args, completion, parseDepsFor(completion, deps));
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) throw parsed.error;
+    expect(parsed.batch.calls.map(call => call.tool)).toEqual(["os.fs.read"]);
+    expect(policy.progressNote?.args.text).toBe("first part rest");
+    expect(calls[0]!.tool).toBe(emitted);
+    expect(calls[0]!.args.text).toBe("rest");
+    expect(prepared.prompt.text).toBe(originalPrompt);
+  });
   it.each(["valid", "repair"])("does not yield between %s reasoning and parsed-tool admission", async (path) => {
     const { ctx, deps } = fixture();
     register(deps, "reply");

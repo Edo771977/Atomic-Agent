@@ -20,3 +20,9 @@ The optional conservative choice is to refuse non-ASCII resolver input, before e
 ## 3. Refuse template markers
 
 Names containing `<|` (or its literal HTML-escaped spelling `&lt;|`) are refused before exact lookup. The wrapping helper no longer truncates a template tail. Five assertions were red on the preceding source; all 50 resolver/dispatch tests pass after the guard. Ordinary bounded quote/call/punctuation handling remains. [Red/green evidence](b7b2-review-markers.json).
+
+## 4. Rewrite canonical continuations before progress extraction
+
+The parser resolves names before passing a batch to its continuation rewrite, then extracts progress text from the joined answer. The same helper runs on the repaired parse path, where the rewrite was previously omitted. No new await or inference is added.
+
+Four lifecycle cases were red first: `functions.reply` and `Reply`, each on the initial and repaired parse path. They use the real continuation join and progress policy, verify the full joined progress note, and check that provider calls and the prepared prompt remain unchanged. The lifecycle, continuation and dispatch suites then pass. [Red/green evidence](b7b2-review-continuation.json).
