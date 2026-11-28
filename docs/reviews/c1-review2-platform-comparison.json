@@ -1,0 +1,142 @@
+{
+  "baseline": {
+    "total": 100,
+    "passed": 93,
+    "failed": 6,
+    "skipped": 1,
+    "failedSuites": 10,
+    "success": false
+  },
+  "candidate": {
+    "total": 6773,
+    "passed": 6754,
+    "failed": 7,
+    "skipped": 12,
+    "failedSuites": 11,
+    "success": false
+  },
+  "common": [
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+      "status": "failed",
+      "failures": [
+        "Error: EPERM: operation not permitted, symlink '<temporary-fixture>/outside' -> '<temporary-fixture>/repo/.claude/agents'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/agent-profiles/profile-loader.test.ts:107:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+      ]
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "status": "failed",
+      "failures": [
+        "Error: EPERM: operation not permitted, symlink '<temporary-fixture>/outside.md' -> '<temporary-fixture>/workspace/AGENT.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:39:5\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+      ]
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "status": "failed",
+      "failures": [
+        "Error: EPERM: operation not permitted, symlink '<temporary-fixture>/workspace/AGENTS.md' -> '<temporary-fixture>/workspace/GEMINI.md'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-instructions.test.ts:275:33\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+      ]
+    },
+    {
+      "file": "src/runtime/project-trust.test.ts",
+      "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "status": "failed",
+      "failures": [
+        "Error: EPERM: operation not permitted, symlink '<temporary-fixture>/repo' -> '<temporary-fixture>/alias'\n    at symlinkSync (node:fs:2359:11)\n    at <checkout>/src/runtime/project-trust.test.ts:136:40\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20\n    at new Promise (<anonymous>)\n    at runWithTimeout (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2272:10)"
+      ]
+    },
+    {
+      "file": "src/agent/progress/read-coverage.test.ts",
+      "name": "read-coverage detection end to end sees a symlink and its target as one file",
+      "status": "failed",
+      "failures": [
+        "Error: EPERM: operation not permitted, symlink '<temporary-fixture>/src.ts' -> '<temporary-fixture>/alias.ts'\n    at async symlink (node:internal/fs/promises:1843:10)\n    at <checkout>/src/agent/progress/read-coverage.test.ts:508:5\n    at async file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:20"
+      ]
+    },
+    {
+      "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+      "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "status": "failed",
+      "failures": [
+        "AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1319:15)\n    at Proxy.<anonymous> (file:///<checkout>/node_modules/@vitest/expect/dist/index.js:1156:15)\n    at Proxy.methodWrapper (file:///<checkout>/node_modules/chai/index.js:1737:25)\n    at <checkout>/src/runtime/composition/runtime-egress-guard.test.ts:75:117\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:302:11\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1903:26\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2326:20\n    at new Promise (<anonymous>)\n    at runWithCancel (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2323:10)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2305:20"
+      ]
+    }
+  ],
+  "additional": [
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "stages a worktree candidate whose source directory has mode 448",
+      "status": "failed",
+      "failures": [
+        "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2025:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:714:12\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)"
+      ]
+    }
+  ],
+  "baselineOnly": [],
+  "baselineFailuresOutsideCandidateSelection": [],
+  "newC1Tests": [
+    {
+      "file": "src/agent-profiles/settings-import.test.ts",
+      "name": "C1d: loads fresh settings on each profile load",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/agent-profiles/settings-import.test.ts",
+      "name": "C1d: rereads config bytes without moving an open session's stable prefix",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/config/agent-profiles-import.test.ts",
+      "name": "C1c: retains normalized settings profiles independently of provider pins",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/runtime/composition/runtime-experience-review.test.ts",
+      "name": "C1b: a subagent never forms an experience review",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-core.test.ts",
+      "name": "runWorkerTasksCore (ATO-1669) keeps the parent's organization deny on the child's actual registry dispatch",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-core.test.ts",
+      "name": "runWorkerTasksCore (ATO-1669) runs a worker turn with only core options and returns its parsed row",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-core.test.ts",
+      "name": "runWorkerTasksCore (ATO-1669) runs the turn under the fusion origin when none is given",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-core.test.ts",
+      "name": "runWorkerTasksCore (ATO-1669) runs the turn under the subagent origin when the options name it",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-origin.test.ts",
+      "name": "worker turn origin (ATO-1669) passes the subagent origin to the local turn and to the escalation re-run",
+      "status": "passed",
+      "failures": []
+    },
+    {
+      "file": "src/tools/fusion/worker-runner-origin.test.ts",
+      "name": "worker turn origin (ATO-1669) keeps the fusion origin on both turns when the options name none",
+      "status": "passed",
+      "failures": []
+    }
+  ]
+}

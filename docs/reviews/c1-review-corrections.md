@@ -3,6 +3,8 @@
 Status: current
 Owner: src/agent-profiles/
 
+Historical first-review evidence. Point 2's lower-priority fallback was unsafe and is superseded by the [second review](c1-review2-corrections.md): rejected tool selections again reserve their names, with visible source/tool warnings. The optional built-in pruning, real-catalog prefix test and depth documentation remain in force.
+
 PR #298 merges origin/main 54f81900b9220268e6f88a8276d00feb4769f603 in 247566f3ba5dee02b00c43b5f9af76e292ab734f before publishing these corrections. The two README conflicts retain both C1 and B7 notes; no runner implementation is replaced. Each review point has its own commit.
 
 | Point | Commit | Failure before change and verification |
