@@ -18,3 +18,9 @@ The negative fixtures retain mixed public/private answers, loopback, metadata, r
 `moveStart` now catches both destination admission and the `robotsFor` call, including its second authorization. Failure records the refused URL, error and explanatory note, stops with `start-moved`, and leaves the current scope unchanged. No rejected destination is connected or read. A simulated failure of the robots transport also becomes a report instead of an unhandled rejection.
 
 Four [boundary regressions](../../src/tools/os/web/crawl-fork-boundary.test.ts) were observed red before this change: changed public DNS before robots, synthetic DNS failure, B1 denial installed between admission and robots, and the robots reader throwing. The last case records an attempted synthetic transport to an admitted host, not a successful real connection. The first three assert no transport to the refused destination. After the change all 40 boundary tests and 10 rotation tests pass. [Red/green evidence](b7b1-review-robots.json).
+
+## 3. Initial scheme and port changes
+
+The optional restriction is confined to `startMoveAllowed`: HTTP(S) stays on the same scheme or upgrades HTTP to HTTPS. Ports must remain effectively equal or become the destination scheme's default. Equality uses effective ports, so an HTTP-to-HTTPS upgrade may keep port 80; changing 8080 to HTTPS port 80 is refused. These checks precede host equivalence and destination robots admission.
+
+The [scope matrix](../../src/tools/os/web/crawl-scope.test.ts) and two real-tool boundary cases observed 10 failed assertions on the preceding source; the source bytes were restored after that pre-change control. All 69 tests in scope, boundary and DNS suites then passed. [Red/green evidence](b7b1-review-scope.json). The README documents this choice and the error-report behavior.

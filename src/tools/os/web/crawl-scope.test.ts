@@ -22,6 +22,29 @@ describe("registrableDomain", () => {
 });
 
 describe("startMoveAllowed", () => {
+  it.each([
+    ["http://example.com:8080/", "https://www.example.com/"],
+    ["https://example.com:8443/", "https://www.example.com:8443/"],
+    ["http://example.com:8080/", "http://www.example.com/"],
+    ["http://example.com:443/", "https://www.example.com/"],
+    ["http://example.com/", "https://www.example.com:80/"],
+  ])("allows equal effective ports or a scheme-default destination: %s to %s", (from, to) => {
+    expect(move(from, to)).toBe(true);
+  });
+
+  it.each([
+    ["https://example.com/", "http://example.com/"],
+    ["https://example.com/", "http://www.example.com/"],
+    ["https://example.com:8443/", "http://www.example.com:8443/"],
+    ["https://example.com/", "https://example.com:8443/"],
+    ["https://example.com/", "https://www.example.com:8443/"],
+    ["http://example.com:8080/", "https://www.example.com:8443/"],
+    ["http://example.com:8080/", "https://www.example.com:80/"],
+    ["https://example.com/", "ftp://example.com/"],
+  ])("refuses downgrade, foreign scheme or a new nonstandard port: %s to %s", (from, to) => {
+    expect(move(from, to)).toBe(false);
+  });
+
   it("allows scheme changes, www and apex, and subdomains of one site", () => {
     expect(move("http://example.com/", "https://example.com/")).toBe(true);
     expect(move("https://example.com/", "https://www.example.com/")).toBe(true);

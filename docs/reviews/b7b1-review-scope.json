@@ -1,0 +1,60 @@
+{
+  "preChangeSource": "c6b81bbf1:src/tools/os/web/crawl-scope.ts",
+  "records": [
+    {
+      "report": "b7b1-review-scope-red.json",
+      "sha256": "0acd49d6d23b4a25b3731c12fa61a64850b0b54fc9f8ea1fe9cdd2e8e76e1e94",
+      "passed": 49,
+      "failed": 10,
+      "failures": [
+        {
+          "name": "B7b1 crawl URL and response boundaries does not request a start move with a refused scheme or port: http://www.docs.example.com/guide",
+          "message": "AssertionError: expected [ Array(1) ] to deeply equal [ StringMatching /scheme|port/ ]"
+        },
+        {
+          "name": "B7b1 crawl URL and response boundaries does not request a start move with a refused scheme or port: https://www.docs.example.com:8443/guide",
+          "message": "AssertionError: expected [ Array(1) ] to deeply equal [ StringMatching /scheme|port/ ]"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com/ to http://example.com/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com/ to http://www.example.com/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com:8443/ to http://www.example.com:8443/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com/ to https://example.com:8443/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com/ to https://www.example.com:8443/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: http://example.com:8080/ to https://www.example.com:8443/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: http://example.com:8080/ to https://www.example.com:80/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        },
+        {
+          "name": "startMoveAllowed refuses downgrade, foreign scheme or a new nonstandard port: https://example.com/ to ftp://example.com/",
+          "message": "AssertionError: expected true to be false // Object.is equality"
+        }
+      ]
+    },
+    {
+      "report": "b7b1-review-scope-green.json",
+      "sha256": "c660c846f8f22c0added3d719d07753c6bde4fade9c9ede9964af2564f9b05f9",
+      "passed": 69,
+      "failed": 0,
+      "failures": []
+    }
+  ]
+}

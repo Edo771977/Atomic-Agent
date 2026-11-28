@@ -81,6 +81,17 @@ export type StartMove = { ok: true } | { ok: false; reason: string };
 
 /** May the crawl follow its start page from `from` to `to`? */
 export function startMoveAllowed(from: URL, to: URL): StartMove {
+  const httpScheme = (url: URL): boolean => url.protocol === "http:" || url.protocol === "https:";
+  if (!httpScheme(from) || !httpScheme(to) ||
+      (from.protocol !== to.protocol && !(from.protocol === "http:" && to.protocol === "https:"))) {
+    return { ok: false, reason: "the redirect changes scheme without an HTTP-to-HTTPS upgrade" };
+  }
+  const fromPort = from.port || (from.protocol === "https:" ? "443" : "80");
+  const toPort = to.port || (to.protocol === "https:" ? "443" : "80");
+  // URL removes an explicit scheme-default port. Other ports must stay equal.
+  if (fromPort !== toPort && to.port !== "") {
+    return { ok: false, reason: "the redirect changes port to a nonstandard destination" };
+  }
   const a = cleanHost(from.hostname);
   const b = cleanHost(to.hostname);
   if (a === b) return { ok: true };

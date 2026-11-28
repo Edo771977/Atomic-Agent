@@ -40,6 +40,13 @@ const robots = { status: 200, body: "User-agent: *\nAllow: /", type: "text/plain
 afterEach(() => { installPolicy(null); setOfflineNetwork(false); });
 
 describe("B7b1 crawl URL and response boundaries", () => {
+  it.each(["http://www.docs.example.com/guide", "https://www.docs.example.com:8443/guide"])("does not request a start move with a refused scheme or port: %s", async target => {
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: target });
+    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
+    expect(result.status).toBe("error");
+    expect(result.details.notes).toEqual([expect.stringMatching(/scheme|port/)]);
+    expect(f.requested.some(url => new URL(url).hostname.startsWith("www."))).toBe(false);
+  });
   it.each([301, 302, 307, 308])("follows a DNS-verified same-site start redirect (%s)", async status => {
     const f = fixture(url => url.endsWith("/robots.txt") ? robots : url === origin + "/" ? { status, location: moved + "/guide" } : { status: 200, body: html });
     const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
