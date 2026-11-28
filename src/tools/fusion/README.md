@@ -243,6 +243,8 @@ An ancestor outside the selected project may be a junction or NTFS short name. A
 
 C1a stamps ordinary Fusion workers and escalation replacements at depth 1. Their original-input and provider-policy guards remain unchanged.
 
+Profile tool-admission failures reserve the rejected name across lower-priority sources. A task cannot silently substitute a wider settings, plugin or built-in profile: it fails with unknown-profile before any worker starts. The result visibly reports the rejected profile's source/file and offending tool, also in details.profileWarnings and the existing operator log. Rejections discovered while loading a different valid profile remain visible in that successful result too.
+
 The fork's shared core also carries original-project approval rules, request-budget ownership, workspace trust, declared-input and taint hooks. The core keeps model (the fork per-turn field) and unbounded worker reasoning; the extraction does not replace them with upstream turnModel or remove verification/candidate extensions.
 
 B7b3 defers the external llama.cpp served-label import (#1562/#1563 and 81cd5a040). No new authenticated `/props` callback is wired. The candidate changes fusion-delegate and runtime catalog assembly, which overlap Fusion/C1 integration seams; the deferral changes no runner or subagent source. [Evidence](../../../docs/reviews/b7b3-external-llama.md).

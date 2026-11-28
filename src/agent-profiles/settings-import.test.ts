@@ -76,7 +76,7 @@ it("C1d: rereads config bytes without moving an open session's stable prefix", (
   }
 });
 
-it("C1 review 2: rejects invalid person profiles and retains the valid builtin fallback", () => {
+it("C1 second review: rejected person profiles reserve their names against builtin fallback", () => {
   const root = mkdtempSync(join(tmpdir(), "c1d-tool-admission-"));
   try {
     for (const tools of [["os.fs.read", "unknown.tool"], ["memory.notes.store"], ["os.*"], ["Not A Tool"], ["fusion.delegate"]]) {
@@ -85,8 +85,7 @@ it("C1 review 2: rejects invalid person profiles and retains the valid builtin f
         settingsProfiles: () => ({ review: { prompt: "Invalid replacement", tools }, custom: { prompt: "Invalid custom profile", tools } }),
         toolPolicy: { names: ["os.fs.read", "os.screen.click", "memory.notes.store"], allows: isWorkerVisibleTool },
       });
-      expect(profiles.get("review")).toMatchObject({ source: "builtin", tools: ["os.fs.read"] });
-      expect(profiles.get("review")?.prompt).not.toContain("Invalid replacement");
+      expect(profiles.get("review")).toBeUndefined();
       expect(profiles.get("custom")).toBeUndefined();
       expect(profiles.diagnostics.join("\n")).toMatch(/review.*rejected.*tool/i);
     }

@@ -175,11 +175,13 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
   const diagnostics: string[] = [];
   const withheld: string[] = [];
   const byName = new Map<string, AgentProfile>();
+  const rejectedNames = new Set<string>();
   /** A file path, a settings key, or the source alone. */
   const origin = (p: AgentProfile): string =>
     p.file ?? (p.source === "settings" ? `${SETTINGS_AGENT_PROFILES_KEY}.${p.name}` : p.source);
   /** First one in wins; a later copy of the name is reported as shadowed. */
   const offer = (profile: AgentProfile): void => {
+    if (rejectedNames.has(profile.name)) return;
     const existing = byName.get(profile.name);
     if (existing === undefined) {
       if (options.toolPolicy !== undefined && profile.tools !== undefined) {
@@ -189,12 +191,14 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
           matching: names.filter(name => pattern.endsWith(".*")
             ? name.startsWith(pattern.slice(0, -1)) : name === pattern),
         }));
-        const invalid = compiled.unknown.length > 0 || selections.some(({ pattern, matching }) =>
+        const invalidPatterns = selections.filter(({ pattern, matching }) =>
           (!pattern.endsWith(".*") && !allows(pattern))
           || (matching.length === 0 && profile.source !== "builtin")
-          || matching.some(name => !allows(name)));
-        if (invalid) {
-          diagnostics.push(`agent profile ${profile.name}: rejected unknown or forbidden tool selection`);
+          || matching.some(name => !allows(name))).map(selection => selection.pattern);
+        const invalidTools = [...compiled.unknown, ...invalidPatterns];
+        if (invalidTools.length > 0) {
+          rejectedNames.add(profile.name);
+          diagnostics.push(`agent profile ${profile.name} from ${origin(profile)} was rejected: unknown or forbidden tool ${invalidTools.map(name => JSON.stringify(name)).join(", ")}`);
           return;
         }
         if (profile.source === "builtin") {

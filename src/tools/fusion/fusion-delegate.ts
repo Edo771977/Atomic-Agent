@@ -679,6 +679,7 @@ export function buildFusionDelegateTool(
       // Subagent profiles (ATO-566): applied before the legs are picked,
       // since a profile's model can set the task's role.
       let profileReports: AppliedProfileReport[] = [];
+      let profileWarnings: string[] = [];
       if (parsed.tasks.some((t) => t.profile !== undefined)) {
         let profiles: AgentProfileSet;
         try {
@@ -692,6 +693,7 @@ export function buildFusionDelegateTool(
           profiles = builtinAgentProfileSet();
         }
         if (profiles.diagnostics.length > 0) {
+          profileWarnings = [...profiles.diagnostics];
           deps.logger.warn("fusion: agent profile problems", {
             diagnostics: profiles.diagnostics,
           });
@@ -702,7 +704,10 @@ export function buildFusionDelegateTool(
           allowedModels(workerLegRef, mode.roles, teamTasks),
         );
         if (!profiled.ok) {
-          return error(profiled.error, { field: "tasks", reason: "unknown-profile" });
+          return error([...profileWarnings.map(warning => `Warning: ${warning}`), profiled.error].join("\n"), {
+            field: "tasks", reason: "unknown-profile",
+            ...(profileWarnings.length === 0 ? {} : { profileWarnings }),
+          });
         }
         parsed.tasks.splice(0, parsed.tasks.length, ...profiled.tasks);
         profileReports = profiled.applied;
@@ -3906,7 +3911,7 @@ export function buildFusionDelegateTool(
           {
             tool: FUSION_DELEGATE_TOOL,
             status: outcome === "all_failed" ? "error" : "ok",
-            output: `${formatDelegateOutput(results, deps.outputCharCap, {
+            output: `${profileWarnings.length === 0 ? "" : `${profileWarnings.map(warning => `Warning: ${warning}`).join("\n")}\n\n`}${formatDelegateOutput(results, deps.outputCharCap, {
               ...(contractLine === undefined ? {} : { contractLine }),
               spend,
               ...(ordered ? { waves: plan.waves } : {}),
@@ -3976,6 +3981,7 @@ export function buildFusionDelegateTool(
                   }
                 : {}),
               ...(profileReports.length === 0 ? {} : { profiles: profileReports }),
+              ...(profileWarnings.length === 0 ? {} : { profileWarnings }),
               ...(merges.length === 0 ? {} : { merges }),
               ...(replan === undefined ||
             (replan.pending.length === 0 &&
