@@ -1,7 +1,12 @@
+import { createHash } from "node:crypto";
+import { hostname, platform, release, userInfo } from "node:os";
 import { describe, expect, it } from "vitest";
+import { createEmptySessionState } from "../session/session-state.js";
 
 import {
   buildStablePrefix,
+  COMPACT_NATIVE_TOOLS_SYSTEM_PERSONA,
+  COMPACT_SYSTEM_PERSONA,
   DEFAULT_SYSTEM_PERSONA,
   NATIVE_TOOLS_SYSTEM_PERSONA,
   SYSTEM_PERSONA_INPUTS_LINE,
@@ -138,6 +143,63 @@ describe("the run-commands-yourself line (ATO-1252)", () => {
       expect(persona).toContain("run task steps yourself with `os.shell.run`");
       expect(persona).toContain("never print commands for the user to type");
       expect(persona).toMatch(/Hand over only a step that needs them \(browser sign-in, password or `sudo`, keychain, a terminal question\)/);
+    }
+  });
+});
+
+/**
+ * ATO-1720 / ATO-1706: on a local Qwen 3.5 2B, asked about the computer,
+ * the agent said it had no access to the hardware and suggested the
+ * cloud. Every persona (full and compact, both transports; cloud models
+ * too, since the agent still runs on the user's machine) says it runs on
+ * the user's computer and to look machine facts up with `os.shell.run`.
+ */
+describe("the own-computer line (ATO-1720)", () => {
+  it("changes only the intended line against the pre-W1 prefix bytes in all four modes", () => {
+    // SHA256 of the complete pre-port prefix on main b68349f2b, with CAPS
+    // and empty catalogs. Removing the new line must recover those bytes.
+    const before = [
+      "ff7a6ebfbdc6564f28cf71af6da03647cfeee93b0f98dfae92c7512750cefa86",
+      "deb4b2e5af2b594aeaeefbe22a4542e2dbaeaa1f2de3257e69ec947c6af86d22",
+      "9b24d4c12d4527f3b8e8e7561b5e344ed022fdd1f66ffd80d41c21fe93041e4c",
+      "76174bae0fd0c359d0d030096908faa15844378a20b5c7b6309c2b4889d72c95",
+    ];
+    let mode = 0;
+    for (const compact of [false, true]) for (const toolTransport of ["grammar", "native_tools"] as const) {
+      const sessions = ["first", "second"].map((id) => createEmptySessionState({ id, workingDir: "/repo" }));
+      const prefixes = sessions.map((session) => buildStablePrefix({
+        toolDescriptors: [], skillCatalog: [], compact, toolTransport,
+        capabilities: { ...CAPS, workingDir: session.workingDir! },
+      }));
+      expect(Buffer.from(prefixes[0]!)).toEqual(Buffer.from(prefixes[1]!));
+      const prefix = prefixes[0]!;
+      const line = compact
+        ? "You run on the user's computer: check its hardware, OS, disk or processes with `os.shell.run`; never say you lack access or suggest the cloud.\n"
+        : "You run on the user's own computer: for questions about it (hardware, OS, disk, processes) check with `os.shell.run`; never say you lack access or suggest the cloud.\n";
+      expect(prefix.split(line)).toHaveLength(2);
+      const priorBytes = Buffer.from(prefix.replace(line, ""));
+      expect(createHash("sha256").update(priorBytes).digest("hex")).toBe(before[mode++]);
+      expect(line).not.toContain(platform());
+      for (const identity of [hostname(), userInfo().username, release()]) {
+        expect(prefix).not.toContain(identity);
+      }
+    }
+  });
+
+  it("is in every persona exactly once and names the shell tool", () => {
+    for (const persona of [
+      DEFAULT_SYSTEM_PERSONA,
+      NATIVE_TOOLS_SYSTEM_PERSONA,
+      COMPACT_SYSTEM_PERSONA,
+      COMPACT_NATIVE_TOOLS_SYSTEM_PERSONA,
+    ]) {
+      const line = persona.split("\n").find(l => l.startsWith("You run on the user's"));
+      expect(line).toBeDefined();
+      expect(persona.match(/^You run on the user's/gm)).toHaveLength(1);
+      expect(line).toContain("hardware, OS, disk");
+      expect(line).toContain("with `os.shell.run`");
+      expect(line).toContain("never say you lack access or suggest the cloud");
+      expect(line).not.toContain("\u2014");
     }
   });
 });

@@ -1,0 +1,48 @@
+[
+  {
+    "source": "main",
+    "exitCode": 0,
+    "expected": 1,
+    "selected": [
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "passed",
+        "durationMs": 8069.5795
+      }
+    ]
+  },
+  {
+    "source": "b7b3",
+    "exitCode": 0,
+    "expected": 1,
+    "selected": [
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "passed",
+        "durationMs": 7382.9166000000005
+      }
+    ]
+  }
+]

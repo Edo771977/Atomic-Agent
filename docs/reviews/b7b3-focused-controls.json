@@ -1,0 +1,1843 @@
+[
+  {
+    "source": "main",
+    "batch": 0,
+    "exitCode": 1,
+    "expected": 51,
+    "selected": [
+      {
+        "file": "src/policy/policy-mutation-consumers.test.ts",
+        "name": "actual mutation paths across consumers Fusion validates the complete promotion list before copying any file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different files",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different parts of one file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave refuses a declared input the task wiped",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave discards a failed task's changes",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave removes the workspaces when the run throws",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "bounds Git object imports separately from the payload copy allowance and fails closed",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "stops an actual pack stream at the byte ceiling and cleans both importing stores",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "cancels a private import during the snapshot without writing source metadata or leaving incomplete stores",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+        "name": "copies a candidate's dependency directory from the original only once when nothing can be linked",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a deleted rules file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a rewritten rules file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a new state file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back a directory it created even when setting its mode fails",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals a step as intent, naming its temp file, until the change lands",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "removes the backup folder when the first journal write fails",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "accepted trade-off: a concurrent write to an unrelated path during delivery is neither detected nor overwritten",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 509",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 448",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent\"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//deep//.ATOMIC-AGENT.\"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent \"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "preserves passing final checks alongside an uncheckable UI check",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=false)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=true)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "protects a relative declared input from a worker's filesystem shrink at final promotion",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during delete",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during shrink",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during delete",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/policy/policy-mutation-consumers.test.ts",
+        "name": "actual mutation paths across consumers Fusion validates the complete promotion list before copying any file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b-main-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b-main-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different files",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different parts of one file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave refuses a declared input the task wiped",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave discards a failed task's changes",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave removes the workspaces when the run throws",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "bounds Git object imports separately from the payload copy allowance and fails closed",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "stops an actual pack stream at the byte ceiling and cleans both importing stores",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "cancels a private import during the snapshot without writing source metadata or leaving incomplete stores",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+        "name": "copies a candidate's dependency directory from the original only once when nothing can be linked",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b-main-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a deleted rules file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a rewritten rules file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a new state file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back a directory it created even when setting its mode fails",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals a step as intent, naming its temp file, until the change lands",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "removes the backup folder when the first journal write fails",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "accepted trade-off: a concurrent write to an unrelated path during delivery is neither detected nor overwritten",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 509",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 448",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent\"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//deep//.ATOMIC-AGENT.\"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent \"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "preserves passing final checks alongside an uncheckable UI check",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=false)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=true)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "protects a relative declared input from a worker's filesystem shrink at final promotion",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during delete",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during shrink",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during delete",
+        "status": "passed"
+      }
+    ]
+  },
+  {
+    "source": "b7b3",
+    "batch": 0,
+    "exitCode": 1,
+    "expected": 51,
+    "selected": [
+      {
+        "file": "src/policy/policy-mutation-consumers.test.ts",
+        "name": "actual mutation paths across consumers Fusion validates the complete promotion list before copying any file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different files",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different parts of one file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave refuses a declared input the task wiped",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave discards a failed task's changes",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave removes the workspaces when the run throws",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "bounds Git object imports separately from the payload copy allowance and fails closed",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "stops an actual pack stream at the byte ceiling and cleans both importing stores",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "cancels a private import during the snapshot without writing source metadata or leaving incomplete stores",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+        "name": "copies a candidate's dependency directory from the original only once when nothing can be linked",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a deleted rules file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a rewritten rules file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a new state file)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back a directory it created even when setting its mode fails",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals a step as intent, naming its temp file, until the change lands",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "removes the backup folder when the first journal write fails",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "accepted trade-off: a concurrent write to an unrelated path during delivery is neither detected nor overwritten",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 509",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 448",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent\"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//deep//.ATOMIC-AGENT.\"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent \"",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "preserves passing final checks alongside an uncheckable UI check",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=false)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=true)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "protects a relative declared input from a worker's filesystem shrink at final promotion",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during delete",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during shrink",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during delete",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/policy/policy-mutation-consumers.test.ts",
+        "name": "actual mutation paths across consumers Fusion validates the complete promotion list before copying any file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "direct-mode copy budget does not charge an unchanged tracked file to the copy budget",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge reports a file created in a new ignored directory instead of dropping it silently",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when declared files lie under an ignored path",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge needs the orchestrator when a file provide lie under an ignored path",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "work the ignore rules keep out of a direct merge recognizes native case aliases in ignored files without hiding partial delivery",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "tracked paths under excluded directory names reports a tracked change under a directory named build as touched for the recovery patch",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "private branch dependencies refuses missing snapshot inputs instead of silently dispatching an incomplete workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace reports no_changes for an idle worker in a worktree workspace made just before it ran",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "declared-file status in a fresh private workspace still sees an immediate same-size shell edit in a worktree workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet makes detached private repositories holding uncommitted and untracked work without source registrations",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "createBranchSet sweeps dead private folders without pruning source Git registrations or deleting a live run",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different files",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave merges two tasks that edited different parts of one file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave leaves a conflicting file untouched and hands back a merge task",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave refuses a declared input the task wiped",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave reports a path it cannot write as a conflict and still merges the rest",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave discards a failed task's changes",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave names the files a cancelled task's dropped workspace did not apply (#29)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "runIsolatedWave removes the workspaces when the run throws",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "bounds Git object imports separately from the payload copy allowance and fails closed",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "stops an actual pack stream at the byte ceiling and cleans both importing stores",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-private-git.test.ts",
+        "name": "cancels a private import during the snapshot without writing source metadata or leaving incomplete stores",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+        "name": "copies a candidate's dependency directory from the original only once when nothing can be linked",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a deleted rules file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a rewritten rules file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses to promote changes to the project's agent state directory (a new state file)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "keeps worker writes under a shared dependency folder private to the candidate, even after rejection",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".ATOMIC-AGENT\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".Atomic-Agent\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses agent state spelled \".atomic-agent \", as a case-insensitive or Win32 filesystem opens it",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "rolls back a directory it created even when setting its mode fails",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals a step as intent, naming its temp file, until the change lands",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "removes the backup folder when the first journal write fails",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "accepted trade-off: a concurrent write to an unrelated path during delivery is neither detected nor overwritten",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 509",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "stages a folder copy candidate whose source directory has mode 448",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent\"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//deep//.ATOMIC-AGENT.\"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "refuses nested agent state at \"pkg//.atomic-agent \"",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "preserves passing final checks alongside an uncheckable UI check",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=false)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "keeps local candidate skills trusted by the real project (moved=true)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "protects a relative declared input from a worker's filesystem shrink at final promotion",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during delete",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the basename of absolute declared inputs during shrink",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during delete",
+        "status": "passed"
+      }
+    ]
+  },
+  {
+    "source": "main",
+    "batch": 1,
+    "exitCode": 1,
+    "expected": 18,
+    "selected": [
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during shrink",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "rejects protected check input writes inside the actual verify execution copy (persistent)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "the judge reads the task's diff (isolation) sees an edit past the first 6,000 chars and lists a touched file nobody declared",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+        "status": "failed",
+        "message": "AssertionError: expected Error: spawnSync C:\\Program Files\\nodejs\\… { …(5) } to be undefined\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts:27:28\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60",
+        "baselineStatus": "passed",
+        "result": "failed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during shrink",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "rejects protected check input writes inside the actual verify execution copy (persistent)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b-main-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "the judge reads the task's diff (isolation) sees an edit past the first 6,000 chars and lists a touched file nobody declared",
+        "status": "passed"
+      },
+      {
+        "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+        "status": "failed",
+        "message": "AssertionError: expected Error: spawnSync C:\\Program Files\\nodejs\\… { …(5) } to be undefined\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b-main-20261127/src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts:27:28"
+      }
+    ]
+  },
+  {
+    "source": "b7b3",
+    "batch": 1,
+    "exitCode": 1,
+    "expected": 18,
+    "selected": [
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during shrink",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "rejects protected check input writes inside the actual verify execution copy (persistent)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "failed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "the judge reads the task's diff (isolation) sees an edit past the first 6,000 chars and lists a touched file nobody declared",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+        "status": "failed",
+        "message": "AssertionError: expected Error: spawnSync C:\\Program Files\\nodejs\\… { …(5) } to be undefined\n    at C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts:27:28\n    at file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:60",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "uses native case identity for the whole path of absolute declared inputs during shrink",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "rejects protected check input writes inside the actual verify execution copy (persistent)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a judged-red task in the workspace it was judged in and merges it once green",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task a team reviewer could not verify as needs_orchestrator, not review-exhausted (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose changed file fails the syntax pass in its workspace",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs a gated check on the merged folder when a later wave changed the task's file",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/atomic-b7b3-20261127/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) re-runs both tasks' gated checks after a three-way merge of the same file",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose own check fails, keeping its question",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a needs_input task whose changed file fails the syntax pass",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "held-back patches and kept workspaces (isolation) removes a kept workspace when something after the waves throws",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "the judge reads the task's diff (isolation) sees an edit past the first 6,000 chars and lists a touched file nobody declared",
+        "status": "passed"
+      },
+      {
+        "file": "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts",
+        "name": "keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state",
+        "status": "passed"
+      }
+    ]
+  }
+]

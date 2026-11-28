@@ -1,0 +1,103 @@
+{
+  "base": "933e083818c3cc9d3cf8c2f1416324ff653baf11",
+  "node": "26.13.1",
+  "platform": "win32",
+  "npm_ci": 0,
+  "lint": 0,
+  "imports_check": 0,
+  "typecheck_tests": {
+    "exit": 0,
+    "main_exit": 0,
+    "new_vs_main": 0,
+    "reason": "Restoring the tracked LF bytes of step-executor.test.ts fixes the CRLF-induced diagnostic rendering mismatch on both main and the deferral. No code or debt-ledger diff."
+  },
+  "docs_check": 0,
+  "candidate_audit": {
+    "tests": 23,
+    "passed": 8,
+    "failed": 15,
+    "skipped": 0
+  },
+  "absence": {
+    "candidate_failed": 7,
+    "deferral_passed": 7
+  },
+  "focused": {
+    "passed": 12102,
+    "failed": 41,
+    "pending": 546,
+    "total": 12689,
+    "exit": 1,
+    "summary": "c4a-focused-comparison.json",
+    "additionalFailureNames": [
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "name": "measures exactly the complete unchanged future branch-set copy (Git=true)"
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for ignored-file payload"
+      },
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "name": "rejects candidate mutation while final checks inspect a private stable source"
+      }
+    ],
+    "unresolvedAdditionalNames": [],
+    "newTests": [
+      {
+        "name": "C4a file indexing remains deferred exposes no index owner, search tool, schema, descriptor or route",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for owner including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for admin including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for operator including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for member including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for viewer including inherited credentials",
+        "status": "passed"
+      },
+      {
+        "name": "C4a file indexing remains deferred keeps folder mutation and status absent for anonymous including inherited credentials",
+        "status": "passed"
+      }
+    ]
+  },
+  "note": "Windows autocrlf converted immutable archive and existing test-source bytes. Original tracked LF bytes restored locally; no archive, agent-step or other production content is in the diff.",
+  "replay_script": "Verified from pinned base through b; reconstructed candidate tree matches the audited candidate",
+  "candidate_tree": "1948cfb28bb2d8200625323131d950b6634477d6",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "targeted_retries": {
+    "maxWorkers": 1,
+    "timeout_ms": 15000,
+    "order": "main then C4a, sequentially per group",
+    "groups": [
+      {
+        "main": "c4a-extra-main.json",
+        "final": "c4a-extra-final.json",
+        "passed": 1,
+        "filtered": 9
+      },
+      {
+        "main": "c4a-extra2-main.json",
+        "final": "c4a-extra2-final.json",
+        "passed": 2,
+        "filtered": 15
+      }
+    ],
+    "sourceChanged": false
+  },
+  "main_full_summary": "c4-main-full.json"
+}

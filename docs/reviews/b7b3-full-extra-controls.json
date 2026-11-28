@@ -1,0 +1,386 @@
+[
+  {
+    "source": "main",
+    "batch": 0,
+    "exitCode": 0,
+    "expected": 14,
+    "selected": [
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test passes a correct implementation, every case",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that refuses blank lines on the blank-line cases, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that limits each number instead of the total on the zero-total cases, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails an overflow check with >= on the total exactly at the limit, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that numbers lines without the blank ones on the physical line number",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails the plain-object accumulator on the prototype-key skus, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program without header validation on the wrong first line",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/session/session-worktree.test.ts",
+        "name": "session worktree (ATO-576) binds a new session to its own worktree and keeps the subfolder",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded dist with the built-in runner",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded node_modules with the built-in runner",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "binds an absolute protected check reference to the actual execution copy",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "the configured copy limit (`tools.verify.maxCopyBytes`) retains the dependency-copy refusal cause when worker dependency growth exhausts final staging",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test passes a correct implementation, every case",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that refuses blank lines on the blank-line cases, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that limits each number instead of the total on the zero-total cases, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails an overflow check with >= on the total exactly at the limit, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that numbers lines without the blank ones on the physical line number",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails the plain-object accumulator on the prototype-key skus, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program without header validation on the wrong first line",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+        "status": "passed"
+      },
+      {
+        "file": "src/session/session-worktree.test.ts",
+        "name": "session worktree (ATO-576) binds a new session to its own worktree and keeps the subfolder",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded dist with the built-in runner",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded node_modules with the built-in runner",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "binds an absolute protected check reference to the actual execution copy",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "the configured copy limit (`tools.verify.maxCopyBytes`) retains the dependency-copy refusal cause when worker dependency growth exhausts final staging",
+        "status": "passed"
+      }
+    ]
+  },
+  {
+    "source": "b7b3",
+    "batch": 0,
+    "exitCode": 0,
+    "expected": 14,
+    "selected": [
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test passes a correct implementation, every case",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that refuses blank lines on the blank-line cases, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that limits each number instead of the total on the zero-total cases, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails an overflow check with >= on the total exactly at the limit, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that numbers lines without the blank ones on the physical line number",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails the plain-object accumulator on the prototype-key skus, and only there",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program without header validation on the wrong first line",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/session/session-worktree.test.ts",
+        "name": "session worktree (ATO-576) binds a new session to its own worktree and keeps the subfolder",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded dist with the built-in runner",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded node_modules with the built-in runner",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "binds an absolute protected check reference to the actual execution copy",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "the configured copy limit (`tools.verify.maxCopyBytes`) retains the dependency-copy refusal cause when worker dependency growth exhausts final staging",
+        "status": "failed",
+        "message": "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)",
+        "baselineStatus": "passed",
+        "result": "passed"
+      }
+    ],
+    "records": [
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test passes a correct implementation, every case",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that refuses blank lines on the blank-line cases, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that limits each number instead of the total on the zero-total cases, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails an overflow check with >= on the total exactly at the limit, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program that numbers lines without the blank ones on the physical line number",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails the plain-object accumulator on the prototype-key skus, and only there",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "the independent acceptance test fails a program without header validation on the wrong first line",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "an accept by the task's checks alone passes on green checks, but is listed apart and never shown as the reviewer's accept",
+        "status": "passed"
+      },
+      {
+        "file": "scripts/e2e-csv-sales.test.ts",
+        "name": "earlier versions of sales.cjs runs the acceptance suite on each version the run's file checkpoints kept, and names a case that regressed",
+        "status": "passed"
+      },
+      {
+        "file": "src/session/session-worktree.test.ts",
+        "name": "session worktree (ATO-576) binds a new session to its own worktree and keeps the subfolder",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded dist with the built-in runner",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "privately verifies a protected input under excluded node_modules with the built-in runner",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "binds an absolute protected check reference to the actual execution copy",
+        "status": "passed"
+      },
+      {
+        "file": "src/tools/fusion/fusion-candidate.test.ts",
+        "name": "the configured copy limit (`tools.verify.maxCopyBytes`) retains the dependency-copy refusal cause when worker dependency growth exhausts final staging",
+        "status": "passed"
+      }
+    ]
+  }
+]
