@@ -31,6 +31,8 @@ Built-ins remain available when an optional feature is disabled: catalog admissi
 
 `src/tools/fusion/task-profiles.ts` applies profiles to a fan-out's tasks; `worker-prompt.ts` quotes the instructions; `worker-tool-policy.ts` `workerToolFilterFor` builds the turn's tool filter. The runtime passes `resolveAgentProfiles` in `src/runtime/composition/runtime-tool-catalog.ts`, with the settings from `readSettingsAgentProfiles` (falling back to `getConfig()`). Profiles exist only in Fusion: an ordinary turn has no subagent tool to name one with.
 
+Worker creation and escalation replacements currently stamp `FUSION_WORKER_DEFAULT_DEPTH` (1); depth is normalized session metadata and does not yet enforce a limit. When C1e introduces child creation from worker sessions, it must derive their depth with `childFusionWorkerDepth(parent.metadata)`, rather than copying the current constant. Importing profiles does not enable nested workers or depth-based admission.
+
 ## Validation
 
 `npx vitest run src/agent-profiles src/tools/fusion/task-profiles.test.ts src/runtime/project-trust.test.ts`.
