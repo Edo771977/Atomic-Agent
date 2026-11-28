@@ -82,18 +82,19 @@ const MCP_REG = registry(
 );
 
 describe("resolveToolName on separator and wrapping forms", () => {
-  it("resolves an MCP name whose own part has underscores, written all single-underscore", () => {
-    // `_` → `.` alone gives `mcp.github.create.issue`, which is not a tool.
-    expect(resolveToolName("mcp_github_create_issue", MCP_REG)).toBe("mcp.github.create_issue");
+  it("refuses flattened MCP names without explicit server boundaries", () => {
+    expect(resolveToolName("mcp_github_create_issue", MCP_REG)).toBeNull();
   });
 
-  it("resolves a server name written with `_` for its `-`", () => {
-    expect(resolveToolName("mcp__brave_search__brave_web_search", MCP_REG)).toBe(
+  it("requires the registered server spelling before normalizing its tool", () => {
+    expect(resolveToolName("mcp__brave-search__brave_web_search", MCP_REG)).toBe(
       "mcp.brave-search.brave_web_search",
     );
-    expect(resolveToolName("mcp.brave_search.brave-web-search", MCP_REG)).toBe(
+    expect(resolveToolName("mcp.brave-search.brave-web-search", MCP_REG)).toBe(
       "mcp.brave-search.brave_web_search",
     );
+    expect(resolveToolName("mcp__brave_search__brave_web_search", MCP_REG)).toBeNull();
+    expect(resolveToolName("mcp.brave_search.brave-web-search", MCP_REG)).toBeNull();
   });
 
   it("drops the `functions.` namespace of OpenAI-style templates", () => {
@@ -107,6 +108,38 @@ describe("resolveToolName on separator and wrapping forms", () => {
     expect(resolveToolName("os.fs.read()", MCP_REG)).toBe("os.fs.read");
     expect(resolveToolName("os.fs.read:", MCP_REG)).toBe("os.fs.read");
     expect(resolveToolName("os.fs.read<|channel|>commentary", MCP_REG)).toBe("os.fs.read");
+  });
+});
+
+describe("resolveToolName preserves MCP server boundaries", () => {
+  const onlyBrave = registry("mcp.brave.search.web_search");
+  it.each(["mcp.brave-search.web_search", "mcp_brave_search_web_search", "mcp.brave.search-web-search"])("refuses %s when only brave's dotted raw tool exists", name => {
+    expect(resolveToolName(name, onlyBrave)).toBeNull();
+  });
+  it("keeps an exact MCP name and only normalizes within its dotted tool segments", () => {
+    expect(resolveToolName("mcp.brave.search.web_search", onlyBrave)).toBe("mcp.brave.search.web_search");
+    expect(resolveToolName("MCP.BRAVE.SEARCH.WEB-SEARCH", onlyBrave)).toBe("mcp.brave.search.web_search");
+  });
+  it.each([false, true])("chooses the explicitly named registered server in either catalog order (%s)", reverse => {
+    const names = ["mcp.brave.search.web_search", "mcp.brave-search.web_search"];
+    const reg = registry(...(reverse ? names.reverse() : names));
+    expect(resolveToolName("mcp.brave-search.web-search", reg)).toBe("mcp.brave-search.web_search");
+    expect(resolveToolName("mcp__brave-search__web-search", reg)).toBe("mcp.brave-search.web_search");
+    expect(resolveToolName("functions.MCP.BRAVE.SEARCH.WEB-SEARCH", reg)).toBe("mcp.brave.search.web_search");
+  });
+  it("refuses an ambiguous case-insensitive server even if only one tool matches", () => {
+    const reg = registry("mcp.Brave.web_search", "mcp.brave.other_tool");
+    expect(resolveToolName("MCP.BRAVE.WEB-SEARCH", reg)).toBeNull();
+    expect(resolveToolName("mcp.Brave.web_search", reg)).toBe("mcp.Brave.web_search");
+  });
+  it("refuses ambiguous tool shapes within the identified server", () => {
+    const reg = registry("mcp.brave.web_search", "mcp.brave.web-search");
+    expect(resolveToolName("functions.mcp.brave.web__search", reg)).toBeNull();
+  });
+  it("refuses mixed structural separators beside the server", () => {
+    const reg = registry("mcp.brave.web_search");
+    expect(resolveToolName("mcp.brave__web-search", reg)).toBeNull();
+    expect(resolveToolName("mcp__brave.web-search", reg)).toBeNull();
   });
 });
 

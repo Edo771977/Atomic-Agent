@@ -55,10 +55,8 @@ function stripWrapping(name: string): string {
 }
 
 /**
- * One spelling for every separator and case form of a name:
- * `mcp__brave_search__web_search`, `mcp.brave-search.web_search` and
- * `MCP.Brave-Search.Web-Search` all read `mcp.brave.search.web.search`.
- * Letters and digits are kept as they are, in order.
+ * Built-in separator/case spelling. MCP server and raw-tool boundaries
+ * use the separate, stricter comparison below.
  */
 function shapeKey(name: string): string {
   return name
@@ -87,11 +85,11 @@ function emittedKeys(name: string): string[] {
 
 /**
  * The whole name in another spelling of exactly one registered tool:
- * separators and case over names with underscores or hyphens of their
- * own (`mcp_github_create_issue`, `mcp.brave_search.brave_web_search`
- * for `mcp.brave-search.brave_web_search`), wrapping (`"os.fs.read"`,
- * `os.fs.read()`) and the `functions.` namespace. Two tools that share
- * a spelling (`mcp.a.b_c` and `mcp.a_b.c`) resolve to neither.
+ * separators and case for built-ins; MCP names first keep an explicit,
+ * registered server identity and then compare only its raw tools.
+ * Wrapping (`"os.fs.read"`,
+ * `os.fs.read()`) and the `functions.` namespace. Two raw tools that
+ * share a spelling within one MCP server resolve to neither.
  *
  * A name with part of the real one missing is not resolved, however
  * likely the match: `write_file` may be meant for `os.fs.write` or an
@@ -102,9 +100,46 @@ function emittedKeys(name: string): string[] {
 function resolveByShape(name: string, registered: readonly string[]): string | null {
   const keys = emittedKeys(name);
   if (keys.length === 0) return null;
-  const matches = new Set<string>();
+  const matches = mcpMatches(stripWrapping(name), registered);
   for (const candidate of registered) {
+    if (/^mcp\./i.test(candidate)) continue;
     if (keys.includes(shapeKey(candidate))) matches.add(candidate);
   }
   return only(matches);
+}
+
+/** MCP dots remain structural; only underscores/hyphens within a tool segment vary. */
+function mcpToolKey(raw: string): string {
+  return raw.toLowerCase().replace(/[_-]+/g, "_");
+}
+
+function mcpMatches(name: string, registered: readonly string[]): Set<string> {
+  const catalog = registered.flatMap(qualified => {
+    const parts = /^mcp\.([^.]+)\.(.+)$/i.exec(qualified);
+    return parts ? [{ qualified, server: parts[1]!, raw: parts[2]! }] : [];
+  });
+  const forms = [name];
+  const wrapper = /^functions(?:\.|__)/i.exec(name);
+  if (wrapper) forms.push(name.slice(wrapper[0].length));
+  const routes: { server: string; raw: string; escaped: boolean }[] = [];
+  for (const server of new Set(catalog.map(tool => tool.server))) {
+    for (const form of forms) {
+      for (const separator of [".", "__"]) {
+        const prefix = `mcp${separator}${server}${separator}`;
+        if (form.toLowerCase().startsWith(prefix.toLowerCase()) && form.length > prefix.length) {
+          routes.push({ server, raw: form.slice(prefix.length), escaped: separator === "__" });
+        }
+      }
+    }
+  }
+  // No separator folding, prefix guessing or first/longest-server choice.
+  // Even a unique raw tool cannot disambiguate two server identities.
+  if (new Set(routes.map(route => route.server)).size !== 1) return new Set();
+  const keys = new Set(routes.flatMap(route => [
+    mcpToolKey(route.raw),
+    // Preserve wire dots without choosing over a literal double underscore.
+    ...(route.escaped ? [mcpToolKey(route.raw.replaceAll("__", "."))] : []),
+  ]));
+  return new Set(catalog.filter(tool => tool.server === routes[0]!.server && keys.has(mcpToolKey(tool.raw)))
+    .map(tool => tool.qualified));
 }

@@ -164,11 +164,9 @@ describe("AgentLoop with an unregistered tool name", () => {
     expect(stepErrors[0]!.error).toMatchObject({ kind: "unregistered", nameClass: "other" });
   });
 
-  it("runs an MCP tool the model wrote with the wrong separators, asking approval under its real name (ATO-1674)", async () => {
-    // The server is `brave-search`; the wire escape is `__` and models
-    // write the hyphen as an underscore. Every letter is right, so the
-    // call runs instead of costing the turn a step, and it is the real
-    // tool that runs: its approval prompt names the registered tool.
+  it("normalizes a raw MCP tool within the explicitly named server, asking approval under its real name (ATO-1674)", async () => {
+    // Keep the server's hyphen literal across the explicit wire boundaries.
+    // Only the raw tool's separators vary; approval names the real tool.
     const mcpTool = "mcp.brave-search.brave_web_search";
     const asked: string[] = [];
     const gate: ApprovalGate = new ApprovalGate({
@@ -195,7 +193,7 @@ describe("AgentLoop with an unregistered tool name", () => {
     const { agent } = loop(
       (call) =>
         call === 1
-          ? [{ tool: "mcp__brave_search__brave_web_search", args: { query: "todo" } }]
+          ? [{ tool: "mcp__brave-search__brave-web-search", args: { query: "todo" } }]
           : [{ tool: "reply", args: { text: "found it" } }],
       [definition],
     );

@@ -50,7 +50,7 @@ afterEach(() => installPolicy(null));
 
 describe("B7b2 resolved tool names keep dispatch authority", () => {
   it("rejects every ambiguous nonexact spelling regardless of registry order", () => {
-    for (const names of [["mcp.a.b_c", "mcp.a_b.c"], ["mcp.a_b.c", "mcp.a.b_c"]]) {
+    for (const names of [["mcp.a.b_c", "mcp.a.b-c"], ["mcp.a.b-c", "mcp.a.b_c"]]) {
       const registry = new ToolRegistry();
       for (const name of names) registry.register({ name, description: name, readonly: true, run: async () => compressToolResult({ tool: name, status: "ok", output: "" }) });
       for (const emitted of ["mcp_a_b_c", "mcp__a__b_c", "MCP.A.B_C"]) expect(resolveToolName(emitted, registry)).toBeNull();
