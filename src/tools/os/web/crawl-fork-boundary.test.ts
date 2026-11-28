@@ -95,14 +95,17 @@ describe("B7b1 crawl URL and response boundaries", () => {
     await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
-  it("reports a rebound public address before reading the moved host's robots", async () => {
+  it.each([
+    { address: "8.8.8.8", message: "resolved addresses differ" },
+    { address: "127.0.0.1", message: "private/internal" },
+  ])("reports a rebound address ($address) before reading the moved host's robots", async ({ address, message }) => {
     let movedLookups = 0;
-    const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" }, async host => [{ address: host.startsWith("www.") && ++movedLookups > 1 ? "8.8.8.8" : "93.184.216.34", family: 4 }]);
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" }, async host => [{ address: host.startsWith("www.") && ++movedLookups > 1 ? address : "93.184.216.34", family: 4 }]);
     const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
     expect(result.status).toBe("error");
     expect(result.details.stoppedBecause).toBe("start-moved");
-    expect(result.details.errors).toEqual([expect.objectContaining({ url: moved + "/guide", message: expect.stringContaining("resolved addresses differ") })]);
-    expect(result.details.notes).toEqual([expect.stringContaining("resolved addresses differ")]);
+    expect(result.details.errors).toEqual([expect.objectContaining({ url: moved + "/guide", message: expect.stringContaining(message) })]);
+    expect(result.details.notes).toEqual([expect.stringContaining(message)]);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
   it("returns a report and note when DNS fails in the moved robots preflight", async () => {
@@ -129,17 +132,26 @@ describe("B7b1 crawl URL and response boundaries", () => {
     expect(result.details.notes).toEqual([expect.stringMatching(/denied|blocked|policy/i)]);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
-  it("returns a report and note when the moved robots reader throws", async () => {
+  it("propagates CurlUnavailableError when curl is missing during moved robots transport", async () => {
     const f = fixture(url => {
-      if (url === moved + "/robots.txt") throw new CurlUnavailableError();
-      return url.endsWith("/robots.txt") ? robots : { status: 302, location: moved + "/guide" };
+      if (url === moved + "/robots.txt") throw Object.assign(new Error("spawn curl ENOENT"), { code: "ENOENT" });
+      return url.endsWith("/robots.txt") ? robots : { status: 301, location: moved + "/guide" };
     });
-    const result = await f.tool.run({ url: origin, maxDepth: 0 }, f.ctx);
-    expect(result.status).toBe("error");
-    expect(result.details.errors).toHaveLength(1);
-    expect(result.details.notes).toEqual([expect.stringContaining("curl")]);
-    expect(f.requested).toContain(moved + "/robots.txt");
-    expect(f.requested).not.toContain(moved + "/guide");
+    await expect(f.tool.run({ url: origin, maxDepth: 0 }, f.ctx)).rejects.toThrow(CurlUnavailableError);
+    expect(f.requested).toEqual([origin + "/robots.txt", origin + "/", moved + "/robots.txt"]);
+  });
+  it("propagates cancellation during moved robots transport instead of reporting start-moved", async () => {
+    const controller = new AbortController();
+    const error = new DOMException("Cancelled during moved robots", "AbortError");
+    const f = fixture(url => {
+      if (url === moved + "/robots.txt") {
+        controller.abort(error);
+        throw error;
+      }
+      return url.endsWith("/robots.txt") ? robots : { status: 301, location: moved + "/guide" };
+    });
+    await expect(f.tool.run({ url: origin, maxDepth: 0 }, { ...f.ctx, signal: controller.signal })).rejects.toBe(error);
+    expect(f.requested).toEqual([origin + "/robots.txt", origin + "/", moved + "/robots.txt"]);
   });
   it("allows public DNS rotation on pages after the new host's robots admission", async () => {
     let movedLookups = 0;
