@@ -156,7 +156,7 @@ export function prepareStepDispatch(
       continue;
     }
     deps.logger?.debug?.("tool name resolved to its registered form", {
-      emitted: call.tool,
+      emitted: logTextPreview(call.tool, 80),
       resolved,
     });
     call.tool = resolved;

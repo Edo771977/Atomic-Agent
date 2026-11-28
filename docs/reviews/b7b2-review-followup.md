@@ -26,3 +26,7 @@ Names containing `<|` (or its literal HTML-escaped spelling `&lt;|`) are refused
 The parser resolves names before passing a batch to its continuation rewrite, then extracts progress text from the joined answer. The same helper runs on the repaired parse path, where the rewrite was previously omitted. No new await or inference is added.
 
 Four lifecycle cases were red first: `functions.reply` and `Reply`, each on the initial and repaired parse path. They use the real continuation join and progress policy, verify the full joined progress note, and check that provider calls and the prepared prompt remain unchanged. The lifecycle, continuation and dispatch suites then pass. [Red/green evidence](b7b2-review-continuation.json).
+
+## 5. Bound the admission-backstop debug name
+
+The admission backstop now uses `logTextPreview(call.tool, 80)`, matching `resolveBatchToolNames`: at most 80 source characters plus the truncation ellipsis. One actual-backstop logger assertion was red first; all 79 resolver, lifecycle, continuation and dispatch tests pass after the correction. The canonical tool name, dispatch and external report vocabulary are unchanged. [Red/green evidence](b7b2-review-debug.json).

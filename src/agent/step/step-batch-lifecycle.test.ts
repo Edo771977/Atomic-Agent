@@ -12,7 +12,8 @@ import type { StepEvent } from "../step-events.js";
 import { BatchValidationError } from "./step-errors.js";
 import { createStepBatchPolicy, validateBatch } from "./step-batch-policy.js";
 import { prepareStepInference } from "./step-inference.js";
-import { prepareStepRepair, finishStepRepair, parseDepsFor } from "./step-parsing.js";
+import { prepareStepRepair, finishStepRepair, parseDepsFor, logTextPreview } from "./step-parsing.js";
+import { StructuredLogger } from "../../tracing/structured-logger.js";
 import { rewriteContinuedReply } from "./answer-continuation.js";
 import { parseStepBatch, finishStepBatchRepair } from "./step-batch-parsing.js";
 import { prepareStepDispatch } from "./step-evidence.js";
@@ -60,6 +61,20 @@ function register(deps: StepDependencies, name: string): void {
 }
 
 describe("step batch lifecycle owner seams", () => {
+  it("bounds the emitted tool name in the admission-backstop debug record", () => {
+    const { ctx, deps } = fixture();
+    register(deps, "os.fs.read");
+    deps.logger = new StructuredLogger({ level: "debug", sinks: [] });
+    const debug = vi.spyOn(deps.logger, "debug");
+    const emitted = "os.fs.read" + ".".repeat(500);
+    const calls = [{ tool: emitted, args: { path: "/fixture/file" } }];
+    const policy = createStepBatchPolicy(ctx, deps, () => false);
+    const admitted = prepareStepDispatch(ctx, deps, { kind: "batch", calls }, result(calls), policy);
+    expect(admitted.calls[0]?.tool).toBe("os.fs.read");
+    expect(debug).toHaveBeenCalledWith("tool name resolved to its registered form", {
+      emitted: logTextPreview(emitted, 80), resolved: "os.fs.read",
+    });
+  });
   it.each(["initial", "repaired"].flatMap(path => ["functions.reply", "Reply"].map(emitted => ({ path, emitted }))))("joins $emitted continuation text before progress extraction on the $path path", ({ path, emitted }) => {
     const { ctx, deps } = fixture();
     register(deps, "reply");
