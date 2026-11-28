@@ -487,11 +487,8 @@ describe("dangerous.secrets_store_move (ATO-1647)", () => {
     "echo config secrets",
     "echo x | xargs atag config secrets status",
     "echo model | xargs atag config get",
-    "atag config $S status",
-    "atag $A secrets status",
     "cp $A $B $C",
     "echo $A $B notes.md",
-    "atag config get $KEY",
   ])("%s stays on the ordinary path", (line) => {
     expectNotDangerous(line);
   });
@@ -571,4 +568,9 @@ describe("rm flags and nested shells, read from parsed words", () => {
       rule: "dangerous.rm_recursive",
     });
   });
+});
+
+// Preserve the fork origin guard: these upstream ordinary cases were already held.
+it.each(["atag config $S status", "atag $A secrets status", "atag config get $KEY"])("retains the fork origin hold: %s", line => {
+  expect(guardLine(line).rule).toBe("dangerous.skill_approval_origin");
 });

@@ -144,6 +144,9 @@ export const dangerousRule: Rule = {
   id: "dangerous",
   layer: "dangerous",
   match(input) {
+    const argv = matchDangerousArgv(input);
+    // The credential decision must survive generic eval/nested-shell matches.
+    if (argv?.rule.startsWith("dangerous.secrets_")) return argv;
     for (const pattern of DANGEROUS_PATTERNS) {
       const line = pattern.caseSensitive ? input.joined : input.joinedLower;
       if (pattern.regex.test(line)) {
@@ -154,6 +157,6 @@ export const dangerousRule: Rule = {
         };
       }
     }
-    return matchDangerousArgv(input);
+    return argv;
   },
 };

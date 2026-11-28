@@ -1,0 +1,442 @@
+{
+  "base": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "sourceCommits": [
+    "1bbccd17fb0486f4ea3d56a5b81b5665591a4e50",
+    "ed7c265321541457e69bf09601d4f91f472f0eb1"
+  ],
+  "checks": {
+    "npm ci": "passed after network-enabled retry",
+    "lint": "passed",
+    "imports:check": "passed",
+    "typecheck:tests": "passed; 669 explicit pre-existing diagnostics, no new errors",
+    "docs:check": "passed"
+  },
+  "red": {
+    "counts": {
+      "numPassedTests": 244,
+      "numFailedTests": 77,
+      "numPendingTests": 0,
+      "numTotalTests": 321
+    },
+    "behaviorFailures": 68,
+    "existingForkOriginExpectations": 3,
+    "replacedOverlyNarrowDenyFixtures": 6,
+    "failures": [
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) npx atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) npx -y atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) node dist/index.js config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) node ./dist/cli/index.js config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) /usr/local/bin/atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent --verbose config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config --verbose secrets --quiet env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets ENV requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) cd x && atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) ls; atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets env | cat requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets env > /dev/null 2>&1 requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) true || atomic-agent config secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) (atomic-agent config secrets env) requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets keychain requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets $SUB requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atomic-agent config secrets $(echo env) requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) the direct-exec argv form asks too"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs atag config secrets requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo get OPENAI_API_KEY | xargs atag config secrets requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -n1 atag config secrets requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | /usr/bin/xargs atomic-agent config secrets --quiet requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -I{} atag config secrets {} requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -I {} atag config secrets {} requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -I% atag config secrets % requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -I % npx atomic-agent config secrets % requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo env | xargs -I SUB atag config secrets SUB requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) find . -name x -exec atag config secrets {} ; requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A secrets keychain requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A secrets $S requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $S env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $S $V requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $(echo config) secrets env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $(echo secrets) env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A $B env requires approval as dangerous"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A secrets get OPENAI_API_KEY asks as secrets_value_access"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $S get OPENAI_API_KEY asks as secrets_value_access"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $S set OPENAI_API_KEY asks as secrets_value_access"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) echo OPENAI_API_KEY | xargs atag config secrets unset asks as secrets_value_access"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config $S status stays on the ordinary path"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag $A secrets status stays on the ordinary path"
+      },
+      {
+        "file": "tools/os/shell-command-guard/rules-dangerous-argv.test.ts",
+        "name": "dangerous.secrets_store_move (ATO-1647) atag config get $KEY stays on the ordinary path"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: /usr/local/bin/atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: npx -y atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: node dist/cli/index.js config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: echo env | xargs atag config secrets"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: echo env | xargs -I% atag config secrets %"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atag config secrets $(echo env)"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: eval 'atag config secrets env'"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: sh -c 'atag config secrets env'"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atag $A secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atag config $S env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atag config secrets $SUB"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 asks before any execution: atag config --verbose secrets --quiet ENV"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 B1 deny precedes approval: atag $A secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 B1 deny precedes approval: atag config $S env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 1 B1 deny precedes approval: atag config --verbose secrets --quiet ENV"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: /usr/local/bin/atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: npx -y atomic-agent config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: node dist/cli/index.js config secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: echo env | xargs atag config secrets"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: echo env | xargs -I% atag config secrets %"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atag config secrets $(echo env)"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: eval 'atag config secrets env'"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: sh -c 'atag config secrets env'"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atag $A secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atag config $S env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atag config secrets $SUB"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 asks before any execution: atag config --verbose secrets --quiet ENV"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 B1 deny precedes approval: atag $A secrets env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 B1 deny precedes approval: atag config $S env"
+      },
+      {
+        "file": "tools/os/shell/shell-secrets-approval.test.ts",
+        "name": "credential moves at level 5 B1 deny precedes approval: atag config --verbose secrets --quiet ENV"
+      }
+    ]
+  },
+  "focused": {
+    "numPassedTests": 334,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTotalTests": 334
+  },
+  "absence260and261": {
+    "numPassedTests": 11,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTotalTests": 11
+  },
+  "required": {
+    "command": "npx vitest run src/tools/os src/policy src/approval src/import src/llm src/cli src/config",
+    "environment": "Windows, normal local process/socket access",
+    "main": {
+      "numPassedTests": 13490,
+      "numFailedTests": 16,
+      "numPendingTests": 187,
+      "numTotalTests": 13693
+    },
+    "branch": {
+      "numPassedTests": 13615,
+      "numFailedTests": 16,
+      "numPendingTests": 188,
+      "numTotalTests": 13819
+    },
+    "commonFailures": [
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) accepts --role=<role>"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "refuses token management from an agent tool child"
+      },
+      {
+        "file": "cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+      },
+      {
+        "file": "cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects closed stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects empty stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects unterminated stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects oversized stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects short stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects invalid stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-command.test.ts",
+        "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime"
+      },
+      {
+        "file": "cli/serve-command.test.ts",
+        "name": "registers the active serve key for masking (undefined)"
+      },
+      {
+        "file": "cli/skill-history-command.test.ts",
+        "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+      },
+      {
+        "file": "cli/skill.test.ts",
+        "name": "skillCommand real CLI refuses a tool child's global install and allows the operator install"
+      }
+    ],
+    "additionalFailures": [],
+    "mainOnlyFailures": []
+  },
+  "personalParity": {
+    "previous": "c9aaeedadad412242b00ed230da369ffb7223f81",
+    "decisions": 348,
+    "changes": [],
+    "ruleDecisions": 4176,
+    "decisionChanges": [],
+    "structuralComparisons": 303,
+    "structuralDifferences": []
+  },
+  "lockfileSha256": "038549bb6cd421fc172684ff379668c820a735602989b267a8bd3e2e07ff320f",
+  "protectedAreasChanged": []
+}

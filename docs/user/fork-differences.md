@@ -273,6 +273,8 @@ B7b1 imports upstream #1714 gzip sitemaps and start redirects. A start move that
   - Memory notes are labelled and kept apart.
   - No phone push is sent.
 
+W5.1a imports upstream #1794 with a one-shot shell decision for credential moves even at level 5, including xargs, computed words and inline eval/sh -c. Organization denies remain prior to prompting; personal saved-rule decisions are unchanged. This does not enable secret-value CLI/HTTP or OAuth APIs and does not close #266. [Credential-shell review](../reviews/w51a-secrets-approval.md).
+
 The B4a import of upstream #1671 is deferred: a marked child can read/delete a saved key and the argv guard is not a non-grantable trust decision. Secret value CLI commands and /api/secrets routes remain unavailable. [Review and reopening requirements](../reviews/b4a-1671.md).
 
 ## B7a follow-up hardening

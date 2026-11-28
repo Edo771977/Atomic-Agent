@@ -64,6 +64,7 @@ export function matchDangerousArgv(
 ): GuardVerdict | null {
   const segments = splitCommandSegments(input.joined);
   const hit =
+    matchSecretsAccess(segments) ??
     matchGit(segments) ??
     matchFind(segments) ??
     matchXargsRm(segments) ??
@@ -72,7 +73,6 @@ export function matchDangerousArgv(
     matchNestedShell(segments) ??
     matchPluginConsent(segments) ??
     matchGlobalSkillMutation(segments) ??
-    matchSecretsAccess(segments) ??
     matchSkillDraftConsent(segments);
   if (hit === null) return null;
   return { action: "approval_required", rule: hit.id, reason: hit.reason };
@@ -818,7 +818,21 @@ function isPlaceholderVerb(verb: string, fedByXargs: boolean): boolean {
  */
 function matchSecretsAccess(
   segments: readonly (readonly string[])[],
+  depth = 0,
 ): ArgvCheck | null {
+  // Inspect only inline shell/eval bodies, with a bound independent of the
+  // personal saved-rule parser. Script files and runtime values stay opaque.
+  if (depth < 8) {
+    for (const program of [...NESTED_SHELL_PROGRAMS, "eval"]) {
+      for (const args of invocationsOf(segments, program)) {
+        const scripts = program === "eval" ? [args.join(" ")] : scanNestedShellOptions(args, program).scripts;
+        for (const script of scripts) {
+          const hit = matchSecretsAccess(splitCommandSegments(script), depth + 1);
+          if (hit) return hit;
+        }
+      }
+    }
+  }
   for (const words of segments) {
     for (let i = 0; i < words.length; i += 1) {
       const first = words[i]!;
