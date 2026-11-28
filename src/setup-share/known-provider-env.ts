@@ -29,6 +29,8 @@ function fixedPresetEnvVar(origin: string): string | undefined {
 }
 
 const NATIVE_KINDS: Record<string, { envVar: string; origin: string }> = {
+  anthropic: { envVar: "ANTHROPIC_API_KEY", origin: "https://api.anthropic.com" },
+  aimlapi: { envVar: "AIMLAPI_API_KEY", origin: "https://api.aimlapi.com" },
   openrouter: { envVar: "OPENROUTER_API_KEY", origin: "https://openrouter.ai" },
   gemini: { envVar: "GEMINI_API_KEY", origin: "https://generativelanguage.googleapis.com" },
 };
@@ -42,6 +44,7 @@ const OPENAI_ORIGIN = "https://api.openai.com";
  * send this computer's key for that kind there, so the `baseUrl` goes.
  */
 const DEFAULT_KEY_KIND_ORIGINS: Record<string, string> = {
+  anthropic: "https://api.anthropic.com",
   openrouter: "https://openrouter.ai",
   aimlapi: "https://api.aimlapi.com",
   gemini: "https://generativelanguage.googleapis.com",
@@ -50,7 +53,9 @@ const DEFAULT_KEY_KIND_ORIGINS: Record<string, string> = {
 function originOf(url: unknown): string | undefined {
   if (typeof url !== "string" || !url) return undefined;
   try {
-    return new URL(url).origin;
+    const parsed = new URL(url);
+    if (parsed.username || parsed.password) return undefined;
+    return parsed.origin;
   } catch {
     return undefined;
   }
@@ -60,7 +65,7 @@ function originOf(url: unknown): string | undefined {
 export function knownProviderEnvVar(entry: Record<string, unknown>): string | undefined {
   const kind = typeof entry.kind === "string" ? entry.kind : "";
   const origin = originOf(entry.baseUrl);
-  const native = NATIVE_KINDS[kind];
+  const native = Object.hasOwn(NATIVE_KINDS, kind) ? NATIVE_KINDS[kind] : undefined;
   if (native) {
     // No baseUrl means the kind's own endpoint; a custom one must be it.
     if (entry.baseUrl === undefined || origin === native.origin) return native.envVar;
@@ -77,15 +82,22 @@ export function knownProviderEnvVar(entry: Record<string, unknown>): string | un
  * it is the known name for the entry's endpoint, and each
  * `extraApiKeyEnvVars` item unless it is that name or a numbered spare of
  * it (`GROQ_API_KEY_2`). For a kind with a built-in default key
- * (OpenRouter, AI/ML API, Gemini), a `baseUrl` that is not the kind's own
- * origin goes too, so the entry falls back to the real endpoint instead
- * of receiving that key elsewhere. Returns the dropped field names.
+ * (including native Anthropic), a foreign `baseUrl` goes too. Compatible
+ * entries also lose unknown destinations. The importer withholds an entry
+ * whose address was dropped, so no implicit default key is activated.
+ * Returns the dropped field names.
  */
 export function stripUnknownKeySources(entry: Record<string, unknown>): string[] {
   const dropped: string[] = [];
   const kind = typeof entry.kind === "string" ? entry.kind : "";
   const ownOrigin = Object.hasOwn(DEFAULT_KEY_KIND_ORIGINS, kind) ? DEFAULT_KEY_KIND_ORIGINS[kind] : undefined;
-  if (ownOrigin !== undefined && "baseUrl" in entry && originOf(entry.baseUrl) !== ownOrigin) {
+  // Judge names against the original endpoint: removing an unsafe URL must
+  // not turn its previously unsafe native key names into approved ones.
+  const known = knownProviderEnvVar(entry);
+  const origin = originOf(entry.baseUrl);
+  const compatible = kind === "openai-compatible" || kind === "qwen-openai-compatible";
+  if ("baseUrl" in entry && ((ownOrigin !== undefined && origin !== ownOrigin) ||
+      (compatible && (origin === undefined || (origin !== OPENAI_ORIGIN && fixedPresetEnvVar(origin) === undefined))))) {
     delete entry.baseUrl;
     dropped.push("baseUrl");
   }
@@ -93,7 +105,6 @@ export function stripUnknownKeySources(entry: Record<string, unknown>): string[]
     delete entry.apiKeyCommand;
     dropped.push("apiKeyCommand");
   }
-  const known = knownProviderEnvVar(entry);
   if ("apiKeyEnvVar" in entry && (!known || entry.apiKeyEnvVar !== known)) {
     delete entry.apiKeyEnvVar;
     dropped.push("apiKeyEnvVar");

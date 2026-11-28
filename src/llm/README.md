@@ -51,4 +51,4 @@ Local provider errors retain their parsed type for local handling. External refu
 
 C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
 
-Provider key helpers run with a filtered environment built for each invocation; other provider and agent credentials are excluded.
+Provider key helpers run with a filtered environment built for each invocation and the agent tool-child marker. Other provider keys and sensitive ATOMIC_AGENT variables are excluded; password-manager sessions and explicitly named cloud CLI sign-ins remain. Helper failures contain fixed diagnostics, without command text, provider labels or raw error codes. This does not isolate a helper from files the OS permits it to read.

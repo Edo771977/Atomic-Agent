@@ -1,0 +1,304 @@
+{
+  "base": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "sourceCommits": [
+    "27feba858af57e195e89d8d99c80829d4c4bbc24",
+    "120028a28363064dca0abbbfdb4a99dc28758302",
+    "38b53193d05e8299403633ebba791d520ee3f9f7"
+  ],
+  "checks": {
+    "npm ci": "passed after network-enabled retry",
+    "lint": "passed",
+    "imports:check": "passed, zero cycles or exceptions",
+    "typecheck:tests": "passed; 669 explicit pre-existing diagnostics, no new errors",
+    "docs:check": "passed"
+  },
+  "red": {
+    "upstreamBeforeImport": {
+      "counts": {
+        "numPassedTests": 13,
+        "numFailedTests": 6,
+        "numPendingTests": 0,
+        "numTotalTests": 19
+      },
+      "failures": [
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter never copies a provider's apiKeyCommand and says how to add it back"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter drops the apiKeyCommand with the secrets option on too"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter drops key variable names that are not the known ones for the baseUrl, and lists the fields"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter drops a foreign baseUrl from a kind that sends a built-in key with no key field (ATO-1716 review)"
+        },
+        {
+          "file": "llm/provider/openai/api-key-command.test.ts",
+          "name": "createApiKeyCommandSource hands the command a filtered environment, built per run"
+        },
+        {
+          "file": "llm/provider/openai/api-key-command.test.ts",
+          "name": "createApiKeyCommandSource runs the real command without the agent's provider keys"
+        }
+      ],
+      "collectionErrors": [
+        {
+          "file": "llm/provider/openai/api-key-command-env.test.ts",
+          "reason": "module absent before import"
+        }
+      ]
+    },
+    "finalAdaptedTestsAgainstUnadaptedImport": {
+      "counts": {
+        "numPassedTests": 29,
+        "numFailedTests": 12,
+        "numPendingTests": 0,
+        "numTotalTests": 41
+      },
+      "failures": [
+        {
+          "file": "setup-share/known-provider-env.test.ts",
+          "name": "stripUnknownKeySources: kinds with a built-in default key (ATO-1716 review) drops key names judged against the original foreign endpoint"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter drops key variable names that are not the known ones for the baseUrl, and lists the fields"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter drops a foreign baseUrl from a kind that sends a built-in key with no key field (ATO-1716 review)"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter does not repeat raw malformed configuration in the report"
+        },
+        {
+          "file": "import/atomic-agent/atomic-agent-importer.test.ts",
+          "name": "AtomicAgentImporter does not echo a provider identifier containing URL credentials"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "disarms foreign anthropic endpoints, key commands and native variable names"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "disarms foreign openai-compatible endpoints, key commands and native variable names"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "disarms foreign gemini endpoints, key commands and native variable names"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "keeps helper sign-ins separate from provider credentials and sensitive agent metadata"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "marks key helpers as agent children so they cannot answer operator-only CLI decisions"
+        },
+        {
+          "file": "import/atomic-agent/provider-import-safety.test.ts",
+          "name": "does not echo command bytes, provider labels or error codes supplied by a helper"
+        },
+        {
+          "file": "llm/provider/openai/api-key-command.test.ts",
+          "name": "createApiKeyCommandSource never puts the command output in an error"
+        }
+      ],
+      "collectionErrors": []
+    },
+    "ordinaryCredentialNamesAndFactory": {
+      "counts": {
+        "numPassedTests": 0,
+        "numFailedTests": 2,
+        "numPendingTests": 0,
+        "numTotalTests": 2
+      },
+      "failures": [
+        {
+          "file": "llm/provider/openai/api-key-command-config-env.test.ts",
+          "name": "excludes explicitly configured ordinary credential names and aliases of their values"
+        },
+        {
+          "file": "llm/provider/openai/api-key-command-config-env.test.ts",
+          "name": "wires all configured credentials into the actual provider factory helper source"
+        }
+      ],
+      "collectionErrors": []
+    },
+    "customCredentialHeader": {
+      "counts": {
+        "numPassedTests": 1,
+        "numFailedTests": 1,
+        "numPendingTests": 0,
+        "numTotalTests": 2
+      },
+      "failures": [
+        {
+          "file": "llm/provider/openai/api-key-command-config-env.test.ts",
+          "name": "wires all configured credentials into the actual provider factory helper source"
+        }
+      ],
+      "collectionErrors": []
+    }
+  },
+  "focused": {
+    "numPassedTests": 88,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTotalTests": 88
+  },
+  "absence260and261": {
+    "numPassedTests": 11,
+    "numFailedTests": 0,
+    "numPendingTests": 0,
+    "numTotalTests": 11
+  },
+  "required": {
+    "command": "npx vitest run src/tools/os src/policy src/approval src/import src/llm src/cli src/config",
+    "environment": "Windows, normal local process/socket access",
+    "main": {
+      "numPassedTests": 13490,
+      "numFailedTests": 16,
+      "numPendingTests": 187,
+      "numTotalTests": 13693
+    },
+    "branch": {
+      "numPassedTests": 13509,
+      "numFailedTests": 16,
+      "numPendingTests": 187,
+      "numTotalTests": 13712
+    },
+    "commonFailures": [
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) accepts --role=<role>"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error"
+      },
+      {
+        "file": "cli/http-command.test.ts",
+        "name": "refuses token management from an agent tool child"
+      },
+      {
+        "file": "cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+      },
+      {
+        "file": "cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects closed stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects empty stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects unterminated stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects oversized stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects short stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-auth-process.test.ts",
+        "name": "rejects invalid stdin before starting serve"
+      },
+      {
+        "file": "cli/serve-command.test.ts",
+        "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime"
+      },
+      {
+        "file": "cli/serve-command.test.ts",
+        "name": "registers the active serve key for masking (undefined)"
+      },
+      {
+        "file": "cli/skill-history-command.test.ts",
+        "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+      }
+    ],
+    "additionalFailures": [
+      {
+        "file": "cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) checks the restore quota before running any insert"
+      }
+    ],
+    "mainOnlyFailures": [
+      {
+        "file": "cli/skill.test.ts",
+        "name": "skillCommand real CLI refuses a tool child's global install and allows the operator install"
+      }
+    ],
+    "additionalFailureCause": "EPERM from afterEach rmSync while removing the temporary directory; quota assertion passes in both isolated rechecks",
+    "isolatedMemoryFileRecheck": {
+      "branch": {
+        "counts": {
+          "numPassedTests": 21,
+          "numFailedTests": 2,
+          "numPendingTests": 1,
+          "numTotalTests": 24
+        },
+        "additionalTest": "passed",
+        "failures": [
+          {
+            "file": "cli/memory-backup.test.ts",
+            "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+          },
+          {
+            "file": "cli/memory-backup.test.ts",
+            "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+          }
+        ]
+      },
+      "main": {
+        "counts": {
+          "numPassedTests": 21,
+          "numFailedTests": 2,
+          "numPendingTests": 1,
+          "numTotalTests": 24
+        },
+        "additionalTest": "passed",
+        "failures": [
+          {
+            "file": "cli/memory-backup.test.ts",
+            "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+          },
+          {
+            "file": "cli/memory-backup.test.ts",
+            "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+          }
+        ]
+      }
+    }
+  },
+  "intermediateRequiredRun": {
+    "counts": {
+      "numPassedTests": 13509,
+      "numFailedTests": 16,
+      "numPendingTests": 187,
+      "numTotalTests": 13712
+    },
+    "note": "Run started during development and retained the earlier custom credential-header reader. The failing new assertion was fixed, focused tests passed, and the entire required selection was rerun for the final result above."
+  },
+  "lockfileSha256": "038549bb6cd421fc172684ff379668c820a735602989b267a8bd3e2e07ff320f",
+  "protectedAreasChanged": []
+}

@@ -7,7 +7,6 @@ import {
   resetConfigCache,
   writeUserConfigFileSync,
 } from "../../config/index.js";
-import { ConfigValidationError } from "../../config/config-validation-error.js";
 import { setDotenvKey } from "../../config/dotenv-writer.js";
 import { readLlmBlockOrDefault } from "../../config/llm-provider-commands.js";
 import type { McpServerConfig } from "../../mcp/mcp-types.js";
@@ -250,8 +249,8 @@ export class AtomicAgentImporter {
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           raw = parsed as Record<string, unknown>;
         }
-      } catch (err) {
-        items.push({ kind: "mcp", status: "error", reason: `cannot parse ${sourcePath}: ${errorMessage(err)}` });
+      } catch {
+        items.push({ kind: "mcp", status: "error", reason: "cannot parse source configuration" });
         return;
       }
     }
@@ -293,6 +292,10 @@ export class AtomicAgentImporter {
         const p = { ...(entry as Record<string, unknown>) };
         const id = p.id;
         if (typeof id !== "string" || !id) continue;
+        if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) {
+          items.push({ kind: "providers", status: "error", reason: "invalid provider identifier in source configuration" });
+          continue;
+        }
         if (have.has(id)) {
           items.push({ kind: "providers", source: id, destination: id, status: "skipped", reason: "already set up here" });
           continue;
@@ -321,12 +324,15 @@ export class AtomicAgentImporter {
             else delete p.headers;
           }
         }
-        providers.push(p);
+        // Do not let deletion of an imported URL activate the kind's implicit
+        // default key/endpoint. Re-create this entry manually after review.
+        const withheld = droppedKeySources.includes("baseUrl");
+        if (!withheld) providers.push(p);
         mine.push({
           kind: "providers",
           source: id,
           destination: id,
-          status: "migrated",
+          status: withheld ? "skipped" : "migrated",
           ...providerImportReason(id, sourcePath, { keyless, droppedKeySources }),
         });
       }
@@ -346,11 +352,10 @@ export class AtomicAgentImporter {
       const validated = parseUserConfigFile(next);
       writeUserConfigFileSync(this.deps.userConfigFile, validated);
       resetConfigCache();
-    } catch (err) {
-      const reason = err instanceof ConfigValidationError ? `${err.field}: ${err.message}` : errorMessage(err);
+    } catch {
       for (const item of mine) {
         item.status = "error";
-        item.reason = `config write failed: ${reason}`;
+        item.reason = "config write failed: invalid configuration or unavailable destination";
       }
     }
   }

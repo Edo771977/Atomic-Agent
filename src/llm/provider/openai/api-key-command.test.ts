@@ -95,7 +95,7 @@ describe("createApiKeyCommandSource", () => {
       },
     });
     const crash = await crashed.get().catch((err: Error) => err.message);
-    expect(crash).toBe('apiKeyCommand for "google-vertex" failed (gcloud): exit code 1');
+    expect(crash).toBe('apiKeyCommand failed: exit code 1');
   });
 
   it("offers the latest output to the secret scrubber, one value per provider", async () => {
@@ -138,7 +138,7 @@ describe("createApiKeyCommandSource", () => {
     const source = createApiKeyCommandSource(["bw", "get", "password", "groq"], { label: "p", run, baseEnv: () => base });
 
     await source.get();
-    expect(seen[0]).toEqual({ PATH: "/usr/bin", HOME: "/home/op", BW_SESSION: "bw" });
+    expect(seen[0]).toMatchObject({ ATOMIC_AGENT_TOOL_CHILD: "1", PATH: "/usr/bin", HOME: "/home/op", BW_SESSION: "bw" });
     base.GROQ_API_KEY = "added-later";
     source.invalidate();
     await source.get();

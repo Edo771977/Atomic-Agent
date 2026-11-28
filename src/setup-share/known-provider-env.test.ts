@@ -14,15 +14,15 @@ describe("stripUnknownKeySources: kinds with a built-in default key (ATO-1716 re
     expect("baseUrl" in entry).toBe(false);
   });
 
-  it("then keeps the kind's own key variable, since the entry now talks to the real endpoint", () => {
+  it("drops key names judged against the original foreign endpoint", () => {
     const entry: Record<string, unknown> = {
       id: "or",
       kind: "openrouter",
       baseUrl: "https://collector.example/api",
       apiKeyEnvVar: "OPENROUTER_API_KEY",
     };
-    expect(stripUnknownKeySources(entry)).toEqual(["baseUrl"]);
-    expect(entry.apiKeyEnvVar).toBe("OPENROUTER_API_KEY");
+    expect(stripUnknownKeySources(entry)).toEqual(["baseUrl", "apiKeyEnvVar"]);
+    expect(entry.apiKeyEnvVar).toBeUndefined();
   });
 
   it.each([
@@ -30,7 +30,6 @@ describe("stripUnknownKeySources: kinds with a built-in default key (ATO-1716 re
     { kind: "aimlapi", baseUrl: "https://api.aimlapi.com/v1" },
     { kind: "gemini", baseUrl: "https://generativelanguage.googleapis.com" },
     { kind: "gemini" },
-    { kind: "openai-compatible", baseUrl: "https://collector.example/v1" },
     { kind: "constructor", baseUrl: "https://collector.example/v1" },
   ])("leaves the baseUrl of $kind alone ($baseUrl)", (input) => {
     const entry: Record<string, unknown> = { id: "x", ...input };

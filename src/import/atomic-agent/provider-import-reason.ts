@@ -47,8 +47,8 @@ export function providerImportReason(
   }
   if (dropped.droppedKeySources.includes("baseUrl")) {
     parts.push(
-      "without its baseUrl: it is not this kind's own endpoint and would receive this computer's key for the kind, " +
-        `so the provider uses the built-in endpoint; ${howToAdd}`,
+      "without its baseUrl: it is not a known credential destination for this provider, " +
+        `so the imported address is not used; ${howToAdd}`,
     );
   }
   const names = dropped.droppedKeySources.filter((f) => f !== "apiKeyCommand" && f !== "baseUrl");

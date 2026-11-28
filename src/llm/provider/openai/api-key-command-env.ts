@@ -1,4 +1,5 @@
-import { KNOWN_SECRET_ENV_VARS, buildCommandEnv, isSecretEnvName } from "../../../sandbox/command-env.js";
+import { KNOWN_SECRET_ENV_VARS, buildCommandEnv, isSecretEnvName, markAgentToolChild } from "../../../sandbox/command-env.js";
+import type { KeyCommandCredentials } from "./api-key-command-credentials.js";
 
 /**
  * The environment a provider's `apiKeyCommand` runs with (ATO-1716).
@@ -19,23 +20,35 @@ import { KNOWN_SECRET_ENV_VARS, buildCommandEnv, isSecretEnvName } from "../../.
  *  - password managers: `OP_SESSION_*` and `OP_SERVICE_ACCOUNT_TOKEN`
  *    (1Password `op`), `BW_SESSION` (Bitwarden `bw`), `VAULT_TOKEN`
  *    (HashiCorp Vault);
- *  - cloud CLIs that print access tokens: `AWS_*`, `AZURE_*`,
- *    `CLOUDSDK_*` and `GOOGLE_APPLICATION_CREDENTIALS` (gcloud).
+ *  - named AWS session, Azure sign-in and gcloud credential variables,
+ *    never arbitrary secrets under those prefixes. Explicit configured
+ *    key names and aliases of known credential values are always removed.
  *
  * Precedent: Codex `shell_environment_policy` drops `*KEY*`, `*SECRET*`,
  * `*TOKEN*` from the environment of commands it spawns by default.
  */
 const CREDENTIAL_HELPER_ENV =
-  /^(OP_SESSION_.+|OP_SERVICE_ACCOUNT_TOKEN|BW_SESSION|VAULT_TOKEN|AWS_.+|AZURE_.+|CLOUDSDK_.+|GOOGLE_APPLICATION_CREDENTIALS)$/;
+  /^(OP_SESSION_.+|OP_SERVICE_ACCOUNT_TOKEN|BW_SESSION|VAULT_TOKEN|AWS_ACCESS_KEY_ID|AWS_SECRET_ACCESS_KEY|AWS_SESSION_TOKEN|AZURE_CLIENT_SECRET|AZURE_CLIENT_CERTIFICATE_PASSWORD|CLOUDSDK_AUTH_ACCESS_TOKEN|CLOUDSDK_AUTH_ACCESS_TOKEN_FILE|GOOGLE_APPLICATION_CREDENTIALS)$/;
 
 const AGENT_KEYS = new Set(KNOWN_SECRET_ENV_VARS.map((name) => name.toUpperCase()));
 
-export function buildApiKeyCommandEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+export function buildApiKeyCommandEnv(base: NodeJS.ProcessEnv = process.env, credentials: KeyCommandCredentials = {}): NodeJS.ProcessEnv {
+  const excluded = new Set(credentials.names?.map(name => name.toUpperCase()));
+  const values = new Set(credentials.values?.filter(Boolean));
   const passthrough: string[] = [];
   for (const name of Object.keys(base)) {
     const upper = name.toUpperCase();
+    if (excluded.has(upper) || AGENT_KEYS.has(upper) ||
+        (isSecretEnvName(name) && !CREDENTIAL_HELPER_ENV.test(upper))) {
+      if (base[name]) values.add(base[name]!);
+    }
     if (!isSecretEnvName(name) || AGENT_KEYS.has(upper)) continue;
     if (CREDENTIAL_HELPER_ENV.test(upper)) passthrough.push(name);
   }
-  return buildCommandEnv(base, passthrough);
+  const env = buildCommandEnv(base, passthrough);
+  for (const name of Object.keys(env)) {
+    if (name.toUpperCase().startsWith("ATOMIC_AGENT_") || excluded.has(name.toUpperCase()) ||
+        (env[name] !== undefined && values.has(env[name]!))) delete env[name];
+  }
+  return markAgentToolChild(env, base);
 }
