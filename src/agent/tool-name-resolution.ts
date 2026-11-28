@@ -28,6 +28,9 @@ export function resolveToolName(
   name: string,
   registry: Pick<ToolRegistry, "has" | "list">,
 ): string | null {
+  // Refuse Unicode aliases, including Kelvin folding and a BOM that trim
+  // would silently remove. Do this before the exact-name shortcut too.
+  if (/[^\x00-\x7f]/.test(name)) return null;
   if (registry.has(name)) return name;
 
   // Every nonexact spelling must consider the complete catalog. A fast
@@ -100,8 +103,9 @@ function emittedKeys(name: string): string[] {
 function resolveByShape(name: string, registered: readonly string[]): string | null {
   const keys = emittedKeys(name);
   if (keys.length === 0) return null;
-  const matches = mcpMatches(stripWrapping(name), registered);
-  for (const candidate of registered) {
+  const asciiRegistered = registered.filter(candidate => !/[^\x00-\x7f]/.test(candidate));
+  const matches = mcpMatches(stripWrapping(name), asciiRegistered);
+  for (const candidate of asciiRegistered) {
     if (/^mcp\./i.test(candidate)) continue;
     if (keys.includes(shapeKey(candidate))) matches.add(candidate);
   }

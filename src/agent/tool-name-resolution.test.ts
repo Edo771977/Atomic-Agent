@@ -30,6 +30,18 @@ const REG = registry(
 );
 
 describe("resolveToolName", () => {
+  it("refuses the non-ASCII Kelvin sign before lowercasing it to an ASCII k", () => {
+    expect(resolveToolName("os.fs.\u212Aey", registry("os.fs.key"))).toBeNull();
+  });
+  it.each(["\uFEFFos.fs.write", "os.fs.write\uFEFF", '"\uFEFFos.fs.write"'])("refuses a BOM before trimming or unwrapping %s", name => {
+    expect(resolveToolName(name, REG)).toBeNull();
+  });
+  it("refuses a non-ASCII name even before the exact-name fast path", () => {
+    expect(resolveToolName("mcp.brave.\u212Aey", registry("mcp.brave.\u212Aey"))).toBeNull();
+  });
+  it.each([["os.fs.key", "os.fs.\u212Aey"], ["mcp.brave.key", "mcp.brave.\u212Aey"]])("does not fold a registered non-ASCII %s candidate back into an ASCII alias", (emitted, registered) => {
+    expect(resolveToolName(emitted, registry(registered))).toBeNull();
+  });
   it("returns an exact name untouched", () => {
     expect(resolveToolName("os.fs.write", REG)).toBe("os.fs.write");
     expect(resolveToolName("reply", REG)).toBe("reply");
