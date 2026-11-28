@@ -5,6 +5,8 @@ Owner: docs/reviews/
 
 Base: fork main `7511497b0`. Origin: `https://github.com/Edo771977/Atomic-Agent.git`; upstream: `https://github.com/AtomicBot-ai/atomic-agent.git`. Related issues: #233 and B1 limitations #266.
 
+Post-publication review: [current server-boundary, character and continuation corrections](b7b2-review-followup.md). This original receipt records the initial import tree; its global MCP shape folding is superseded by explicit server identification and per-server raw-tool comparison.
+
 ## Provenance and changes
 
 Imported with separate `git cherry-pick -x` commits: `533195f1e1e4050671d6a845e99bd63b8d2a4951` and `a7129ad7f2c3e6f57aaf8c73ba638736fd05aef2`. The README conflict keeps the fork's existing credential vocabulary, B7a3 closed reporting tags, offline/opt-in/incognito description and appends the new near-miss reporting rule. No external reporting gate is removed.
