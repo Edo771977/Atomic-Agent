@@ -5,6 +5,7 @@ import type { DrainOutcome } from "../tasks/task-runner.js";
 import {
   Scheduler,
   type SchedulerClock,
+  type SchedulerSidecar,
   type SchedulerTaskRunner,
 } from "./scheduler.js";
 import type { SchedulerLeadership } from "./scheduler-leadership.js";
@@ -504,6 +505,59 @@ describe("Scheduler leadership listener", () => {
 });
 
 describe("Scheduler sidecars (ATO-601)", () => {
+  it("poke cannot consume the interval that settles a new leader", async () => {
+    const { clock, timers } = createFakeClock();
+    const runDue = vi.fn<SchedulerTaskRunner["runDue"]>().mockResolvedValue(emptyOutcome());
+    const tick = vi.fn<SchedulerSidecar["tick"]>().mockResolvedValue();
+    const scheduler = new Scheduler({
+      taskRunner: { runDue }, tickMs: 5_000, batch: 3, clock,
+      leadership: { isLeader: () => true, release: () => {} }, sidecars: [{ tick }],
+    });
+    try {
+      scheduler.start();
+      expect(scheduler.poke()).toBe(true);
+      await scheduler.tickOnce();
+      timers[0]!.handler();
+      expect(tick).not.toHaveBeenCalled();
+      timers[0]!.handler();
+      expect(tick).toHaveBeenCalledTimes(1);
+    } finally { await scheduler.stop(); }
+  });
+
+  it("leadership loss aborts the old sidecar signal and reacquisition renews it", async () => {
+    const { clock, timers } = createFakeClock();
+    const state = { leader: true };
+    const signals: AbortSignal[] = [];
+    const cancelled: AbortSignal[] = [];
+    const scheduler = new Scheduler({
+      taskRunner: { runDue: async () => emptyOutcome() }, tickMs: 5_000, batch: 3, clock,
+      leadership: { isLeader: () => state.leader, release: () => {} },
+      sidecars: [{ tick: async (_now, signal) => {
+        signals.push(signal);
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => {
+          cancelled.push(signal); resolve();
+        }, { once: true }));
+      } }],
+    });
+    try {
+      scheduler.start();
+      timers[0]!.handler(); timers[0]!.handler();
+      expect(signals).toHaveLength(1);
+      state.leader = false;
+      timers[0]!.handler();
+      expect(signals[0]!.aborted).toBe(true);
+      expect(cancelled).toEqual([signals[0]]);
+      state.leader = true;
+      timers[0]!.handler();
+      expect(signals).toHaveLength(1);
+      timers[0]!.handler();
+      expect(signals).toHaveLength(2);
+      expect(signals[1]).not.toBe(signals[0]);
+      expect(signals[1]!.aborted).toBe(false);
+    } finally { await scheduler.stop(); }
+    expect(signals.at(-1)!.aborted).toBe(true);
+  });
+
   it("ticks sidecars on interval ticks this process leads, never on tickOnce", async () => {
     const { clock, timers, nowMs } = createFakeClock();
     const runDue = vi.fn<SchedulerTaskRunner["runDue"]>().mockResolvedValue(emptyOutcome());
