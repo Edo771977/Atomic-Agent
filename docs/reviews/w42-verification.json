@@ -1,0 +1,42 @@
+{
+  "series": "w42",
+  "date": "2026-11-28",
+  "base": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "separate_branch_from_main": true,
+  "setup": "npm ci --no-audit --no-fund: exit 0",
+  "static_checks": {
+    "npm run lint": "passed",
+    "npm run imports:check": "passed",
+    "npm run typecheck:tests": "passed",
+    "npm run docs:check": "passed"
+  },
+  "test_type_debt": 669,
+  "new_test_type_errors": 0,
+  "suite_command": "npx vitest run src/llm src/local-llm src/runtime src/agent/turn",
+  "suite_summary": [
+    "6 failed | 475 passed (481)",
+    "7 failed | 6260 passed | 20 skipped (6287)"
+  ],
+  "suite_passed": false,
+  "existing_skips": 20,
+  "quarantine_or_exclusions_changed": false,
+  "baseline_reproduced_failures": [
+    "src/runtime/project-instructions.test.ts > cloud project instructions > expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts > cloud project instructions > loads a rule file once when another tool's file links to an own root rule",
+    "src/runtime/project-trust.test.ts > project folder trust (ATO-298 soft trust) > keys the answer by the real folder: a symlink alias or another letter case shares it",
+    "src/local-llm/core/core-contract.test.ts > Core host contract > accepts its own data folder reported through a symlinked path",
+    "src/local-llm/backend/backend-installer-stable-repo.test.ts > direct engine downloads from the stable turboquant repo (ATO-619) > recreates the shared-library symlinks the stable Linux zips carry",
+    "src/runtime/composition/runtime-egress-guard.test.ts > runtime egress guard (issue #33) > adds the write-out rule, exempting only a fusion worker's own temp copy",
+    "src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts > keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state"
+  ],
+  "unexplained_failures": [],
+  "baseline_reproduction": "Exact c9aaeedad git archive; same locked dependencies, same Windows host; 7 assertions failed, 73 passed, 1 existing skip.",
+  "next_step_endpoint_deferred": "3 passed on each branch",
+  "test_first_evidence": [
+    "w42-guard-red.log",
+    "w42-network-red.log",
+    "w42-probe-red.log",
+    "w42-red.log"
+  ],
+  "protected_work_areas_changed": false
+}

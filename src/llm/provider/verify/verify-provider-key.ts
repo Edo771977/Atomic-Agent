@@ -1,3 +1,4 @@
+import { auxiliaryProbeFetch, type AuxiliaryProbeAdmission } from "./auxiliary-probe-request.js";
 /**
  * Prove a cloud API key is usable before anything is written to disk.
  *
@@ -10,7 +11,7 @@
  * available (see `pick-probe-models`).
  */
 
-import { openAiFetch, type OpenAiHttpDeps } from "../openai/openai-http.js";
+import { type OpenAiHttpDeps } from "../openai/openai-http.js";
 import {
   anthropicHeaders,
   normalizeAnthropicBaseUrl,
@@ -51,12 +52,13 @@ const MAX_VERIFY_REQUESTS = 3;
 
 export async function verifyProviderKey(
   target: ProviderVerifyTarget,
-  opts: {
+  opts: AuxiliaryProbeAdmission & {
     signal?: AbortSignal;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
   } = {},
 ): Promise<ProviderVerifyResult> {
+  target = { ...target, extraHeaders: { ...target.extraHeaders }, probeModels: [...target.probeModels] };
   const startedAt = Date.now();
   if (target.wire === "anthropic-messages") {
     return verifyAnthropicKey(target, opts, startedAt);
@@ -124,11 +126,11 @@ export async function verifyProviderKey(
       const sent = probeBody(model, tokenField);
       let res: Response;
       try {
-        res = await openAiFetch(
+        res = await auxiliaryProbeFetch(
           deps,
           path,
           sent,
-          { ...(opts.signal ? { signal: opts.signal } : {}) },
+          opts,
           false,
           "POST",
         );
@@ -215,7 +217,7 @@ export async function verifyProviderKey(
  */
 async function verifyAnthropicKey(
   target: ProviderVerifyTarget,
-  opts: { signal?: AbortSignal; timeoutMs?: number; fetchImpl?: typeof fetch },
+  opts: AuxiliaryProbeAdmission & { signal?: AbortSignal; timeoutMs?: number; fetchImpl?: typeof fetch },
   startedAt: number,
 ): Promise<ProviderVerifyResult> {
   const deps: OpenAiHttpDeps = {
@@ -232,11 +234,11 @@ async function verifyAnthropicKey(
   }
   let res: Response;
   try {
-    res = await openAiFetch(
+    res = await auxiliaryProbeFetch(
       deps,
       "/v1/models",
       null,
-      { ...(opts.signal ? { signal: opts.signal } : {}) },
+      opts,
       false,
       "GET",
     );

@@ -49,15 +49,10 @@ export function allowedTemperatureFromError(err: unknown): number | undefined {
  * (ATO-1397), OpenAI's reasoning models call it an unsupported parameter,
  * strict validators call it unknown or not permitted.
  */
-const FIELD_REFUSED_RE =
-  /\b(?:deprecated|no longer supported|not supported|unsupported|not allowed|not permitted|unknown (?:parameter|field)|unrecognized|removed)\b/gi;
-
-/**
- * How far from the refusal word "temperature" may be. Tighter than for
- * the named value: validators that echo the request body back would
- * otherwise put "temperature" near a refusal of some other field.
- */
-const REFUSAL_NEAR_CHARS = 80;
+const TEMPERATURE_REFUSED_RE =
+  /\btemperature\b[\s'"`]*(?:(?:parameter|field)[\s'"`:]*)?(?:(?:is|has been)\s+)?(?:deprecated|no longer supported|not supported|unsupported|not allowed|not permitted|unrecognized|removed)\b/i;
+const REFUSED_TEMPERATURE_RE =
+  /\b(?:unsupported|unknown|unrecognized|removed|deprecated)\s+(?:parameter|field)\s*[:=]?\s*['"`]*temperature\b/i;
 
 /**
  * Whether a 400 body refuses `temperature` as a field. A body that names
@@ -67,13 +62,7 @@ const REFUSAL_NEAR_CHARS = 80;
  */
 export function parseTemperatureRefused(text: string): boolean {
   if (parseAllowedTemperature(text) !== undefined) return false;
-  for (const match of text.matchAll(FIELD_REFUSED_RE)) {
-    const at = match.index ?? 0;
-    const from = Math.max(0, at - REFUSAL_NEAR_CHARS);
-    const to = at + match[0].length + REFUSAL_NEAR_CHARS;
-    if (/temperature/i.test(text.slice(from, to))) return true;
-  }
-  return false;
+  return TEMPERATURE_REFUSED_RE.test(text) || REFUSED_TEMPERATURE_RE.test(text);
 }
 
 /**

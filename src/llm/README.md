@@ -50,3 +50,5 @@ B7a3 reads Google array-form error bodies and status alongside the fork's param 
 Local provider errors retain their parsed type for local handling. External refusal reports admit only the [closed type vocabulary](../error-reporting/README.md); for example `exceed_context_size_error` stays local and is omitted from report tags.
 
 C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
+
+W4.2 auxiliary temperature resends preserve provider, endpoint, native wire and budget. Image/audio sends recheck admission and offline mode; each describe attempt masks and restores with its own fresh Privacy Shield archive. Key/contract probes retain synthetic prompts and explicit request caps. See [verification](../../docs/reviews/w42-choice-retry.md).

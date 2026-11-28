@@ -110,6 +110,8 @@ CLI and TUI share an owner-only SQLite backup and a transactional merge for note
 
 C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment documentation. The candidate endpoint bypasses provider/host policy and Privacy Shield, attempts suggestions in offline mode and lacks validated credential/error handling. Existing suggestions through the configured model remain available. [Evidence and reopening tests](../reviews/c2b-next-step-endpoint.md).
 
+W4.2 imports upstream #1870 and #1906 with one `cherry-pick -x` per source commit. Auxiliary image/audio calls resend once for a genuine temperature refusal, preserving the selected provider, endpoint, native wire conversion, credentials and physical request budget. Every send rechecks provider/project/host policy, caller egress admission and offline mode, and each describe attempt owns a fresh Privacy Shield archive. Echoed keys are removed from HTTP errors. Codex CLI refuses a different turn model before starting its client; Claude/cloud selection, known-model admission and independent Fusion models/reviewers remain intact. The separate next-step endpoint (#283) stays deferred. [Tests and adaptations](../reviews/w42-choice-retry.md).
+
 ## Fusion team
 
 B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).

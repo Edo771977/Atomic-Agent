@@ -1,3 +1,4 @@
+import { auxiliaryProbeFetch, type AuxiliaryProbeAdmission } from "./auxiliary-probe-request.js";
 /**
  * Prove — or fail to prove — that a route can run an Atomic turn.
  *
@@ -50,7 +51,7 @@
  * the only callers are setup-time or an explicit operator request.
  */
 
-import { openAiFetch, type OpenAiHttpDeps } from "../openai/openai-http.js";
+import { type OpenAiHttpDeps } from "../openai/openai-http.js";
 import { toAnthropicMessagesBody } from "../anthropic/anthropic-messages-body.js";
 import { createAnthropicSseTranslator } from "../anthropic/anthropic-messages-response.js";
 import {
@@ -127,12 +128,13 @@ const PROBE_PROMPT =
 
 export async function runProviderContractProbe(
   target: ProviderContractProbeTarget,
-  opts: {
+  opts: AuxiliaryProbeAdmission & {
     signal?: AbortSignal;
     timeoutMs?: number;
     fetchImpl?: typeof fetch;
   } = {},
 ): Promise<ProviderContractProbeResult> {
+  target = { ...target, extraHeaders: { ...target.extraHeaders } };
   const startedAt = Date.now();
   const budgetMs = opts.timeoutMs ?? PROVIDER_CONTRACT_PROBE_TIMEOUT_MS;
   const deadline = startedAt + budgetMs;
@@ -164,6 +166,8 @@ export async function runProviderContractProbe(
   }
 
   const rungCtx = {
+    ...(opts.beforeSend ? { beforeSend: opts.beforeSend } : {}),
+    ...(opts.requestBudget ? { requestBudget: opts.requestBudget } : {}),
     deadline,
     state,
     ...(opts.signal ? { signal: opts.signal } : {}),
@@ -332,7 +336,7 @@ type RungOutcome =
 async function runRung(
   target: ProviderContractProbeTarget,
   body: Record<string, unknown>,
-  ctx: {
+  ctx: AuxiliaryProbeAdmission & {
     deadline: number;
     state: { requests: number };
     signal?: AbortSignal;
@@ -368,13 +372,13 @@ async function runRung(
 
   let res: Response;
   try {
-    res = await openAiFetch(
+    res = await auxiliaryProbeFetch(
       deps,
       native ? ANTHROPIC_MESSAGES_PATH : `${target.apiPathPrefix}/chat/completions`,
       native
         ? toAnthropicMessagesBody(body, { apiVersion: extraHeaders["anthropic-version"] })
         : body,
-      { ...(ctx.signal ? { signal: ctx.signal } : {}) },
+      ctx,
       true,
       "POST",
     );

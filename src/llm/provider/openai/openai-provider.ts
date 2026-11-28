@@ -1280,6 +1280,7 @@ export class OpenAiProvider implements LlmProvider {
         this.chatPathPrefix,
         this.providerPreferences,
         {
+          privacyShield: this.privacyShield,
           ...(this.extraBody ? { extraBody: this.extraBody } : {}),
           ...(this.bodyOptions.modelParams
             ? { modelParams: this.bodyOptions.modelParams }
@@ -1335,6 +1336,7 @@ export class OpenAiProvider implements LlmProvider {
       this.chatPathPrefix,
       this.providerPreferences,
       {
+        privacyShield: this.privacyShield,
         ...(this.extraBody ? { extraBody: this.extraBody } : {}),
         ...(this.bodyOptions.modelParams
           ? { modelParams: this.bodyOptions.modelParams }

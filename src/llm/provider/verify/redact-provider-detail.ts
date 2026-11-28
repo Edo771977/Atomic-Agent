@@ -40,3 +40,25 @@ export function redactProviderDetail(
   for (const pattern of KEY_SHAPED) out = out.replace(pattern, "***");
   return out.slice(0, maxLen);
 }
+
+/** Preserve transport error types/errno while removing credentials from nested causes and stacks. */
+export function redactProviderError(error: unknown, apiKey: string): unknown {
+  const seen = new WeakMap<object, object>();
+  function visit(value: unknown, depth: number): unknown {
+    if (typeof value === "string") return redactProviderDetail(value, apiKey, value.length);
+    if (value === null || typeof value !== "object") return value;
+    if (depth > 12) return undefined;
+    const previous = seen.get(value);
+    if (previous) return previous;
+    const copy = Array.isArray(value) ? [] : Object.create(Object.getPrototypeOf(value)) as object;
+    seen.set(value, copy);
+    for (const [key, descriptor] of Object.entries(Object.getOwnPropertyDescriptors(value))) {
+      if (!("value" in descriptor)) continue;
+      Object.defineProperty(copy, redactProviderDetail(key, apiKey, key.length), {
+        ...descriptor, value: visit(descriptor.value, depth + 1),
+      });
+    }
+    return copy;
+  }
+  return visit(error, 0);
+}

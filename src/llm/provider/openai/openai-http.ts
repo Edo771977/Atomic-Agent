@@ -33,7 +33,8 @@ import {
   localBadRequestKind,
 } from "./local-bad-request.js";
 import { isToolSchemaErrorText } from "./tool-schema-rejection.js";
-import { OFFLINE_ERROR_CODE } from "../../offline-network.js";
+import { OFFLINE_ERROR_CODE, offlineRefusal } from "../../offline-network.js";
+import { redactProviderDetail, redactProviderError } from "../verify/redact-provider-detail.js";
 import { invalidSamplingParameter } from "./invalid-parameter.js";
 import {
   ATOMIC_CHAT_KEY_ADVICE,
@@ -691,7 +692,7 @@ export async function openAiPostJson(
   deps: OpenAiHttpDeps,
   path: string,
   body: Record<string, unknown>,
-  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget },
+  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget; beforeSend?: () => void },
   onSend?: OnOpenAiRequestBody,
 ): Promise<Record<string, unknown>> {
   return withCreditLimitRetry(deps, body, onSend, (attemptBody) =>
@@ -836,7 +837,7 @@ export async function openAiStartStream(
   deps: OpenAiHttpDeps,
   path: string,
   body: Record<string, unknown>,
-  request: { signal?: AbortSignal; requestBudget?: CompletionRequestBudget },
+  request: { signal?: AbortSignal; requestBudget?: CompletionRequestBudget; beforeSend?: () => void },
   budget?: OpenAiAttemptBudget,
   onSend?: OnOpenAiRequestBody,
 ): Promise<Response & { body: NonNullable<Response["body"]> }> {
@@ -930,7 +931,7 @@ export async function openAiFetch(
   deps: OpenAiHttpDeps,
   path: string,
   body: Record<string, unknown> | null,
-  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget },
+  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget; beforeSend?: () => void },
   stream: boolean,
   method: "GET" | "POST" = "POST",
 ): Promise<Response> {
@@ -980,7 +981,7 @@ async function openAiFetchOnce(
   deps: OpenAiHttpDeps,
   path: string,
   body: Record<string, unknown> | null,
-  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget },
+  request: { signal?: AbortSignal; requestTimeoutMs?: number; requestBudget?: CompletionRequestBudget; beforeSend?: () => void },
   stream: boolean,
   method: "GET" | "POST",
 ): Promise<Response> {
@@ -1006,6 +1007,9 @@ async function openAiFetchOnce(
       isAsciiOnly(deps.apiKey) ? undefined : { keyProblem: "non_ascii" },
     );
   }
+  request.beforeSend?.();
+  const offline = offlineRefusal(`${deps.baseUrl}${path}`, "provider request");
+  if (offline) throw offline;
   // Outside the network-error wrapper: a policy refusal is deterministic,
   // never a transport failure to retry or route to another provider.
   if (request.requestBudget !== undefined && request.signal?.aborted) throw request.signal.reason;
@@ -1075,14 +1079,14 @@ async function openAiFetchOnce(
         null,
         deps.label,
         undefined,
-        { cause: err },
+        { cause: redactProviderError(err, deps.apiKey) },
       );
     }
     // fetch threw without an HTTP response: DNS failure, refused
     // connection, TLS error, socket reset. Which of those it was lives
     // in the errno — keep it, and the original error with it.
     request.requestBudget?.onSendFailed?.(err);
-    const detail = err instanceof Error ? err.message : String(err);
+    const detail = redactProviderDetail(err instanceof Error ? err.message : String(err), deps.apiKey, Number.MAX_SAFE_INTEGER);
     throw new OpenAiHttpError(
       `openai provider network error: ${detail}`,
       null,
@@ -1091,7 +1095,7 @@ async function openAiFetchOnce(
       null,
       deps.label,
       readErrnoCode(err),
-      { cause: err },
+      { cause: redactProviderError(err, deps.apiKey) },
     );
   } finally {
     clearTimeout(timer);
@@ -1121,6 +1125,8 @@ async function httpErrorFromResponse(
     text = `(error body read timed out after ${timeoutMs}ms)`;
   }
   finally { clearTimeout(timer); }
+  // An auxiliary resend must never expose an echoed credential in either message or parsed body.
+  text = redactProviderDetail(text, deps.apiKey, text.length);
   // The standard `retry-after` header wins; some providers advertise
   // their cooldown only inside the error JSON (Gemini's OpenAI-compat
   // endpoint sends `google.rpc.RetryInfo` and no header), so fall back

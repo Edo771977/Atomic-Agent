@@ -5,6 +5,9 @@ import { normaliseMessageContent, normaliseOpenAiUsage } from "./openai-normalis
 import { modelParamProfile, resolveTemperature } from "./model-params.js";
 import { temperatureLessonFromError } from "./allowed-temperature.js";
 import { bodyAfterTemperatureLesson } from "./temperature-resend.js";
+import { withFreshPrivacyVault } from "../../../privacy/index.js";
+import { addPrivacyInstructions, maskWithArchiveRecovery, shieldVaultFor } from "./openai-privacy-shield.js";
+import { isLocalServerUrl } from "./local-server-url.js";
 
 /**
  * The provider's body passthrough, applied to the describe call the way
@@ -12,6 +15,7 @@ import { bodyAfterTemperatureLesson } from "./temperature-resend.js";
  * model's own `params`, with the request's identity restored on top.
  */
 export interface DescribeImageBodyOptions {
+  privacyShield?: "on" | "off" | "auto" | undefined;
   extraBody?: Record<string, unknown>;
   modelParams?: Record<string, unknown>;
   /**
@@ -19,7 +23,7 @@ export interface DescribeImageBodyOptions {
    * Anthropic Messages API, `OpenAiProviderOptions.wire`): the body is
    * translated last and posted to its route, and the reply translated
    * back, exactly as for a unary turn. Image parts become native image
-   * blocks (`image_url` data URL â†’ base64 source).
+   * blocks (`image_url` data URL → base64 source).
    */
   wire?: {
     readonly chatPath: string;
@@ -77,7 +81,7 @@ export async function postUserPartsViaOpenAi(
   deps: OpenAiHttpDeps,
   defaultChatModel: string,
   userContent: OpenAiUserContentPart[],
-  request: Pick<VisionRequest, "maxTokens" | "temperature" | "signal" | "model">,
+  request: Pick<VisionRequest, "maxTokens" | "temperature" | "signal" | "model" | "beforeSend" | "requestBudget">,
   apiPathPrefix = "/v1",
   providerPreferences?: Record<string, unknown>,
   bodyOptions: DescribeImageBodyOptions = {},
@@ -109,12 +113,20 @@ export async function postUserPartsViaOpenAi(
   };
   const body = withPassthrough(base, bodyOptions, profile);
   const wire = bodyOptions.wire;
+  const destination = { ...deps, extraHeaders: { ...deps.extraHeaders } };
   const path = wire ? wire.chatPath : `${apiPathPrefix}/chat/completions`;
   const start = Date.now();
-  const send = async (attemptBody: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const sent = await openAiPostJson(deps, path, wire ? wire.toWireBody(attemptBody) : attemptBody, request);
-    return wire ? wire.fromWireResponse(sent, { url: `${deps.baseUrl}${path}`, label: deps.label }) : sent;
-  };
+  const send = (attemptBody: Record<string, unknown>): Promise<Record<string, unknown>> => withFreshPrivacyVault(async () => {
+    const outgoing = structuredClone(attemptBody);
+    let vault = shieldVaultFor(undefined, isLocalServerUrl(destination.baseUrl), bodyOptions.privacyShield);
+    if (vault) {
+      vault = maskWithArchiveRecovery(outgoing, vault, undefined);
+      if (!vault.isEmpty) addPrivacyInstructions(outgoing);
+    }
+    const sent = await openAiPostJson(destination, path, wire ? wire.toWireBody(outgoing) : outgoing, request);
+    const json = wire ? wire.fromWireResponse(sent, { url: `${destination.baseUrl}${path}`, label: destination.label }) : sent;
+    return vault ? vault.unmaskDeep(json) : json;
+  });
   let json: Record<string, unknown>;
   try {
     json = await send(body);
@@ -131,7 +143,7 @@ export async function postUserPartsViaOpenAi(
   let text = normaliseMessageContent(message.content).trim();
   // Reasoning-only response: the model answered inside its think channel
   // and left `content` empty. The reasoning body is the best available
-  // description â€” better than returning an empty string the tool caller
+  // description — better than returning an empty string the tool caller
   // treats as "saw nothing".
   if (text.length === 0 && typeof message.reasoning_content === "string") {
     text = message.reasoning_content.trim();

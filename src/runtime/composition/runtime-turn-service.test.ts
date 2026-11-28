@@ -309,6 +309,24 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.events).toEqual([]);
   });
 
+  it("refuses a known Codex turn model before enqueue, variant construction or client work (W4.2)", async () => {
+    const current = resolveLlmConfig(fixture.config);
+    fixture.config.llm = { ...current, providers: [...current.providers, {
+      id: "codex", kind: "subscription-cli", subscriptionCli: { cli: "codex" },
+      defaultChatModel: "base", userModels: [{ id: "other", kind: "chat" }],
+    }] };
+    const registry = fixture.providers.providerRegistry;
+    const getProvider = registry.getProvider.bind(registry);
+    vi.spyOn(registry, "getProvider").mockImplementation(id => id === "codex" ? getProvider("local-llama") : getProvider(id));
+    const variant = vi.spyOn(registry, "modelVariant");
+    const enqueue = vi.spyOn(fixture.turnController, "enqueue");
+    await expect(fixture.service.runTurn(session(), "request", { providerId: "codex", model: "other" })).rejects.toThrow(/Codex CLI/);
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(variant).not.toHaveBeenCalled();
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+    expect(fixture.events).toEqual([]);
+  });
+
   it("a turn on a project's own cloud model runs pinned to it and leaves the active provider and config alone (ATO-1148)", async () => {
     const local = resolveLlmConfig(fixture.config).providers[0]!;
     fixture.config.llm = {

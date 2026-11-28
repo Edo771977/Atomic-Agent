@@ -489,7 +489,7 @@ export function guardProvider(
   };
   const describeImage: LlmProvider["describeImage"] = async (request) => {
     check();
-    return provider.describeImage(request);
+    return provider.describeImage({ ...request, beforeSend: () => { check(); request.beforeSend?.(); } });
   };
   const completeStream: LlmProvider["completeStream"] = (request) => {
     async function* guarded(): ReturnType<LlmProvider["completeStream"]> {
@@ -504,7 +504,7 @@ export function guardProvider(
   if (typeof provider.describeAudio === "function") {
     const describeAudio: NonNullable<LlmProvider["describeAudio"]> = async (request) => {
       check();
-      return provider.describeAudio!(request);
+      return provider.describeAudio!({ ...request, beforeSend: () => { check(); request.beforeSend?.(); } });
     };
     overrides.describeAudio = describeAudio;
   }

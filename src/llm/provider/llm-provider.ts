@@ -14,7 +14,7 @@ import type {
 } from "./completion-types.js";
 import type { StreamConsumer } from "./adapters/stream-consumer.js";
 import type { ToolCallAdapter } from "./adapters/tool-call-adapter.js";
-import type { CompletionUsage } from "./completion-types.js";
+import type { CompletionRequestBudget, CompletionUsage } from "./completion-types.js";
 
 export type {
   CompletionRequest,
@@ -110,6 +110,9 @@ export type AudioSource =
 export type AudioInputFormat = "wav" | "mp3";
 
 export interface AudioRequest {
+  /** Internal admission, repeated immediately before each physical send. */
+  beforeSend?: () => void;
+  requestBudget?: CompletionRequestBudget;
   prompt: string;
   audio: { bytes: Uint8Array; format: AudioInputFormat };
   maxTokens?: number;
@@ -124,6 +127,9 @@ export interface VisionImage {
 }
 
 export interface VisionRequest {
+  /** Internal admission, repeated immediately before each physical send. */
+  beforeSend?: () => void;
+  requestBudget?: CompletionRequestBudget;
   prompt: string;
   images: ReadonlyArray<VisionImage>;
   maxTokens?: number;
