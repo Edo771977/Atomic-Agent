@@ -1,0 +1,1602 @@
+From 6aeb1e74e1881688c865a819e737310ebefc2f42 Mon Sep 17 00:00:00 2001
+From: Nadia Rodionova <273119990+sosidudku1@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 06:16:58 +0300
+Subject: [PATCH 1/2] os.web.crawl: unzip gzipped sitemaps, follow a same-site
+ start redirect, handle JS-built pages (ATO-970)
+
+Sitemaps are fetched as raw bytes and unzipped with node zlib under a 10 MB
+cap, whether the file is .xml.gz, typed application/(x-)gzip or sent with
+Content-Encoding: gzip. A start page that redirects within the same site
+(www/apex, http/https, same registrable domain) moves the crawl there after
+reading the new host's robots.txt; another site stops the crawl and says
+where it went. Off-site redirect hops are no longer requested. Pages that
+are JavaScript shells are rendered in the agent's own browser (the fetch
+ladder's renderer, at most 5 per crawl, paced) or listed as needing
+browser.navigate.
+
+(cherry picked from commit 0a076b47cc9f7a358bbf5f5d1bc3c141fb2f5417)
+---
+ src/tools/os/index.ts                  |   1 +
+ src/tools/os/web/README.md             |   2 +-
+ src/tools/os/web/crawl-js-page.test.ts |  34 ++++
+ src/tools/os/web/crawl-js-page.ts      |  40 ++++
+ src/tools/os/web/crawl-scope.test.ts   |  39 ++++
+ src/tools/os/web/crawl-scope.ts        |  91 +++++++++
+ src/tools/os/web/sitemap-body.test.ts  |  43 ++++
+ src/tools/os/web/sitemap-body.ts       |  60 ++++++
+ src/tools/os/web/web-crawl-args.ts     |  17 +-
+ src/tools/os/web/web-crawl-run.ts      | 213 +++++++++++++++----
+ src/tools/os/web/web-crawl.test.ts     | 270 ++++++++++++++++++++++++-
+ src/tools/os/web/web-crawl.ts          |  93 +++++++--
+ src/tools/os/web/web-fetch.ts          |  97 ++++++++-
+ 13 files changed, 939 insertions(+), 61 deletions(-)
+ create mode 100644 src/tools/os/web/crawl-js-page.test.ts
+ create mode 100644 src/tools/os/web/crawl-js-page.ts
+ create mode 100644 src/tools/os/web/crawl-scope.test.ts
+ create mode 100644 src/tools/os/web/crawl-scope.ts
+ create mode 100644 src/tools/os/web/sitemap-body.test.ts
+ create mode 100644 src/tools/os/web/sitemap-body.ts
+
+diff --git a/src/tools/os/index.ts b/src/tools/os/index.ts
+index 621efb69b..143582b8c 100644
+--- a/src/tools/os/index.ts
++++ b/src/tools/os/index.ts
+@@ -367,6 +367,7 @@ export function registerOsTools(
+   registry.register(buildOsWebCrawlTool({
+     config: options.config,
+     dangerous: { approvals: options.approvals, approvalRequired: options.approvalRequired },
++    ...(options.webFetchRenderPage === undefined ? {} : { renderPage: options.webFetchRenderPage }),
+   }));
+   registry.register(osClipboardReadTool);
+   registry.register(osClipboardWriteTool);
+diff --git a/src/tools/os/web/README.md b/src/tools/os/web/README.md
+index 1c3f48f57..d421d398a 100644
+--- a/src/tools/os/web/README.md
++++ b/src/tools/os/web/README.md
+@@ -11,7 +11,7 @@ This area owns `os.web.fetch` page retrieval, `os.web.crawl` multi-page reads an
+ - [http-request.ts](http-request.ts) owns argument validation, configured host allowlist and approval routing. [http-request-fetch.ts](http-request-fetch.ts) owns guarded curl transport, response metadata and retry state. [http-request-preview.ts](http-request-preview.ts) builds the masked text the approval prompt shows. Raw response bodies do not go through HTML extraction.
+ - [web-fetch-ssrf-guard.ts](web-fetch-ssrf-guard.ts) owns HTTP URL validation, DNS/private-address checks and curl address pinning. Each redirect hop must be validated; following redirects with an unchecked curl flag would bypass this contract.
+ - [retry-after-header.ts](retry-after-header.ts) parses server retry hints for both request and fetch. Retry state follows the actual hop method/body: an earlier POST may already have been processed. Preserve the existing explicit invitation requirement for POST replay and the bodyless GET transition after a redirect.
+-- [web-crawl.ts](web-crawl.ts) owns `os.web.crawl` (ATO-700): [the loop](web-crawl-run.ts) reads the start page, its same-origin links breadth first up to `maxDepth`, and the sitemap ([links and sitemaps](crawl-links.ts)); [arguments and report](web-crawl-args.ts) hold the caps. Every request goes through `fetchRawPage` in web-fetch.ts, so the SSRF guard, redirect re-validation and retry rules are the fetch tool's own; extraction is `extractWebContent`.
++- [web-crawl.ts](web-crawl.ts) owns `os.web.crawl` (ATO-700): [the loop](web-crawl-run.ts) reads the start page, its same-origin links breadth first up to `maxDepth`, and the sitemap ([links and sitemaps](crawl-links.ts)); [arguments and report](web-crawl-args.ts) hold the caps. Every request goes through `fetchRawPage` in web-fetch.ts, so the SSRF guard, redirect re-validation and retry rules are the fetch tool's own; extraction is `extractWebContent`. ATO-970 follow-ups: sitemaps are fetched as bytes (`fetchRawPage` `binaryBody`, curl keeps gzip as sent) and unzipped by [sitemap-body.ts](sitemap-body.ts) with a 10 MB cap; a start page that redirects within the same site moves the crawl there after reading the new host's robots.txt, while another site stops it ([crawl-scope.ts](crawl-scope.ts)); a page that is a JavaScript shell ([crawl-js-page.ts](crawl-js-page.ts)) is rendered by the same agent-browser renderer as the fetch ladder (at most 5 per crawl, paced, `web.fetch.renderWithBrowser`) or listed in `details.needsBrowser`.
+ - [crawl-politeness.ts](crawl-politeness.ts) is the politeness layer (ATO-970): one request per host per `web.crawl.minDelayMs` (a longer robots.txt `Crawl-delay` wins, capped at 30 s), a pause after 429/503 that honours `Retry-After` (capped at 60 s), a stop after three pages in a row still answer 429/503 after their retries (counted per crawl), robots.txt per origin ([parser](robots-txt.ts), RFC 9309: 4xx means no rules, 5xx or no answer means stay out) with `web.crawl.robotsExemptHosts` for the user's own sites, and a TTL cache of pages and robots.txt. The pace is held through `fetchRawPage`'s `hooks`, which fire on every attempt and redirect hop; `allowRedirect` checks each same-site redirect hop against robots.txt before it is requested.
+ - [ensure-curl.ts](ensure-curl.ts) classifies a missing curl binary and provides its error type. Web-search transport uses this helper directly; it does not acquire page-fetch or raw-request orchestration.
+ 
+diff --git a/src/tools/os/web/crawl-js-page.test.ts b/src/tools/os/web/crawl-js-page.test.ts
+new file mode 100644
+index 000000000..6f591adad
+--- /dev/null
++++ b/src/tools/os/web/crawl-js-page.test.ts
+@@ -0,0 +1,34 @@
++import { describe, expect, it } from "vitest";
++import { describeJsPages, looksJsRendered } from "./crawl-js-page.js";
++
++const SHELL =
++  '<!doctype html><html><head><script src="/main.js"></script></head><body><div id="__next"></div></body></html>';
++
++describe("looksJsRendered", () => {
++  it("spots an app shell: scripts, a mount point, no text", () => {
++    expect(looksJsRendered(SHELL, "text/html; charset=utf-8", "")).toBe(true);
++  });
++
++  it("spots a noscript notice", () => {
++    const html =
++      "<html><body><script>boot()</script><noscript>Please enable JavaScript.</noscript></body></html>";
++    expect(looksJsRendered(html, "text/html", "Please enable JavaScript.")).toBe(true);
++  });
++
++  it("leaves pages with text, pages without scripts, and non-HTML alone", () => {
++    expect(looksJsRendered(SHELL, "text/html", "x".repeat(400))).toBe(false);
++    expect(looksJsRendered("<html><body><p>Short.</p></body></html>", "text/html", "Short.")).toBe(false);
++    expect(looksJsRendered("<script></script>", "application/json", "")).toBe(false);
++    // One inline script and no app markers: just a short page.
++    expect(looksJsRendered("<html><body><script>x()</script><p>Hi</p></body></html>", "text/html", "Hi")).toBe(false);
++  });
++});
++
++describe("describeJsPages", () => {
++  it("names the pages and the browser tools", () => {
++    const line = describeJsPages(["https://a/1", "https://a/2", "https://a/3", "https://a/4"]);
++    expect(line).toContain("4 page(s)");
++    expect(line).toContain("and 1 more");
++    expect(line).toContain("browser.navigate");
++  });
++});
+diff --git a/src/tools/os/web/crawl-js-page.ts b/src/tools/os/web/crawl-js-page.ts
+new file mode 100644
+index 000000000..6680c2069
+--- /dev/null
++++ b/src/tools/os/web/crawl-js-page.ts
+@@ -0,0 +1,40 @@
++/**
++ * Spot a page that is built by JavaScript (ATO-970): curl gets an HTML shell
++ * with scripts and almost no text, and the real content appears only in a
++ * browser. Crawlee's adaptive crawler makes the same call (plain HTTP first,
++ * a browser only for pages that need one), and Firecrawl renders such pages
++ * in a browser. `os.web.crawl` renders a few of them in the agent's own
++ * browser when it can, and otherwise says which pages need it.
++ */
++
++/** Readable characters below which a page with scripts counts as a JS shell. */
++export const JS_SHELL_MAX_TEXT = 200;
++
++const MOUNT_POINT =
++  /<(?:div|main|body|app-root)\b[^>]*\bid\s*=\s*["']?(?:root|app|__next|__nuxt|___gatsby|svelte|q-app|application|main-app)["'\s>]/i;
++const NOSCRIPT_JS = /<noscript\b[^>]*>[\s\S]{0,2000}?javascript[\s\S]{0,2000}?<\/noscript>/i;
++
++/**
++ * True for an HTML page whose extracted text is nearly empty while the
++ * markup carries scripts plus a sign of a client-rendered app: an app mount
++ * point (`<div id="root">`, `__next`, ...), a `<noscript>` asking for
++ * JavaScript, or several scripts. A short page with no scripts is just short.
++ */
++export function looksJsRendered(html: string, contentType: string, extractedText: string): boolean {
++  if (!/html/i.test(contentType) && !/<html[\s>]/i.test(html.slice(0, 2_000))) return false;
++  if (extractedText.replace(/\s+/g, " ").trim().length >= JS_SHELL_MAX_TEXT) return false;
++  const scripts = html.match(/<script\b/gi)?.length ?? 0;
++  if (scripts === 0) return false;
++  return MOUNT_POINT.test(html) || NOSCRIPT_JS.test(html) || scripts >= 2;
++}
++
++/** The line the model reads for JS pages the crawl could not render. */
++export function describeJsPages(urls: readonly string[]): string {
++  const shown = urls.slice(0, 3).join(", ");
++  const more = urls.length > 3 ? ` and ${urls.length - 3} more` : "";
++  return (
++    `${urls.length} page(s) are built by JavaScript and had almost no text without it: ${shown}${more}. ` +
++    "To read one, open it with browser.navigate and read it with browser.read_aria " +
++    "(or browser.extract for structured data)."
++  );
++}
+diff --git a/src/tools/os/web/crawl-scope.test.ts b/src/tools/os/web/crawl-scope.test.ts
+new file mode 100644
+index 000000000..6cddd1f9f
+--- /dev/null
++++ b/src/tools/os/web/crawl-scope.test.ts
+@@ -0,0 +1,39 @@
++import { describe, expect, it } from "vitest";
++import { registrableDomain, startMoveAllowed } from "./crawl-scope.js";
++
++const move = (a: string, b: string) => startMoveAllowed(new URL(a), new URL(b)).ok;
++
++describe("registrableDomain", () => {
++  it("takes the last two labels, three under a country second level", () => {
++    expect(registrableDomain("docs.example.com")).toBe("example.com");
++    expect(registrableDomain("www.bbc.co.uk")).toBe("bbc.co.uk");
++    expect(registrableDomain("shop.example.com.au")).toBe("example.com.au");
++    expect(registrableDomain("example.io")).toBe("example.io");
++  });
++
++  it("treats shared hosting suffixes and IPs as no site", () => {
++    expect(registrableDomain("alice.github.io")).toBe("alice.github.io");
++    expect(registrableDomain("docs.alice.github.io")).toBe("alice.github.io");
++    expect(registrableDomain("github.io")).toBeNull();
++    expect(registrableDomain("co.uk")).toBeNull();
++    expect(registrableDomain("93.184.216.34")).toBeNull();
++    expect(registrableDomain("localhost")).toBeNull();
++  });
++});
++
++describe("startMoveAllowed", () => {
++  it("allows scheme changes, www and apex, and subdomains of one site", () => {
++    expect(move("http://example.com/", "https://example.com/")).toBe(true);
++    expect(move("https://example.com/", "https://www.example.com/")).toBe(true);
++    expect(move("https://www.example.com/", "https://example.com/")).toBe(true);
++    expect(move("https://example.com/docs", "https://docs.example.com/")).toBe(true);
++    expect(move("https://bbc.co.uk/", "https://www.bbc.co.uk/news")).toBe(true);
++  });
++
++  it("refuses another site, another user's shared-host site, and another IP", () => {
++    expect(move("https://example.com/", "https://other.org/")).toBe(false);
++    expect(move("https://alice.github.io/", "https://bob.github.io/")).toBe(false);
++    expect(move("https://a.co.uk/", "https://b.co.uk/")).toBe(false);
++    expect(move("http://93.184.216.34/", "http://93.184.216.35/")).toBe(false);
++  });
++});
+diff --git a/src/tools/os/web/crawl-scope.ts b/src/tools/os/web/crawl-scope.ts
+new file mode 100644
+index 000000000..1569676cc
+--- /dev/null
++++ b/src/tools/os/web/crawl-scope.ts
+@@ -0,0 +1,91 @@
++/**
++ * Where `os.web.crawl` may follow its start page when it redirects (ATO-970).
++ *
++ * The crawl stays on one site. A start page that moves within the same site
++ * (http to https, `example.com` to `www.example.com`, `example.com` to
++ * `docs.example.com`) moves the crawl with it: the new host becomes the
++ * scope, with its own robots.txt. A start page that moves to another site
++ * stops the crawl, and the result says where it went.
++ *
++ * "Same site" is the registrable domain (eTLD+1), as in Crawlee's
++ * `same-domain` enqueue strategy. The agent ships no public-suffix list, so
++ * this is an approximation: two-letter country codes with a generic second
++ * level (`co.uk`, `com.au`, `co.jp`) count as one suffix, and a short list
++ * of shared hosting domains (`github.io`, `vercel.app`, ...) count as public
++ * suffixes, so two users' sites there are never one site.
++ */
++import { isIP } from "node:net";
++
++/** Shared hosting where every subdomain belongs to someone else (PSL private section, abridged). */
++const SHARED_HOSTING_SUFFIXES = [
++  "github.io",
++  "gitlab.io",
++  "vercel.app",
++  "netlify.app",
++  "pages.dev",
++  "workers.dev",
++  "web.app",
++  "firebaseapp.com",
++  "herokuapp.com",
++  "onrender.com",
++  "fly.dev",
++  "glitch.me",
++  "replit.app",
++  "blogspot.com",
++  "wordpress.com",
++  "substack.com",
++  "notion.site",
++  "webflow.io",
++  "wixsite.com",
++  "myshopify.com",
++  "readthedocs.io",
++  "gitbook.io",
++  "azurewebsites.net",
++  "cloudfront.net",
++  "amazonaws.com",
++  "appspot.com",
++];
++
++const GENERIC_SECOND_LEVEL = /^(?:co|com|net|org|gov|edu|ac|or|ne|go|gob|mil|nic|ltd|plc|sch|info|biz)$/;
++
++function cleanHost(hostname: string): string {
++  return hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
++}
++
++/** The registrable domain of `hostname`, or null for an IP address or a bare suffix. */
++export function registrableDomain(hostname: string): string | null {
++  const host = cleanHost(hostname);
++  if (isIP(host) !== 0) return null;
++  const labels = host.split(".").filter((l) => l.length > 0);
++  if (labels.length < 2) return null;
++  for (const suffix of SHARED_HOSTING_SUFFIXES) {
++    if (host === suffix) return null;
++    if (host.endsWith(`.${suffix}`)) {
++      const owner = host.slice(0, -suffix.length - 1).split(".").pop();
++      return owner ? `${owner}.${suffix}` : null;
++    }
++  }
++  const tld = labels[labels.length - 1]!;
++  const second = labels[labels.length - 2]!;
++  if (tld.length === 2 && GENERIC_SECOND_LEVEL.test(second)) {
++    return labels.length >= 3 ? labels.slice(-3).join(".") : null;
++  }
++  return labels.slice(-2).join(".");
++}
++
++function withoutWww(host: string): string {
++  return host.startsWith("www.") ? host.slice(4) : host;
++}
++
++export type StartMove = { ok: true } | { ok: false; reason: string };
++
++/** May the crawl follow its start page from `from` to `to`? */
++export function startMoveAllowed(from: URL, to: URL): StartMove {
++  const a = cleanHost(from.hostname);
++  const b = cleanHost(to.hostname);
++  if (a === b) return { ok: true };
++  if (withoutWww(a) === withoutWww(b)) return { ok: true };
++  const siteA = registrableDomain(a);
++  if (siteA !== null && siteA === registrableDomain(b)) return { ok: true };
++  return { ok: false, reason: `it redirects to ${to.host}, which is another site` };
++}
+diff --git a/src/tools/os/web/sitemap-body.test.ts b/src/tools/os/web/sitemap-body.test.ts
+new file mode 100644
+index 000000000..d8edf5694
+--- /dev/null
++++ b/src/tools/os/web/sitemap-body.test.ts
+@@ -0,0 +1,43 @@
++import { gzipSync } from "node:zlib";
++import { describe, expect, it } from "vitest";
++import { decodeSitemapBody, isGzip } from "./sitemap-body.js";
++
++const XML = "<urlset><url><loc>https://example.com/a</loc></url></urlset>";
++
++describe("decodeSitemapBody", () => {
++  it("passes plain XML through, as text or as bytes", () => {
++    expect(decodeSitemapBody({ body: XML })).toEqual({ ok: true, xml: XML, gzipped: false });
++    expect(decodeSitemapBody({ bytes: Buffer.from(XML), body: "" })).toEqual({ ok: true, xml: XML, gzipped: false });
++  });
++
++  it("unzips gzip by its magic bytes, whatever the name or type said", () => {
++    const gz = gzipSync(XML);
++    expect(isGzip(gz)).toBe(true);
++    expect(decodeSitemapBody({ bytes: gz, body: "" })).toEqual({ ok: true, xml: XML, gzipped: true });
++  });
++
++  it("unzips two layers (a .xml.gz sent with Content-Encoding: gzip) but not three", () => {
++    expect(decodeSitemapBody({ bytes: gzipSync(gzipSync(XML)), body: "" })).toMatchObject({ ok: true, xml: XML });
++    expect(decodeSitemapBody({ bytes: gzipSync(gzipSync(gzipSync(XML))), body: "" })).toMatchObject({ ok: false });
++  });
++
++  it("stops at the size cap instead of inflating a gzip bomb", () => {
++    const bomb = gzipSync(Buffer.alloc(5 * 1024 * 1024, 0x20));
++    const out = decodeSitemapBody({ bytes: bomb, body: "" }, 1024 * 1024);
++    expect(out.ok).toBe(false);
++    expect(out.ok ? "" : out.reason).toContain("gzip bomb");
++  });
++
++  it("keeps the entries before the cut of a body truncated at the download cap", () => {
++    const many = `<urlset>${Array.from({ length: 4000 }, (_, i) => `<url><loc>https://example.com/p${i}</loc></url>`).join("")}</urlset>`;
++    const gz = gzipSync(many);
++    const out = decodeSitemapBody({ bytes: gz.subarray(0, Math.floor(gz.length / 2)), body: "" });
++    expect(out.ok).toBe(true);
++    expect(out.ok ? out.xml : "").toContain("<loc>https://example.com/p0</loc>");
++  });
++
++  it("reports a body that only looks like gzip", () => {
++    const out = decodeSitemapBody({ bytes: Buffer.from([0x1f, 0x8b, 0x00, 0x01, 0x02]), body: "" });
++    expect(out.ok).toBe(false);
++  });
++});
+diff --git a/src/tools/os/web/sitemap-body.ts b/src/tools/os/web/sitemap-body.ts
+new file mode 100644
+index 000000000..1f185a6da
+--- /dev/null
++++ b/src/tools/os/web/sitemap-body.ts
+@@ -0,0 +1,60 @@
++/**
++ * Turn a fetched sitemap into XML text (ATO-970): `.xml.gz` files, sitemaps
++ * sent as `application/gzip` / `application/x-gzip`, and ones sent with
++ * `Content-Encoding: gzip` all arrive as gzip bytes (the crawl fetches
++ * sitemaps with `binaryBody`, so curl does not unpack them) and are unpacked
++ * here with Node's zlib.
++ *
++ * Gzip is recognised by its magic bytes, not by the file name or the
++ * Content-Type: a `.gz` URL served already unpacked, and a gzip body under a
++ * wrong type, both come out right. Two layers at most (a `.xml.gz` file sent
++ * with `Content-Encoding: gzip` on top).
++ *
++ * The unpacked size is capped (`MAX_SITEMAP_XML_BYTES`, the sitemap
++ * protocol's own 50 MB limit is far more than a 50-page crawl needs): a few
++ * kilobytes of gzip can expand to gigabytes, and zlib stops at the cap
++ * instead of allocating it. A body cut at the 2 MB download cap is unpacked
++ * as far as it goes, so the `<loc>` entries before the cut still count.
++ */
++import { constants, gunzipSync } from "node:zlib";
++
++/** Largest unpacked sitemap read. Past it the file is skipped as a possible gzip bomb. */
++export const MAX_SITEMAP_XML_BYTES = 10 * 1024 * 1024;
++const MAX_GZIP_LAYERS = 2;
++
++export type SitemapText =
++  | { ok: true; xml: string; gzipped: boolean }
++  | { ok: false; reason: string };
++
++export function isGzip(bytes: Uint8Array): boolean {
++  return bytes.length >= 2 && bytes[0] === 0x1f && bytes[1] === 0x8b;
++}
++
++export function decodeSitemapBody(
++  input: { bytes?: Buffer; body: string },
++  maxBytes: number = MAX_SITEMAP_XML_BYTES,
++): SitemapText {
++  let buf: Buffer = input.bytes ?? Buffer.from(input.body, "utf8");
++  let layers = 0;
++  while (isGzip(buf)) {
++    if (layers >= MAX_GZIP_LAYERS) return { ok: false, reason: "gzipped more than twice; skipped" };
++    try {
++      buf = gunzipSync(buf, {
++        maxOutputLength: maxBytes,
++        // A body cut at the download cap ends mid-stream: keep what came out.
++        finishFlush: constants.Z_SYNC_FLUSH,
++      });
++    } catch (err) {
++      if ((err as NodeJS.ErrnoException).code === "ERR_BUFFER_TOO_LARGE" || err instanceof RangeError) {
++        return {
++          ok: false,
++          reason: `larger than ${Math.round(maxBytes / 1024 / 1024)} MB once unzipped; skipped (possible gzip bomb)`,
++        };
++      }
++      return { ok: false, reason: "not valid gzip; skipped" };
++    }
++    layers++;
++  }
++  if (buf.length > maxBytes) buf = buf.subarray(0, maxBytes);
++  return { ok: true, xml: buf.toString("utf8"), gzipped: layers > 0 };
++}
+diff --git a/src/tools/os/web/web-crawl-args.ts b/src/tools/os/web/web-crawl-args.ts
+index 82a3ad60f..3cb244e9c 100644
+--- a/src/tools/os/web/web-crawl-args.ts
++++ b/src/tools/os/web/web-crawl-args.ts
+@@ -77,9 +77,18 @@ export interface CrawledPage {
+   status: number;
+   text: string;
+   truncated: boolean;
++  /** Set when the page was built by JavaScript and rendered in the agent's browser. */
++  via?: "browser";
+ }
+ 
+-export type StopReason = "done" | "page-limit" | "throttled" | "time-budget" | "aborted" | "errors";
++export type StopReason =
++  | "done"
++  | "page-limit"
++  | "throttled"
++  | "time-budget"
++  | "aborted"
++  | "errors"
++  | "start-moved";
+ 
+ export interface CrawlReport {
+   start: string;
+@@ -91,6 +100,10 @@ export interface CrawlReport {
+   errors: { url: string; message: string }[];
+   stoppedBecause: StopReason;
+   delayMs: number;
++  /** One line each: a start page that moved, a sitemap skipped, JS pages (ATO-970). */
++  notes: string[];
++  /** Pages built by JavaScript that were read without it (no browser render). */
++  jsPages: string[];
+ }
+ 
+ const STOP_TEXT: Record<StopReason, string> = {
+@@ -100,6 +113,7 @@ const STOP_TEXT: Record<StopReason, string> = {
+   "time-budget": "Stopped at the time budget.",
+   aborted: "Stopped: the task was cancelled.",
+   errors: "Stopped after repeated errors.",
++  "start-moved": "Stopped: the start page redirects where the crawl does not follow.",
+ };
+ 
+ /** The header the model reads first: what was read, what was not, and why. */
+@@ -116,6 +130,7 @@ export function crawlHeader(r: CrawlReport, maxDepth: number): string {
+   if (r.sitemapPages > 0) lines.push(`Sitemap listed ${r.sitemapPages} page(s) in scope.`);
+   const stop = STOP_TEXT[r.stoppedBecause];
+   if (stop) lines.push(stop);
++  lines.push(...r.notes);
+   for (const e of r.errors.slice(0, 5)) lines.push(`- ${e.url}: ${e.message}`);
+   return lines.join("\n");
+ }
+diff --git a/src/tools/os/web/web-crawl-run.ts b/src/tools/os/web/web-crawl-run.ts
+index 4ba0bfbf2..83828e9bd 100644
+--- a/src/tools/os/web/web-crawl-run.ts
++++ b/src/tools/os/web/web-crawl-run.ts
+@@ -5,8 +5,11 @@
+  * through the caller's `fetchPage`, which carries the pace and the cache.
+  */
+ import { CurlUnavailableError } from "./ensure-curl.js";
++import { describeJsPages, looksJsRendered } from "./crawl-js-page.js";
+ import { extractPageLinks, inCrawlScope, normaliseCrawlUrl, parseSitemap } from "./crawl-links.js";
+ import type { CrawlPoliteness, RobotsDecision } from "./crawl-politeness.js";
++import { startMoveAllowed } from "./crawl-scope.js";
++import { decodeSitemapBody } from "./sitemap-body.js";
+ import { detectChallenge } from "./web-fetch-challenge.js";
+ import { extractWebContent } from "./web-fetch-extract.js";
+ import type { FetchOutcome } from "./web-fetch.js";
+@@ -18,16 +21,44 @@ export const MAX_SITEMAP_FILES = 3;
+ export const MAX_QUEUE = 2_000;
+ /** Failures in a row after which the crawl stops instead of burning the budget. */
+ export const MAX_CONSECUTIVE_ERRORS = 5;
++/** Times the start page may move the crawl to a new origin; os.web.fetch's own redirect cap. */
++export const MAX_START_MOVES = 3;
++/** JS-built pages rendered in the agent's browser per crawl; a browser load costs far more than curl. */
++export const MAX_BROWSER_RENDERS = 5;
+ 
+-export interface RunCrawlInput {
+-  args: CrawlArgs;
++/**
++ * The site being crawled. Mutable: when the start page redirects within the
++ * same site (`example.com` -> `www.example.com`) the crawl moves with it, and
++ * the caller's fetcher reads the new origin from here.
++ */
++export interface CrawlScope {
+   start: URL;
+   robots: RobotsDecision;
++}
++
++export interface RenderedCrawlPage {
++  finalUrl: string;
++  title: string;
++  html: string;
++}
++
++export interface RunCrawlInput {
++  args: CrawlArgs;
++  scope: CrawlScope;
+   politeness: CrawlPoliteness;
+   signal: AbortSignal;
+   now: () => number;
+   deadline: number;
+-  fetchPage: (url: string) => Promise<FetchOutcome>;
++  /** `binary` keeps the body as bytes (sitemaps, which may be gzipped). */
++  fetchPage: (url: string, opts?: { binary?: boolean }) => Promise<FetchOutcome>;
++  /** robots.txt of a new origin the start page moved to. */
++  robotsFor: (url: URL) => Promise<RobotsDecision>;
++  /**
++   * Render a JS-built page in the agent's own browser (paced, SSRF-checked
++   * by the caller). Absent, or resolving null, the page is listed as one
++   * that needs the browser.
++   */
++  renderPage?: (url: string) => Promise<RenderedCrawlPage | null>;
+ }
+ 
+ interface QueueItem {
+@@ -36,12 +67,17 @@ interface QueueItem {
+ }
+ 
+ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
+-  const { args, start, robots, politeness } = input;
++  const { args, scope, politeness } = input;
+   const queue: QueueItem[] = [];
+   const seen = new Set<string>();
+   const pages: CrawledPage[] = [];
+   const blockedByRobots: string[] = [];
+   const errors: { url: string; message: string }[] = [];
++  const notes: string[] = [];
++  const jsPages: string[] = [];
++  let rendered = 0;
++  let startMoves = 0;
++  let startSettled = false;
+   let overflow = 0;
+   let sitemapPages = 0;
+   let sitemapLoaded = !args.useSitemap || args.maxDepth < 1;
+@@ -53,11 +89,11 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
+   };
+ 
+   const enqueue = (url: URL, depth: number): boolean => {
+-    if (!inCrawlScope(url, start, args.pathPrefix)) return false;
++    if (!inCrawlScope(url, scope.start, args.pathPrefix)) return false;
+     const key = normaliseCrawlUrl(url);
+     if (seen.has(key)) return false;
+     seen.add(key);
+-    if (!politeness.allows(robots, url)) {
++    if (!politeness.allows(scope.robots, url)) {
+       blockedByRobots.push(key);
+       return false;
+     }
+@@ -72,50 +108,98 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
+   // The start page is checked against robots.txt by the caller; it may sit
+   // outside `pathPrefix` (a docs index linking into /docs/), so it is queued
+   // directly rather than through the scope filter.
+-  const startKey = normaliseCrawlUrl(start);
++  const startKey = normaliseCrawlUrl(scope.start);
+   seen.add(startKey);
+   queue.push({ url: startKey, depth: 0 });
+ 
++  /**
++   * The start page redirected to another origin. Within the same site the
++   * crawl moves there (new scope, its robots.txt, the page queued again);
++   * to another site it stops and says where the page went. Like Crawlee,
++   * which scopes links by the page's loaded URL after redirects.
++   */
++  const moveStart = async (from: string, target: URL): Promise<boolean> => {
++    startMoves++;
++    const verdict = startMoveAllowed(scope.start, target);
++    if (!verdict.ok || startMoves > MAX_START_MOVES) {
++      const why = verdict.ok ? "it kept redirecting" : verdict.reason;
++      notes.push(
++        `The start page ${from} was not followed: ${why}. A crawl stays on one site; ` +
++          `crawl ${target.toString()} directly if that is the site meant.`,
++      );
++      stoppedBecause = "start-moved";
++      return false;
++    }
++    const robots = target.origin === scope.start.origin ? scope.robots : await input.robotsFor(target);
++    if (!politeness.allows(robots, target)) {
++      notes.push(`The start page ${from} redirects to ${target.toString()}, which robots.txt of ${target.host} does not allow.`);
++      block(normaliseCrawlUrl(target));
++      stoppedBecause = "start-moved";
++      return false;
++    }
++    notes.push(`The start page ${from} redirects to ${target.toString()}; crawled ${target.host} instead.`);
++    scope.start = target;
++    scope.robots = robots;
++    politeness.pacer.resetStrikes(target.host);
++    const key = normaliseCrawlUrl(target);
++    seen.add(key);
++    queue.unshift({ url: key, depth: 0 });
++    return true;
++  };
++
+   while (queue.length > 0) {
+     if (input.signal.aborted) { stoppedBecause = "aborted"; break; }
+     if (pages.length >= args.maxPages) { stoppedBecause = "page-limit"; break; }
+     if (input.now() >= input.deadline) { stoppedBecause = "time-budget"; break; }
+-    if (politeness.pacer.isThrottled(start.host)) { stoppedBecause = "throttled"; break; }
++    if (politeness.pacer.isThrottled(scope.start.host)) { stoppedBecause = "throttled"; break; }
+     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { stoppedBecause = "errors"; break; }
+ 
+     const item = queue.shift()!;
++    const isStart = !startSettled;
+     let res: FetchOutcome;
+     try {
+       res = await input.fetchPage(item.url);
+     } catch (err) {
+       if (err instanceof CurlUnavailableError) throw err;
++      startSettled = true;
+       errors.push({ url: item.url, message: (err as Error).message });
+       consecutiveErrors++;
+       continue;
+     }
+ 
+-    if (res.refusedRedirect !== undefined) {
++    // An off-site hop is refused before it is requested (the caller's
++    // fetcher); `finalUrl` off the origin is the backstop for one that was not.
++    const offSite =
++      res.refusedRedirect !== undefined
++        ? new URL(res.refusedRedirect)
++        : new URL(res.finalUrl).origin !== scope.start.origin
++          ? new URL(res.finalUrl)
++          : null;
++    if (offSite !== null && offSite.origin === scope.start.origin) {
+       // A same-site redirect into a robots.txt-disallowed path: not requested.
+-      block(normaliseCrawlUrl(new URL(res.refusedRedirect)));
++      startSettled = true;
++      block(normaliseCrawlUrl(offSite));
++      continue;
++    }
++    if (offSite !== null) {
++      if (isStart) {
++        if (await moveStart(item.url, offSite)) continue;
++        break;
++      }
++      errors.push({ url: item.url, message: `redirected off the site to ${offSite.origin}; not followed` });
+       continue;
+     }
++    startSettled = true;
+     const finalUrl = new URL(res.finalUrl);
+     const finalKey = normaliseCrawlUrl(finalUrl);
+     seen.add(finalKey);
+-    if (finalUrl.origin !== start.origin) {
+-      // Usually example.com -> www.example.com on the start page: the model
+-      // can crawl again from where the site sent it.
+-      const hint = item.depth === 0 ? `; crawl again from ${res.finalUrl}` : "";
+-      errors.push({ url: item.url, message: `redirected off the site to ${finalUrl.origin}${hint}` });
+-      continue;
+-    }
+     // Backstop for a redirect that ended on a disallowed path anyway (e.g. a
+     // fetcher without the per-hop check): the page is dropped, not returned.
+-    if (finalKey !== item.url && !politeness.allows(robots, finalUrl)) {
++    if (finalKey !== item.url && !politeness.allows(scope.robots, finalUrl)) {
+       block(finalKey);
+       continue;
+     }
+-    if (res.status === 429 || res.status === 503) politeness.pacer.notePageThrottled(start.host);
++    if (res.status === 429 || res.status === 503) politeness.pacer.notePageThrottled(scope.start.host);
+     const challenge = detectChallenge({ status: res.status, contentType: res.contentType, body: res.body });
+     if (challenge.challenged) {
+       errors.push({ url: item.url, message: `bot-protection challenge (HTTP ${res.status})` });
+@@ -129,13 +213,27 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
+     }
+     consecutiveErrors = 0;
+ 
+-    const extracted = extractWebContent({
+-      body: res.body,
+-      contentType: res.contentType,
++    let page = { body: res.body, contentType: res.contentType, truncated: res.truncated };
++    let extracted = extractWebContent({
++      body: page.body,
++      contentType: page.contentType,
+       url: res.finalUrl,
+       mode: args.mode,
+     });
+-    const truncated = res.truncated || extracted.text.length > args.maxCharsPerPage;
++    let via: "curl" | "browser" = "curl";
++    if (looksJsRendered(res.body, res.contentType, extracted.text)) {
++      const browserPage = rendered < MAX_BROWSER_RENDERS ? await renderInBrowser(input, res.finalUrl) : null;
++      if (browserPage !== null) {
++        rendered++;
++        via = "browser";
++        page = { body: browserPage.html, contentType: "text/html", truncated: false };
++        extracted = extractWebContent({ body: page.body, contentType: page.contentType, url: res.finalUrl, mode: args.mode });
++        if (!extracted.title && browserPage.title) extracted = { ...extracted, title: browserPage.title };
++      } else {
++        jsPages.push(res.finalUrl);
++      }
++    }
++    const truncated = page.truncated || extracted.text.length > args.maxCharsPerPage;
+     pages.push({
+       url: res.finalUrl,
+       title: extracted.title,
+@@ -143,42 +241,79 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
+       status: res.status,
+       text: extracted.text.slice(0, args.maxCharsPerPage),
+       truncated,
++      ...(via === "browser" ? { via } : {}),
+     });
+ 
+     if (item.depth < args.maxDepth) {
+-      for (const link of extractPageLinks(res.body, res.contentType, finalUrl).links) {
++      for (const link of extractPageLinks(page.body, page.contentType, finalUrl).links) {
+         enqueue(link, item.depth + 1);
+       }
+     }
+     if (!sitemapLoaded) {
+       sitemapLoaded = true;
+-      sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1));
++      sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1), notes);
+     }
+   }
++  if (rendered > 0) notes.push(`${rendered} page(s) built by JavaScript were rendered in the agent's own browser.`);
++  if (jsPages.length > 0) notes.push(describeJsPages(jsPages));
+ 
+   // An unexplored queue at the end means one of the stop reasons fired.
+   if (stoppedBecause === "done" && queue.length > 0) stoppedBecause = "page-limit";
+   return {
+-    start: startKey,
++    start: normaliseCrawlUrl(scope.start),
+     pages,
+-    robotsSource: input.robots.source,
++    robotsSource: scope.robots.source,
+     blockedByRobots,
+     leftUnread: queue.length + overflow,
+     sitemapPages,
+     errors,
+     stoppedBecause,
+-    delayMs: politeness.pacer.hostDelay(start.host),
++    delayMs: politeness.pacer.hostDelay(scope.start.host),
++    notes,
++    jsPages,
+   };
+ }
+ 
++/**
++ * The browser render of a JS-built page, kept only when it landed on an
++ * allowed page of the crawled site. A failed render is a miss, not an error:
++ * the curl text is still returned and the page is listed as needing the browser.
++ */
++async function renderInBrowser(input: RunCrawlInput, url: string): Promise<RenderedCrawlPage | null> {
++  if (input.renderPage === undefined || input.signal.aborted) return null;
++  let page: RenderedCrawlPage | null;
++  try {
++    page = await input.renderPage(url);
++  } catch {
++    return null;
++  }
++  if (page === null) return null;
++  let landed: URL;
++  try {
++    landed = new URL(page.finalUrl);
++  } catch {
++    return null;
++  }
++  if (landed.origin !== input.scope.start.origin) return null;
++  if (!input.politeness.allows(input.scope.robots, landed)) return null;
++  return page;
++}
++
+ /**
+  * Read the sitemap(s) named in robots.txt, else `/sitemap.xml`, following
+- * one level of sitemap index, and queue the in-scope pages. Returns how many
++ * one level of sitemap index, and queue the in-scope pages. Gzipped
++ * sitemaps (`.xml.gz`, a gzip Content-Type or Content-Encoding) are
++ * unzipped with a size cap. Returns how many
+  * were queued. Failures are quiet: a site without a sitemap is normal.
+  */
+-async function loadSitemap(input: RunCrawlInput, add: (url: URL) => boolean): Promise<number> {
+-  const listed = input.robots.policy.sitemaps;
+-  const pending = listed.length > 0 ? [...listed] : [`${input.start.origin}/sitemap.xml`];
++async function loadSitemap(
++  input: RunCrawlInput,
++  add: (url: URL) => boolean,
++  notes: string[],
++): Promise<number> {
++  const { scope } = input;
++  const listed = scope.robots.policy.sitemaps;
++  const pending = listed.length > 0 ? [...listed] : [`${scope.start.origin}/sitemap.xml`];
+   let files = 0;
+   let queued = 0;
+   while (pending.length > 0 && files < MAX_SITEMAP_FILES && !input.signal.aborted) {
+@@ -190,17 +325,23 @@ async function loadSitemap(input: RunCrawlInput, add: (url: URL) => boolean): Pr
+       continue;
+     }
+     // Sitemaps on another host are not fetched: the crawl stays on one site.
+-    if (sitemapUrl.origin !== input.start.origin) continue;
+-    if (!input.politeness.allows(input.robots, sitemapUrl)) continue;
++    if (sitemapUrl.origin !== scope.start.origin) continue;
++    if (!input.politeness.allows(scope.robots, sitemapUrl)) continue;
+     files++;
+     let res: FetchOutcome;
+     try {
+-      res = await input.fetchPage(sitemapUrl.toString());
++      // As bytes: `.xml.gz` and gzip-typed sitemaps are unzipped here (ATO-970).
++      res = await input.fetchPage(sitemapUrl.toString(), { binary: true });
+     } catch {
+       continue;
+     }
+     if (res.status < 200 || res.status >= 300) continue;
+-    const entries = parseSitemap(res.body);
++    const text = decodeSitemapBody({ ...(res.bodyBytes ? { bytes: res.bodyBytes } : {}), body: res.body });
++    if (!text.ok) {
++      notes.push(`Sitemap ${sitemapUrl.toString()}: ${text.reason}.`);
++      continue;
++    }
++    const entries = parseSitemap(text.xml);
+     pending.push(...entries.sitemaps);
+     for (const page of entries.pages) {
+       try {
+diff --git a/src/tools/os/web/web-crawl.test.ts b/src/tools/os/web/web-crawl.test.ts
+index f2c54a117..13cb6dc0a 100644
+--- a/src/tools/os/web/web-crawl.test.ts
++++ b/src/tools/os/web/web-crawl.test.ts
+@@ -1,8 +1,11 @@
++import { writeFileSync } from "node:fs";
++import { gzipSync } from "node:zlib";
+ import { describe, expect, it } from "vitest";
+ import type { runCommand as RunCommandType } from "../../../sandbox/command-runner.js";
+ import { USER_CONFIG_DEFAULTS, type WebCrawlConfig } from "../../../config/index.js";
+ import type { ToolContext } from "../../tool-registry.js";
+ import type { HostLookup } from "./web-fetch-ssrf-guard.js";
++import type { PageRenderer } from "./web-fetch-ladder.js";
+ import { buildOsWebCrawlTool } from "./web-crawl.js";
+ 
+ const MARKER = "__ATOMIC_WEBFETCH_META__";
+@@ -14,6 +17,8 @@ interface FakeResponse {
+   headers?: Record<string, string>;
+   /** Absolute redirect target (curl's %{redirect_url}). */
+   location?: string;
++  /** Raw body bytes (gzip); written to curl's `-o` file when the request asks for one. */
++  bytes?: Buffer;
+ }
+ 
+ function html(title: string, links: string[]): string {
+@@ -29,6 +34,8 @@ function fakeSite(
+     routes[url] ?? { status: 404, body: "not found", contentType: "text/plain" },
+ ) {
+   const requests: string[] = [];
++  /** Requests made with `-o` (body kept as bytes), and their curl args. */
++  const binaryRequests: { url: string; args: string[] }[] = [];
+   const lookups: string[] = [];
+   const waits: number[] = [];
+   let t = 5_000_000;
+@@ -36,6 +43,15 @@ function fakeSite(
+     const url = args[args.length - 1] ?? "";
+     requests.push(url);
+     const res = respond(url);
++    // A binary-body request: curl writes the body to `-o <file>` as sent,
++    // and stdout carries only the meta line.
++    const outIdx = args.indexOf("-o");
++    let stdoutBody = res.body;
++    if (outIdx !== -1) {
++      binaryRequests.push({ url, args });
++      writeFileSync(args[outIdx + 1]!, res.bytes ?? Buffer.from(res.body, "utf8"));
++      stdoutBody = "";
++    }
+     const headerJson = res.headers
+       ? JSON.stringify(Object.fromEntries(Object.entries(res.headers).map(([k, v]) => [k, [v]])))
+       : "";
+@@ -44,7 +60,7 @@ function fakeSite(
+       args,
+       exitCode: 0,
+       signal: null,
+-      stdout: `${res.body}\n${MARKER}${res.status}|${res.contentType ?? "text/html"}|${res.location ?? ""}|${res.body.length}|${headerJson}`,
++      stdout: `${stdoutBody}\n${MARKER}${res.status}|${res.contentType ?? "text/html"}|${res.location ?? ""}|${res.body.length}|${headerJson}`,
+       stderr: "",
+       durationMs: 1,
+       timedOut: false,
+@@ -59,11 +75,16 @@ function fakeSite(
+     waits.push(ms);
+     t += ms;
+   };
+-  return { runCommand, lookup, sleep, now: () => t, requests, lookups, waits };
++  return { runCommand, lookup, sleep, now: () => t, requests, binaryRequests, lookups, waits };
+ }
+ 
+-function tool(site: ReturnType<typeof fakeSite>, crawl: Partial<WebCrawlConfig> = {}) {
++function tool(
++  site: ReturnType<typeof fakeSite>,
++  crawl: Partial<WebCrawlConfig> = {},
++  renderPage?: PageRenderer,
++) {
+   return buildOsWebCrawlTool({
++    ...(renderPage ? { renderPage } : {}),
+     runCommand: site.runCommand,
+     lookup: site.lookup,
+     sleep: site.sleep,
+@@ -268,4 +289,247 @@ describe("os.web.crawl", () => {
+     await crawl.run({ url: `${O}/guide/`, maxDepth: 1, useSitemap: false }, ctx());
+     expect(site.requests.length).toBe(first);
+   });
++
++  describe("gzipped sitemaps (ATO-970)", () => {
++    const xml = (locs: string[]) =>
++      `<?xml version="1.0"?><urlset>${locs.map((l) => `<url><loc>${l}</loc></url>`).join("")}</urlset>`;
++    const index = (locs: string[]) =>
++      `<?xml version="1.0"?><sitemapindex>${locs.map((l) => `<sitemap><loc>${l}</loc></sitemap>`).join("")}</sitemapindex>`;
++    const base = (sitemap: string): Record<string, FakeResponse> => ({
++      [`${O}/robots.txt`]: { status: 200, contentType: "text/plain", body: `User-agent: *\nAllow: /\nSitemap: ${sitemap}` },
++      [`${O}/`]: { status: 200, body: html("Home", []) },
++      [`${O}/guide/a`]: { status: 200, body: html("Page A", []) },
++      [`${O}/guide/b`]: { status: 200, body: html("Page B", []) },
++    });
++
++    it("unzips a .xml.gz sitemap served as application/x-gzip, fetched as raw bytes", async () => {
++      const site = fakeSite({
++        ...base(`${O}/sitemap.xml.gz`),
++        [`${O}/sitemap.xml.gz`]: {
++          status: 200,
++          contentType: "application/x-gzip",
++          body: "",
++          bytes: gzipSync(xml([`${O}/guide/a`])),
++        },
++      });
++      const result = await tool(site).run({ url: `${O}/` }, ctx());
++      const details = result.details as { pages: { url: string }[]; sitemapPages: number };
++      expect(details.pages.map((p) => p.url)).toContain(`${O}/guide/a`);
++      expect(details.sitemapPages).toBe(1);
++      const sitemapReq = site.binaryRequests.find((r) => r.url === `${O}/sitemap.xml.gz`);
++      expect(sitemapReq).toBeDefined();
++      // curl must not unpack it: the size cap is ours.
++      expect(sitemapReq!.args).not.toContain("--compressed");
++      expect(sitemapReq!.args).toContain("Accept-Encoding: gzip");
++      expect(sitemapReq!.args).toContain("--max-filesize");
++      // Pages are still fetched as text.
++      expect(site.binaryRequests.map((r) => r.url)).toEqual([`${O}/sitemap.xml.gz`]);
++    });
++
++    it("follows a gzipped sitemap index to a child sent gzipped twice (Content-Encoding on a .gz file)", async () => {
++      const site = fakeSite({
++        ...base(`${O}/sitemap_index.xml`),
++        // Content-Encoding: gzip on the index: curl keeps the bytes as sent.
++        [`${O}/sitemap_index.xml`]: {
++          status: 200,
++          contentType: "application/xml",
++          body: "",
++          bytes: gzipSync(index([`${O}/pages.xml.gz`])),
++        },
++        [`${O}/pages.xml.gz`]: {
++          status: 200,
++          contentType: "application/gzip",
++          body: "",
++          bytes: gzipSync(gzipSync(xml([`${O}/guide/a`, `${O}/guide/b`]))),
++        },
++      });
++      const result = await tool(site).run({ url: `${O}/` }, ctx());
++      const urls = (result.details as { pages: { url: string }[] }).pages.map((p) => p.url);
++      expect(urls).toEqual([`${O}/`, `${O}/guide/a`, `${O}/guide/b`]);
++    });
++
++    it("skips a sitemap that unzips past the cap and says so, without failing the crawl", async () => {
++      const bomb = gzipSync(Buffer.alloc(20 * 1024 * 1024, 0x20));
++      expect(bomb.length).toBeLessThan(100_000);
++      const site = fakeSite({
++        ...base(`${O}/sitemap.xml.gz`),
++        [`${O}/sitemap.xml.gz`]: { status: 200, contentType: "application/x-gzip", body: "", bytes: bomb },
++      });
++      const result = await tool(site).run({ url: `${O}/` }, ctx());
++      expect(result.status).toBe("ok");
++      const details = result.details as { sitemapPages: number; notes?: string[] };
++      expect(details.sitemapPages).toBe(0);
++      expect(details.notes?.join("\n")).toContain("gzip bomb");
++      expect(result.summary).toContain("gzip bomb");
++    });
++
++    it("still reads a plain sitemap.xml", async () => {
++      const site = fakeSite({
++        ...base(`${O}/sitemap.xml`),
++        [`${O}/sitemap.xml`]: { status: 200, contentType: "application/xml", body: xml([`${O}/guide/b`]) },
++      });
++      const result = await tool(site).run({ url: `${O}/` }, ctx());
++      expect((result.details as { pages: { url: string }[] }).pages.map((p) => p.url)).toContain(`${O}/guide/b`);
++    });
++  });
++
++  describe("start page redirects (ATO-970)", () => {
++    const allowAll = { status: 200, contentType: "text/plain", body: "User-agent: *\nAllow: /" };
++
++    it("moves the crawl from example.com to www.example.com after reading the new host's robots.txt", async () => {
++      const site = fakeSite({
++        "https://example.com/robots.txt": allowAll,
++        "https://example.com/": { status: 301, body: "", location: "https://www.example.com/" },
++        "https://www.example.com/robots.txt": {
++          status: 200,
++          contentType: "text/plain",
++          body: "User-agent: *\nDisallow: /private",
++        },
++        "https://www.example.com/": { status: 200, body: html("Home", ["/a", "/private/x"]) },
++        "https://www.example.com/a": { status: 200, body: html("Page A", []) },
++      });
++      const result = await tool(site).run({ url: "https://example.com/", useSitemap: false }, ctx());
++      expect(result.status).toBe("ok");
++      const details = result.details as { pages: { url: string }[]; blockedByRobots: string[]; notes?: string[] };
++      expect(details.pages.map((p) => p.url)).toEqual(["https://www.example.com/", "https://www.example.com/a"]);
++      // The new host's robots.txt is read before its first page, and applies.
++      expect(site.requests.slice(0, 4)).toEqual([
++        "https://example.com/robots.txt",
++        "https://example.com/",
++        "https://www.example.com/robots.txt",
++        "https://www.example.com/",
++      ]);
++      expect(details.blockedByRobots).toContain("https://www.example.com/private/x");
++      expect(details.notes?.join("\n")).toContain("crawled www.example.com instead");
++    });
++
++    it("follows http to https on the same host", async () => {
++      const site = fakeSite({
++        "http://example.com/robots.txt": allowAll,
++        "http://example.com/": { status: 301, body: "", location: "https://example.com/" },
++        "https://example.com/robots.txt": allowAll,
++        "https://example.com/": { status: 200, body: html("Home", []) },
++      });
++      const result = await tool(site).run({ url: "http://example.com/", useSitemap: false }, ctx());
++      expect((result.details as { pages: { url: string }[] }).pages.map((p) => p.url)).toEqual(["https://example.com/"]);
++    });
++
++    it("stops, without requesting it, when the start page moves to another site", async () => {
++      const site = fakeSite({
++        "https://example.com/robots.txt": allowAll,
++        "https://example.com/": { status: 302, body: "", location: "https://other.org/landing" },
++        "https://other.org/landing": { status: 200, body: html("Other", []) },
++      });
++      const result = await tool(site).run({ url: "https://example.com/", useSitemap: false }, ctx());
++      expect(result.status).toBe("error");
++      const details = result.details as { stoppedBecause: string; pages: unknown[] };
++      expect(details.stoppedBecause).toBe("start-moved");
++      expect(details.pages).toHaveLength(0);
++      expect(site.requests.some((u) => u.includes("other.org"))).toBe(false);
++      expect(result.summary).toContain("other.org, which is another site");
++      expect(result.summary).toContain("crawl https://other.org/landing directly");
++    });
++
++    it("does not treat two sites on a shared host (github.io) as one", async () => {
++      const site = fakeSite({
++        "https://alice.github.io/robots.txt": allowAll,
++        "https://alice.github.io/": { status: 301, body: "", location: "https://bob.github.io/" },
++      });
++      const result = await tool(site).run({ url: "https://alice.github.io/", useSitemap: false }, ctx());
++      expect((result.details as { stoppedBecause: string }).stoppedBecause).toBe("start-moved");
++      expect(site.requests.some((u) => u.includes("bob.github.io"))).toBe(false);
++    });
++
++    it("never requests an off-site redirect target of a deeper page", async () => {
++      const site = fakeSite({
++        [`${O}/robots.txt`]: allowAll,
++        [`${O}/`]: { status: 200, body: html("Home", ["/out", "/b"]) },
++        [`${O}/out`]: { status: 302, body: "", location: "https://other.org/x" },
++        [`${O}/b`]: { status: 200, body: html("Page B", []) },
++      });
++      const result = await tool(site).run({ url: `${O}/`, useSitemap: false }, ctx());
++      const details = result.details as { pages: { url: string }[]; errors: { url: string; message: string }[] };
++      expect(details.pages.map((p) => p.url)).toEqual([`${O}/`, `${O}/b`]);
++      expect(site.requests.some((u) => u.includes("other.org"))).toBe(false);
++      expect(details.errors[0]?.message).toContain("redirected off the site");
++    });
++  });
++
++  describe("pages built by JavaScript (ATO-970)", () => {
++    const shell = (title: string) =>
++      `<!doctype html><html><head><title>${title}</title><script src="/app.js"></script></head>` +
++      `<body><div id="root"></div><noscript>You need to enable JavaScript to run this app.</noscript></body></html>`;
++    const routes = (): Record<string, FakeResponse> => ({
++      [`${O}/robots.txt`]: { status: 200, contentType: "text/plain", body: "User-agent: *\nAllow: /" },
++      [`${O}/`]: { status: 200, body: shell("App") },
++      [`${O}/docs`]: { status: 200, body: html("Docs", []) },
++    });
++
++    it("without a browser, returns the page and says it needs browser.navigate", async () => {
++      const site = fakeSite(routes());
++      const result = await tool(site).run({ url: `${O}/`, useSitemap: false }, ctx());
++      const details = result.details as { needsBrowser?: string[]; retryWith?: string };
++      expect(details.needsBrowser).toEqual([`${O}/`]);
++      expect(details.retryWith).toBe("browser.navigate");
++      expect(result.summary).toContain("built by JavaScript");
++      expect(result.summary).toContain("browser.navigate");
++    });
++
++    it("renders it in the agent's browser, paced, and follows the links it shows", async () => {
++      const site = fakeSite(routes());
++      const rendered: string[] = [];
++      const renderPage: PageRenderer = async ({ url }) => {
++        rendered.push(url);
++        return { finalUrl: url, title: "App", html: html("App rendered", ["/docs"]) };
++      };
++      const result = await tool(site, {}, renderPage).run({ url: `${O}/`, useSitemap: false }, ctx());
++      const details = result.details as { pages: { url: string; via?: string }[]; needsBrowser?: string[] };
++      expect(rendered).toEqual([`${O}/`]);
++      expect(details.pages[0]).toMatchObject({ url: `${O}/`, via: "browser" });
++      expect(details.pages.map((p) => p.url)).toContain(`${O}/docs`);
++      expect(details.needsBrowser).toBeUndefined();
++      expect(result.summary).toContain("Readable text about App rendered");
++      // The browser load waited its turn like a curl request.
++      expect(site.waits.filter((w) => w >= 1_000).length).toBeGreaterThanOrEqual(site.requests.length);
++    });
++
++    it("drops a render that landed on another site and lists the page instead", async () => {
++      const site = fakeSite(routes());
++      const renderPage: PageRenderer = async () => ({
++        finalUrl: "https://login.other.org/",
++        title: "Sign in",
++        html: html("Sign in", []),
++      });
++      const result = await tool(site, {}, renderPage).run({ url: `${O}/`, useSitemap: false }, ctx());
++      const details = result.details as { pages: { via?: string }[]; needsBrowser?: string[] };
++      expect(details.pages[0]?.via).toBeUndefined();
++      expect(details.needsBrowser).toEqual([`${O}/`]);
++    });
++
++    it("does not render when web.fetch.renderWithBrowser is off", async () => {
++      const site = fakeSite(routes());
++      let calls = 0;
++      const renderPage: PageRenderer = async ({ url }) => {
++        calls++;
++        return { finalUrl: url, title: "App", html: html("App", []) };
++      };
++      const crawl = buildOsWebCrawlTool({
++        runCommand: site.runCommand,
++        lookup: site.lookup,
++        sleep: site.sleep,
++        now: site.now,
++        renderPage,
++        config: {
++          web: {
++            ...USER_CONFIG_DEFAULTS.web,
++            fetch: { ...USER_CONFIG_DEFAULTS.web.fetch, renderWithBrowser: false },
++            crawl: USER_CONFIG_DEFAULTS.web.crawl as WebCrawlConfig,
++          },
++        },
++      });
++      const result = await crawl.run({ url: `${O}/`, useSitemap: false }, ctx());
++      expect(calls).toBe(0);
++      expect((result.details as { needsBrowser?: string[] }).needsBrowser).toEqual([`${O}/`]);
++    });
++  });
+ });
+diff --git a/src/tools/os/web/web-crawl.ts b/src/tools/os/web/web-crawl.ts
+index 84826965f..3e0bcffe6 100644
+--- a/src/tools/os/web/web-crawl.ts
++++ b/src/tools/os/web/web-crawl.ts
+@@ -5,6 +5,12 @@
+  * per host per `web.crawl.minDelayMs`, backoff on 429/503 and
+  * `Retry-After`, robots.txt, a short cache. Pages come from the start page's
+  * same-origin links (breadth first, up to `maxDepth`) and the sitemap.
++ *
++ * ATO-970 follow-ups: gzipped sitemaps are unzipped with a size cap; a start
++ * page that redirects within the same site (`example.com` ->
++ * `www.example.com`) moves the crawl there; pages built by JavaScript are
++ * rendered in the agent's own browser (the `os.web.fetch` renderer, a few
++ * per crawl) or listed as needing it.
+  */
+ import type { DangerousToolOptions } from "../../../approval/dangerous-tool.js";
+ import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlSendSites } from "./url-data-guard.js";
+@@ -28,8 +34,9 @@ import {
+   type CrawlArgs,
+   type CrawlReport,
+ } from "./web-crawl-args.js";
+-import { runCrawl } from "./web-crawl-run.js";
+ import { assertPolicyWebUrl } from "../../../policy/policy-web.js";
++import type { PageRenderer } from "./web-fetch-ladder.js";
++import { runCrawl, type CrawlScope, type RenderedCrawlPage } from "./web-crawl-run.js";
+ 
+ export interface OsWebCrawlOptions {
+   runCommand?: typeof defaultRunCommand;
+@@ -39,6 +46,11 @@ export interface OsWebCrawlOptions {
+   urlSendSites?: UrlSendSites;
+   sleep?: Sleep;
+   now?: () => number;
++  /**
++   * The agent's own browser, as wired into `os.web.fetch` (ATO-968). Used for
++   * pages built by JavaScript when `web.fetch.renderWithBrowser` is on.
++   */
++  renderPage?: PageRenderer;
+ }
+ 
+ function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
+@@ -71,7 +83,10 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
+       "page as markdown/text. Polite by design: at most one request per second per " +
+       "site (longer if robots.txt asks), backs off on 429/503 and Retry-After, obeys " +
+       "robots.txt (the user can exempt their own sites in config), caches pages for " +
+-      "a few minutes. Same SSRF guard and no-JavaScript fetch as os.web.fetch. " +
++      "a few minutes. Same SSRF guard as os.web.fetch. Unzips .xml.gz sitemaps; " +
++      "follows a start page that redirects within the same site (e.g. to www.); " +
++      "pages built by JavaScript are rendered in the agent's browser when it is " +
++      "available, else listed as needing browser.navigate. " +
+       "`pathPrefix` keeps it under one section (e.g. \"/docs/\"). For a single page " +
+       "use os.web.fetch.",
+     readonly: true,
+@@ -114,7 +129,11 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
+       // earlier crawl must not stop this one before its first request.
+       politeness.pacer.resetStrikes(start.host);
+ 
+-      const fetchPage = (url: string, allowRedirect?: (u: URL) => boolean): Promise<FetchOutcome> =>
++      const fetchPage = (
++        url: string,
++        allowRedirect?: (u: URL) => boolean,
++        binaryBody = false,
++      ): Promise<FetchOutcome> =>
+         fetchRawPage(url, {
+           cwd: ctx.workingDir,
+           signal: ctx.signal,
+@@ -128,19 +147,22 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
+               politeness.pacer.noteResponse(u.host, status, retryAfterMs),
+             allowRedirect,
+           },
++          ...(binaryBody ? { binaryBody: true } : {}),
+         });
+ 
+       // A missing curl or a cancelled task is not "robots.txt unreachable".
+       let fatal = null as Error | null;
+-      const robots = await politeness.robotsFor(start, async (robotsUrl) => {
+-        try {
+-          const res = await fetchPage(robotsUrl);
+-          return { status: res.status, body: res.body };
+-        } catch (err) {
+-          if (err instanceof CurlUnavailableError || ctx.signal.aborted) fatal = err as Error;
+-          throw err;
+-        }
+-      });
++      const loadRobots = (url: URL) =>
++        politeness.robotsFor(url, async (robotsUrl) => {
++          try {
++            const res = await fetchPage(robotsUrl);
++            return { status: res.status, body: res.body };
++          } catch (err) {
++            if (err instanceof CurlUnavailableError || ctx.signal.aborted) fatal = err as Error;
++            throw err;
++          }
++        });
++      const robots = await loadRobots(start);
+       if (fatal !== null) return errorResult(args, (fatal as Error).message, false);
+       if (!politeness.allows(robots, start)) {
+         const why =
+@@ -155,30 +177,58 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
+         );
+       }
+ 
++      // Mutable: a start page that redirects within the site moves it.
++      const scope: CrawlScope = { start, robots };
++      const fetchCfg = options.config?.web.fetch;
++      const renderer =
++        options.renderPage !== undefined && (fetchCfg?.renderWithBrowser ?? true) ? options.renderPage : undefined;
+       const report = await runCrawl({
+         args,
+-        start,
+-        robots,
++        scope,
+         politeness,
+         signal: ctx.signal,
+         now,
+         deadline: now() + CRAWL_TIME_BUDGET_MS,
+-        fetchPage: async (url) => {
++        fetchPage: async (url, opts) => {
+           assertPolicyWebUrl(url, ctx.workingDir);
+-          const cached = pageCache.get(url);
++          const binary = opts?.binary === true;
++          const cacheKey = binary ? `bytes:${url}` : url;
++          const cached = pageCache.get(cacheKey);
+           if (cached !== undefined) {
+             assertPolicyWebUrl(cached.finalUrl, ctx.workingDir);
+             return cached;
+           }
+           // A same-site redirect hop is checked against robots.txt before it
+-          // is requested; off-site hops are left to runCrawl's origin check.
++          // is requested. An off-site hop is not requested at all: runCrawl
++          // decides whether the crawl moves there (start page only) after
++          // reading that site's robots.txt.
+           const res = await fetchPage(
+             url,
+-            (u) => u.origin !== start.origin || politeness.allows(robots, u),
++            (u) => u.origin === scope.start.origin && politeness.allows(scope.robots, u),
++            binary,
+           );
+-          if (res.status >= 200 && res.status < 400) pageCache.set(url, res);
++          if (res.status >= 200 && res.status < 400) pageCache.set(cacheKey, res);
+           return res;
+         },
++        robotsFor: async (url) => {
++          const decision = await loadRobots(url);
++          if (fatal !== null) throw fatal;
++          return decision;
++        },
++        ...(renderer === undefined
++          ? {}
++          : {
++              renderPage: async (url): Promise<RenderedCrawlPage | null> => {
++                // One more request to the site: it waits its turn like curl.
++                await politeness.pacer.acquire(new URL(url).host, ctx.signal);
++                const page = await renderer({ url, timeoutMs: fetchCfg?.timeoutMs ?? 30_000 });
++                if (page === null) return null;
++                // The browser follows redirects itself; where it landed must
++                // pass the private-address check like every curl hop.
++                await assertHostAllowed(parseHttpUrl(page.finalUrl), { lookup: options.lookup });
++                return page;
++              },
++            }),
+       });
+       return resultFor(args, report, ctx.modelMode);
+     },
+@@ -225,6 +275,7 @@ function resultFor(
+           status: p.status,
+           chars: p.text.length,
+           truncated: p.truncated,
++          ...(p.via ? { via: p.via } : {}),
+         })),
+         robots: report.robotsSource,
+         blockedByRobots: report.blockedByRobots.slice(0, 20),
+@@ -233,6 +284,10 @@ function resultFor(
+         errors: report.errors.slice(0, 10),
+         stoppedBecause: report.stoppedBecause,
+         delayMs: report.delayMs,
++        ...(report.notes.length > 0 ? { notes: report.notes } : {}),
++        ...(report.jsPages.length > 0
++          ? { needsBrowser: report.jsPages.slice(0, 20), retryWith: "browser.navigate" }
++          : {}),
+         truncated: capped,
+       },
+     },
+diff --git a/src/tools/os/web/web-fetch.ts b/src/tools/os/web/web-fetch.ts
+index 5ea935384..7be1825aa 100644
+--- a/src/tools/os/web/web-fetch.ts
++++ b/src/tools/os/web/web-fetch.ts
+@@ -1,4 +1,7 @@
+ import { webFetchStepEgress, type EgressClass } from "../../tool-egress.js";
++import { mkdtemp, open, rm } from "node:fs/promises";
++import { tmpdir } from "node:os";
++import { join } from "node:path";
+ import { compressToolResult } from "../../../compressor/result-compressor.js";
+ import {
+   runCommand as defaultRunCommand,
+@@ -146,6 +149,8 @@ interface CurlResponse {
+   truncated: boolean;
+   /** Seconds parsed from a `Retry-After` response header, when present. */
+   retryAfterMs: number | null;
++  /** The raw bytes, set only for a `binaryBody` request (`body` is then empty). */
++  bodyBytes?: Buffer;
+ }
+ 
+ export interface FetchOutcome {
+@@ -160,6 +165,11 @@ export interface FetchOutcome {
+    * that was not requested. `finalUrl`/`status` are then the redirecting page.
+    */
+   refusedRedirect?: string;
++  /**
++   * The body exactly as sent, for a `binaryBody` request (gzipped sitemaps,
++   * ATO-970). `body` is empty then: the bytes are not text yet.
++   */
++  bodyBytes?: Buffer;
+ }
+ 
+ export function buildOsWebFetchTool(
+@@ -475,6 +485,8 @@ interface FetchWithGuardOptions {
+   sleep: (ms: number, signal: AbortSignal) => Promise<void>;
+   /** Pacing hooks for callers that limit their own traffic (`os.web.crawl`). */
+   hooks?: FetchRequestHooks;
++  /** Keep the body as bytes (see `FetchRawPageOptions.binaryBody`). */
++  binaryBody?: boolean;
+ }
+ 
+ /**
+@@ -499,6 +511,14 @@ export interface FetchRawPageOptions {
+   timeoutMs?: number;
+   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
+   hooks?: FetchRequestHooks;
++  /**
++   * Return the body as raw bytes in `bodyBytes` instead of text (ATO-970,
++   * `.xml.gz` sitemaps). curl writes it to a private temp file and does not
++   * decode `Content-Encoding` itself (it only asks for gzip), so the caller
++   * unpacks it with its own size cap and a gzip bomb never reaches the disk
++   * at full size. The download is capped at the same 2 MB as text.
++   */
++  binaryBody?: boolean;
+ }
+ 
+ /**
+@@ -519,6 +539,7 @@ export function fetchRawPage(
+     timeoutMs: options.timeoutMs ?? fetchCfg.timeoutMs,
+     sleep: options.sleep ?? defaultSleep,
+     hooks: options.hooks,
++    binaryBody: options.binaryBody,
+   });
+ }
+ 
+@@ -570,6 +591,7 @@ async function fetchWithGuard(
+           truncated: res.truncated,
+           redirectChain: chain,
+           refusedRedirect: nextUrl.toString(),
++          ...(res.bodyBytes ? { bodyBytes: res.bodyBytes } : {}),
+         };
+       }
+       await opts.hooks?.authorizeRedirect?.(nextUrl);
+@@ -583,6 +605,7 @@ async function fetchWithGuard(
+       body: res.body,
+       truncated: res.truncated,
+       redirectChain: chain,
++      ...(res.bodyBytes ? { bodyBytes: res.bodyBytes } : {}),
+     };
+   }
+ }
+@@ -681,6 +704,7 @@ async function curlOnce(
+   pinnedIps: readonly string[],
+   opts: FetchWithGuardOptions,
+ ): Promise<CurlResponse> {
++  if (opts.binaryBody === true) return curlOnceBinary(url, pinnedIps, opts);
+   const curlArgs = buildCurlArgs(url, pinnedIps, opts);
+   let result: CommandResult;
+   try {
+@@ -705,10 +729,70 @@ async function curlOnce(
+   return { ...parseCurlMeta(result.stdout), truncated: result.truncated };
+ }
+ 
++/**
++ * `curlOnce` for a `binaryBody` request: the body goes to a file in a fresh
++ * private temp dir (`-o`), stdout carries only the `-w` meta line, and the
++ * file is read back as bytes and removed. `--max-filesize` stops curl past
++ * the usual 2 MB; a body without a Content-Length that runs past it is cut
++ * when read and marked truncated.
++ */
++async function curlOnceBinary(
++  url: URL,
++  pinnedIps: readonly string[],
++  opts: FetchWithGuardOptions,
++): Promise<CurlResponse> {
++  const dir = await mkdtemp(join(tmpdir(), "atomic-web-"));
++  const bodyPath = join(dir, "body");
++  try {
++    const curlArgs = buildCurlArgs(url, pinnedIps, opts, bodyPath);
++    let result: CommandResult;
++    try {
++      result = await runCurl(opts.runCommand, curlArgs, {
++        cwd: opts.cwd,
++        timeoutMs: opts.timeoutMs + 2_000,
++        signal: opts.signal,
++        maxOutputBytes: 64 * 1024,
++      });
++    } catch (err) {
++      if (isCurlMissingError(err)) throw new CurlUnavailableError();
++      throw err;
++    }
++    if (result.exitCode !== 0) {
++      throw new CurlFailedError(
++        `${TOOL_NAME}: ${formatCurlError(result)}`,
++        result.exitCode ?? -1,
++      );
++    }
++    let bytes: Buffer = Buffer.alloc(0);
++    let truncated = false;
++    try {
++      // Read at most the cap: an older curl without a Content-Length to
++      // check may have written past `--max-filesize`.
++      const file = await open(bodyPath, "r");
++      try {
++        const size = (await file.stat()).size;
++        const want = Math.min(size, MAX_RESPONSE_BYTES);
++        bytes = Buffer.alloc(want);
++        const { bytesRead } = await file.read(bytes, 0, want, 0);
++        bytes = bytes.subarray(0, bytesRead);
++        truncated = size > MAX_RESPONSE_BYTES;
++      } finally {
++        await file.close();
++      }
++    } catch {
++      // No file: an empty body (a 204, or a redirect without one).
++    }
++    return { ...parseCurlMeta(result.stdout), body: "", bodyBytes: bytes, truncated };
++  } finally {
++    await rm(dir, { recursive: true, force: true }).catch(() => undefined);
++  }
++}
++
+ function buildCurlArgs(
+   url: URL,
+   pinnedIps: readonly string[],
+   opts: Pick<FetchWithGuardOptions, "fetchCfg" | "timeoutMs">,
++  binaryBodyPath?: string,
+ ): string[] {
+   const host = url.hostname.replace(/^\[|\]$/g, "");
+   const port = url.port || (url.protocol === "https:" ? "443" : "80");
+@@ -739,7 +823,18 @@ function buildCurlArgs(
+     // hands back bytes the extractor reads as binary noise — and some
+     // hosts behave differently for a client that claims no encoding
+     // support at all, since no browser has looked like that in years.
+-    "--compressed",
++    // A binary body (ATO-970) is kept as sent: only gzip is offered, curl
++    // does not unpack it, and the caller unzips it under its own cap.
++    ...(binaryBodyPath === undefined
++      ? ["--compressed"]
++      : [
++          "-H",
++          "Accept-Encoding: gzip",
++          "--max-filesize",
++          String(MAX_RESPONSE_BYTES),
++          "-o",
++          binaryBodyPath,
++        ]),
+     "-H",
+     "Accept: text/markdown, text/html;q=0.9, */*;q=0.1",
+     "-H",
+-- 
+2.56.0.windows.4
+
+
+From 93c5cd6e723c6fec2559bd636b290ac905a6483c Mon Sep 17 00:00:00 2001
+From: Nadia Rodionova <273119990+sosidudku1@users.noreply.github.com>
+Date: Wed, 18 Nov 2026 14:57:04 +0300
+Subject: [PATCH 2/2] Crawl: a sitemap over 2 MB is read in part, not skipped;
+ note fetch failures
+
+Sitemaps were fetched with --max-filesize 2 MB, so a plain sitemap
+with a Content-Length over that made curl exit 63 and the whole
+sitemap was dropped silently. --max-filesize is now a 50 MB disk guard
+(the sitemap protocol's own limit); the read back still keeps the
+first 2 MB and marks the rest truncated, so the first entries are
+crawled. A sitemap that cannot be fetched now leaves a note in the
+crawl result.
+
+(cherry picked from commit 520893c4562dca64c878fdc3eab133590c7cc769)
+---
+ src/tools/os/web/web-crawl-run.ts  |  3 ++-
+ src/tools/os/web/web-crawl.test.ts |  5 ++++-
+ src/tools/os/web/web-fetch.ts      | 14 ++++++++++----
+ 3 files changed, 16 insertions(+), 6 deletions(-)
+
+diff --git a/src/tools/os/web/web-crawl-run.ts b/src/tools/os/web/web-crawl-run.ts
+index 83828e9bd..0b970ea35 100644
+--- a/src/tools/os/web/web-crawl-run.ts
++++ b/src/tools/os/web/web-crawl-run.ts
+@@ -332,7 +332,8 @@ async function loadSitemap(
+     try {
+       // As bytes: `.xml.gz` and gzip-typed sitemaps are unzipped here (ATO-970).
+       res = await input.fetchPage(sitemapUrl.toString(), { binary: true });
+-    } catch {
++    } catch (err) {
++      notes.push(`Sitemap ${sitemapUrl.toString()} could not be fetched: ${err instanceof Error ? err.message : String(err)}.`);
+       continue;
+     }
+     if (res.status < 200 || res.status >= 300) continue;
+diff --git a/src/tools/os/web/web-crawl.test.ts b/src/tools/os/web/web-crawl.test.ts
+index 13cb6dc0a..e4246f0d5 100644
+--- a/src/tools/os/web/web-crawl.test.ts
++++ b/src/tools/os/web/web-crawl.test.ts
+@@ -321,7 +321,10 @@ describe("os.web.crawl", () => {
+       // curl must not unpack it: the size cap is ours.
+       expect(sitemapReq!.args).not.toContain("--compressed");
+       expect(sitemapReq!.args).toContain("Accept-Encoding: gzip");
+-      expect(sitemapReq!.args).toContain("--max-filesize");
++      // A 50 MB disk guard, not the 2 MB read cap: a big plain sitemap
++      // still yields its first entries instead of failing whole.
++      const guard = sitemapReq!.args[sitemapReq!.args.indexOf("--max-filesize") + 1];
++      expect(guard).toBe(String(50 * 1024 * 1024));
+       // Pages are still fetched as text.
+       expect(site.binaryRequests.map((r) => r.url)).toEqual([`${O}/sitemap.xml.gz`]);
+     });
+diff --git a/src/tools/os/web/web-fetch.ts b/src/tools/os/web/web-fetch.ts
+index 7be1825aa..2b0f4b034 100644
+--- a/src/tools/os/web/web-fetch.ts
++++ b/src/tools/os/web/web-fetch.ts
+@@ -56,6 +56,8 @@ import {
+ } from "./web-fetch-ladder.js";
+ 
+ const MAX_RESPONSE_BYTES = 2_000_000;
++/** How much a `binaryBody` request may write to disk before curl stops. */
++const MAX_BINARY_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+ const MAX_REDIRECTS = 3;
+ const DEFAULT_MAX_CHARS = 50_000;
+ const MAX_CHARS_CAP = 50_000;
+@@ -732,9 +734,9 @@ async function curlOnce(
+ /**
+  * `curlOnce` for a `binaryBody` request: the body goes to a file in a fresh
+  * private temp dir (`-o`), stdout carries only the `-w` meta line, and the
+- * file is read back as bytes and removed. `--max-filesize` stops curl past
+- * the usual 2 MB; a body without a Content-Length that runs past it is cut
+- * when read and marked truncated.
++ * file is read back as bytes and removed. Only the first 2 MB are read
++ * back (the rest is marked truncated); `--max-filesize` is a 50 MB disk
++ * guard on top.
+  */
+ async function curlOnceBinary(
+   url: URL,
+@@ -830,8 +832,12 @@ function buildCurlArgs(
+       : [
+           "-H",
+           "Accept-Encoding: gzip",
++          // A disk guard, not the cap: the read below keeps the first
++          // MAX_RESPONSE_BYTES and marks the rest truncated, so a big
++          // uncompressed sitemap still yields its first entries. 50 MB is
++          // the sitemap protocol's own size limit.
+           "--max-filesize",
+-          String(MAX_RESPONSE_BYTES),
++          String(MAX_BINARY_DOWNLOAD_BYTES),
+           "-o",
+           binaryBodyPath,
+         ]),
+-- 
+2.56.0.windows.4
+

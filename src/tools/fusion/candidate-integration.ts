@@ -1,3 +1,5 @@
+import { activePolicy } from "../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../policy/policy-mutations.js";
 import { createHash, randomBytes } from "node:crypto";
 import { createReadStream, type Stats } from "node:fs";
 import { chmod, copyFile, lstat, mkdir, open, opendir, readlink, rename, rm, rmdir, stat, symlink } from "node:fs/promises";
@@ -646,6 +648,9 @@ export async function createCandidateIntegration(
         // worker cannot loosen or remove them by way of a promoted candidate.
         const agentState = changed.filter(isAgentState);
         if (agentState.length > 0) return await rejectFinal(`candidate not promoted: it changes the project's agent state directory ${AGENT_STATE_DIR}/ (${agentState.map(p => p.split(sep).join("/")).join(", ")}); only the operator may change it`, { contract: evidence });
+        const mutation = checkPolicyMutation(activePolicy(), "fusion.promote", changed.map(path => join(set.realDir, path)), set.realDir,
+          changed.filter(path => base.get(path)?.kind === "directory" || final!.get(path)?.kind === "directory").map(path => join(set.realDir, path)));
+        if (mutation.refusal !== null || mutation.ask) return await rejectFinal(mutation.refusal ?? "Organization policy requires an operator decision before Fusion promotion", { contract: evidence });
         const artifacts: ArtifactObservation[] = changed.map(path => ({ path, source: "snapshot", change: !final!.has(path) ? "deleted" : !base.has(path) ? "new" : base.get(path)?.hash === final!.get(path)?.hash ? "mode" : "modified" }));
         const dependencies = (input.contract?.requires ?? []).flatMap<ArtifactManifestDependency>((requirement, requirementIndex) => {
           const providers = (input.contract?.provides ?? []).filter(provide => provide.name === requirement.name && provide.task !== requirement.task);

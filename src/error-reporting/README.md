@@ -22,3 +22,5 @@ B7a5 accepts the fixed start_pending liveness reason and reports the existing fi
 Reported parameter paths come only from the parsed `body.param`; prose is never a parameter source. Reason classification still matches provider wording locally. A provider sentence quoting the person can influence the selected reason, so it is a diagnostic hint, not an authenticated account of the refusal. Its reported value always remains in the closed reason vocabulary.
 
 The legacy `extractUpstreamParam` prose utility is internal and reserved for tests; production reports read only `body.param`.
+
+ATO-1674: only near_miss unregistered-tool streaks are not sent to error reporting; mcp_like and other streaks still report with their fixed class; local traces and warnings remain.

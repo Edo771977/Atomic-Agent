@@ -151,7 +151,13 @@ export const NESTED_SHELL_PROGRAMS: readonly string[] = [
   "fish",
   "csh",
   "tcsh",
+  "rbash", "mksh", "lksh", "ash", "hush", "yash", "posh", "oksh", "loksh", "sash",
 ];
+
+/** BusyBox's literal applet selector; global help/list/install flags are not programs. */
+export function busyboxApplet(words: readonly string[]): readonly string[] | null {
+  return programName(words[0] ?? "") === "busybox" && /^[A-Za-z0-9_-]+$/.test(words[1] ?? "") ? words.slice(1) : null;
+}
 
 /**
  * Commands that run the command after them, and the flags of each that

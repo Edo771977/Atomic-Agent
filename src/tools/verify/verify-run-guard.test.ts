@@ -110,7 +110,7 @@ describe("guardVerifyRun", () => {
     expect(bash.dangerous.map((c) => c.verdict.rule)).toEqual(["dangerous.rm_recursive"]);
     expect(verifyRunCommands(parseVerifyRunArgs({ kind: "command", cmd: "sh", stdin: "echo hi" }))).toEqual([
       { cmd: "sh", args: [] },
-      { cmd: "echo hi", args: [] },
+      { cmd: "echo hi", args: [], dialect: "posix" },
     ]);
   });
 

@@ -210,7 +210,9 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
     }
     return { program, cls: "http" };
   }
-  if (RAW_CLIENTS.has(program)) return { program, cls: null };
+  // Non-HTTP transports and implicit client configuration are not a URL
+  // trace. Retain an unknown destination for restrictive policy decisions.
+  if (RAW_CLIENTS.has(program)) { urls?.set("", false); return { program, cls: null }; }
   if (program === "gh") return { program, cls: "github" };
   if (program === "rsync") {
     // Only a remote operand (`host:path`, `rsync://`) leaves the machine.
@@ -222,13 +224,23 @@ function inSegment(words: readonly string[], depth: number, urls?: Map<string, b
     const found = findGitSubcommand(rest);
     if (found === null) return null;
     const next = rest[found.index + 1]?.toLowerCase();
-    if (GIT_NETWORK_VERBS.has(found.verb)) return { program: `git ${found.verb}`, cls: "git" };
-    if (found.verb === "remote" && next === "update") return { program: "git remote update", cls: "git" };
-    if (found.verb === "submodule" && next === "update") return { program: "git submodule update", cls: "git" };
+    if (GIT_NETWORK_VERBS.has(found.verb)) {
+      if (urls) {
+        const explicit = rest.slice(found.index + 1).filter(word => /^https?:\/\//i.test(word));
+        for (const word of explicit) urls.set(word, false);
+        if (explicit.length === 0) urls.set("", false);
+      }
+      return { program: `git ${found.verb}`, cls: "git" };
+    }
+    if (found.verb === "remote" && next === "update" || found.verb === "submodule" && /^(?:update|add)$/.test(next ?? "") || found.verb === "lfs" && /^(?:fetch|pull|push|clone)$/.test(next ?? "")) {
+      urls?.set("", false);
+      return { program: `git ${found.verb} ${next}`, cls: "git" };
+    }
     return null;
   }
-  if (PUBLISHERS.has(program) && rest.find((w) => !w.startsWith("-"))?.toLowerCase() === "publish") {
-    return { program: `${program} publish`, cls: "http" };
+  if (PUBLISHERS.has(program) && /^(?:publish|install|i|add|update|upgrade|ci|exec|dlx|create)$/.test(rest.find(w => !w.startsWith("-"))?.toLowerCase() ?? "") || /^(?:pip\d*|uv|npx)$/.test(program) || /^python\d*(?:\.\d+)?$/.test(program) && rest[0] === "-m" && /^pip\d*$/.test(rest[1] ?? "")) {
+    urls?.set("", false);
+    return { program: PUBLISHERS.has(program) && rest.find(w => !w.startsWith("-"))?.toLowerCase() === "publish" ? `${program} publish` : program, cls: "http" };
   }
   if (depth > 3) return null;
   if (NESTED.has(program)) {

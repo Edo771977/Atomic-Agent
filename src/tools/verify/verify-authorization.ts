@@ -1,4 +1,7 @@
+import { requirePolicyWebUrl } from "../../policy/policy-web.js";
 import { verifyPageFolderKey } from "../../approval/verify-page-folder.js";
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallRefusal, policyCallAsks } from "../../policy/policy-enforce.js";
 import { stateDirProjectRecords } from "../../session/project-decisions.js";
 import { APPROVED_IMPECCABLE, impeccableArgs, isImpeccableMarkup, resolveImpeccable } from "./impeccable-check.js";
 import { canonicalVerifyCwd } from "./verify-canonical-cwd.js";
@@ -190,6 +193,8 @@ export async function authorizeVerifyBatch(
     const actualCwd = resolveVerifyCwd(ctx.workingDir, actual.cwd, true);
     const guard = guardVerifyRun(actual, actualCwd, options.shellPolicy);
     if (guard.blocked !== null) throw new VerifyGuardRefusal(guard.blocked.verdict.rule, guard.blocked.verdict.reason);
+    const policyRefusal = policyCallRefusal(activePolicy(), "verify.run", policySpec, project);
+    if (policyRefusal !== null) throw new Error(policyRefusal);
     const logical = parseVerifyRunArgs(rebaseVerifyWorkspaceValue(policySpec, ctx.workingDir, project));
     const cwd = resolveVerifyCwd(project, logical.cwd, true);
     const artifactTarget = (isArtifactKind(logical.kind) || logical.kind === "ui") && logical.path !== undefined ? resolve(cwd, logical.path) : undefined;
@@ -224,14 +229,14 @@ export async function authorizeVerifyBatch(
     ];
     const refused = uiVerdicts.find(verdict => verdict.action === "block");
     if (refused !== undefined) throw new VerifyGuardRefusal(refused.rule, refused.reason);
-    const commands = detector === undefined ? verifyRunCommands(logical) : [{ cmd: detector.file, args: detectorArgs! }];
+    const commands = detector === undefined ? verifyRunCommands(logical, cwd) : [{ cmd: detector.file, args: detectorArgs! }];
     const commandSegments = detector === undefined
-      ? commands.flatMap(c => shellRuleSegments(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args)))
+      ? commands.flatMap(c => shellRuleSegments(c.cmd, c.args, c.dialect !== undefined || needsShellInterpretation(c.cmd, c.args), c.dialect))
       : [detector.file, ...(basename(detector.file) === "impeccable" ? [] : ["impeccable"])].flatMap(exe => [
         [exe, ...detectorArgs!], [exe, "--version"],
       ]);
-    const stdinScript = verifyRunStdinScript(logical);
-    const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, needsShellInterpretation(c.cmd, c.args))));
+    const stdinScript = verifyRunStdinScript(logical, cwd);
+    const commandUnreadable = !ui && (stdinScript?.unreadable === true || commands.some(c => shellRunsUnreadableScript(c.cmd, c.args, c.dialect !== undefined || needsShellInterpretation(c.cmd, c.args), c.dialect, cwd)));
     const targetPaths = ui ? [] : commands.flatMap(c => needsShellInterpretation(c.cmd, c.args) ? shellWriteTargets([c.cmd, ...c.args].join(" "), cwd) : execWriteTargets(c.cmd, c.args, cwd));
     const dangerous = guard.dangerous.length > 0 || uiVerdicts.some(verdict => verdict.action === "approval_required" && verdict.rule.startsWith("dangerous."));
     // A script fed on stdin is not what a grant for the program approved.
@@ -358,6 +363,7 @@ export async function authorizeVerifyBatch(
     }
     const authorizeUrls = async () => {
       for (const [url, sendsQueryData] of urls) {
+        await requirePolicyWebUrl(options, "verify.run", url, ctx);
         await requireUrlSendApproval(options, {
           mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
           tool: "verify.run",
@@ -368,7 +374,8 @@ export async function authorizeVerifyBatch(
         });
       }
     };
-    const scoped = options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
+    const organizationAsk = policyCallAsks(activePolicy(), "verify.run", logical, undefined, project);
+    const scoped = !organizationAsk && options.allowFanoutScope === true && (prompt.category === "shell" || prompt.category === "verify_page_local") &&
       !(options.approvals.holdsForOutsideContent?.(ctx.sessionId, "shell") ?? false) &&
       (options.approvals.fanoutScopes?.allows(ctx.sessionId, [cwd]) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
@@ -382,7 +389,7 @@ export async function authorizeVerifyBatch(
     // denies, or the person declined the target (the gate also refuses it
     // after outside content). Every other category keeps "Allow once".
     const page = prompt.category === "verify_page_local" && opensFileInside(logical, cwd);
-    if (page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
+    if (!organizationAsk && page && (options.approvals.verifyPageGrantedForTurn?.(ctx.sessionId, cwd) ?? false) &&
       !(options.approvals.hasDeclinedTarget?.(prompt) ?? false) &&
       !["deny", "ask"].includes(options.approvals.ruleDecisionFor?.(prompt) ?? "")) {
       await authorizeUrls();
@@ -395,7 +402,7 @@ export async function authorizeVerifyBatch(
       ? options.approvals.offerVerifyPageTurnGrant?.(ctx.sessionId, cwd)
       : undefined;
     try {
-      const outcome = await requireApproval(options, prompt, ctx.signal);
+      const outcome = await requireApproval(organizationAsk ? { ...options, approvalRequired: true } : options, prompt, ctx.signal, organizationAsk ? true : undefined);
       const actualArgs = Array.isArray(spec.args) ? spec.args : [];
       const pin = outcome.pinnedExec;
       if (logical.kind === "ui" || pin === undefined || pin.argv.length !== actualArgs.length + 1 ||

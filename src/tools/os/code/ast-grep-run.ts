@@ -5,6 +5,8 @@ import { runCommand as defaultRunCommand, type CommandResult } from "../../../sa
 import { resolveUserPath } from "../expand-home.js";
 import { parseAstGrepJson, type AstGrepMatch } from "./ast-grep-json.js";
 import { resolveAstGrepPath } from "./ast-grep-resolver.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyFileReadFilter } from "../../../policy/policy-paths.js";
 
 /** What both structural code tools need from the outside; tests inject fakes. */
 export interface AstGrepDependencies {
@@ -158,6 +160,8 @@ export async function runAstGrep(
   const target = query.path === undefined
     ? ctx.workingDir
     : resolveUserPath(query.path, ctx.workingDir);
+  const filter = policyFileReadFilter(activePolicy());
+  if (!filter.allows(target)) throw new Error("Organization policy files are protected");
   try {
     await stat(target);
   } catch (err) {
@@ -168,7 +172,7 @@ export async function runAstGrep(
     };
   }
   const config = await deps.neutralConfig();
-  const argv = buildAstGrepArgs(query, target, config);
+  const argv = buildAstGrepArgs({ ...query, globs: [...query.globs, ...filter.exclusions(target).map(path => `!${path}`)] }, target, config);
   ctx.signal.throwIfAborted();
   const result = await deps.runCommand(binary, argv, {
     // Not the project: ast-grep looks for sgconfig.yml from its cwd up.
@@ -183,14 +187,14 @@ export async function runAstGrep(
   if (result.timedOut) {
     return {
       kind: "ok",
-      matches: parseAstGrepJson(result.stdout),
+      matches: parseAstGrepJson(result.stdout).filter(match => filter.allows(resolveUserPath(match.file, ctx.workingDir))),
       result,
       command,
       target,
     };
   }
   if (result.exitCode === 0 || (result.exitCode === 1 && stderr.length === 0)) {
-    return { kind: "ok", matches: parseAstGrepJson(result.stdout), result, command, target };
+    return { kind: "ok", matches: parseAstGrepJson(result.stdout).filter(match => filter.allows(resolveUserPath(match.file, ctx.workingDir))), result, command, target };
   }
   return {
     kind: "error",

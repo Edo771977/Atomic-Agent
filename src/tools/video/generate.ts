@@ -1,3 +1,6 @@
+import { activePolicy } from "../../policy/policy-active.js";
+import { checkPolicyMutation } from "../../policy/policy-mutations.js";
+import type { ToolContext } from "../tool-registry.js";
 import { constants as fsConstants } from "node:fs";
 import { copyFile } from "node:fs/promises";
 import { extname, join } from "node:path";
@@ -54,12 +57,15 @@ export interface VideoGenerateToolOptions extends DangerousToolOptions {
 }
 
 /** `video-20261021-142233.mp4`, then `-2`, `-3`, ...; never an existing file. */
-async function saveIntoWorkingDir(output: CoreVideoOutput, workingDir: string, now: Date): Promise<string> {
+async function saveIntoWorkingDir(output: CoreVideoOutput, workingDir: string, now: Date, options: DangerousToolOptions, ctx: ToolContext): Promise<string> {
   const pad = (n: number) => String(n).padStart(2, "0");
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
   const ext = /^\.(mp4|webm|mov)$/i.test(extname(output.path)) ? extname(output.path).toLowerCase() : ".mp4";
   for (let n = 1; ; n++) {
     const dest = join(workingDir, n === 1 ? `video-${stamp}${ext}` : `video-${stamp}-${n}${ext}`);
+    const mutation = checkPolicyMutation(activePolicy(), "video.generate", [dest], workingDir);
+    if (mutation.refusal !== null) throw new Error(mutation.refusal);
+    if (mutation.ask) await requireApproval({ ...options, approvalRequired: true }, { sessionId: ctx.sessionId, tool: "video.generate", category: "fs_write_workspace", reason: "Organization policy requires a decision for the video file", targetPaths: [dest], affectedResources: [dest] }, ctx.signal, true);
     try {
       await copyFile(output.path, dest, fsConstants.COPYFILE_EXCL);
       return dest;
@@ -223,7 +229,7 @@ export function buildVideoGenerateTool(options: VideoGenerateToolOptions): ToolD
         });
 
         made = result.output;
-        const path = await saveIntoWorkingDir(made, ctx.workingDir, now());
+        const path = await saveIntoWorkingDir(made, ctx.workingDir, now(), options, ctx);
         report("success");
         const lines = [
           `Saved a ${made.durationSecs > 0 ? `${Math.round(made.durationSecs)}-second ` : ""}video made with ${modelId} on OpenRouter:`,

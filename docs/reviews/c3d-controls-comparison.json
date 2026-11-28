@@ -1,0 +1,143 @@
+{
+  "baseline": {
+    "numTotalTests": 315,
+    "numPassedTests": 35,
+    "numFailedTests": 12,
+    "numPendingTests": 268,
+    "numFailedTestSuites": 11
+  },
+  "candidate": {
+    "numTotalTests": 315,
+    "numPassedTests": 35,
+    "numFailedTests": 12,
+    "numPendingTests": 268,
+    "numFailedTestSuites": 11
+  },
+  "comparison": {
+    "common": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "shared dependency directories isolates a repo whose ignored node_modules exceeds the copy budget across tasks",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:22:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-VNDV9X/atag-fusion-a996e5-AjxbCC/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-merge.test.ts",
+        "name": "fusion.delegate with isolation worktree: a task reaches the checkpoint only after its merge",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-merge.test.ts:551:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+        "name": "actual tracked working-tree snapshot charges tracked byte overlays to the cumulative private-copy limit",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-workspace-autocrlf.test.ts:55:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-overlay-limit-tmp-QbWFsG/atag-fusion-d3e869-EX7H3h/t1-two'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for ignored-file payload",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-rj1Ikp/copies/atag-fusion-5cb05a-n6kFiq/t0-checked-source'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+        "name": "refuses the measured whole final copy before workers for ignored-directory payload",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/candidate-copy-budget.test.ts:25:70\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-candidate-budget-5VOp66/copies/atag-fusion-c259be-UqnlmC/snapshot.git'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "fails closed for missing check evidence and protects declared inputs",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:135:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/candidate-integration.test.ts",
+        "name": "journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-integration.test.ts:486:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds back a task whose own check fails, saves its patch, and merges the green one",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:126:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      }
+    ],
+    "additional": [
+      {
+        "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+        "name": "shared dependency directories links ignored folders inside a dependency directory that keeps a tracked placeholder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/branch-isolation-safety.test.ts:44:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-isolation-safety-MNMxeQ/atag-fusion-622db5-2Ktt7H/ignore-policy/tree'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+        "name": "measures exactly the complete unchanged future branch-set copy (Git=true)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at Object.chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2027:7\n    at Array.forEach (<anonymous>)\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2021:10\n    at <checkout>/src/tools/fusion/branch-workspace-copy-plan.test.ts:20:23\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-copy-plan-z9xk5G/copies/atag-fusion-59af2a-169vR5/t0-checked'"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) runs a check no task owns after the merge, on the merged folder",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:164:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a task still red after its retry out of the folder, as a patch",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:236:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+          "Error: EBUSY: resource busy or locked, rmdir 'C:/Users/edoar/AppData/Local/Temp/atag-gate-MQq9eD'"
+        ]
+      }
+    ],
+    "baselineOnly": [
+      {
+        "file": "src/tools/fusion/candidate-evidence.test.ts",
+        "name": "binds promoted and zero-change receipts only after final delivery verification",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/candidate-evidence.test.ts:86:1\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n    at async VitestModuleEvaluator._runInlinedModule (file:///<checkout>/node_modules/vitest/dist/module-evaluator.js:206:4)\n    at async VitestModuleRunner.directRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1262:59)\n    at async VitestModuleRunner.cachedRequest (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1169:73)\n    at async VitestModuleRunner.import (file:///<checkout>/node_modules/vitest/node_modules/vite/dist/node/module-runner.js:1124:10)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) keeps a red task's workspace across a team's review passes, and holds it as a patch after the last (issue #38)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:260:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) holds a task the judge could not verify as needs_orchestrator, so its dependent is held too",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:298:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      },
+      {
+        "file": "src/tools/fusion/merge-gate.test.ts",
+        "name": "merge only green tasks (isolation) leaves the dependent of a review-exhausted task for the director's decision, not a forced replan (issue #38)",
+        "messages": [
+          "Error: STACK_TRACE_ERROR\n    at task (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1784:27)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1817:16)\n    at Object.<anonymous> (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1563:28)\n    at chain (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:599:14)\n    at <checkout>/src/tools/fusion/merge-gate.test.ts:377:3\n    at file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:40\n    at runWithSuite (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:2258:8)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1889:10)\n    at Object.collect (file:///<checkout>/node_modules/@vitest/runner/dist/chunk-artifact.js:1893:54)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)"
+        ]
+      }
+    ]
+  }
+}

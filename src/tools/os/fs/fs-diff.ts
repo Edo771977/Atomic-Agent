@@ -5,6 +5,8 @@ import { createPatch, structuredPatch } from "diff";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import { resolveUserPath } from "../expand-home.js";
 import type { ToolDefinition } from "../../tool-registry.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyFileReadFilter } from "../../../policy/policy-paths.js";
 const MAX_INLINE_BYTES = 2 * 1024 * 1024;
 
 export const osFsDiffTool: ToolDefinition = {
@@ -14,6 +16,10 @@ export const osFsDiffTool: ToolDefinition = {
   readonly: OS_FS_DIFF_CONTRACT.readonly,
   async run(rawArgs, ctx) {
     const args = parseArgs(rawArgs, basename);
+    const filter = policyFileReadFilter(activePolicy());
+    for (const path of [args.aPath, args.bPath]) {
+      if (path !== undefined && !filter.allows(resolveUserPath(path, ctx.workingDir))) throw new Error("Organization policy files are protected");
+    }
     const [aContent, bContent] = await Promise.all([
       resolveSide(args.aPath, args.aText, ctx.workingDir, "a"),
       resolveSide(args.bPath, args.bText, ctx.workingDir, "b"),

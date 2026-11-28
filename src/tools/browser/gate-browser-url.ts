@@ -1,3 +1,5 @@
+import { activePolicy } from "../../policy/policy-active.js";
+import { policyCallAsks, policyCallRefusal } from "../../policy/policy-enforce.js";
 import {
   compressToolResult,
   type CompressedToolResult,
@@ -102,11 +104,17 @@ export async function gateBrowserUrl(
 ): Promise<CompressedToolResult | null> {
   const offline = offlineBrowserRefusal(tool, url);
   if (offline) return offlineToolError(tool, url, offline);
+  const org = policyCallRefusal(activePolicy(), "os.web.fetch", { url });
+  if (org !== null) return compressToolResult({ tool, status: "error", output: org, details: { reason: "organization_policy" } });
+  if (policyCallAsks(activePolicy(), "os.web.fetch", { url })) {
+    await requireApproval({ ...dangerous, approvalRequired: true }, { sessionId: ctx.sessionId, tool, category: "http", reason: "Organization policy requires a decision for this destination", affectedResources: [url] }, ctx.signal, true);
+  }
   if (policy.userProfile && !isUserProfileUrl(url)) {
+    const destination = /^file:/i.test(url) ? "destination is a local file" : /^chrome:/i.test(url) ? "destination is a Chrome internal page" : "destination is not an http(s) page";
     return compressToolResult({
       tool,
       status: "error",
-      output: `${tool}: in your own Chrome the agent opens only http(s) pages. chrome://, file:// and other browser pages (saved passwords, settings, history, local files) are off limits.`,
+      output: `${tool}: this ${destination}, which the agent cannot open in your own Chrome. Choose an http(s) page; local files, saved passwords, settings and history are off limits.`,
       details: { url, reason: "user_profile_nonweb" },
     });
   }
@@ -247,6 +255,11 @@ export async function recheckLandedPage(
   if (refused) {
     await backend.navigate({ url: "about:blank" }).catch(() => undefined);
     return offlineToolError(tool, url, refused, " The action ended on that site, so the tab was cleared.");
+  }
+  const org = policyCallRefusal(activePolicy(), "os.web.fetch", { url });
+  if (org !== null) {
+    await backend.navigate({ url: "about:blank" }).catch(() => undefined);
+    return compressToolResult({ tool, status: "error", output: org, details: { reason: "organization_policy" } });
   }
   const localFile = localPageRefusal([url], policy, local);
   if (localFile !== null) {

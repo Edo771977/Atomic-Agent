@@ -18,6 +18,10 @@ After that merge, the upstream batch [#1740](https://github.com/AtomicBot-ai/ato
 - Changes that do not yet meet the fork's rules (credentials, external content that starts turns, external protocols) are held back. Each one has reproducible evidence in `docs/reviews/`.
 - [upstream-2026-11-triage.md](upstream-2026-11-triage.md) records, for each upstream change, whether it was imported, with which pull request, or why it is held back.
 
+W1.1 selectively imports upstream #1776 and #1788: a static own-computer persona line and an offline RAM bench fixture. The fork uses a fictional 16 GiB computer described only by computer.json in the temporary workspace; the checker reads captured replies and constants, not host hardware or outside files. The model matrix and profiles remain those of main. No dependencies or install hooks change. Four-mode pre-port byte comparisons and independent-session checks guard the stable prefix. [Verification](../reviews/w11-verification.json).
+
+W1.2 imports only the model-routing regression tests from upstream #1864/#1908 and removes their four resolved type-debt entries (five diagnostics), confirmed by typecheck:tests:reduce on the fork. The escalation test maps upstream turnModel to the existing fork model/pinModel fields. Fork fixture levels, team member selection, receipt attribution and production code are preserved; no C1/B7b prerequisite is imported. Both new tests pass on main and fail under temporary assertion inversions. [Verification](../reviews/w12-verification.json).
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:
@@ -80,6 +84,22 @@ The B5a IMAP ingress (#1702 and #1719) is deferred: ambiguous sender headers, do
 
 C2a keeps upstream #1570 deferred. Its candidate retains unbounded archived answer bytes, accepts malformed archive fields, persists extra history in incognito and restores without acquiring turn ownership. Existing rollback behavior remains available. [Evidence and reopening tests](../reviews/c2a-previous-replies.md).
 
+## Chosen folders and file search
+
+C4a keeps upstream #1697 and its vector-scan, interrupted-scan and grammar follow-ups deferred. No chosen-folder index, /api/files routes or files.search tool is enabled. The candidate bypasses protected-input/session-read boundaries and persists credentials before masking; an inherited owner key can add a folder. Existing filesystem and document tools retain their guards. [Candidate evidence and reopening tests](../reviews/c4a-files-index.md).
+
+C4b also defers upstream #1700 with C4a: no automatic sqlite-vec load or reranker setting is enabled. The candidate loads an unpinned writable package and admits LAN rerankers without provider/egress or secret/privacy handling. Its offline blocking and search fallbacks work; the commit adds no memory retrieval integration. [Native-loader and reranker audit](../reviews/c4b-vec-rerank.md).
+
+## Facts from a ChatGPT or Claude export
+
+C3a keeps upstream #1584 deferred: approval IDs can be supplied by an agent child, opaque runtime credentials survive collection, and extraction bounds exist only in the prompt. No facts extraction or save API is enabled. [Candidate evidence and reopening tests](../reviews/c3a-user-facts.md).
+
+C3b keeps upstream #1642 and its follow-up fixes deferred with C3a. No /api/import/facts routes or background import are enabled. The candidate lacks bounded archive admission, durable job scope, memory-enabled checks and token ownership; an inherited owner credential can save. Existing guarded providers and offline transport are preserved. [Audit and reopening tests](../reviews/c3b-import-jobs.md).
+
+C3c keeps the dependent terminal facts step (#1661) deferred. Its candidate checks every fact by default and Enter can save facts outside the only displayed page. The existing import form has no facts review until the predecessor services and explicit unchecked approval flow are established. [TUI audit](../reviews/c3c-tui-facts.md).
+
+C3d keeps the first-run export hint (#1670) deferred because it points to that absent facts step. The hint itself is informational and starts no import or memory write; it can return once the preceding chain is ready. [Onboarding controls](../reviews/c3d-onboarding.md).
+
 ## Memory backup and entry controls
 
 B7a1 keeps upstream #1708 housekeeping history deferred: split-merge snapshots lose the original constraint scope and disabled state, and restoration lacks a memory-enabled/operator trust contract. Existing note/profile history remains available. [Candidate evidence and reopening tests](../reviews/b7a1-memory-history.md).
@@ -91,6 +111,8 @@ CLI and TUI share an owner-only SQLite backup and a transactional merge for note
 C2b keeps upstream #1606 deferred, including its HTTP-400 retry and environment documentation. The candidate endpoint bypasses provider/host policy and Privacy Shield, attempts suggestions in offline mode and lacks validated credential/error handling. Existing suggestions through the configured model remain available. [Evidence and reopening tests](../reviews/c2b-next-step-endpoint.md).
 
 ## Fusion team
+
+B7b3 keeps upstream #1562/#1563 and 81cd5a040 deferred together. The candidate's authenticated /props callback bypasses provider, host, egress, B1 and offline preflight, uses automatic redirects, and admits an unbounded response and untrusted display label. A local-llama id is not proof that an endpoint is this computer. No probe, served-label reconciliation or dependent TUI behavior is enabled. [Reproduction and reopening requirements](../reviews/b7b3-external-llama.md).
 
 - **Roles.** Director, worker and reviewer, with the director chosen per session ([#42](https://github.com/Edo771977/atomic-agent/pull/42)).
 - **A reviewer per task.**
@@ -190,6 +212,8 @@ The B4b direct ChatGPT/Copilot OAuth chain (#1578/#1579/#1707) is deferred: the 
 
 B7a5 imports the ATO-421 TUI startup marker with prerequisite ba8bf8343. The fork retains its engine wait ceilings, avoids assigning lock ownership to a pre-lock marker, and covers a first start before the models directory exists. Error and cancellation cleanup are tested. [Review](../reviews/b7a5-start-marker.md).
 
+W3.1 imports upstream #1777/#1798. Core's downloaded-binary check reports fixed explanations for missing binary, denied execution, wrong architecture, missing/failed library, busy port and early exit; its existing 15-second deadline has a fixed timeout reason. No process stderr, message, path or raw cause is retained. An idle Core keeps Studio's loaded diffusion model and releases Agent's lease; it shuts down after unload or when the module is absent. Real disposable processes cover shutdown and startup-marker cleanup after death. Fork wait ceilings, LocalEngineDownError and the B7b3 deferral stay intact. [Verification](../reviews/w31-core-install-idle.md).
+
 ## Local workers
 
 - **Reasoning.** Local workers' reasoning is bounded by default ([#6](https://github.com/Edo771977/atomic-agent/pull/6)).
@@ -231,6 +255,10 @@ The upstream #1639 Python-to-MCP bridge remains deferred in B6a. CLI trust strin
 
 The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport registry is shared across credentials and idle sessions only expire when another initialize runs. No /mcp routes or permissions are added. Import requires token ownership, bounded admission and timed stream closure, alongside the existing memory scope and skill-confirmation rules. [HTTP review](../../src/http/README.md)
 
+## Crawling a site
+
+B7b1 imports upstream #1714 gzip sitemaps and start redirects. A start move that changes host requires both the site-name check and the exact validated public DNS address set of the start host. On the current host, public DNS rotation is allowed; every request/retry still rejects an entire answer containing a private address and pins curl to the freshly checked public set. Every URL passes offline, organization policy, project egress and URL-data consent before transport, including robots, sitemap and cached-page reuse. Sitemap admission is capped at 2,000,000 decompressed bytes. Automatic crawl JavaScript rendering remains deferred. [Review](../reviews/b7b1-crawl.md), [review corrections](../reviews/b7b1-review-followup.md).
+
 ## Folder constraints for confidential data
 
 - **Per-folder rules.** `projects.constraints` lists the providers and egress classes each folder allows ([#34](https://github.com/Edo771977/atomic-agent/pull/34)). Settings: [settings reference](settings-reference.md).
@@ -262,6 +290,12 @@ The [second PR 281 review](../reviews/b7a-281-review2.md) retains inline checks 
 B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
 
 ## Security and reliability
+
+W3.2 imports the test-only #1778/#1913 chains, keeping one download fix, the fork's pinned rail dates and all behavioral assertions. Voting bulk setup uses one transaction. Verify retries only EADDRINUSE, at most twice, and checks workspace bytes and copy cleanup on every attempt; other failures return immediately. No production code, quarantine or CI exclusions change. [Verification](../reviews/w32-test-races.md).
+
+Organization policy (upstream #1686 / ATO-587) is imported in [fork PR #246](https://github.com/Edo771977/Atomic-Agent/pull/246) with additional fork boundaries. Invalid local files and unknown keys refuse startup; evaluator failures refuse calls. User policy, cache and the administrator's system file share the configuration/serve-key protections. Within the supported launcher flow, tool children may start without policy and intersect their own context with pinned parent local/system files and validated caches; operator policy commands remain reserved. Loaded file snapshots are identified without their contents; a child refuses if inherited bytes are missing, hidden or changed and retains stricter intermediate contexts. A fresh remote policy that cannot be cached now refuses parent startup so children cannot inherit an older, weaker snapshot; this tightens upstream's cache-write exception. Download failures retain the documented availability/cache fallback. Recursive readers, diff and structural search filter protected policy paths. Patch/Git approval metadata does not substitute for actual mutation targets. Move/trash inspect real descendants within entry/depth bounds and conservatively hold incomplete trees. Browser actions without navigation retain their ordinary profile approvals; HTTP redirects enforce both policy ask and deny. URL-data approvals remain independent for shell and resolved Git URLs. Shell analysis scopes dynamic arguments to known programs and treats opaque code/unknown client destinations conservatively. Organization Node stdin follows each command's parsed pipeline/redirection input, including nested shells and groups; output pipes and quoted metacharacters do not imply input. Known Node booleans and their negations retain file-script boundaries; unknown flags with real stdin remain conservative. Descriptor provenance tracks persistent exec redirections, multiline pipelines and owning command/process substitutions; literal syntax words do not close frames, unresolved syntax holds the call, and proven /dev/null input stays empty. Node 25 help supplies the organization option arity. Existing approval levels, folder egress, offline/privacy modes, sandbox, learned-skill confirmation, HTTP roles and private-chat visibility remain independent restrictions. See [organization policy](../../src/policy/README.md) for child/MCP administration, serialized URL semantics, read-only ask limitations, hard-link limits and direct skill-file access.
+
+B7b2 imports upstream #1724. The complete registered name is resolved before claim checks, progress splitting, approval trim and dispatch. Nonexact forms must be unambiguous. MCP names first require one registered server with explicit boundaries and exact spelling except for case; normalization is confined to that server's raw-tool segments, preserving dots. Short/flattened MCP names and letter typos stay unknown. The resolved identity still passes B1, approval, read/input protection, cancellation and the turn filter. Stable prompt/catalog bytes are not rewritten. [Review](../reviews/b7b2-tool-names.md), [review corrections](../reviews/b7b2-review-followup.md).
 
 Child process environment filtering depends on the launcher. The shell builder normally filters provider credentials and supports explicit `tools.shell.envPassthrough`. A command job given a prepared environment uses that environment with the serve key removed. Browser launches using the tool-child marker also remove the serve key while retaining other inherited variables. Coverage and compatibility for a common provider-credential filter are tracked in the [triage](upstream-2026-11-triage.md).
 
@@ -311,4 +345,13 @@ The B5c Twilio client (#1704) is deferred: it lacks mandatory per-call approval,
 
 The fork adapts upstream ATO-469 and ATO-472 with a private Linux PID namespace, protected state paths and explicit one-time shell network consent. Verification commands share the wrapper. See the [activation guide](os-sandbox.md) for supported systems and limits.
 
+La terza revisione B1 della policy (#246) ripristina il parser delle regole personali di main e separa la classificazione prudente dell'organizzazione. Le opzioni degli interpreti terminano allo script/modulo o `--`; stdin e descrittori conservano il rifiuto prudente. Le operazioni senza file policy esistenti mantengono la parità del fork, mentre Git add/commit e pull valutano piani effettivi. Gli ask organizzativi valgono anche sui comandi sicuri. Metadati dei figli e hash sono un contratto applicativo: il file di sistema richiede autorità OS; aggiornamenti anche equivalenti di file/cache richiedono il riavvio del padre. Per limiti linguistici, script su file, hard link e sandbox/egress vedere la [guida policy](../../src/policy/README.md).
+
+La quarta revisione B1 preserva la prudenza delle regole personali di main per opzioni di interprete ignote. La localizzazione effettiva di stdin oltre flag con valori e il rifiuto di descrittori estranei a verify restano un irrigidimento intenzionale anche senza policy. Make ordinario, inclusione POSIX, flag operativi Node e DSL sed/awk evitano falsi positivi; stream normalizzati, shell ampliate/BusyBox e selettori esterni restano prudenti. I metadati child sono indicativi, con controlli best-effort sui reset visibili, e richiedono isolamento OS per codice arbitrario. I limiti delle famiglie meno comuni sono nella [guida policy](../../src/policy/README.md#less-common-families-and-follow-up) e nel [seguito #266](https://github.com/Edo771977/Atomic-Agent/issues/266).
+
+La quinta revisione B1 completa make eval/file-stream, distingue flag operativi e codice Node e risolve gli stream relativi dalla cwd di ogni chiamata fino ai consumatori verify/read-scope/egress. I reset visibili sono rifiutati quando rimuovono metadati presenti nel padre. L’inventario Git ora distingue i selettori davvero coperti dai programmi/configurazioni non analizzati; indirizzi/opzioni sed e alias dinamici di stdin restano limiti documentati nel seguito #266. La guida e i test elencano gli irrigidimenti personali intenzionali senza policy.
 Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client requests unrestricted network even without consent and while offline. An enabled port needs host grants enforced on the server process, folder egress and protected-path inventories. Existing MCP stdio stays outside this command wrapper. macOS already has a Seatbelt command backend with host loopback retained; Windows has no backend. No production behavior changes. [Review and reproducible tests](../reviews/b6b-mcp-sandbox.md).
+
+La sesta revisione B1 usa selettori espliciti per il codice Node, compreso NODE_OPTIONS, e mantiene ordinari i flag lunghi operativi. Make legge gruppi corti e abbreviazioni GNU univoche; /dev/null e uno script vuoto per Make e shell. Il reset che rimuove i metadati registrati da una policy locale caricata e intenzionalmente rifiutato, con indicazioni per conservare le variabili ereditate. La guida esplicita limiti sed e differenze personali stdin.
+
+La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy organizzativa e distingue valori separati, reporter data: e stdin ambiguo, anche tramite NODE_OPTIONS e verify. Il parser personale mantiene le proprie tabelle. I glob letterali in --allow-fs-* vanno quotati per conservare la prudenza del lexer condiviso. Make, reset dell'ambiente e /dev/null mantengono i contratti verificati.

@@ -1,4 +1,5 @@
 import { resolveToolName } from "../tool-name-resolution.js";
+import { resolveBatchToolNames } from "./step-unknown-tools.js";
 import type { StepContext, StepDependencies } from "./step-contract.js";
 import type { PreparedStepInference } from "./step-inference.js";
 import type { CompletionResult } from "../../llm/llama-server-client.js";
@@ -44,13 +45,7 @@ export function parseStepBatch(args: StepBatchParsingArgs): ToolCallBatchParseRe
   parsed = readForeignShapes(args, completion, parsed);
   parsed = admitRepairedJson(args, completion, parsed);
   parsed = admitProseWithoutGrammar(args, completion, parsed);
-  if (parsed.ok && args.rewrite !== undefined) {
-    const rewritten = args.rewrite(parsed.batch);
-    parsed =
-      rewritten === null
-        ? { ok: false, error: new Error("the batch was not accepted by the step's rewrite") }
-        : { ok: true, batch: rewritten };
-  }
+  parsed = rewriteParsedBatch(args, parsed);
   if (parsed.ok) {
     const taken = policy.takeProgressNote(parsed.batch, completion);
     policy.setProgressNote(taken.note);
@@ -102,6 +97,7 @@ export function finishStepBatchRepair(
   );
   parsed = readForeignShapes(args, completion, parsed);
   parsed = admitRepairedJson(args, completion, parsed);
+  parsed = rewriteParsedBatch(args, parsed);
   if (parsed.ok) {
     const taken = policy.takeProgressNote(parsed.batch, completion);
     policy.setProgressNote(taken.note);
@@ -160,6 +156,16 @@ export function finishStepBatchRepair(
     parsed = { ok: true, batch: fallback };
   }
   return parsed;
+}
+
+function rewriteParsedBatch(args: StepBatchParsingArgs, parsed: ToolCallBatchParseResult): ToolCallBatchParseResult {
+  if (!parsed.ok || args.rewrite === undefined) return parsed;
+  // The continuation rewriter matches literal `reply`. Resolve its identity
+  // before it joins text, then let policy extract the joined progress note.
+  const rewritten = args.rewrite(resolveBatchToolNames(args.ctx, args.deps, parsed.batch));
+  return rewritten === null
+    ? { ok: false, error: new Error("the batch was not accepted by the step's rewrite") }
+    : { ok: true, batch: rewritten };
 }
 
 /**

@@ -18,6 +18,9 @@ import { SkillRegistry } from "./skill-registry.js";
 import { loadWorkspaceSkills, sharedAgentSkillsDir } from "./workspace-skills.js";
 import { installPluginFromDir } from "../plugins/plugin-install.js";
 import { readPluginState } from "../plugins/plugin-store.js";
+import { installPolicy } from "../policy/policy-active.js";
+import { mergePolicySources } from "../policy/policy-loader.js";
+import { parsePolicyFile } from "../policy/policy-schema.js";
 import { writeClaudePlugin } from "../plugins/plugin-test-helpers.js";
 
 describe("session workspace skills and live policy", () => {
@@ -27,7 +30,7 @@ describe("session workspace skills and live policy", () => {
     a = join(base, "a"); b = join(base, "b"); home = join(base, "home"); mkdirSync(a); mkdirSync(b); mkdirSync(home);
     vi.stubEnv("ATOMIC_AGENT_STATE_DIR", join(base, "state")); resetConfigCache();
   });
-  afterEach(() => { vi.unstubAllEnvs(); resetConfigCache(); rmSync(base, { recursive: true, force: true }); });
+  afterEach(() => { installPolicy(null); vi.unstubAllEnvs(); resetConfigCache(); rmSync(base, { recursive: true, force: true }); });
   function put(dir: string, name = "example", body = dir, extra = "") {
     const path = join(dir, name, "SKILL.md"); mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `---\nname: ${name}\ndescription: Example skill\n${extra}\n---\n${body}`); return path;
@@ -39,6 +42,37 @@ describe("session workspace skills and live policy", () => {
   }
   /** Skills `npx skills -g` installs "for all agents" (ATO-706). */
   const shared = () => join(home, ".agents/skills");
+
+  const org = (effect: "allow" | "deny") => installPolicy(mergePolicySources([{ status: { kind: "system", location: "fixture", state: "loaded" }, file: parsePolicyFile({ rules: [{ action: "skill", resource: "*", effect }] }) }]));
+  it("tool-child trust inventory keeps metadata without exposing policy or skill bodies", () => {
+    const config = getConfig();
+    put(join(a, config.paths.projectSkillsDirName), "pending-example", "Private skill instructions.");
+    installPolicy(null); vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", "1");
+    const inventory = load();
+    expect(inventory.entries.map(entry => entry.record.manifest.name)).toEqual(["pending-example"]);
+    expect(inventory.entries[0]!.body).toBe("");
+    expect(inventory.entries[0]!.disabledReasons.join(" ")).toMatch(/organization.*policy/i);
+    expect(() => inventory.assertAvailable("pending-example")).toThrow(/operator|tool child/i);
+  });
+  it("organization deny hides folder skills and rechecks a previously loaded skill", () => {
+    put(getConfig().paths.globalSkillsDir);
+    const before = load();
+    expect(before.assertAvailable("example")).toBeDefined();
+    org("deny");
+    expect(load().entries[0]!.disabledReasons.join(" ")).toMatch(/organization.*policy/);
+    expect(() => before.assertAvailable("example")).toThrow(/organization.*policy/);
+  });
+
+  it("organization allow cannot activate an unconfirmed learned draft", () => {
+    org("allow");
+    const c = getConfig();
+    const scope = learnedSkillScope(c.paths.stateDir, a);
+    put(scope.skillsDir, "pending", "Read the report and compare it with the approved checklist.");
+    const result = loadWorkspaceSkills(a, { globalDir: c.paths.globalSkillsDir, projectDirName: c.paths.projectSkillsDirName,
+      configFile: join(base, "missing-config.json"), homeDir: null, defaults: { ...c.skills, selfLearning: { enabled: true, minSteps: 10 } },
+      learnedScope: { folder: a, stateDir: c.paths.stateDir } });
+    expect(result.entries.some(entry => entry.record.learned)).toBe(false);
+  });
 
   it("rejects a matching approval marker without a journal entry", () => {
     const c = getConfig();

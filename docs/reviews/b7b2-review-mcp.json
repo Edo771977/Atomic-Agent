@@ -1,0 +1,56 @@
+{
+  "fixtures": "Pure resolver and synthetic dispatch; no MCP servers",
+  "records": [
+    {
+      "report": "b7b2-review-mcp-red.json",
+      "sha256": "e0fd8bef8ec674d26c959c8cff05a290def919c9c8d5b918ddaabae760e54f78",
+      "passed": 32,
+      "failed": 9,
+      "failures": [
+        {
+          "name": "resolveToolName on separator and wrapping forms refuses flattened MCP names without explicit server boundaries",
+          "message": "AssertionError: expected 'mcp.github.create_issue' to be null"
+        },
+        {
+          "name": "resolveToolName on separator and wrapping forms requires the registered server spelling before normalizing its tool",
+          "message": "AssertionError: expected 'mcp.brave-search.brave_web_search' to be null"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries refuses mcp.brave-search.web_search when only brave's dotted raw tool exists",
+          "message": "AssertionError: expected 'mcp.brave.search.web_search' to be null"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries refuses mcp_brave_search_web_search when only brave's dotted raw tool exists",
+          "message": "AssertionError: expected 'mcp.brave.search.web_search' to be null"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries refuses mcp.brave.search-web-search when only brave's dotted raw tool exists",
+          "message": "AssertionError: expected 'mcp.brave.search.web_search' to be null"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries chooses the explicitly named registered server in either catalog order (false)",
+          "message": "AssertionError: expected null to be 'mcp.brave-search.web_search' // Object.is equality"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries chooses the explicitly named registered server in either catalog order (true)",
+          "message": "AssertionError: expected null to be 'mcp.brave-search.web_search' // Object.is equality"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries refuses an ambiguous case-insensitive server even if only one tool matches",
+          "message": "AssertionError: expected 'mcp.Brave.web_search' to be null"
+        },
+        {
+          "name": "resolveToolName preserves MCP server boundaries refuses mixed structural separators beside the server",
+          "message": "AssertionError: expected 'mcp.brave.web_search' to be null"
+        }
+      ]
+    },
+    {
+      "report": "b7b2-review-mcp-green.json",
+      "sha256": "ad8439f193c91a8ecde09a315f9d50ae499c44ca844790ac5740e40c66e91f0c",
+      "passed": 41,
+      "failed": 0,
+      "failures": []
+    }
+  ]
+}

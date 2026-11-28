@@ -1,0 +1,576 @@
+From 0c22dc44fbd81de154787f68d66c6812c404d3b5 Mon Sep 17 00:00:00 2001
+From: Nadia Rodionova <273119990+sosidudku1@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 17:02:31 +0300
+Subject: [PATCH 1/4] fix(fusion): label workers on a foreign llama.cpp server
+ with the model it serves (ATO-1562)
+
+A llama.cpp server that is not the agent's own holds one loaded model
+and ignores the model a request names, so llm.runMode.fusion.workerModel
+picked nothing there: worker rows named the pick (or the managed model,
+which runs somewhere else) while another model answered.
+
+fusion.delegate now asks such a server what it serves (GET /props,
+model_alias else the model file name) and labels the worker rows, the
+fan-out line and pricing with it. When the person picked a different
+model, the fan-out's result says so once per session: "Selected X, but
+the server serves Y. The model is changed on the server side." The main
+local server keeps its label, and a server that does not answer keeps
+the pick as before.
+
+(cherry picked from commit f0c5d5da2e81224ac5c0d746125b94396e77c7a2)
+---
+ src/llm/run-mode/resolve-run-mode.ts          |  7 ++
+ .../composition/runtime-tool-catalog.ts       | 23 ++++++-
+ src/tools/fusion/fusion-delegate.ts           | 32 +++++++--
+ src/tools/fusion/index.ts                     |  1 +
+ src/tools/fusion/served-model-label.test.ts   | 41 ++++++++++++
+ src/tools/fusion/served-model-label.ts        | 65 +++++++++++++++++++
+ 6 files changed, 164 insertions(+), 5 deletions(-)
+ create mode 100644 src/tools/fusion/served-model-label.test.ts
+ create mode 100644 src/tools/fusion/served-model-label.ts
+
+diff --git a/src/llm/run-mode/resolve-run-mode.ts b/src/llm/run-mode/resolve-run-mode.ts
+index 564b52829..cb36f858c 100644
+--- a/src/llm/run-mode/resolve-run-mode.ts
++++ b/src/llm/run-mode/resolve-run-mode.ts
+@@ -49,6 +49,12 @@ export type ResolvedRunMode = {
+   /** Display label for the worker model; the managed daemon's model unless pinned. */
+   workerModel: string | null;
+   workerPinModel?: string;
++  /**
++   * `llm.runMode.fusion.workerModel` was written by the person, so
++   * `workerModel` is their pick rather than a default (ATO-1562: a
++   * foreign llama.cpp server that serves another model says so).
++   */
++  workerModelPinned?: true;
+   /**
+    * Default fan-out width for a `fusion.delegate` call that names no
+    * `maxWorkers`. Not a ceiling — see `UserLlmFusionConfig.workers`.
+@@ -439,6 +445,7 @@ export function resolveRunMode(
+     // would be naming a model that runs nothing.
+     workerModel: workerModelLabel,
+     ...(workerPinModel === undefined ? {} : { workerPinModel }),
++    ...(fusion?.workerModel === undefined ? {} : { workerModelPinned: true as const }),
+     workers: fusion?.workers ?? DEFAULT_FUSION_WORKERS,
+     cloudWorkers: fusion?.cloudWorkers ?? DEFAULT_FUSION_CLOUD_WORKERS,
+     ...(fusion?.workerReasoning === undefined
+diff --git a/src/runtime/composition/runtime-tool-catalog.ts b/src/runtime/composition/runtime-tool-catalog.ts
+index 9aed36ecb..ce60053d8 100644
+--- a/src/runtime/composition/runtime-tool-catalog.ts
++++ b/src/runtime/composition/runtime-tool-catalog.ts
+@@ -7,7 +7,8 @@ import type { DangerousToolOptions } from "../../approval/dangerous-tool.js";
+ import type { ApprovalGate } from "../../approval/approval-gate.js";
+ import type { SessionStore } from "../../session/session-store.js";
+ import type { SkillRegistry } from "../../skills/skill-registry.js";
+-import type { LlamaServerClient } from "../../llm/llama-server-client.js";
++import { LlamaServerClient } from "../../llm/llama-server-client.js";
++import { servedModelName } from "../../tools/fusion/served-model-label.js";
+ import { renewTransportPool } from "../../llm/transport-deadlines.js";
+ import type { ProviderRegistry } from "../../llm/provider/index.js";
+ import { resolveLlmConfig } from "../../llm/provider/index.js";
+@@ -1232,6 +1233,12 @@ export function registerRuntimeFusionAndReadScope(input: {
+           pluginProfiles: () => pluginAgentProfiles(config.paths.stateDir),
+         }),
+       outputCharCap: config.agent.batchToolResultCharCap,
++      servedModelOf: async (providerId) => {
++        const entry = resolveLlmConfig(getConfig()).providers.find((p) => p.id === providerId);
++        if (entry === undefined || !isForeignLlamaServer(entry, getConfig().localModels.url)) return null;
++        const client = new LlamaServerClient({ baseUrl: entry.url!, ...(entry.apiKey === undefined ? {} : { apiKey: entry.apiKey }) });
++        return servedModelName(await client.fetchProps());
++      },
+       // A contract's declared `checks` run through the verify family,
+       // each on a throwaway copy of the workspace, so a fan-out is judged
+       // by what its output does, never by what a worker's reply says.
+@@ -1396,3 +1403,17 @@ function safePluginMcpServers(
+     return { servers: [], owners: {} };
+   }
+ }
++
++/**
++ * A `llama-server` entry on a server other than the main local one
++ * (`localModels.url`): somebody else's llama.cpp, which serves the model
++ * it loaded (ATO-1562).
++ */
++export function isForeignLlamaServer(
++  entry: { kind: string; url?: string },
++  mainUrl: string,
++): boolean {
++  if (entry.kind !== "llama-server" || entry.url === undefined) return false;
++  const norm = (u: string): string => u.trim().replace(/\/+$/, "");
++  return norm(entry.url) !== norm(mainUrl);
++}
+diff --git a/src/tools/fusion/fusion-delegate.ts b/src/tools/fusion/fusion-delegate.ts
+index c30e716d5..51297859c 100644
+--- a/src/tools/fusion/fusion-delegate.ts
++++ b/src/tools/fusion/fusion-delegate.ts
+@@ -214,6 +214,7 @@ import { receiptHash } from "../../session/receipt-signing.js";
+ import type { CheckRunRecorder, ContractCheckRun, ContractCheckRunner } from "./contract-checks.js";
+ import type { ShellGuardPolicy } from "../os/shell-command-guard/index.js";
+ import type { CommandReadCheck, ReadTargetCheck } from "../read-scope/confine-reads.js";
++import { reconcileWorkerLabel, SaidOnce } from "./served-model-label.js";
+ 
+ export const FUSION_DELEGATE_TOOL = "fusion.delegate";
+ 
+@@ -224,6 +225,7 @@ export const FUSION_DELEGATE_TOOL = "fusion.delegate";
+ export const ORCHESTRATOR_TASK_MAX_WIDTH = 2;
+ 
+ export interface FusionDelegateDeps extends WorkerRunnerDeps {
++  servedModelOf?: (providerId: string) => Promise<string | null>;
+   writeProjectReceipt?: ProjectReceiptWriter;
+   receiptProjectFolder?: () => string | undefined;
+   /**
+@@ -506,6 +508,7 @@ export function buildFusionDelegateTool(
+   // Also per runtime: a leg's format verdict holds for every fan-out.
+   const formatCheck = input.localGrammarSmoke ?? new LocalGrammarSmoke();
+   const turnBudget = deps.turnBudget ?? new FusionTurnBudget();
++  const mismatchesSaid = new SaidOnce();
+   return {
+     name: FUSION_DELEGATE_TOOL,
+     description:
+@@ -647,10 +650,31 @@ export function buildFusionDelegateTool(
+         runAccounting.importCarried(resume.runId, resume.carriedSpendUsd);
+       }
+ 
+-      // Labels, never guesses: the resolver's pin when it has one, the
+-      // provider id when it does not. Both legs are read from the same
+-      // live `mode` the fan-out is about to run on.
+-      const workerModel = mode.workerModel ?? workerProviderId;
++      // Labels, never guesses: what a foreign llama.cpp server says it
++      // serves (ATO-1562), else the resolver's pin when it has one, else
++      // the provider id. Both legs are read from the same live `mode` the
++      // fan-out is about to run on.
++      const servedModel =
++        deps.servedModelOf === undefined
++          ? null
++          : await deps.servedModelOf(workerProviderId).catch(() => null);
++      const workerLabel = reconcileWorkerLabel(
++        mode.workerModelPinned === true ? mode.workerModel : null,
++        servedModel,
++      );
++      const workerModel = workerLabel.label ?? mode.workerModel ?? workerProviderId;
++      // Said in the fan-out's result once per session and pair, not on
++      // every fan-out; marked said only when a result carries it.
++      const sayModelMismatch = (): string => {
++        if (workerLabel.mismatch === undefined) return "";
++        if (!mismatchesSaid.add(ctx.sessionId, workerLabel.mismatch)) return "";
++        deps.logger.warn("fusion: the worker server serves another model than the one selected", {
++          providerId: workerProviderId,
++          selected: mode.workerModel,
++          served: servedModel,
++        });
++        return `\n\n${workerLabel.mismatch}`;
++      };
+       // Models by role and node (ATO-943): where each task runs, decided
+       // before anything starts. A model name outside the allowed list
+       // refuses the call; without `roles` every task is on the worker
+diff --git a/src/tools/fusion/index.ts b/src/tools/fusion/index.ts
+index 18aba55ca..d018bb204 100644
+--- a/src/tools/fusion/index.ts
++++ b/src/tools/fusion/index.ts
+@@ -238,3 +238,4 @@ export {
+ } from "./outcome-journal.js";
+ export type { FusionOutcomeRow, OutcomeSize } from "./outcome-journal.js";
+ export { summarizeOutcomes } from "./outcome-summary.js";
++export { reconcileWorkerLabel, servedModelName } from "./served-model-label.js";
+diff --git a/src/tools/fusion/served-model-label.test.ts b/src/tools/fusion/served-model-label.test.ts
+new file mode 100644
+index 000000000..d4895a716
+--- /dev/null
++++ b/src/tools/fusion/served-model-label.test.ts
+@@ -0,0 +1,41 @@
++import { describe, expect, it } from "vitest";
++
++import { reconcileWorkerLabel, SaidOnce, servedModelName } from "./served-model-label.js";
++
++describe("servedModelName (ATO-1562)", () => {
++  it("prefers the server's alias, and shows a path as its file name", () => {
++    expect(servedModelName({ model_alias: "huihui-qwen3.8-27b-abliterated" })).toBe("huihui-qwen3.8-27b-abliterated");
++    expect(servedModelName({ model_alias: "", model_path: "/models/Qwen3.8-27B-Q4_K_M.gguf" })).toBe("Qwen3.8-27B-Q4_K_M");
++    expect(servedModelName({ model_alias: "C:\\models\\gemma-4.gguf" })).toBe("gemma-4");
++  });
++
++  it("is null when the server names no model", () => {
++    expect(servedModelName({})).toBeNull();
++    expect(servedModelName({ model_alias: "  ", model_path: 3 })).toBeNull();
++  });
++});
++
++describe("reconcileWorkerLabel (ATO-1562)", () => {
++  it("labels with the served model and says so when the pick differs", () => {
++    expect(reconcileWorkerLabel("qwen3.8-27b", "huihui")).toEqual({
++      label: "huihui",
++      mismatch: "Selected qwen3.8-27b, but the server serves huihui. The model is changed on the server side.",
++    });
++  });
++
++  it("says nothing when the pick matches or nothing was picked, and keeps the pick without a served name", () => {
++    expect(reconcileWorkerLabel("same", "same")).toEqual({ label: "same" });
++    expect(reconcileWorkerLabel(null, "served")).toEqual({ label: "served" });
++    expect(reconcileWorkerLabel("picked", null)).toEqual({ label: "picked" });
++  });
++});
++
++describe("SaidOnce", () => {
++  it("is true once per session and text", () => {
++    const said = new SaidOnce();
++    expect(said.add("s1", "note")).toBe(true);
++    expect(said.add("s1", "note")).toBe(false);
++    expect(said.add("s2", "note")).toBe(true);
++    expect(said.add("s1", "other")).toBe(true);
++  });
++});
+diff --git a/src/tools/fusion/served-model-label.ts b/src/tools/fusion/served-model-label.ts
+new file mode 100644
+index 000000000..610f76451
+--- /dev/null
++++ b/src/tools/fusion/served-model-label.ts
+@@ -0,0 +1,65 @@
++/**
++ * The worker label on a llama.cpp server that is not ours (ATO-1562).
++ *
++ * Such a server holds one loaded model and serves it whatever the request
++ * names, so `llm.runMode.fusion.workerModel` cannot pick anything there:
++ * it was only a label, and a label that named a different model than the
++ * one answering. The label is now what the server says it serves
++ * (`GET /props`), and a pick that disagrees with it is said once.
++ */
++
++/** The model a llama-server's `/props` names, as a short label; null when it names none. */
++export function servedModelName(props: Record<string, unknown>): string | null {
++  const alias = typeof props.model_alias === "string" ? props.model_alias.trim() : "";
++  const path = typeof props.model_path === "string" ? props.model_path.trim() : "";
++  const raw = alias.length > 0 ? alias : path;
++  if (raw.length === 0) return null;
++  // An alias left at its default is the model path; show the file's name.
++  const base = raw.split(/[\\/]/).pop() ?? raw;
++  const name = base.replace(/\.gguf$/i, "").trim();
++  return name.length > 0 ? name : null;
++}
++
++export interface WorkerLabel {
++  /** What worker rows, the fan-out line and the result show. */
++  label: string | null;
++  /** Said when the configured pick is not what the server serves. */
++  mismatch?: string;
++}
++
++/**
++ * The served model wins the label; a configured pick that differs is
++ * reported, never silently replaced. Without a served name (no probe, or
++ * the server did not answer) the pick stays the label, as before.
++ */
++export function reconcileWorkerLabel(
++  picked: string | null,
++  served: string | null,
++): WorkerLabel {
++  if (served === null) return { label: picked };
++  if (picked === null || picked === served) return { label: served };
++  return {
++    label: served,
++    mismatch: `Selected ${picked}, but the server serves ${served}. The model is changed on the server side.`,
++  };
++}
++
++/** Remembers which notes a session was already given, so each is said once. */
++export class SaidOnce {
++  private readonly said = new Map<string, Set<string>>();
++
++  /** True the first time `text` is added for `sessionId`, false after. */
++  add(sessionId: string, text: string): boolean {
++    const seen = this.said.get(sessionId) ?? new Set<string>();
++    if (seen.has(text)) return false;
++    // Bounded: a long-lived process sees many sessions; forgetting the
++    // oldest only means one more repeat of a short note.
++    if (!this.said.has(sessionId) && this.said.size >= 256) {
++      const oldest = this.said.keys().next().value;
++      if (oldest !== undefined) this.said.delete(oldest);
++    }
++    seen.add(text);
++    this.said.set(sessionId, seen);
++    return true;
++  }
++}
+-- 
+2.56.0.windows.4
+
+
+From 33d7418552d102dc13a69a5233fc1f1432c13668 Mon Sep 17 00:00:00 2001
+From: Nadia Rodionova <273119990+sosidudku1@users.noreply.github.com>
+Date: Tue, 17 Nov 2026 17:03:55 +0300
+Subject: [PATCH 2/4] fix(tui): no model pick for a foreign llama.cpp server in
+ the Fusion composer (ATO-1563)
+
+The composer's model switch for a Fusion leg on a llama.cpp server that
+is not the agent's own listed catalog rows whose pick only wrote a
+label: that server serves the model it loaded whatever a request names.
+It now shows one row, "Loaded on the server: X" (or just "Loaded on the
+server" when the entry names no model), which cannot be chosen and says
+to change the model on the server. The orchestrator also refuses such a
+pick if it arrives by another path.
+
+LM Studio, Ollama and cloud providers keep their model lists; with the
+per-turn role model from ATO-1560 a pick there is what the leg runs.
+The built-in local model switches as before.
+
+(cherry picked from commit 4ac920e76a8c4388e90b7984cd169d1849064c24)
+---
+ src/tui/chat-orchestrator.ts                  |  7 +++++
+ .../composer-engine-rows.test.ts              | 31 ++++++++++++++++++-
+ .../composer-switch/composer-engine-rows.ts   | 14 +++++++++
+ 3 files changed, 51 insertions(+), 1 deletion(-)
+
+diff --git a/src/tui/chat-orchestrator.ts b/src/tui/chat-orchestrator.ts
+index adcee99f0..5a74d7dc8 100644
+--- a/src/tui/chat-orchestrator.ts
++++ b/src/tui/chat-orchestrator.ts
+@@ -882,6 +882,13 @@ export class ChatOrchestrator {
+       const rm = this.runMode.current();
+       if (rm.effective !== "fusion") return;
+       const id = leg === "worker" ? rm.workerProviderId : rm.orchestratorProviderId;
++      // ATO-1563: a foreign llama.cpp server serves what it loaded; a pick
++      // there would only be a label, so none is written.
++      const kind = resolveLlmConfig(getConfig()).providers.find((p) => p.id === id)?.kind;
++      if (id !== "local-llama" && kind === "llama-server") {
++        this.bus.emit({ type: "composer_notice", text: "This server runs the model it has loaded. Change the model on the server itself." });
++        return;
++      }
+       if (id === "local-llama") {
+         if (getConfig().localModels.managed.modelId === modelId) {
+           if (!await this.localModels.startDaemon()) return;
+diff --git a/src/tui/composer-switch/composer-engine-rows.test.ts b/src/tui/composer-switch/composer-engine-rows.test.ts
+index 0ab9a5986..c055406d9 100644
+--- a/src/tui/composer-switch/composer-engine-rows.test.ts
++++ b/src/tui/composer-switch/composer-engine-rows.test.ts
+@@ -1,6 +1,6 @@
+ import { describe, expect, it } from "vitest";
+ 
+-import { engineRows, NETWORK_COMPUTER_LABEL, seatProviderDetail } from "./composer-engine-rows.js";
++import { engineRows, fusionModelRows, NETWORK_COMPUTER_LABEL, seatProviderDetail } from "./composer-engine-rows.js";
+ import { fusionState, providerRow } from "./composer-switch-fixtures.js";
+ import { selectWorkerRows } from "./composer-switch-worker-rows.js";
+ import type { TuiState } from "../tui-state.js";
+@@ -57,3 +57,32 @@ describe("Fusion seat rows for a provider on another computer (ATO-1066)", () =>
+     expect(rows.find((row) => row.label === "aimlapi")?.detail).toBe("no API key");
+   });
+ });
++
++describe("Fusion model rows for a llama.cpp server that is not ours (ATO-1563)", () => {
++  function withForeignWorker(chatModel: string | null): TuiState {
++    const base = fusionState({ workerProviderId: "my-llama", workerModel: "picked" });
++    return {
++      ...base,
++      providersPanel: {
++        ...base.providersPanel,
++        rows: [
++          ...base.providersPanel.rows,
++          providerRow({ id: "my-llama", kind: "llama-server", hasApiKey: false, baseUrl: null, chatModel }),
++        ],
++      },
++    };
++  }
++
++  it("offers one row saying what is loaded, which cannot be picked", () => {
++    const rows = fusionModelRows(withForeignWorker("qwen-loaded"), "worker");
++    expect(rows).toHaveLength(1);
++    expect(rows[0]).toMatchObject({ label: "Loaded on the server: qwen-loaded", active: true });
++    expect(rows[0]!.disabled).toMatch(/Change the model on the server/);
++  });
++
++  it("says only that the server decides when it names no model", () => {
++    const rows = fusionModelRows(withForeignWorker(null), "worker");
++    expect(rows.map((r) => r.label)).toEqual(["Loaded on the server"]);
++    expect(rows[0]!.disabled).toBeDefined();
++  });
++});
+diff --git a/src/tui/composer-switch/composer-engine-rows.ts b/src/tui/composer-switch/composer-engine-rows.ts
+index f6bb87963..507af950a 100644
+--- a/src/tui/composer-switch/composer-engine-rows.ts
++++ b/src/tui/composer-switch/composer-engine-rows.ts
+@@ -42,6 +42,20 @@ export function fusionModelRows(state: TuiState, leg: "orchestrator" | "worker")
+     })),
+     {id: "model:download", label: "Download more models…", detail: "opens the local models pane", active: false, intent: {kind: "localModelsPanel"}},
+   ];
++  // ATO-1563: a llama.cpp server that is not ours serves the model it
++  // loaded and ignores the one a request names, so it offers one row that
++  // says what is loaded and cannot be picked. LM Studio, Ollama and the
++  // cloud list their models below; a pick there is what the leg runs
++  // (ATO-1560).
++  const entry = state.providersPanel.rows.find(p => p.id === id);
++  if (entry?.kind === "llama-server") return [{
++    id: `model:${leg}:server`,
++    label: entry.chatModel ? `Loaded on the server: ${entry.chatModel}` : "Loaded on the server",
++    detail: "Change the model on the server",
++    active: true,
++    intent: {kind: "fusionModel", leg, modelId: entry.chatModel ?? ""},
++    disabled: "This server runs the model it has loaded. Change the model on the server itself.",
++  }];
+   // Reuse the provider catalog selector, with this role as the read-only focus.
+   const focused = {...state, providersPanel: {...state.providersPanel, rows: state.providersPanel.rows.map(p => ({...p, isActiveText: p.id === id}))}};
+   const section = selectCloudModelSection(focused);
+-- 
+2.56.0.windows.4
+
+
+From 0ac938c8564bec3fdb65446ba0898b460406585d Mon Sep 17 00:00:00 2001
+From: Nadia Rodionova <273119990+sosidudku1@users.noreply.github.com>
+Date: Wed, 25 Nov 2026 12:16:49 +0300
+Subject: [PATCH 3/4] fix(fusion): local-llama is always the managed worker,
+ whatever its URL (ATO-1562)
+
+In managed mode the local-llama entry's URL is built from the daemon's
+port, not from localModels.url, so the URL check read our own server as
+a foreign one and dropped the managed model from the run-mode label
+(channel /model tests for a fusion deployment caught it).
+
+(cherry picked from commit 81cd5a04099ac60aa78ef93c714dbc721f4d9931)
+---
+ src/llm/run-mode/foreign-llama-server.ts  | 13 ++++++++
+ src/llm/run-mode/resolve-run-mode.test.ts | 39 +++++++++++++++++++++++
+ src/llm/run-mode/resolve-run-mode.ts      | 16 +++++++++-
+ 3 files changed, 67 insertions(+), 1 deletion(-)
+ create mode 100644 src/llm/run-mode/foreign-llama-server.ts
+
+diff --git a/src/llm/run-mode/foreign-llama-server.ts b/src/llm/run-mode/foreign-llama-server.ts
+new file mode 100644
+index 000000000..09dbe3034
+--- /dev/null
++++ b/src/llm/run-mode/foreign-llama-server.ts
+@@ -0,0 +1,13 @@
++/**
++ * A `llama-server` entry on a server other than the main local one
++ * (`localModels.url`): somebody else's llama.cpp, which serves the model
++ * it loaded, not the managed model (ATO-1562).
++ */
++export function isForeignLlamaServer(
++  entry: { kind: string; url?: string },
++  mainUrl: string,
++): boolean {
++  if (entry.kind !== "llama-server" || entry.url === undefined) return false;
++  const norm = (u: string): string => u.trim().replace(/\/+$/, "");
++  return norm(entry.url) !== norm(mainUrl);
++}
+diff --git a/src/llm/run-mode/resolve-run-mode.test.ts b/src/llm/run-mode/resolve-run-mode.test.ts
+index b5fc2b881..4d56d3baf 100644
+--- a/src/llm/run-mode/resolve-run-mode.test.ts
++++ b/src/llm/run-mode/resolve-run-mode.test.ts
+@@ -226,6 +226,45 @@ describe("resolveRunMode", () => {
+     ).toBeNull();
+   });
+ 
++  it("never labels a foreign llama.cpp worker with the managed model (ATO-1562)", () => {
++    const providers: ResolvedLlmConfig["providers"] = [
++      { id: "local-llama", kind: "llama-server", url: "http://127.0.0.1:19091" },
++      { id: "my-llama", kind: "llama-server", url: "http://127.0.0.1:8080", model: "huihui-qwen3.8-27b" },
++      { id: "openrouter", kind: "openrouter", defaultChatModel: "anthropic/claude-sonnet-4.5" },
++    ];
++    const foreign = resolveRunMode(
++      llm("openrouter", { mode: "fusion", fusion: { workerProvider: "my-llama" } }, providers),
++      { managedModelId: "qwen-3.5-4b", localServerUrl: "http://127.0.0.1:19091/" },
++    );
++    expect(foreign.workerModel).toBe("huihui-qwen3.8-27b");
++
++    // The main local server is still described by the managed model.
++    const ours = resolveRunMode(
++      llm("openrouter", { mode: "fusion", fusion: { workerProvider: "local-llama" } }, providers),
++      { managedModelId: "qwen-3.5-4b", localServerUrl: "http://127.0.0.1:19091" },
++    );
++    expect(ours.workerModel).toBe("qwen-3.5-4b");
++
++    // In managed mode `local-llama` is built from the daemon's port, so
++    // its URL need not match `localModels.url`; it is still ours.
++    const managedPort = resolveRunMode(
++      llm("openrouter", { mode: "fusion", fusion: { workerProvider: "local-llama" } }, providers),
++      { managedModelId: "qwen-3.5-4b", localServerUrl: "http://127.0.0.1:8080" },
++    );
++    expect(managedPort.workerModel).toBe("qwen-3.5-4b");
++
++    // A foreign entry that names no model has no label to guess.
++    const unnamed = resolveRunMode(
++      llm(
++        "openrouter",
++        { mode: "fusion", fusion: { workerProvider: "my-llama" } },
++        providers.map((p) => (p.id === "my-llama" ? { id: p.id, kind: p.kind, url: p.url } : p)),
++      ),
++      { managedModelId: "qwen-3.5-4b", localServerUrl: "http://127.0.0.1:19091" },
++    );
++    expect(unnamed.workerModel).toBeNull();
++  });
++
+   it("applies the worker defaults and honours overrides", () => {
+     expect(resolveRunMode(llm("openrouter", { mode: "fusion" }))).toMatchObject(
+       {
+diff --git a/src/llm/run-mode/resolve-run-mode.ts b/src/llm/run-mode/resolve-run-mode.ts
+index cb36f858c..aab959971 100644
+--- a/src/llm/run-mode/resolve-run-mode.ts
++++ b/src/llm/run-mode/resolve-run-mode.ts
+@@ -4,6 +4,7 @@ import type {
+   FusionWorkerReasoning,
+   RunModeName,
+ } from "../../config/llm-run-mode-config.js";
++import { isForeignLlamaServer } from "./foreign-llama-server.js";
+ import {
+   FUSION_ROLES,
+   DEFAULT_FUSION_ESCALATION_MAX_USD,
+@@ -195,6 +196,7 @@ export type FusionRoleModels = {
+ export type ResolveRunModeOptions = {
+   /** `localModels.managed.modelId`, the model the worker daemon serves. */
+   managedModelId?: string | null;
++  localServerUrl?: string;
+   /**
+    * The session's director (`runtime/session-director.ts`, issue #37).
+    * With the stored mode `fusion`, it is the orchestrator leg and fusion
+@@ -336,11 +338,23 @@ export function resolveRunMode(
+   // Models by role (ATO-943). A role's label follows the same chain as
+   // the legs': the worker leg's own label when the role IS the worker
+   // leg, else the entry's chat model (cloud) or `model` (local).
++  // A foreign llama.cpp worker (ATO-1562) is never labelled with the
++  // managed model: that names a model this machine holds, not the one
++  // the other server loaded. Its own entry's `model` is the best guess
++  // here; `fusion.delegate` replaces it with what `/props` says.
++  // `local-llama` is the managed daemon's own entry whatever its URL
++  // reads (in managed mode it is built from the daemon's port, not from
++  // `localModels.url`), as the TUI composer already treats it.
++  const workerIsForeign =
++    worker !== undefined &&
++    worker.id !== "local-llama" &&
++    opts.localServerUrl !== undefined &&
++    isForeignLlamaServer(worker, opts.localServerUrl);
+   const workerModelLabel =
+     preferredWorker?.model ??
+     fusion?.workerModel ??
+     (worker !== undefined && isLocalKind(worker)
+-      ? (opts.managedModelId ?? worker.model ?? null)
++      ? (workerIsForeign ? worker.model ?? null : opts.managedModelId ?? worker.model ?? null)
+       : (worker?.defaultChatModel ?? worker?.model ?? null));
+   const orchestratorPinModel = pinModelFor(orchestrator, orchestratorModelPin);
+   const workerPinModel = pinModelFor(worker, workerModelLabel);
+-- 
+2.56.0.windows.4
+
+
+From 8af0c8a0ba5c28786bfd3dba76ddca9d146a0c3c Mon Sep 17 00:00:00 2001
+From: Edo771977 <209531336+Edo771977@users.noreply.github.com>
+Date: Fri, 27 Nov 2026 21:55:37 +0100
+Subject: [PATCH 4/4] chore(review): preserve fork result assembly in llama
+ candidate
+
+---
+ src/tools/fusion/fusion-delegate.ts | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/tools/fusion/fusion-delegate.ts b/src/tools/fusion/fusion-delegate.ts
+index 51297859c..3fde734c5 100644
+--- a/src/tools/fusion/fusion-delegate.ts
++++ b/src/tools/fusion/fusion-delegate.ts
+@@ -3956,7 +3956,7 @@ export function buildFusionDelegateTool(
+               noReviewVerdict.length === 0
+                 ? ""
+                 : `\n\nno review verdict: ${noReviewVerdict.map((n) => `${n.taskId} (${n.reason})`).join("; ")}. To get one, re-delegate each with its own task id (the plan row's): a fix under another id does not count.`
+-            }${treeNote}${replan === undefined ? "" : renderReplanBlock(replan)}${renderMergeBlock(merges)}${resumeNote}${checkpointNote}${budgetNote}${breakerNote}${
++            }${sayModelMismatch()}${treeNote}${replan === undefined ? "" : renderReplanBlock(replan)}${renderMergeBlock(merges)}${resumeNote}${checkpointNote}${budgetNote}${breakerNote}${
+               sizeWarnings.length === 0
+                 ? ""
+                 : `\n\nWarning: ${sizeWarnings.join("; ")}.`
+-- 
+2.56.0.windows.4
+

@@ -1,0 +1,849 @@
+{
+  "baseline": "7511497b0 complete npm test; comparison is by file/fullName, checkout roots and slash direction only are normalized",
+  "baselineReportSha256": "d8af82717f44aebf3d4ccd1c59ba6e714d29a3e6a7fd87ecf376f178d8246d9f",
+  "report": "b7b2-review-focused.json",
+  "reportSha256": "b5ef65cd7ff90e0a95d8f128756280e0fc4a3a26b4a230e018598c6bc1533509",
+  "counts": {
+    "passed": 14582,
+    "failed": 138,
+    "skipped": 546,
+    "files": 916
+  },
+  "web": {
+    "passed": 297,
+    "failed": 0
+  },
+  "common": 138,
+  "additional": [],
+  "failures": [
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) withholds project profiles until their path is trusted, then loads .atomic-agent before .claude",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to match object { source: 'project', prompt: 'OURS' }"
+    },
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) trusts by file: an untrusted file next to a trusted one stays out",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be 'A' // Object.is equality"
+    },
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) a trusted project profile wins over the user's of the same name; an untrusted one leaves the user's",
+      "baseline": "failed",
+      "message": "AssertionError: expected { name: 'deploy', …(4) } to match object { Object (source, prompt) }"
+    },
+    {
+      "file": "src/agent-profiles/profile-loader.test.ts",
+      "name": "loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/agent-profiles-AcowF7/outside' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/agent-profiles-AcowF7/repo/.claude/agents'"
+    },
+    {
+      "file": "src/agent/cloud-workspace-seam.test.ts",
+      "name": "cloud session workspace integration excludes an injected draft from cloud prompts until its fingerprint is approved",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be 'injected-notes' // Object.is equality"
+    },
+    {
+      "file": "src/agent/cloud-workspace-seam.test.ts",
+      "name": "cloud session workspace integration excludes an injected draft from local prompts until its fingerprint is approved",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be 'injected-notes' // Object.is equality"
+    },
+    {
+      "file": "src/mcp/mcp-client-oauth.test.ts",
+      "name": "McpClient OAuth a 401 from an OAuth-only server becomes a sign-in request",
+      "baseline": "failed",
+      "message": "AssertionError: expected McpConnectError: fetch failed { …(1) } to be an instance of McpAuthRequiredError"
+    },
+    {
+      "file": "src/mcp/mcp-client-oauth.test.ts",
+      "name": "McpClient OAuth sends the saved access token",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be 'Bearer saved-token' // Object.is equality"
+    },
+    {
+      "file": "src/mcp/mcp-client-oauth.test.ts",
+      "name": "McpClient OAuth a server with an Authorization header gets no provider",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be 'Bearer static' // Object.is equality"
+    },
+    {
+      "file": "src/mcp/mcp-oauth-flow.test.ts",
+      "name": "McpOAuthFlow refuses a callback whose state it did not hand out",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/mcp/mcp-oauth-flow.test.ts",
+      "name": "McpOAuthFlow finishes the sign-in on a valid callback and reconnects the server",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/mcp/mcp-oauth-flow.test.ts",
+      "name": "McpOAuthFlow reports a refused sign-in as a plain sentence",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/mcp/mcp-oauth-flow.test.ts",
+      "name": "McpOAuthFlow reports a failed code exchange",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/runtime/abortable-subcall.network.test.ts",
+      "name": "a timed-out memory sub-call closes its openai request (silent) and leaves the fallback chain alone",
+      "baseline": "failed",
+      "message": "AssertionError: expected +0 to be 1 // Object.is equality"
+    },
+    {
+      "file": "src/runtime/abortable-subcall.network.test.ts",
+      "name": "a timed-out memory sub-call closes its openai request (headers-then-stall) and leaves the fallback chain alone",
+      "baseline": "failed",
+      "message": "AssertionError: expected +0 to be 1 // Object.is equality"
+    },
+    {
+      "file": "src/runtime/abortable-subcall.network.test.ts",
+      "name": "a timed-out memory sub-call closes its llama-server request (silent) and leaves the fallback chain alone",
+      "baseline": "failed",
+      "message": "AssertionError: expected [ 'none' ] to deeply equal [ 'timeout' ]"
+    },
+    {
+      "file": "src/runtime/abortable-subcall.network.test.ts",
+      "name": "a timed-out memory sub-call closes its llama-server request (headers-then-stall) and leaves the fallback chain alone",
+      "baseline": "failed",
+      "message": "AssertionError: expected [ 'none' ] to deeply equal [ 'timeout' ]"
+    },
+    {
+      "file": "src/runtime/llama-server-frozen-turn.test.ts",
+      "name": "a llama-server that accepts and never answers does not hold boot: it continues on the plain profile with a warning",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to include '/props'"
+    },
+    {
+      "file": "src/runtime/llama-server-frozen-turn.test.ts",
+      "name": "a llama-server that accepts and never answers reaches the step within seconds, parks while the server is gone, and finishes once it is back",
+      "baseline": "failed",
+      "message": "Error: STACK_TRACE_ERROR"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-rules-b1dKbD/outside.md' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-rules-b1dKbD/workspace/AGENT.md'"
+    },
+    {
+      "file": "src/runtime/project-instructions.test.ts",
+      "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-rules-I8MSzT/workspace/AGENTS.md' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-rules-I8MSzT/workspace/GEMINI.md'"
+    },
+    {
+      "file": "src/runtime/project-trust.test.ts",
+      "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-trust-ChkygX/repo' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/project-trust-ChkygX/alias'"
+    },
+    {
+      "file": "src/runtime/read-taint-persist.test.ts",
+      "name": "read taint persists across HTTP turns stores the taint at turn end and restricts the next turn",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/runtime/read-taint-persist.test.ts",
+      "name": "read taint persists across HTTP turns stores the taint when the turn fails after the read",
+      "baseline": "failed",
+      "message": "TypeError: fetch failed"
+    },
+    {
+      "file": "src/tools/tool-output-spill.test.ts",
+      "name": "ToolOutputSpill (ATO-663) refuses a session folder that is a symlink",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-spill-target-kf9Ims' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-spill-2t4nHC/s-1'"
+    },
+    {
+      "file": "src/tools/tool-output-spill.test.ts",
+      "name": "ToolOutputSpill (ATO-663) neither sweeps nor removes through a base folder that is a link",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-spill-BEWI6t' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-spill-link-ZYOEZx/base'"
+    },
+    {
+      "file": "src/tools/tool-output-spill.test.ts",
+      "name": "read scope for saved tool outputs does not follow a symlink planted in the folder out of scope",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-spill-outside-e4Skim' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-agent-tool-outputs/s-w-spill-test/link'"
+    },
+    {
+      "file": "src/agent/progress/read-coverage.test.ts",
+      "name": "read-coverage detection end to end sees a symlink and its target as one file",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-read-loop-eWa2Q1/src.ts' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-read-loop-eWa2Q1/alias.ts'"
+    },
+    {
+      "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+      "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "baseline": "failed",
+      "message": "AssertionError: the given combination of arguments (undefined and string) is invalid for this assertion. You can use an array, a map, an object, a set, a string, or a weakset instead of a string"
+    },
+    {
+      "file": "src/runtime/composition/runtime-experience-review.test.ts",
+      "name": "createExperienceReviewer proposes a draft after a long turn when enabled",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to have a length of 1 but got +0"
+    },
+    {
+      "file": "src/runtime/composition/runtime-experience-review.test.ts",
+      "name": "createExperienceReviewer holds what a turn that read outside content learned as a pending draft (the approval gate's taint)",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to have a length of 1 but got +0"
+    },
+    {
+      "file": "src/runtime/composition/runtime-experience-review.test.ts",
+      "name": "createExperienceReviewer chat channels and plain HTTP callers draft, and the desktop and sidecar can only draft",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to deeply equal [ 'discord', 'googlechat', …(7) ]"
+    },
+    {
+      "file": "src/tools/browser/stop-launched-browser.test.ts",
+      "name": "PlaywrightBackend.stopLaunchedBrowser (ATO-1084) stops the Chrome it spawned and closes its context",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+      "name": "frozen disposable-directory policy discards newly created ignored directories and never merges existing caches in worktree",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'original cache/n' to be 'modified scratch/n' // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "shared dependency directories isolates a repo whose ignored node_modules exceeds the copy budget across tasks",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "shared dependency directories links ignored folders inside a dependency directory that keeps a tracked placeholder",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "shared dependency directories does not copy node_modules, target or .venv wholesale in the folder-copy fallback",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "direct-mode copy budget links an ignored venv/ to the original instead of copying it into the base and every task",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "tracked paths under excluded directory names merges a tracked change under a directory named build and never merges ignored dist, which is linked",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'old build/n' to be 'private build/n' // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "private branch dependencies shares ignored caches and dependencies with the original by links in direct mode",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'C:/Users/edoar/AppData/Local/Packages…' to be 'C:/Users/edoar/AppData/Local/Packages…' // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "private branch dependencies does not charge a linked ignored directory to the copy limit",
+      "baseline": "failed",
+      "message": "AssertionError: expected +0 to be 1 // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "private branch dependencies delivers a green task's outputs and ignored files, its cache writes landing through the link",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'original cache/n' to be 'private cache/n' // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-isolation-safety.test.ts",
+      "name": "removing a workspace tree with read-only directories unlocks directories (never through links) and retries once when removal is refused",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-rm-outside-gQdmDy' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-rm-rY0OiR/ws/locked/link'"
+    },
+    {
+      "file": "src/tools/fusion/branch-private-git.test.ts",
+      "name": "keeps nested tasks and the final planned source independent from the candidate and each other",
+      "baseline": "failed",
+      "message": "Error: Git object import child exited 128"
+    },
+    {
+      "file": "src/tools/fusion/branch-private-git.test.ts",
+      "name": "preserves the available history of a shallow source without following its original remote",
+      "baseline": "failed",
+      "message": "Error: git clone --quiet --no-local --depth=1 file:///C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/%23!sandbox.%7B669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2%7D/Temp/atag-private-git-project-7VDrlL C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-private-git-copies-0fAmCE/shallow-source failed in C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-private-git-project-7VDrlL:       0 [main] sh (43824) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/fusion/branch-private-git.test.ts",
+      "name": "executes candidate final checks with autonomous Git metadata while retaining efficient tracked materialization",
+      "baseline": "failed",
+      "message": "Error: Git object import child exited 128"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+      "name": "shares dependency directories through a junction when directory symlinks are denied",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+      "name": "copies dependencies once and links task directories to the base copy when the original cannot be linked",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-dependency-links.test.ts",
+      "name": "links a nested wave inside a candidate to the candidate's private copy, never to the original",
+      "baseline": "failed",
+      "message": "AssertionError: expected null not to be null"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-portability.test.ts",
+      "name": "privately copies a generated base link when recreating it for a task is denied",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-portability.test.ts",
+      "name": "does not follow a user-created directory link outside the project on failure",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-user-link-ShhBKB' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-link-fallback-D4nuHv/user-link'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-check-inputs.test.ts",
+      "name": "refuses an excluded-directory input whose original ancestor is a link outside the project",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-check-linked-ptF12S/outside' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-check-linked-ptF12S/project/dist'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for untracked payload",
+      "baseline": "failed",
+      "message": "Error: expected [Function] to throw error matching /candidate workspace unavailable:.*fi…/i but got 'Git object import child exited 128'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for ignored-file payload",
+      "baseline": "failed",
+      "message": "Error: expected [Function] to throw error matching /candidate workspace unavailable:.*fi…/i but got 'Git object import child exited 128'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for ignored-directory payload",
+      "baseline": "failed",
+      "message": "Error: expected [Function] to throw error matching /candidate workspace unavailable:.*fi…/i but got 'Git object import child exited 128'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "includes tracked byte overlays in the measured final copy",
+      "baseline": "failed",
+      "message": "Error: expected [Function] to throw error matching /final.*remaining candidate copy budg…/i but got 'Git object import child exited 128'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 409600 tracked payload bytes and later same-size edits",
+      "baseline": "failed",
+      "message": "Error: Git object import child exited 128"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 716800 tracked payload bytes and later same-size edits",
+      "baseline": "failed",
+      "message": "Error: Git object import child exited 128"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "retains Git checkout capacity for 1228800 tracked payload bytes and later same-size edits",
+      "baseline": "failed",
+      "message": "Error: Git object import child exited 128"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes through a symlinked alias of the project root without writing a separate tree there (folder copy)",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-test-UHr8fy' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-alias-rh3ZeD/alias'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "promotes through a symlinked alias of the project root without writing a separate tree there (git worktree)",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-alias-git-lCoQE1' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-alias-EiENq6/alias'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "re-checks parent identity at commit, refusing an rmdir through a parent swapped for a link",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'candidate not promoted: EPERM: operat…' to match /delivery parent/"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "re-checks parent identity at commit, refusing a rename through a parent swapped for a link",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'candidate not promoted: EPERM: operat…' to match /delivery parent/"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks absolute alias file references using the actual verification execution copy",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-JEzsEQ/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-JEzsEQ/requested'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks relative alias file references using the actual verification execution copy",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-XuFmMU/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-XuFmMU/requested'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks canonical file references using the actual verification execution copy",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-xYY7GX/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-xYY7GX/requested'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks a requested root alias file URL inside the execution copy, preserving query and fragment",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-JCA4KQ/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-JCA4KQ/requested'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks a protected PowerShell path-list through the requested root alias (\"=\")",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-PH1Xwb/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-PH1Xwb/requested'"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks a protected PowerShell path-list through the requested root alias (\" = \")",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-U6lfqA/actual' -> 'C:/Users/edoar/AppData/Local/Packages/OpenAI.Codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-candidate-root-alias-U6lfqA/requested'"
+    },
+    {
+      "file": "src/tools/fusion/declared-files.test.ts",
+      "name": "inspectDeclaredFiles sorts declared paths into missing and unchanged, resolving against the working directory",
+      "baseline": "failed",
+      "message": "AssertionError: expected { …(3) } to deeply equal { …(3) }"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "enforces original saved path denies and relative declared inputs on actual candidate file tools",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "enforces original saved path denies and absolute declared inputs on actual candidate file tools",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/fusion/plan-references.test.ts",
+      "name": "plan references (issue #120) never reads or stats through a symlink that leads outside the project folder (review #5)",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/plan-refs-uWwUIk' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/plan-refs-emCzMT/link'"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies direct procfs reads even without state secret files",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to have a length of 1 but got +0"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies a serve key basename in shell arguments (cd ~ && cat .atomic-agent/serve-api.key)",
+      "baseline": "failed",
+      "message": "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "classifies a serve key basename in shell arguments (find . -name serve-api.key -exec cat {} +)",
+      "baseline": "failed",
+      "message": "AssertionError: expected [ Array(1) ] to include '/home/operator/.atomic-agent/serve-ap…'"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "round2-4 recognizes cd /proc/self && cat environ",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "round2-4 recognizes cd /proc && cat self/environ",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags cat /proc/$(resolve pid)/environ without reading a real credential",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags pushd /proc/self && cat environ without reading a real credential",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags grep -r synthetic /proc/self without reading a real credential",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/state-secrets.test.ts",
+      "name": "third round flags find /proc/123 -type f without reading a real credential",
+      "baseline": "failed",
+      "message": "AssertionError: expected [] to not deeply equal []"
+    },
+    {
+      "file": "src/tools/read-scope/worker-read-scope.test.ts",
+      "name": "worker read scope accepts a path that is inside only by its canonical form",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fusion-read-scope-Z9LQfo/02-local/work' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fusion-read-scope-Z9LQfo/link-to-work'"
+    },
+    {
+      "file": "src/tools/verify/check-script-syntax.test.ts",
+      "name": "runChecker kills an owned checker process on cancellation and starts none after cancellation",
+      "baseline": "failed",
+      "message": "Error: STACK_TRACE_ERROR"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "fails on a severe rule and records its source file, CLI version and suppression",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: false, …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "retains warning-only findings on a pass",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: true, …(3) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "returns uncheckable for invalid scan output at exit 1",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: false, …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "returns uncheckable for invalid scan output at exit 0",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: false, …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "returns uncheckable for invalid scan output at exit 2",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: false, …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "sanitizes the detector version before returning evidence",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: true, …(1) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "passes a clean JSON array on a markup file with linked CSS in the private copy",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: true, artifactStatus: 'pass' }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "fails on broken-image",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'fail' }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "fails on script-error",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'fail' }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "treats an explicit advisory as a warning even when its rule is severe",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'pass', …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "runs through Fusion, preserving the evidence and failing the linked criterion",
+      "baseline": "failed",
+      "message": "AssertionError: expected [ { task: 'design', ok: false, …(7) } ] to deeply equal [ ObjectContaining{…} ]"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "honors the deadline for a stalled detector",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { ok: false, …(2) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "cancels a blocked detector process",
+      "baseline": "failed",
+      "message": "Error: ENOENT: no such file or directory, access 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/verify impeccable YkOIFV/detector-started'"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "pins the authorized executable and refuses a higher-priority launcher planted during approval",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "never spawns a replaced approved launcher, including under a nested cwd",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: false, …(6) } to match object { artifactStatus: 'uncheckable', …(1) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "treats severity advisory as advisory without a flag",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'pass', …(1) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "bounds verify.run Impeccable details and counts omitted entries",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'uncheckable' to be 'fail' // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "downgrades a file-scoped severe finding only until the operator revokes it",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'pass', …(3) }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "matches a file exception in a session working copy",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'pass' }"
+    },
+    {
+      "file": "src/tools/verify/impeccable-check.test.ts",
+      "name": "reads a revoked approval again after authorizing execution",
+      "baseline": "failed",
+      "message": "AssertionError: expected { kind: 'ui', isolated: true, …(10) } to match object { artifactStatus: 'fail' }"
+    },
+    {
+      "file": "src/tools/verify/run-verify.test.ts",
+      "name": "runVerify — command kills the process group on timeout and says so",
+      "baseline": "failed",
+      "message": "AssertionError: expected null to be 1 // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/run-verify.test.ts",
+      "name": "runVerify — service starts a server, waits for the port, sends the requests, and kills the group",
+      "baseline": "failed",
+      "message": "Error: STACK_TRACE_ERROR"
+    },
+    {
+      "file": "src/tools/verify/run-verify.test.ts",
+      "name": "runVerify — page with start opens the page only after the started server is ready, then stops the server",
+      "baseline": "failed",
+      "message": "Error: STACK_TRACE_ERROR"
+    },
+    {
+      "file": "src/tools/verify/verify-cwd-sandbox.test.ts",
+      "name": "rejects an external junction and accepts an internal path with Windows aliases",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-cwd-junction-ZTBdMj/External Workspace' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-cwd-junction-ZTBdMj/Authorized Workspace/junction'"
+    },
+    {
+      "file": "src/tools/verify/verify-isolation.test.ts",
+      "name": "F35 — nothing verification does reaches the workspace a command that writes, appends, creates and deletes leaves the workspace byte-identical",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/verify-isolation.test.ts",
+      "name": "F35 — nothing verification does reaches the workspace a service that logs to its directory leaves the workspace byte-identical",
+      "baseline": "failed",
+      "message": "AssertionError: expected false to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/verify-isolation.test.ts",
+      "name": "F35 — nothing verification does reaches the workspace the copy is removed even when the run is killed on timeout",
+      "baseline": "failed",
+      "message": "AssertionError: expected undefined to be true // Object.is equality"
+    },
+    {
+      "file": "src/tools/verify/verify-turn-grant.test.ts",
+      "name": "a verify_page_local yes stands for the turn in the plan's folder reuses an explicit turn grant through a second spelling of the same folder",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-verify-turn-myJ4i7/other' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-verify-turn-myJ4i7/alias'"
+    },
+    {
+      "file": "src/tools/verify/verify-workspace-copy.test.ts",
+      "name": "measureTree does not count or follow an external directory link while measuring the work tree",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-verify-copy-72ymxr/external-data' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atag-verify-copy-72ymxr/work/external-link'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope a symlink inside the workspace that points outside is NOT workspace",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-92JJh1/elsewhere' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-92JJh1/workspace/link-out'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope a symlinked workspace root still contains its own files (realpath both sides)",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-gjgZXI/workspace' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-gjgZXI/ws-link'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "fs approval scope C1: trust-config guard (config.json / .env) directory entries (trailing separator) catches a symlink into the directory",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-JjORq9/home/.atomic-agent/plugins/installed/x' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-JjORq9/workspace/linked'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-approval-scope.test.ts",
+      "name": "moves, links and extraction around a project's store (issue #109 review a2) a .atomic that is a symlink is caught by its name and by its target",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-atomic-1cpblS/real-store' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-scope-atomic-1cpblS/sub/.atomic'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-move-plan.test.ts",
+      "name": "planMoves refuses a folder moved into itself through a symlinked parent",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, symlink 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-move-plan-FDui9e/proj/sub' -> 'C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/fs-move-plan-FDui9e/link'"
+    },
+    {
+      "file": "src/tools/os/fs/fs-write-retarget.test.ts",
+      "name": "os.fs.write retarget asks again when the new target sits on a different rung",
+      "baseline": "failed",
+      "message": "Error: EPERM: operation not permitted, mkdir 'C:/Users/edoar/.atomic-agent-retarget-test'"
+    },
+    {
+      "file": "src/tools/os/git/git-credentials.test.ts",
+      "name": "the inline helper, run by real git hands github.com the token from the child env as x-access-token",
+      "baseline": "failed",
+      "message": "AssertionError: expected 128 to be +0 // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push pushes the current branch with -u and reports the upstream",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (42720) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push pushes a named branch without -u when asked",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (52536) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push previews the command and the remote before asking",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (17780) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-push.test.ts",
+      "name": "os.git.push surfaces a rejected push as the tool's error",
+      "baseline": "failed",
+      "message": "Error: git push -q origin main failed in C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-git-6rzqdR:       0 [main] sh (58088) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools add → push → fetch → pull round-trips through the bare remote with git_remote approvals",
+      "baseline": "failed",
+      "message": "Error: os.git.push: git push exited with 128: 0 [main] sh (40732) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools a pull reports what it did to the tree even when the diffstat is long",
+      "baseline": "failed",
+      "message": "Error: git push -q -u origin main failed in C:/Users/edoar/AppData/Local/Packages/openai.codex_2p2nqsd0c76g0/AC/#!sandbox.{669e41f2-3ef2-44b2-b9c6-56ac16a7b7e2}/Temp/atomic-git-work-CjQFxF:       0 [main] sh (57796) C:/Program Files/Git/usr/bin/sh.exe: *** fatal error - NtCreateDirectoryObject(/BaseNamedObjects/msys-2.0S5-1888ae32e00d56aa): 0xC0000022"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools clones into the working directory by repo name and refuses an existing destination",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/proc/proc-kill.test.ts",
+      "name": "os.proc.kill kills a live process and it dies",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list returns a non-empty process list with this process in it",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list filters by substring (case-insensitive)",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list respects limit",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list keeps the column header and rows past the old 12-line tail",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/proc/proc-list.test.ts",
+      "name": "os.proc.list does not truncate a one-row filtered listing",
+      "baseline": "failed",
+      "message": "Error: os.proc.list: tasklist exited with 1: ERRORE: Nome utente o password non corretta."
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--url=docs.example/?q=first%0Asecond\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--get\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"-G\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell-policy.test.ts",
+      "name": "os.shell.run honours the git remote-sync policy holds curl URL arguments \"--url-query=q@payload.txt\" without reading a data file",
+      "baseline": "failed",
+      "message": "Error: promise resolved \"{ tool: 'os.shell.run', …(6) }\" instead of rejecting"
+    },
+    {
+      "file": "src/tools/os/shell/shell.test.ts",
+      "name": "os.shell.run says when it ran with no arguments (F40) notes a bare invocation when args is absent",
+      "baseline": "failed",
+      "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+    }
+  ],
+  "loadFailures": []
+}

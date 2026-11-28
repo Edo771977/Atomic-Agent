@@ -5,6 +5,12 @@
  * per host per `web.crawl.minDelayMs`, backoff on 429/503 and
  * `Retry-After`, robots.txt, a short cache. Pages come from the start page's
  * same-origin links (breadth first, up to `maxDepth`) and the sitemap.
+ *
+ * ATO-970 follow-ups: gzipped sitemaps are unzipped with a size cap; a start
+ * page that redirects within the same site (`example.com` ->
+ * `www.example.com`) moves the crawl there after DNS/URL admission.
+ * Automatic JavaScript handling is deferred until every browser
+ * subrequest and resource cap is guarded.
  */
 import type { DangerousToolOptions } from "../../../approval/dangerous-tool.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlSendSites } from "./url-data-guard.js";
@@ -28,16 +34,20 @@ import {
   type CrawlArgs,
   type CrawlReport,
 } from "./web-crawl-args.js";
-import { runCrawl } from "./web-crawl-run.js";
+import { assertPolicyWebUrl } from "../../../policy/policy-web.js";
+import { runCrawl, type CrawlScope } from "./web-crawl-run.js";
+import { currentProviderPolicy, resolveProjectConstraint } from "../../../llm/provider-policy.js";
+import { EgressNotAllowedError } from "../../tool-egress.js";
 
 export interface OsWebCrawlOptions {
   runCommand?: typeof defaultRunCommand;
   lookup?: HostLookup;
-  config?: Pick<AtomicAgentConfig, "web"> & Partial<Pick<AtomicAgentConfig, "http">>;
+  config?: Pick<AtomicAgentConfig, "web"> & Partial<Pick<AtomicAgentConfig, "http" | "projects">>;
   dangerous?: DangerousToolOptions;
   urlSendSites?: UrlSendSites;
   sleep?: Sleep;
   now?: () => number;
+  egressRefusal?: (sessionId: string, cls: "web") => string | null;
 }
 
 function defaultSleep(ms: number, signal: AbortSignal): Promise<void> {
@@ -70,13 +80,26 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
       "page as markdown/text. Polite by design: at most one request per second per " +
       "site (longer if robots.txt asks), backs off on 429/503 and Retry-After, obeys " +
       "robots.txt (the user can exempt their own sites in config), caches pages for " +
-      "a few minutes. Same SSRF guard and no-JavaScript fetch as os.web.fetch. " +
+      "a few minutes. Same SSRF guard as os.web.fetch. Unzips .xml.gz sitemaps; " +
+      "follows a start page that redirects within the same site (e.g. to www.); " +
+      "Runs no page JavaScript. " +
       "`pathPrefix` keeps it under one section (e.g. \"/docs/\"). For a single page " +
       "use os.web.fetch.",
     readonly: true,
     untrustedOutput: "web pages",
     async run(rawArgs, ctx) {
       const args = parseCrawlArgs(rawArgs, crawlCfg);
+      const assertEgress = (): void => {
+        const configured = options.config?.projects === undefined ? undefined :
+          resolveProjectConstraint({ projects: options.config.projects }, ctx.workingDir);
+        for (const policy of [currentProviderPolicy(), configured]) {
+          if (policy !== undefined && !policy.allowsEgress("web")) throw new EgressNotAllowedError(CRAWL_TOOL_NAME, "web", policy);
+        }
+        const refusal = options.egressRefusal?.(ctx.sessionId, "web");
+        if (refusal) throw new Error(refusal);
+      };
+      assertEgress();
+      assertPolicyWebUrl(args.url, ctx.workingDir);
       // ATO-1084: like os.web.fetch, nothing is resolved or fetched while
       // offline (the SSRF guard below would otherwise look the host up).
       const offline = offlineRefusal(args.url, CRAWL_TOOL_NAME);
@@ -84,6 +107,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
         return errorResult(args, offline.message, true, { offline: true, host: offline.host });
       }
       let start: URL;
+      let siteAddresses: ReadonlySet<string>;
       try {
         start = parseHttpUrl(args.url);
       } catch (err) {
@@ -103,7 +127,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
 
       try {
         // Fail on a private address here, not later as "robots.txt unreachable".
-        await assertHostAllowed(start, { lookup: options.lookup });
+        siteAddresses = new Set(await assertHostAllowed(start, { lookup: options.lookup }));
       } catch (err) {
         return errorResult(args, (err as Error).message, err instanceof SsrfBlockedError);
       }
@@ -112,7 +136,46 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
       // earlier crawl must not stop this one before its first request.
       politeness.pacer.resetStrikes(start.host);
 
-      const fetchPage = (url: string, allowRedirect?: (u: URL) => boolean): Promise<FetchOutcome> =>
+      const approvedUrls = new Set([start.href]);
+      const authorizeUrl = async (url: URL): Promise<void> => {
+        ctx.signal.throwIfAborted();
+        assertEgress();
+        assertPolicyWebUrl(url.href, ctx.workingDir);
+        const refusal = offlineRefusal(url.href, CRAWL_TOOL_NAME);
+        if (refusal) throw refusal;
+        if (options.dangerous && !approvedUrls.has(url.href)) {
+          await requireUrlSendApproval(options.dangerous, {
+            mode: options.config?.http?.urlDataGuard ?? DEFAULT_URL_DATA_GUARD,
+            tool: CRAWL_TOOL_NAME, url: url.href, sessionId: ctx.sessionId, signal: ctx.signal,
+            ...(options.urlSendSites ? { sites: options.urlSendSites } : {}),
+          });
+          approvedUrls.add(url.href);
+        }
+      };
+      // During a start move this remains the previous host until its new
+      // robots policy is admitted. Afterwards ordinary DNS rotation is safe:
+      // fetchRawPage still rejects any private answer and pins every attempt.
+      let currentScope: Pick<CrawlScope, "start"> = { start };
+      const validateAddresses = (url: URL, addresses: readonly string[]): void => {
+        // Compare site identity only when admitting a move to another host.
+        if (url.hostname !== currentScope.start.hostname) {
+          const resolved = new Set(addresses);
+          if (resolved.size !== siteAddresses.size || [...resolved].some(ip => !siteAddresses.has(ip))) {
+            throw new Error(`${url.host}: resolved addresses differ from the crawl's starting site`);
+          }
+        }
+        assertEgress();
+      };
+      const authorizeDestination = async (url: URL): Promise<void> => {
+        await authorizeUrl(url);
+        validateAddresses(url, await assertHostAllowed(url, { lookup: options.lookup }));
+      };
+
+      const fetchPage = (
+        url: string,
+        allowRedirect?: (u: URL) => boolean,
+        binaryBody = false,
+      ): Promise<FetchOutcome> =>
         fetchRawPage(url, {
           cwd: ctx.workingDir,
           signal: ctx.signal,
@@ -121,24 +184,33 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
           config: options.config,
           sleep,
           hooks: {
-            beforeRequest: (u, signal) => politeness.pacer.acquire(u.host, signal),
+            beforeRequest: async (u, signal) => {
+              await authorizeUrl(u);
+              await politeness.pacer.acquire(u.host, signal);
+              await authorizeUrl(u);
+            },
+            validateAddresses,
             afterResponse: (u, status, retryAfterMs) =>
               politeness.pacer.noteResponse(u.host, status, retryAfterMs),
             allowRedirect,
+            authorizeRedirect: authorizeUrl,
           },
+          ...(binaryBody ? { binaryBody: true } : {}),
         });
 
       // A missing curl or a cancelled task is not "robots.txt unreachable".
       let fatal = null as Error | null;
-      const robots = await politeness.robotsFor(start, async (robotsUrl) => {
-        try {
-          const res = await fetchPage(robotsUrl);
-          return { status: res.status, body: res.body };
-        } catch (err) {
-          if (err instanceof CurlUnavailableError || ctx.signal.aborted) fatal = err as Error;
-          throw err;
-        }
-      });
+      const loadRobots = (url: URL) =>
+        politeness.robotsFor(url, async (robotsUrl) => {
+          try {
+            const res = await fetchPage(robotsUrl, u => u.origin === url.origin);
+            return { status: res.status, body: res.body };
+          } catch (err) {
+            if (err instanceof CurlUnavailableError || ctx.signal.aborted) fatal = err as Error;
+            throw err;
+          }
+        });
+      const robots = await loadRobots(start);
       if (fatal !== null) return errorResult(args, (fatal as Error).message, false);
       if (!politeness.allows(robots, start)) {
         const why =
@@ -153,26 +225,46 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
         );
       }
 
+      // Mutable: a start page that redirects within the site moves it.
+      const scope: CrawlScope = { start, robots };
+      currentScope = scope;
       const report = await runCrawl({
         args,
-        start,
-        robots,
+        scope,
         politeness,
         signal: ctx.signal,
         now,
         deadline: now() + CRAWL_TIME_BUDGET_MS,
-        fetchPage: async (url) => {
-          const cached = pageCache.get(url);
-          if (cached !== undefined) return cached;
+        fetchPage: async (url, opts) => {
+          await authorizeUrl(parseHttpUrl(url));
+          const binary = opts?.binary === true;
+          const cacheKey = binary ? `bytes:${url}` : url;
+          const cached = pageCache.get(cacheKey);
+          if (cached !== undefined) {
+            await authorizeDestination(parseHttpUrl(url));
+            await authorizeDestination(parseHttpUrl(cached.finalUrl));
+            for (const hop of cached.redirectChain) await authorizeDestination(parseHttpUrl(hop));
+            return cached;
+          }
           // A same-site redirect hop is checked against robots.txt before it
-          // is requested; off-site hops are left to runCrawl's origin check.
+          // is requested. An off-site hop is not requested at all: runCrawl
+          // decides whether the crawl moves there (start page only) after
+          // reading that site's robots.txt.
           const res = await fetchPage(
             url,
-            (u) => u.origin !== start.origin || politeness.allows(robots, u),
+            (u) => u.origin === scope.start.origin && politeness.allows(scope.robots, u),
+            binary,
           );
-          if (res.status >= 200 && res.status < 400) pageCache.set(url, res);
+          if (res.status >= 200 && res.status < 400) pageCache.set(cacheKey, res);
           return res;
         },
+        robotsFor: async (url) => {
+          await authorizeDestination(url);
+          const decision = await loadRobots(url);
+          if (fatal !== null) throw fatal;
+          return decision;
+        },
+        authorizeMove: authorizeDestination,
       });
       return resultFor(args, report, ctx.modelMode);
     },
@@ -227,6 +319,7 @@ function resultFor(
         errors: report.errors.slice(0, 10),
         stoppedBecause: report.stoppedBecause,
         delayMs: report.delayMs,
+        ...(report.notes.length > 0 ? { notes: report.notes } : {}),
         truncated: capped,
       },
     },

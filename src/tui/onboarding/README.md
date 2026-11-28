@@ -5,6 +5,8 @@ Owner: src/tui/onboarding/
 
 This feature owns the first-run surface and its transition effects. Read [TUI instructions](../AGENTS.md), [config instructions](../../config/AGENTS.md) for persistence and the [local model guide](../../local-llm/README.md) for download/backend operations. [Import](../../import/README.md) owns importing external agent data; onboarding offers and displays that operation.
 
+C3d keeps upstream #1670's ChatGPT/Claude export hint deferred while its destination in C3c is absent. Candidate rendering is informational only: it starts no import and writes no memory. Existing first-run import behavior is preserved. [Dependency review and controls](../../../docs/reviews/c3d-onboarding.md).
+
 ## Surface, transitions and input
 
 [OnboardingScreen](onboarding-screen.tsx) owns the full first-run surface, placement and pinned footer; it exports OnboardingScreenCallbacks for the existing input/composition API. [Step body](onboarding-step-body.tsx) maps the current step to its view. [Surface layout](onboarding-surface-layout.ts) uses measurements beside each step's rendered strings and [centering](centre-onboarding-block.ts), while [fit](onboarding-fit.ts) supplies compact-terminal tiers. The screen composes [provider wizard](../providers/providers-wizard.tsx) and its measurement directly; the wizard remains provider-owned.

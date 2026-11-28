@@ -27,6 +27,9 @@ import {
 import type { PinnedExec } from "../../../approval/approval-gate.js";
 import { isOfflineNetwork, offlineRefusal } from "../../../llm/offline-network.js";
 import { shellNetworkUrls } from "../shell-command-guard/network-clients.js";
+import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { createPolicyEvaluation } from "../../../policy/policy-enforce.js";
 import { DEFAULT_URL_DATA_GUARD, requireUrlSendApproval, type UrlDataGuardMode } from "../web/url-data-guard.js";
 import { resolveUserPath } from "../expand-home.js";
 import { expandShellGlobArgs } from "./expand-shell-glob-args.js";
@@ -310,9 +313,12 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // reset --hard`, `sudo`): the operator approved a directory of work,
     // not those, so it goes to the gate too, where a worker's refuse
     // policy hands it back as a step for the operator (ATO-1223).
+    const organization = ctx.organizationPolicy ?? createPolicyEvaluation(activePolicy(), cwd);
+    const organizationRefusal = organization.refusal("os.shell.run", { cmd, args: execArgs }, cwd);
+    if (organizationRefusal !== null) throw new Error(organizationRefusal);
     const dangerous = isDangerousGuardRule(guardVerdict.rule);
     const commandSegments = shellRuleSegments(cmd, execArgs, useShell);
-    const commandUnreadable = shellRunsUnreadableScript(cmd, execArgs, useShell);
+    const commandUnreadable = shellRunsUnreadableScript(cmd, execArgs, useShell, undefined, cwd);
     const ruleCheck = {
       sessionId: ctx.sessionId,
       tool: "os.shell.run",
@@ -344,6 +350,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     // but a saved deny rule still stops it: it goes to the gate, which
     // refuses it on the rule before any level, grant or prompt
     // (ATO-1332). Ask and allow rules keep to the gated path.
+    const organizationAsk = organization.asks("os.shell.run", { cmd, args: execArgs, cwd });
     const deniedBySavedRule =
       guardVerdict.action === "allow" &&
       options.approvalRequired &&
@@ -353,7 +360,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
     let pinned: PinnedExec | undefined;
     if (
       (guardVerdict.action === "approval_required" && !scopedByFanout) ||
-      deniedBySavedRule
+      deniedBySavedRule || organizationAsk
     ) {
       // Shape grant unit: the bare binary name (lowercased), so `[a]`
       // and "Allow in this chat" cover exactly the argv[0] that would
@@ -372,7 +379,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       // Saved approval rules match on argv and on the session's folder.
       const commandArgv = shellCommandArgv(cmd, execArgs, useShell, commandShape);
       const approval = await requireApproval(
-        options,
+        organizationAsk ? { ...options, approvalRequired: true } : options,
         {
           sessionId: ctx.sessionId,
           tool: "os.shell.run",
@@ -409,12 +416,14 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           targetPaths,
         },
         ctx.signal,
+        organizationAsk ? true : undefined,
       );
       pinned = approval.pinnedExec;
     }
 
     // A host pin already consents to the exact argv and working directory.
     // No saved or interactive shell grant substitutes for URL consent.
+    for (const url of urls.keys()) await requirePolicyWebUrl(options, "os.shell.run", url, ctx);
     if (pinned === undefined) {
       for (const [url, sendsQueryData] of urls) {
         await requireUrlSendApproval(options, {
@@ -432,6 +441,9 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       pinned === undefined
         ? resolveShellSpawn(cmd, execArgs, useShell)
         : { command: pinned.file, args: pinned.argv.slice(1), windowsVerbatimArguments: false };
+    const actualRefusal = pinned === undefined ? organization.shellSpawnRefusal(cmd, execArgs, spawnSpec.command, spawnSpec.args, cwd) : organization.refusal("os.shell.run", { cmd: spawnSpec.command, args: spawnSpec.args }, cwd);
+    if (actualRefusal !== null) throw new Error(actualRefusal);
+    if (pinned !== undefined) for (const url of shellNetworkUrls(spawnSpec.command, spawnSpec.args).keys()) if (!urls.has(url)) await requirePolicyWebUrl(options, "os.shell.run", url, ctx);
     const facts: ShellCommandFacts = {
       cmd,
       args: execArgs,

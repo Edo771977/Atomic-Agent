@@ -1,3 +1,5 @@
+import { inheritedPolicyStateDir, POLICY_STATE_DIR_ENV, POLICY_SYSTEM_PATH_ENV, POLICY_FILE_PINS_ENV, systemPolicyPath } from "../config/org-policy-paths.js";
+
 /**
  * The environment an agent-run command is spawned with (ATO-347).
  *
@@ -160,7 +162,7 @@ export function buildCommandEnv(
   const allowed = new Set(passthrough.map((name) => name.toUpperCase()));
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(base)) {
-    if (typeof value !== "string" || isServeApiKeyEnv(key)) continue;
+    if (typeof value !== "string" || isServeApiKeyEnv(key) || key.toUpperCase() === "ATOMIC_POLICY_URL") continue;
     if (GIT_CONFIG_ENV_NAME.test(key)) continue;
     if (isSecretEnvName(key) && !allowed.has(key.toUpperCase())) continue;
     env[key] = value;
@@ -233,15 +235,18 @@ function isServeApiKeyEnv(name: string): boolean {
 }
 
 export function withoutServeApiKey(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return Object.fromEntries(Object.entries(env).filter(([name]) => !isServeApiKeyEnv(name)));
+  return Object.fromEntries(Object.entries(env).filter(([name]) => !isServeApiKeyEnv(name) && name.toUpperCase() !== "ATOMIC_POLICY_URL"));
 }
 
 /** Mark subprocesses started by tools so an inherited CLI can refuse operator decisions. */
 export const AGENT_TOOL_CHILD_ENV = "ATOMIC_AGENT_TOOL_CHILD";
 
-export function markAgentToolChild(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+export function markAgentToolChild(env: NodeJS.ProcessEnv, parent: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   return {
-    ...Object.fromEntries(Object.entries(withoutServeApiKey(env)).filter(([name]) => name.toUpperCase() !== AGENT_TOOL_CHILD_ENV)),
+    ...Object.fromEntries(Object.entries(withoutServeApiKey(env)).filter(([name]) => ![AGENT_TOOL_CHILD_ENV, POLICY_STATE_DIR_ENV, POLICY_SYSTEM_PATH_ENV, POLICY_FILE_PINS_ENV].includes(name.toUpperCase()))),
     [AGENT_TOOL_CHILD_ENV]: "1",
+    [POLICY_STATE_DIR_ENV]: inheritedPolicyStateDir(parent),
+    [POLICY_SYSTEM_PATH_ENV]: parent[POLICY_SYSTEM_PATH_ENV] ?? systemPolicyPath(process.platform, parent),
+    ...(parent[POLICY_FILE_PINS_ENV] !== undefined ? { [POLICY_FILE_PINS_ENV]: parent[POLICY_FILE_PINS_ENV] } : {}),
   };
 }

@@ -1,0 +1,76 @@
+{
+  "main": "54f81900b",
+  "fixtures": "Synthetic DNS and transport, no real connections",
+  "records": [
+    {
+      "report": "b7b1-review-dns-red.json",
+      "sha256": "7ce673cfdd9c7137feae995da996969d13b3f7d0cbd9f5b53b304c73efce58c5",
+      "passed": 6,
+      "failed": 4,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "same-host crawl DNS rotation matches main on three rotating public IPv4 addresses for three pages",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation matches main when public IPv4 gains IPv6 for two pages",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation revalidates and repins public DNS on a same-host retry",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation revalidates cached same-host pages while allowing public rotation",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        }
+      ]
+    },
+    {
+      "report": "b7b1-review-dns-expanded-red.json",
+      "sha256": "7c80b82e7f4cd211fb4bb0134498ba6f2d8b93877aa3062e098253e8b22116b8",
+      "passed": 42,
+      "failed": 5,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "same-host crawl DNS rotation matches main on three rotating public IPv4 addresses for three pages",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation matches main when public IPv4 gains IPv6 for two pages",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation revalidates and repins public DNS on a same-host retry",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "same-host crawl DNS rotation revalidates cached same-host pages while allowing public rotation",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        },
+        {
+          "name": "B7b1 crawl URL and response boundaries allows public DNS rotation on pages after the new host's robots admission",
+          "message": "AssertionError: expected 'error' to be 'ok' // Object.is equality"
+        }
+      ]
+    },
+    {
+      "report": "b7b1-review-dns-main.json",
+      "sha256": "0d9d0d026785bfbd7680e6833a4edd6d84f8ffd82f36a7437909598a56d545ec",
+      "passed": 2,
+      "failed": 0,
+      "skipped": 8,
+      "failures": []
+    },
+    {
+      "report": "b7b1-review-dns-green.json",
+      "sha256": "55e563d32f9e36e1153ff218819c51ec6ca7016fbb319a16e23e93a867d00e65",
+      "passed": 47,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    }
+  ]
+}

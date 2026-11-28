@@ -1,3 +1,4 @@
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import { hasEmbeddedUserinfo } from "./git-credentials.js";
@@ -96,6 +97,7 @@ export function buildOsGitRemoteTool(
       });
       requireGitSuccess(TOOL, probe);
       const repoRoot = probe.stdout.trim();
+      await authorizeGitPolicyMutation(options, TOOL, repoRoot, [], ctx);
       await requireGitRemoteApproval(
         options,
         {

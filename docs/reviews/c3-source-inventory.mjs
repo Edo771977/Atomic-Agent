@@ -1,0 +1,11 @@
+import { execFileSync } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { resolve, join } from 'node:path';
+const [checkout, output] = process.argv.slice(2);
+const root = resolve(checkout);
+const files = execFileSync('git', ['ls-files', '-c', '-o', '--exclude-standard', 'src', 'grammars', 'scripts', 'package.json', 'package-lock.json', 'vitest.config.ts', 'tsconfig.json', 'tsconfig.test.json'], { cwd: root, encoding: 'utf8' }).trim().split('\n').filter(p => p && !p.endsWith('.md')).sort();
+const inventory = Object.fromEntries([...new Set(files)].map(p => [p, createHash('sha256').update(readFileSync(join(root, p))).digest('hex')]));
+const result = { fileCount: Object.keys(inventory).length, sha256: createHash('sha256').update(JSON.stringify(inventory)).digest('hex'), files: inventory };
+writeFileSync(output, JSON.stringify(result, null, 2) + '\n');
+console.log(JSON.stringify({ fileCount: result.fileCount, sha256: result.sha256 }));

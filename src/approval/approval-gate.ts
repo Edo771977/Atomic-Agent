@@ -474,6 +474,8 @@ export class ApprovalGate {
 
   /** Saved allow / ask / deny rules (`approval-rules.ts`); none until `setRules`. */
   private rules: ApprovalRulesSource | undefined;
+  /** Admin policy check (`src/policy/`, ATO-587); none until `setOrgPolicy`. */
+  private orgPolicy: ((request: RuleCheck) => RuleMatch | null) | undefined;
   /** The rule the last `grant: "always"` saved, for the host that asked. */
   private lastAlwaysRule: { approvalId: string; rule: ApprovalRule } | null = null;
   /** Smart approval (step 7 of `request`); unset = never consulted. */
@@ -529,6 +531,14 @@ export class ApprovalGate {
   /** Install (or with `undefined`, remove) the saved approval rules. */
   setRules(store: ApprovalRulesSource | undefined): void {
     this.rules = store;
+  }
+
+  /**
+   * Install (or with `undefined` remove) the admin policy. Its deny and
+   * ask stand above saved rules; a saved deny still wins over its ask.
+   */
+  setOrgPolicy(check: ((request: RuleCheck) => RuleMatch | null) | undefined): void {
+    this.orgPolicy = check;
   }
 
   /** The installed rules store, for hosts that list or delete rules. */
@@ -1132,6 +1142,26 @@ export class ApprovalGate {
    * cannot be read never blocks a request; it is as if it had no rules.
    */
   private matchRule(request: RuleCheck): RuleMatch | null {
+    const own = this.matchSavedRule(request);
+    if (own?.decision === "deny" || this.orgPolicy === undefined) return own;
+    try {
+      const direct = this.orgPolicy(request);
+      if (direct?.decision === "deny") return direct;
+      const policy = this.policiesBySession.get(request.sessionId);
+      if (policy?.rulePathRoot === undefined || policy.ruleWorkdir === undefined) return direct ?? own;
+      const map = (paths: readonly string[] | undefined): string[] | undefined => paths?.map(path => this.originalCandidatePath(request.sessionId, path));
+      // A relative pattern and a mapped candidate path must share the original
+      // project base. Keep the direct verdict too: mapping cannot relax a rule.
+      const original = this.orgPolicy({ ...request, workdir: policy.ruleWorkdir,
+        targetPaths: map(request.targetPaths), affectedResources: map(request.affectedResources) });
+      if (original?.decision === "deny" || original?.decision === "ask" && direct?.decision !== "ask") return original;
+      return direct ?? original ?? own;
+    } catch {
+      return { decision: "deny", rule: { id: "org-policy:unavailable", decision: "deny", tool: request.tool, createdAt: "", source: "user", note: "Organization policy could not be evaluated" } };
+    }
+  }
+
+  private matchSavedRule(request: RuleCheck): RuleMatch | null {
     const store = this.rules;
     if (store === undefined) return null;
     try {

@@ -43,7 +43,7 @@ export function readTaintTargets(
     const cwd = typeof args.cwd === "string" ? resolve(workingDir, args.cwd) : workingDir;
     raw.push(resolve(cwd, args.path));
   }
-  const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args) : [];
+  const calls = tool === SHELL_TOOL ? [args] : tool === VERIFY_TOOL ? verifyRunShellCalls(args, workingDir) : [];
   for (const call of calls) {
     const given = typeof call.cwd === "string" && call.cwd.length > 0 ? resolveUserPath(call.cwd, workingDir) : undefined;
     if (given !== undefined) raw.push(given);

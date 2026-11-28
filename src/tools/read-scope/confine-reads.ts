@@ -277,7 +277,7 @@ export function confineReads(
 
   if (asker !== null) {
     const checkCommand = createCommandReadCheck(options);
-    const commandTools: [string, (args: Record<string, unknown>) => Record<string, unknown>[]][] = [
+    const commandTools: [string, (args: Record<string, unknown>, workingDir: string) => Record<string, unknown>[]][] = [
       [SHELL_TOOL, (args) => [args]],
       // Its copy of the workspace takes the writes, not the reads: `cat`
       // of an absolute path works there, and the output comes back.
@@ -287,7 +287,7 @@ export function confineReads(
       if (!registry.has(name)) continue;
       const inner = registry.get(name);
       install(name, async (args, ctx) => {
-        for (const call of callsOf(args)) {
+        for (const call of callsOf(args, ctx.workingDir)) {
           const cwd = name === VERIFY_TOOL && typeof call.cwd === "string" ? resolve(ctx.workingDir, call.cwd) : ctx.workingDir;
           if (name === VERIFY_TOOL && !isInside(resolve(ctx.workingDir), cwd)) return compressToolResult({ tool: name, status: "error", output: "verify.run: cwd must stay inside the working directory" });
           const commandContext = cwd === ctx.workingDir ? ctx : { ...ctx, workingDir: cwd, readRoots: [ctx.workingDir, ...(ctx.readRoots ?? [])] };

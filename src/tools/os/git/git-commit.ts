@@ -1,3 +1,4 @@
+import { gitIndexPolicyPaths } from "./git-policy-plan.js";
 import { compressToolResult } from "../../../compressor/result-compressor.js";
 import type { ToolDefinition } from "../../tool-registry.js";
 import type { FsDangerousToolOptions } from "../fs/fs-require-approval.js";
@@ -61,6 +62,7 @@ export function buildOsGitCommitTool(
         {
           sessionId: ctx.sessionId,
           tool: "os.git.commit",
+          policyPaths: await gitIndexPolicyPaths(probe, toplevel.root, "commit", paths, all),
           repoRoot: toplevel.root,
           reason: `commit "${firstLine(message)}" in ${toplevel.root}`,
           preview,

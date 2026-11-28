@@ -1,0 +1,68 @@
+{
+  "base": "104b6f7e6e111c017cff530c8c135899c2614db0",
+  "slice": "c3c",
+  "authorEmail": "209531336+Edo771977@users.noreply.github.com",
+  "checks": [
+    {
+      "check": "ci",
+      "exit": 0,
+      "started": "2026-11-27T15:43:23.6919325+01:00",
+      "log": "c3c-ci.log"
+    },
+    {
+      "check": "lint",
+      "exit": 0,
+      "started": "2026-11-27T15:43:51.3757685+01:00",
+      "log": "c3c-lint.log"
+    },
+    {
+      "check": "imports:check",
+      "exit": 0,
+      "started": "2026-11-27T15:44:08.9220857+01:00",
+      "log": "c3c-imports-check.log"
+    },
+    {
+      "check": "typecheck:tests",
+      "exit": 0,
+      "started": "2026-11-27T15:44:13.7228583+01:00",
+      "log": "c3c-typecheck-tests.log"
+    },
+    {
+      "check": "docs:check",
+      "exit": 0,
+      "started": "2026-11-27T15:44:57.2286518+01:00",
+      "log": "c3c-docs-check.log"
+    },
+    {
+      "check": "focused",
+      "exit": 1,
+      "started": "2026-11-27T15:44:58.7996572+01:00",
+      "log": "c3c-focused.log"
+    }
+  ],
+  "focused": {
+    "passed": 12391,
+    "failed": 1,
+    "pending": 12,
+    "newTests": [
+      {
+        "name": "C3c terminal facts review remains deferred has no facts runner that can reach the deferred save service",
+        "status": "passed"
+      },
+      {
+        "name": "C3c terminal facts review remains deferred has no facts view, approval reducer or keys before unchecked review is established",
+        "status": "passed"
+      },
+      {
+        "name": "C3c terminal facts review remains deferred does not attach a facts review to the established import form",
+        "status": "passed"
+      }
+    ]
+  },
+  "candidate": {
+    "tests": 6,
+    "passed": 3,
+    "failed": 3,
+    "absenceFailed": 3
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "report": "atomic-c4a-extra-final.json",
+  "success": true,
+  "tests": {
+    "passed": 1,
+    "failed": 0,
+    "pending": 9,
+    "total": 10
+  },
+  "suites": {
+    "passed": 1,
+    "failed": 0,
+    "pending": 0
+  },
+  "failures": [],
+  "suiteErrors": [],
+  "main": {
+    "report": "atomic-c4a-extra-main.json",
+    "tests": {
+      "passed": 1,
+      "failed": 0,
+      "pending": 9
+    }
+  },
+  "newFailureNames": [],
+  "mainOnlyFailureNames": [],
+  "newSuiteErrorFiles": []
+}

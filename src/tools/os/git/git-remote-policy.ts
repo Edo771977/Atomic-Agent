@@ -1,3 +1,8 @@
+import { authorizeGitPolicyMutation } from "./git-mutation-approval.js";
+import { resolveUserPath } from "../expand-home.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { requirePolicyWebUrl } from "../../../policy/policy-web.js";
+import { policyCallAsks } from "../../../policy/policy-enforce.js";
 import { compressToolResult, type CompressedToolResult } from "../../../compressor/result-compressor.js";
 import {
   requireApproval,
@@ -14,6 +19,8 @@ import {
   GIT_FAILURE_TAIL_LINES,
 } from "./git-error-result.js";
 import { runGit, type GitRunOptions, type GitRunResult } from "./git-runner.js";
+import type { UrlDataGuardMode } from "../../../config/index.js";
+import { checkUrlSend, DEFAULT_URL_DATA_GUARD, requireUrlSendApproval } from "../web/url-data-guard.js";
 
 /**
  * What every network git tool is built with. The remote-sync switch is a
@@ -24,6 +31,7 @@ import { runGit, type GitRunOptions, type GitRunResult } from "./git-runner.js";
 export interface GitRemoteToolOptions extends DangerousToolOptions {
   isRemoteSyncEnabled: () => boolean;
   env?: NodeJS.ProcessEnv;
+  urlDataGuard?: UrlDataGuardMode;
 }
 
 export const REMOTE_SYNC_OFF_MESSAGE =
@@ -73,10 +81,14 @@ export interface GitRemoteApprovalRequest {
 
 /** One funnel for every network verb: category `git_remote`, always. */
 export async function requireGitRemoteApproval(
-  options: DangerousToolOptions,
+  options: DangerousToolOptions & { urlDataGuard?: UrlDataGuardMode },
   request: GitRemoteApprovalRequest,
   signal: AbortSignal,
 ): Promise<void> {
+  for (const url of request.affectedResources.filter(value => /^https?:\/\//i.test(value))) {
+    await requirePolicyWebUrl(options, request.tool, url, { sessionId: request.sessionId, signal });
+    await requireUrlSendApproval(options, { mode: options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD, tool: request.tool, url, sessionId: request.sessionId, signal });
+  }
   await requireApproval(
     options,
     {
@@ -98,8 +110,23 @@ export async function requireGitRemoteApproval(
  */
 export async function runGitRemote(
   options: GitRemoteToolOptions,
-  run: Omit<GitRunOptions, "env">,
+  run: Omit<GitRunOptions, "env"> & { sessionId?: string },
 ): Promise<GitRunResult> {
+  const verb = run.args[0];
+  if (verb === "clone" || verb === "fetch" || verb === "pull") {
+    const root = resolveUserPath(verb === "clone" ? run.args.at(-1)! : run.repo ?? run.workingDir, run.workingDir);
+    await authorizeGitPolicyMutation(options, `os.git.${verb}`, root, verb === "clone" || verb === "pull" ? [root] : [], run);
+  }
+  if (activePolicy().rules.some(rule => rule.action === "webfetch" && rule.effect !== "allow") || (options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD) !== "off") {
+    const urls = await remotePolicyUrls(run);
+    for (const url of urls.filter(value => /^https?:\/\//i.test(value))) {
+      const sessionId = run.sessionId ?? "git-no-session";
+      const mode = options.urlDataGuard ?? DEFAULT_URL_DATA_GUARD;
+      if (run.sessionId === undefined && (policyCallAsks(activePolicy(), "os.web.fetch", { url }) || checkUrlSend(mode, url, sessionId) !== null)) throw new Error("Git destination approval requires a session context");
+      await requirePolicyWebUrl(options, `os.git.${run.args[0]}`, url, { sessionId, signal: run.signal, workingDir: run.workingDir });
+      await requireUrlSendApproval(options, { mode, tool: `os.git.${run.args[0]}`, url, sessionId, signal: run.signal });
+    }
+  }
   const env = options.env ?? process.env;
   const token = readGithubToken(env);
   const injection = buildCredentialInjection(token);
@@ -151,4 +178,36 @@ export function optionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : undefined;
+}
+
+/** Read-only URL resolution, including configured insteadOf rewrites, never a network probe. */
+async function remotePolicyUrls(run: Omit<GitRunOptions, "env">): Promise<string[]> {
+  const inspect = async (args: string[]): Promise<string[]> => {
+    const result = await runGit({ ...run, args });
+    if (result.exitCode !== 0 || result.timedOut || result.truncated) throw new Error("Cannot inspect complete Git destinations for organization policy");
+    return result.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  };
+  const verb = run.args[0];
+  if (verb === "clone") {
+    const at = run.args.indexOf("--");
+    const url = at === -1 ? undefined : run.args[at + 1];
+    if (url === undefined) throw new Error("Cannot inspect Git clone destination for organization policy");
+    return inspect(["ls-remote", "--get-url", "--", url]);
+  }
+  if (verb !== "fetch" && verb !== "pull") return [];
+  const remotes = run.args.includes("--all") ? await inspect(["remote"]) : [run.args.find((arg, index) => index > 0 && !arg.startsWith("-")) ?? "origin"];
+  const urls: string[] = [];
+  for (const remote of remotes) {
+    if (/^https?:\/\//i.test(remote)) urls.push(...await inspect(["ls-remote", "--get-url", "--", remote]));
+    else {
+      const configured = await runGit({ ...run, args: ["remote", "get-url", "--all", remote] });
+      if (configured.timedOut || configured.truncated) throw new Error("Cannot inspect complete Git destinations for organization policy");
+      // Git accepts repository paths, SSH URLs and insteadOf aliases as
+      // operands too. --get-url resolves those without contacting a server;
+      // a missing name retains Git's ordinary eventual error.
+      if (configured.exitCode === 0) urls.push(...configured.stdout.split(/\r?\n/).map(value => value.trim()).filter(Boolean));
+      else urls.push(...await inspect(["ls-remote", "--get-url", "--", remote]));
+    }
+  }
+  return [...new Set(urls)];
 }

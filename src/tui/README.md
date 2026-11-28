@@ -5,6 +5,8 @@ Owner: src/tui/
 
 This area owns terminal interface. Read [AGENTS.md](AGENTS.md) before changing it.
 
+C3c keeps the dependent chat-export facts review (#1661) unavailable while its extraction/service prerequisites are deferred and the candidate approves every row by default. Existing import UI remains available. [Review](../../docs/reviews/c3c-tui-facts.md).
+
 ## Entry points
 
 - [tui-app.tsx](tui-app.tsx)
@@ -90,3 +92,5 @@ Export file writes share [the destination guard](../session/chat-export-file.ts)
 `/export` accepts `--force` and `--confirm-incognito` before or after the format and path. Quote paths that contain option-like words; an unknown unquoted option is refused before rendering or writing.
 
 Export path words may not begin with any Unicode dash punctuation (category Pd, including ASCII hyphen) or the minus sign U+2212, including quoted words and a bare `--`; use an explicit `./` prefix for a literal such filename. Quotes must close. Removing flags joins the remaining path words with one space (`md my --force notes.md` writes `my notes.md`).
+
+B7b3 keeps #1563's external-server model row deferred with its #1562 classification/probe prerequisite. Existing selectors remain available; this is not a claim that an external llama.cpp actually honors their requested model. [Review](../../docs/reviews/b7b3-external-llama.md).

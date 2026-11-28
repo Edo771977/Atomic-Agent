@@ -18,6 +18,8 @@ export interface ShellWord {
   text: string;
   dynamic: boolean;
   expandHeredoc?: boolean;
+  literal?: boolean;
+  span?: readonly [number, number];
 }
 
 /**
@@ -26,13 +28,15 @@ export interface ShellWord {
  * names a descriptor when that word is digits or `-` (`2>&1`) and a
  * file otherwise (`>&out.log`); `none` reads it (`<`). Literal script
  * input may also be retained by callers that need to inspect it.
+ * Opt-in `inputFd` preserves which descriptor an input operator targets;
+ * consumers that omit input-flow metadata retain their established tokens.
  */
 export type ShellToken =
   | ({ kind: "word" } & ShellWord)
-  | { kind: "separator"; pipe?: true }
+  | { kind: "separator"; pipe?: true; newline?: true }
   | { kind: "open" }
   | { kind: "close" }
-  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string" };
+  | { kind: "redirect"; writes: "file" | "dup" | "none" | "here-string"; inputFd?: number; fd?: number; operator?: string };
 
 type Operator =
   | Exclude<ShellToken, { kind: "word" }>
@@ -114,6 +118,7 @@ export function lexShellLine(
   home = homedir(),
   keepHeredocs = false,
   recoverPrefix = false,
+  keepInputFlow = false,
 ): ShellToken[] | null {
   const tokens: ShellToken[] = [];
   const incomplete = (): ShellToken[] | null => {
@@ -133,23 +138,25 @@ export function lexShellLine(
   let inWord = false;
   let quoted = false;
   let dynamic = false;
+  let escaped = false, wordStart = 0;
   /** Set right after `<<`: the next word is a heredoc delimiter. */
-  let pendingHeredoc: { stripTabs: boolean } | null = null;
+  let pendingHeredoc: { stripTabs: boolean; inputFd?: number } | null = null;
 
   const endWord = (): void => {
     if (!inWord) return;
     if (pendingHeredoc !== null) {
       const body: ShellToken | undefined = keepHeredocs ? { kind: "word", text: "", dynamic: false, expandHeredoc: !quoted } : undefined;
-      if (body) tokens.push({ kind: "redirect", writes: "here-string" }, body);
+      if (body) tokens.push({ kind: "redirect", writes: "here-string", ...(keepInputFlow ? { inputFd: pendingHeredoc.inputFd, fd: pendingHeredoc.inputFd, operator: "<<" } : {}) }, body);
       heredocs.push({ delimiter: word, ...pendingHeredoc, body });
       pendingHeredoc = null;
     } else {
-      tokens.push({ kind: "word", text: word, dynamic });
+      tokens.push({ kind: "word", text: word, dynamic, ...(keepInputFlow ? { literal: !quoted && !escaped && !dynamic, span: [wordStart, i] as const } : {}) });
     }
     word = "";
     inWord = false;
     quoted = false;
     dynamic = false;
+    escaped = false;
   };
   /** Start a quoted part; a `~` that opens a word quoted is not home. */
   const openQuote = (first: string | undefined): void => {
@@ -169,11 +176,12 @@ export function lexShellLine(
   let expressionEnd = -1;
   let i = 0;
   while (i < line.length) {
+    if (!inWord) wordStart = i;
     const c = line[i]!;
     if (c === "\n") {
       endWord();
       if (pendingHeredoc !== null) return incomplete();
-      tokens.push(SEPARATOR);
+      tokens.push(keepInputFlow ? { kind: "separator", newline: true } : SEPARATOR);
       i = skipHeredocBodies(line, i + 1, heredocs);
       heredocs.length = 0;
       continue;
@@ -184,6 +192,7 @@ export function lexShellLine(
       continue;
     }
     if (escape !== null && c === escape) {
+      escaped = true;
       const next = line[i + 1] ?? (dialect === "posix" ? c : undefined);
       if (next === undefined) return incomplete();
       // A line continuation joins the two lines.
@@ -197,6 +206,40 @@ export function lexShellLine(
     }
     // POSIX command substitution; PowerShell's escape character.
     if (c === "`") return incomplete();
+    if (dialect === "posix" && c === "$" && line[i + 1] === "'") {
+      openQuote(line[i + 2]);
+      let j = i + 2;
+      for (;;) {
+        const d = line[j];
+        if (d === undefined) return incomplete();
+        if (d === "'") break;
+        if (d !== "\\") { word += d; j += 1; continue; }
+        const next = line[j + 1];
+        if (next === undefined) return incomplete();
+        if ("\\'\"".includes(next)) { word += next; j += 2; continue; }
+        const digits = next === "x" ? /^[0-9a-f]{1,2}/i.exec(line.slice(j + 2))?.[0]
+          : next === "u" ? /^[0-9a-f]{1,4}/i.exec(line.slice(j + 2))?.[0]
+          : next === "U" ? /^[0-9a-f]{1,8}/i.exec(line.slice(j + 2))?.[0] : undefined;
+        if (digits !== undefined) {
+          const code = Number.parseInt(digits, 16);
+          // Unknown/control/locale-dependent encodings cannot name a known program.
+          if (code < 32 || code > 126) dynamic = true;
+          else word += String.fromCodePoint(code);
+          j += 2 + digits.length;
+          continue;
+        }
+        dynamic = true;
+        j += 2;
+      }
+      i = j + 1;
+      continue;
+    }
+    if (dialect === "posix" && c === "$" && line[i + 1] === '"') {
+      // Locale translation is not known to the approval parser.
+      dynamic = true;
+      i += 1;
+      continue;
+    }
     if (singleQuotes && c === "'") {
       const end = line.indexOf("'", i + 1);
       if (end === -1) return incomplete();
@@ -259,18 +302,21 @@ export function lexShellLine(
         continue;
       }
       const redirect = operator.kind === "redirect" || operator.kind === "heredoc";
+      let fd = text.startsWith("<") ? 0 : 1;
       // `2>err.txt`: a word of bare digits right before a redirect is
       // the descriptor it applies to, not a word of the command.
       if (redirect && inWord && !quoted && !dynamic && /^\d+$/.test(word)) {
+        fd = Number(word);
         word = "";
         inWord = false;
       }
       endWord();
       if (pendingHeredoc !== null) return incomplete();
       if (operator.kind === "heredoc") {
-        pendingHeredoc = { stripTabs: operator.stripTabs };
+        pendingHeredoc = { stripTabs: operator.stripTabs, ...(keepInputFlow ? { inputFd: fd } : {}) };
       } else {
-        tokens.push(operator);
+        tokens.push(keepInputFlow && operator.kind === "redirect" ? { ...operator, fd, operator: text, ...(text.startsWith("<") ? { inputFd: fd } : {}) }
+          : keepInputFlow && text === "|" ? { kind: "separator", pipe: true } : operator);
       }
       i += text.length;
       continue;

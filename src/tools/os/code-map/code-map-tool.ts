@@ -20,6 +20,8 @@ import { renderFileOutline, renderProjectMap } from "./code-map-render.js";
 import { languageForPath, type FileOutline, type OutlineBackend } from "./outline-types.js";
 import { regexOutlineBackend } from "./regex-outline.js";
 import { combineBackends, loadTreeSitterBackend } from "./tree-sitter-outline.js";
+import { activePolicy } from "../../../policy/policy-active.js";
+import { policyFileReadFilter } from "../../../policy/policy-paths.js";
 
 const TOOL = OS_FS_CODE_MAP_CONTRACT.name;
 
@@ -156,7 +158,7 @@ interface Walked {
   capped: boolean;
 }
 
-async function walkSources(root: string, limits: WalkBudgetLimits, ctx: ToolContext, now: () => number): Promise<Walked> {
+async function walkSources(root: string, limits: WalkBudgetLimits, ctx: ToolContext, now: () => number, allowed: (path: string) => boolean): Promise<Walked> {
   const ignore = DEFAULT_IGNORE.map((p) => compileGlob(p));
   const budget = createWalkBudget(limits, { now, signal: ctx.signal });
   const files: string[] = [];
@@ -178,6 +180,7 @@ async function walkSources(root: string, limits: WalkBudgetLimits, ctx: ToolCont
       // Dot folders are tool state (.git, .venv, .next…), never the project's code.
       if (entry.name.startsWith(".")) continue;
       const abs = join(dir, entry.name);
+      if (!allowed(abs)) continue;
       const rel = toPosix(relative(root, abs));
       if (entry.isDirectory()) {
         if (matchesAny(ignore, `${rel}/`) || matchesAny(ignore, `${rel}/x`)) continue;
@@ -205,6 +208,8 @@ export function buildOsFsCodeMapTool(deps: Partial<CodeMapDeps> = {}): ToolDefin
     async run(rawArgs, ctx) {
       const args = parseCodeMapArgs(rawArgs);
       const absolute = args.path === undefined ? ctx.workingDir : resolveUserPath(args.path, ctx.workingDir);
+      const allowed = policyFileReadFilter(activePolicy()).allows;
+      if (!allowed(absolute)) throw new Error(`${TOOL}: organization policy file is protected`);
       const info = await orMissing(TOOL, absolute, ctx, () => stat(absolute));
       if ("missing" in info) return info.missing;
       const maxTokens = codeMapBudget(args.maxTokens, ctx.contextWindowTokens);
@@ -236,7 +241,7 @@ export function buildOsFsCodeMapTool(deps: Partial<CodeMapDeps> = {}): ToolDefin
         );
       }
 
-      const walked = await walkSources(absolute, limits, ctx, now);
+      const walked = await walkSources(absolute, limits, ctx, now, allowed);
       const inputs: RankInput[] = [];
       for (let i = 0; i < walked.files.length; i += READ_CONCURRENCY) {
         ctx.signal.throwIfAborted();
