@@ -373,6 +373,7 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
       // --hard`, `sudo`) asks as `shell_dangerous` with no shape: no
       // `shell` grant, no `[a]` on `git` and no level below full trust
       // runs it unasked, and no prompt offers to remember it (ATO-1220).
+      // Credential moves additionally require a one-shot decision at level 5.
       const commandShape = dangerous
         ? undefined
         : shellGrantShape(guardInput.cmd, commandLine, useShell);
@@ -416,7 +417,8 @@ export function buildOsShellTool(options: OsShellToolOptions): ToolDefinition {
           targetPaths,
         },
         ctx.signal,
-        organizationAsk ? true : undefined,
+        organizationAsk || guardVerdict.rule === "dangerous.secrets_store_move" ||
+          guardVerdict.rule === "dangerous.secrets_value_access" ? true : undefined,
       );
       pinned = approval.pinnedExec;
     }
