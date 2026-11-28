@@ -66,7 +66,9 @@ export interface SchedulerOptions {
    * drain — today the mail trigger (ATO-601), which turns new inbox
    * messages into tasks. Called on every interval tick this process
    * leads, after the leadership check and without waiting; each sidecar
-   * throttles itself and must not throw.
+   * throttles itself and must not throw. With a leadership gate, not on
+   * the tick that gains leadership (#1735): the previous leader may have
+   * started its own on its last tick and only stands by on its next.
    */
   sidecars?: readonly SchedulerSidecar[];
 }
@@ -103,6 +105,10 @@ export class Scheduler {
   private inFlight: Promise<void> | null = null;
   /** Last leadership answer, to log hand-overs once rather than per tick. */
   private leading: boolean | null = null;
+  /** Only an interval tick can settle newly acquired leadership. */
+  private sidecarsReady = false;
+  /** One signal per leadership period; losing ownership cancels its polls. */
+  private sidecarController = new AbortController();
   /**
    * Handed to every tick's `runDue` and aborted by `stop()`: the drain
    * stops claiming, and the turn of the task it is running is stopped
@@ -124,8 +130,13 @@ export class Scheduler {
     if (this.stopping) return;
     const handler = () => {
       if (!this.leads()) return;
+      const sidecarsReady = this.sidecarsReady;
+      this.sidecarsReady = true;
       void this.tickOnce();
-      this.tickSidecars();
+      // #1735: a process that just took leadership waits one tick before
+      // its sidecars, giving the previous leader an interval to observe
+      // the hand-over. This is a delay, not cross-process fencing.
+      if (sidecarsReady || !this.options.leadership) this.tickSidecars();
     };
     this.timer = this.clock.setInterval(handler, this.options.tickMs);
   }
@@ -165,6 +176,7 @@ export class Scheduler {
       this.timer = null;
     }
     this.stopController.abort();
+    this.sidecarController.abort();
     try {
       await this.settleInFlight(graceMs);
     } finally {
@@ -220,6 +232,9 @@ export class Scheduler {
     }
     if (leader !== this.leading) {
       this.leading = leader;
+      this.sidecarsReady = false;
+      this.sidecarController.abort();
+      if (leader) this.sidecarController = new AbortController();
       if (leadership) {
         this.options.logger?.info(
           leader
@@ -247,7 +262,7 @@ export class Scheduler {
   private tickSidecars(): void {
     const now = this.clock.now();
     for (const sidecar of this.options.sidecars ?? []) {
-      void sidecar.tick(now, this.stopController.signal).catch((err: unknown) => {
+      void sidecar.tick(now, this.sidecarController.signal).catch((err: unknown) => {
         this.options.logger?.warn("scheduler sidecar failed", {
           error: err instanceof Error ? err.message : String(err),
         });

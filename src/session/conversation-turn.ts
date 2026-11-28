@@ -569,7 +569,8 @@ function isGogShellResult(
 function capSummary(summary: string, capChars: number): string {
   if (summary.length <= capChars) return summary;
   const keep = Math.max(1, capChars - 40);
-  return `${summary.slice(0, keep)}\n… [rendering-truncated ${summary.length - keep} chars]`;
+  const shown = sliceAtCharacterBoundaries(summary, 0, keep);
+  return `${shown}\n… [rendering-truncated ${summary.length - shown.length} chars]`;
 }
 
 /**
@@ -581,7 +582,18 @@ function capSummary(summary: string, capChars: number): string {
 function capSummaryToTail(summary: string, capChars: number): string {
   if (summary.length <= capChars) return summary;
   const keep = Math.max(1, capChars - 40);
-  return `… [rendering-truncated ${summary.length - keep} chars]\n${summary.slice(-keep)}`;
+  const shown = sliceAtCharacterBoundaries(summary, summary.length - keep);
+  return `… [rendering-truncated ${summary.length - shown.length} chars]\n${shown}`;
+}
+
+/** Narrow a UTF-16 slice inward when an endpoint splits a surrogate pair. */
+function sliceAtCharacterBoundaries(text: string, start: number, end = text.length): string {
+  const splitsPair = (index: number): boolean => {
+    const before = text.charCodeAt(index - 1);
+    const after = text.charCodeAt(index);
+    return before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+  };
+  return text.slice(splitsPair(start) ? start + 1 : start, splitsPair(end) ? end - 1 : end);
 }
 
 /**
@@ -1053,7 +1065,18 @@ export function packConversation(
   }
 
   const droppedSlice = turns.slice(0, startIndex);
-  const visibleTurns = turns.slice(startIndex);
+  // The pins can bring back a suffix the cut had dropped for its size: a
+  // short request, one call and a fresh 90 000-char `os.http.request`
+  // body is all pinned and ran to 25 000 tokens against a 2 000 budget
+  // (#1735). Bound the oversized bodies instead; the call/result pair
+  // stays, and the stored turn keeps the full text.
+  const visibleTurns = boundPinnedToolBodies(turns, startIndex, {
+    tokenCosts,
+    repeats,
+    limit: startIndex > 0 ? budget : maxTokens,
+    capTokens: Math.max(1, Math.floor((budget * lowWater) / 2)),
+    currentStart,
+  });
   const droppedPairs = countDroppedPairs(boundaries, startIndex, turns.length);
   const visiblePairs = Math.max(0, boundaries.length - droppedPairs);
 
@@ -1082,6 +1105,120 @@ export function packConversation(
       boundBy: boundBy ?? "tokens",
     },
   };
+}
+
+/**
+ * The visible suffix, with every tool result costing more than
+ * `capTokens` cut to about that size, when the suffix from `startIndex`
+ * overflows `limit`; the turns untouched otherwise. Only the pins make
+ * such a suffix (a cut alone always fits), and the cap depends on the
+ * budget only, so a bounded body renders the same on every step.
+ * Repeated reads keep rendering as pointers to the same bounded copy.
+ */
+function boundPinnedToolBodies(
+  turns: readonly ConversationTurn[],
+  startIndex: number,
+  args: {
+    tokenCosts: readonly number[];
+    repeats: ReadRepeatCosts;
+    limit: number;
+    capTokens: number;
+    currentStart: number;
+  },
+): ConversationTurn[] {
+  const visible = turns.slice(startIndex);
+  const { tokenCosts, repeats, limit, capTokens, currentStart } = args;
+  if (suffixTokens(tokenCosts, repeats, startIndex) <= limit) return visible;
+  let pendingReadStarts: (number | undefined)[] = [];
+  for (let offset = 0; offset < visible.length; offset += 1) {
+    const turn = visible[offset];
+    const i = startIndex + offset;
+    if (turn?.kind === "user" || turn?.kind === "assistant_reply") {
+      pendingReadStarts = [];
+    } else if (turn?.kind === "assistant_tool_call" && turn.tool === "os.fs.read") {
+      pendingReadStarts.push(readStartLineOf(turn.args));
+    }
+    if (turn?.kind !== "tool_result") continue;
+    const readStartLine = turn.tool === "os.fs.read" ? pendingReadStarts.shift() : undefined;
+    const previous = repeats.previous[i] ?? -1;
+    if (previous >= startIndex) {
+      // Repeat detection also compares summaries. Carry the same cut to
+      // every copy, or bounding the first would expand later pointers
+      // back into full results when the prompt renders this projection.
+      const earlier = visible[previous - startIndex];
+      if (earlier?.kind === "tool_result" && earlier.summary !== turn.summary) {
+        visible[offset] = { ...turn, summary: earlier.summary };
+      }
+      continue;
+    }
+    if ((tokenCosts[i] ?? 0) <= capTokens) continue;
+    visible[offset] = boundToolResult(turn, capTokens, i >= currentStart, readStartLine);
+  }
+  return visible;
+}
+
+/** Minimum body kept by `boundToolResult`, so a result never renders empty. */
+const BOUNDED_BODY_MIN_CHARS = 200;
+
+/**
+ * A copy of `turn` whose body renders within about `capTokens`. Cut from
+ * the end a tool reads from: an ordinary shell result keeps its tail
+ * (the `exit:` line), a file read cuts on a line break with its paging
+ * hint, anything else keeps its head. The note says how to get the rest.
+ */
+function boundToolResult(
+  turn: Extract<ConversationTurn, { kind: "tool_result" }>,
+  capTokens: number,
+  fresh: boolean,
+  readStartLine: number | undefined,
+): ConversationTurn {
+  // Narrow the existing renderer's projection, never the stored body:
+  // in particular a fresh gog shell result keeps its head, whereas an
+  // ordinary shell result keeps its tail. A new cap must not reveal
+  // bytes that the fork's existing tool-specific cap already hid.
+  const sourceBody = renderToolResultBody(turn, { inCurrentMacroTurn: fresh, readStartLine });
+  // Re-cut file reads from the original lines, not from a projection
+  // whose paging note would be counted as file content. The new char
+  // cap never exceeds that original projection, so no hidden line returns.
+  const source = { ...turn, summary: turn.tool === "os.fs.read" ? turn.summary : sourceBody };
+  let chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(capTokens * 3.6));
+  let bounded = turn;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    bounded = { ...turn, summary: boundSummary(source, Math.min(chars, sourceBody.length), readStartLine) };
+    if (tokenCostForTurn(bounded, fresh) <= capTokens) break;
+    if (chars <= BOUNDED_BODY_MIN_CHARS) break;
+    chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(chars / 2));
+  }
+  const boundedBody = renderToolResultBody(bounded, { inCurrentMacroTurn: fresh });
+  return boundedBody.length <= sourceBody.length &&
+    tokenCostForTurn(bounded, fresh) < tokenCostForTurn(turn, fresh)
+    ? bounded
+    : turn;
+}
+
+function boundSummary(
+  turn: Extract<ConversationTurn, { kind: "tool_result" }>,
+  chars: number,
+  readStartLine: number | undefined,
+): string {
+  const { summary } = turn;
+  if (summary.length <= chars) return summary;
+  if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, readStartLine);
+  if (turn.tool === "os.shell.run") {
+    const note = `[context window: part of this result is not shown; ${summary.startsWith("[output clipped;") ? "read the saved output file instead" : "do not rerun the command solely to recover output"}]`;
+    if (isGogShellResult(turn)) return `${sliceAtCharacterBoundaries(summary, 0, chars)}\n… ${note}`;
+    // The spill pointer is the first line; a tail-only cut must keep it
+    // as well as the command's final output. It was already visible in
+    // the renderer's projection, and the caller still rejects growth.
+    const firstBreak = summary.indexOf("\n");
+    const spill = summary.startsWith("[output clipped;") && firstBreak >= 0
+      ? `${summary.slice(0, firstBreak)}\n`
+      : "";
+    return `${spill}… ${note}\n${sliceAtCharacterBoundaries(summary, summary.length - chars)}`;
+  }
+  const shown = sliceAtCharacterBoundaries(summary, 0, chars);
+  const note = `[context window: ${summary.length - shown.length} more chars of this result are not shown; repeat the call with a narrower request to see them]`;
+  return `${shown}\n… ${note}`;
 }
 
 /**

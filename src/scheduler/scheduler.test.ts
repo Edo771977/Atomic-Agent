@@ -5,6 +5,7 @@ import type { DrainOutcome } from "../tasks/task-runner.js";
 import {
   Scheduler,
   type SchedulerClock,
+  type SchedulerSidecar,
   type SchedulerTaskRunner,
 } from "./scheduler.js";
 import type { SchedulerLeadership } from "./scheduler-leadership.js";
@@ -504,6 +505,59 @@ describe("Scheduler leadership listener", () => {
 });
 
 describe("Scheduler sidecars (ATO-601)", () => {
+  it("poke cannot consume the interval that settles a new leader", async () => {
+    const { clock, timers } = createFakeClock();
+    const runDue = vi.fn<SchedulerTaskRunner["runDue"]>().mockResolvedValue(emptyOutcome());
+    const tick = vi.fn<SchedulerSidecar["tick"]>().mockResolvedValue();
+    const scheduler = new Scheduler({
+      taskRunner: { runDue }, tickMs: 5_000, batch: 3, clock,
+      leadership: { isLeader: () => true, release: () => {} }, sidecars: [{ tick }],
+    });
+    try {
+      scheduler.start();
+      expect(scheduler.poke()).toBe(true);
+      await scheduler.tickOnce();
+      timers[0]!.handler();
+      expect(tick).not.toHaveBeenCalled();
+      timers[0]!.handler();
+      expect(tick).toHaveBeenCalledTimes(1);
+    } finally { await scheduler.stop(); }
+  });
+
+  it("leadership loss aborts the old sidecar signal and reacquisition renews it", async () => {
+    const { clock, timers } = createFakeClock();
+    const state = { leader: true };
+    const signals: AbortSignal[] = [];
+    const cancelled: AbortSignal[] = [];
+    const scheduler = new Scheduler({
+      taskRunner: { runDue: async () => emptyOutcome() }, tickMs: 5_000, batch: 3, clock,
+      leadership: { isLeader: () => state.leader, release: () => {} },
+      sidecars: [{ tick: async (_now, signal) => {
+        signals.push(signal);
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => {
+          cancelled.push(signal); resolve();
+        }, { once: true }));
+      } }],
+    });
+    try {
+      scheduler.start();
+      timers[0]!.handler(); timers[0]!.handler();
+      expect(signals).toHaveLength(1);
+      state.leader = false;
+      timers[0]!.handler();
+      expect(signals[0]!.aborted).toBe(true);
+      expect(cancelled).toEqual([signals[0]]);
+      state.leader = true;
+      timers[0]!.handler();
+      expect(signals).toHaveLength(1);
+      timers[0]!.handler();
+      expect(signals).toHaveLength(2);
+      expect(signals[1]).not.toBe(signals[0]);
+      expect(signals[1]!.aborted).toBe(false);
+    } finally { await scheduler.stop(); }
+    expect(signals.at(-1)!.aborted).toBe(true);
+  });
+
   it("ticks sidecars on interval ticks this process leads, never on tickOnce", async () => {
     const { clock, timers, nowMs } = createFakeClock();
     const runDue = vi.fn<SchedulerTaskRunner["runDue"]>().mockResolvedValue(emptyOutcome());
@@ -517,6 +571,11 @@ describe("Scheduler sidecars (ATO-601)", () => {
     timers[0]!.handler();
     expect(tick).not.toHaveBeenCalled();
     state.leader = true;
+    // The tick that gains leadership drains but holds the sidecars (#1735)…
+    timers[0]!.handler();
+    expect(runDue).toHaveBeenCalledTimes(1);
+    expect(tick).not.toHaveBeenCalled();
+    // …the next one runs them.
     timers[0]!.handler();
     expect(tick).toHaveBeenCalledTimes(1);
     expect(tick).toHaveBeenCalledWith(nowMs.value, expect.any(AbortSignal));
@@ -524,6 +583,46 @@ describe("Scheduler sidecars (ATO-601)", () => {
     expect(tick).toHaveBeenCalledTimes(1);
     await scheduler.stop();
     expect(tick.mock.calls[0]![1].aborted).toBe(true);
+  });
+
+  it("hands sidecars over without both processes starting them on one tick (#1735)", async () => {
+    // Two processes on one state dir, one shared lock: A leads, then B
+    // takes over. Each tick of either process asks the lock again.
+    const holder = { pid: "A" };
+    const started: string[] = [];
+    const make = (pid: string) => {
+      const { clock, timers } = createFakeClock();
+      const runDue = vi.fn<SchedulerTaskRunner["runDue"]>().mockResolvedValue(emptyOutcome());
+      const leadership: SchedulerLeadership = { isLeader: () => holder.pid === pid, release: () => {} };
+      const sidecar = {
+        tick: vi.fn(async () => {
+          started.push(pid);
+        }),
+      };
+      const scheduler = new Scheduler({
+        taskRunner: { runDue }, tickMs: 5_000, batch: 3, clock, leadership, sidecars: [sidecar],
+      });
+      scheduler.start();
+      return { scheduler, tick: () => timers[0]!.handler() };
+    };
+    const a = make("A");
+    const b = make("B");
+    a.tick(); // A gains leadership: no sidecar yet
+    b.tick(); // B stands by
+    a.tick(); // A settled: sidecar
+    expect(started).toEqual(["A"]);
+    // B takes the lock (the Telegram owner claiming scheduler.lock) and
+    // ticks before A has noticed: B must not start its sidecar yet.
+    holder.pid = "B";
+    b.tick();
+    expect(started).toEqual(["A"]);
+    a.tick(); // A sees B's pid and stands by
+    b.tick(); // B settled: now its sidecar runs
+    a.tick();
+    b.tick();
+    expect(started).toEqual(["A", "B", "B"]);
+    await a.scheduler.stop();
+    await b.scheduler.stop();
   });
 
   it("a rejecting sidecar is logged, not thrown", async () => {
