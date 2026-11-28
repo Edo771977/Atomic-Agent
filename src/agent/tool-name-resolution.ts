@@ -31,6 +31,7 @@ export function resolveToolName(
   // Refuse Unicode aliases, including Kelvin folding and a BOM that trim
   // would silently remove. Do this before the exact-name shortcut too.
   if (/[^\x00-\x7f]/.test(name)) return null;
+  if (name.includes("<|") || name.includes("&lt;|")) return null;
   if (registry.has(name)) return name;
 
   // Every nonexact spelling must consider the complete catalog. A fast
@@ -42,12 +43,11 @@ export function resolveToolName(
 const FUNCTIONS_PREFIX = "functions.";
 
 /**
- * The name with what is not part of it taken off: a chat-template tail
- * (`os.fs.read<|channel|>commentary`, gpt-oss), surrounding quotes or
- * backticks, an empty call `()` and trailing punctuation.
+ * Remove only surrounding quotes/backticks, an empty call and trailing
+ * punctuation. Template markers are refused before reaching this helper.
  */
 function stripWrapping(name: string): string {
-  let value = name.replace(/<\|[\s\S]*$/, "").trim();
+  let value = name.trim();
   // Handle both `"tool"()` and `"tool()"` without accepting arguments.
   for (let pass = 0; pass < 2; pass++) {
     value = value.replace(/[:;,.!?]+$/, "")

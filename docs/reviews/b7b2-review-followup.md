@@ -16,3 +16,7 @@ With only `mcp.brave.search.web_search`, all three review negatives return null 
 ## 2. ASCII-only resolution before trim
 
 The optional conservative choice is to refuse non-ASCII resolver input, before even the exact lookup. This avoids Unicode aliases rather than adding compatibility normalization. Five cases were red first: Kelvin folding, three BOM placements (including within quotes) and exact non-ASCII lookup. After the guard all 46 resolver/dispatch tests pass. [Red/green evidence](b7b2-review-ascii.json).
+
+## 3. Refuse template markers
+
+Names containing `<|` (or its literal HTML-escaped spelling `&lt;|`) are refused before exact lookup. The wrapping helper no longer truncates a template tail. Five assertions were red on the preceding source; all 50 resolver/dispatch tests pass after the guard. Ordinary bounded quote/call/punctuation handling remains. [Red/green evidence](b7b2-review-markers.json).

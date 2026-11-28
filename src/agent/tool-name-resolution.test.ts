@@ -114,12 +114,19 @@ describe("resolveToolName on separator and wrapping forms", () => {
     expect(resolveToolName("functions__mcp__github__list_issues", MCP_REG)).toBe("mcp.github.list_issues");
   });
 
-  it("drops quotes, an empty call, trailing punctuation and a chat-template tail", () => {
+  it("drops quotes, an empty call and trailing punctuation but refuses a chat-template tail", () => {
     expect(resolveToolName("`os.fs.read`", MCP_REG)).toBe("os.fs.read");
     expect(resolveToolName('"os.fs.read"', MCP_REG)).toBe("os.fs.read");
     expect(resolveToolName("os.fs.read()", MCP_REG)).toBe("os.fs.read");
     expect(resolveToolName("os.fs.read:", MCP_REG)).toBe("os.fs.read");
-    expect(resolveToolName("os.fs.read<|channel|>commentary", MCP_REG)).toBe("os.fs.read");
+    expect(resolveToolName("os.fs.read<|channel|>commentary", MCP_REG)).toBeNull();
+  });
+});
+
+describe("resolveToolName refuses template markers", () => {
+  const reg = registry("os.fs.write", "mcp.brave.web_search", "os.fs.read<|special|>", "os.fs.read&lt;|special|>");
+  it.each(["os.fs.write<|channel|>analysis", "mcp.brave.web_search<|channel|>analysis", "os.fs.read<|special|>", "os.fs.read&lt;|special|>"])("does not truncate or accept %s", name => {
+    expect(resolveToolName(name, reg)).toBeNull();
   });
 });
 
