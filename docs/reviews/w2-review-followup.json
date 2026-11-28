@@ -1,0 +1,195 @@
+{
+  "main": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "mainMerge": "9e11fc946",
+  "points": {
+    "1": "8c99bd341",
+    "2": "2e417be26",
+    "3": "f3fdd11aa",
+    "4": "8e84e6f2c"
+  },
+  "runs": {
+    "spill-red": {
+      "passed": 1,
+      "failed": 2,
+      "skipped": 6,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention keeps the shell spill pointer in the prompt at budget 500",
+          "reason": "AssertionError: expected '… [context window: 5062 more chars of…' to contain '[output clipped; all 2000 lines are s…'"
+        },
+        {
+          "name": "W2 packer preserves fork retention keeps the shell spill pointer in the prompt at budget 1000",
+          "reason": "AssertionError: expected '… [context window: 4769 more chars of…' to contain '[output clipped; all 2000 lines are s…'"
+        }
+      ]
+    },
+    "spill-green": {
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "leadership-red": {
+      "passed": 0,
+      "failed": 2,
+      "skipped": 20,
+      "failures": [
+        {
+          "name": "Scheduler sidecars (ATO-601) poke cannot consume the interval that settles a new leader",
+          "reason": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times"
+        },
+        {
+          "name": "Scheduler sidecars (ATO-601) leadership loss aborts the old sidecar signal and reacquisition renews it",
+          "reason": "AssertionError: expected false to be true // Object.is equality"
+        }
+      ]
+    },
+    "leadership-green": {
+      "passed": 96,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "paging-red": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 9,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention retains exact paging offsets and full hidden-line counts through a second read cut",
+          "reason": "AssertionError: expected 'row 0: data data data data data data …' to contain 'offset: 130'"
+        }
+      ]
+    },
+    "paging-green": {
+      "passed": 24,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "unicode-red": {
+      "passed": 0,
+      "failed": 3,
+      "skipped": 10,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention cuts os.http.request only between complete Unicode characters",
+          "reason": "AssertionError: os.http.request/1000: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "W2 packer preserves fork retention cuts os.shell.run only between complete Unicode characters",
+          "reason": "AssertionError: os.shell.run/1000: expected false to be true // Object.is equality"
+        },
+        {
+          "name": "W2 packer preserves fork retention cuts os.fs.read only between complete Unicode characters",
+          "reason": "AssertionError: os.fs.read/1000: expected false to be true // Object.is equality"
+        }
+      ]
+    },
+    "unicode-green": {
+      "passed": 76,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "final-guards": {
+      "passed": 13,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "suite": {
+      "files": 203,
+      "passed": 2319,
+      "failed": 4,
+      "skipped": 2,
+      "failures": [
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/project-trust.test.ts",
+          "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+          "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+          "reason": "existing egress-guard assertion mismatch"
+        }
+      ]
+    },
+    "baseline": {
+      "files": 3,
+      "passed": 42,
+      "failed": 4,
+      "skipped": 1,
+      "failures": [
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/project-trust.test.ts",
+          "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+          "reason": "Windows symlink EPERM"
+        },
+        {
+          "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+          "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+          "reason": "existing egress-guard assertion mismatch"
+        }
+      ]
+    }
+  },
+  "comparison": {
+    "reproducedOnMain": [
+      "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy"
+    ],
+    "unclassified": [],
+    "timeoutsIncreased": false,
+    "exclusionsAdded": false,
+    "fullSuiteGreen": false
+  },
+  "checks": {
+    "npm run lint": {
+      "exitCode": 0
+    },
+    "npm run imports:check": {
+      "exitCode": 0,
+      "runtimeCycles": 0,
+      "exceptions": 0
+    },
+    "npm run typecheck:tests": {
+      "exitCode": 0,
+      "existingDebt": 669,
+      "newErrors": 0
+    },
+    "npm run docs:check": {
+      "exitCode": 0
+    },
+    "npx vitest run src/scheduler src/session src/runtime": {
+      "exitCode": 1,
+      "passed": 2319,
+      "failed": 4,
+      "skipped": 2,
+      "allFailuresReproducedOnMain": true
+    }
+  }
+}
