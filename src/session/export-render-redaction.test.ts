@@ -60,6 +60,48 @@ async function visible(format: "markdown" | "html" | "docx" | "pdf", body: strin
 
 for (const format of ["markdown", "pdf", "html", "docx"] as const) {
   it.each([
+    ["GitHub control", "ghp_AbcD\u0000EFghijkLMN0123456789abcdEFGH", "ghp_AbcDEFghijkLMN0123456789abcdEFGH"],
+    ["GitHub XML noncharacter", "ghp_AbcD\ufffeEFghijkLMN0123456789abcdEFGH", "ghp_AbcDEFghijkLMN0123456789abcdEFGH"],
+    ["GitHub emphasis", "ghp_AbcD**EFghijkLMN0123456789abcdEFGH**", "ghp_AbcDEFghijkLMN0123456789abcdEFGH"],
+    ["GitHub emphasis and control", "ghp_AbcD**EFghi\u0001jkLMN0123456789abcdEFGH**", "ghp_AbcDEFghijkLMN0123456789abcdEFGH"],
+    ["named HTTP token", "atag_" + "x".repeat(10) + "\u200b" + "x".repeat(33), "atag_" + "x".repeat(43)],
+  ])(`${format} preserves structural underscores in projected detector prefixes: %s`, async (_name, text, sentinel) => {
+    const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture", metadata: { title: "Fixture" } });
+    state.turns.push({ kind: "user", text, at: 1 });
+    const file = await exportChat(state, format, { knownSecrets: [] });
+    const shown = decodeHTML(await visible(format, file.body)).normalize("NFKC")
+      .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}\ufffe\uffff]/gu, "");
+    expect(shown).not.toContain(sentinel);
+    expect(shown).toContain("redacted");
+    if (format === "docx") {
+      const zip = await JSZip.loadAsync(file.body);
+      expect(await zip.file("word/document.xml")!.async("string")).not.toContain(sentinel);
+    }
+  });
+  it.each([
+    ["NUL", "sk-proj-abcDEF\u0000ghijkLMN0123456789abcdEF"],
+    ["SOH", "sk-proj-abcDEF\u0001ghijkLMN0123456789abcdEF"],
+    ["XML noncharacter FFFE", "sk-proj-abcDEF\ufffeghijkLMN0123456789abcdEF"],
+    ["XML noncharacter FFFF", "sk-proj-abcDEF\uffffghijkLMN0123456789abcdEF"],
+    ["zero-width space", "sk-proj-abcDEF\u200bghijkLMN0123456789abcdEF"],
+    ["word joiner", "sk-proj-abcDEF\u2060ghijkLMN0123456789abcdEF"],
+    ["compatibility forms", fullwidth("sk-proj-abcDEFghijkLMN0123456789abcdEF")],
+  ])(`${format} projects small vendor-shaped text without known values: %s`, async (_name, text) => {
+    const state = createEmptySessionState({ id: "fixture", workingDir: "/fixture", metadata: { title: "Fixture" } });
+    state.turns.push({ kind: "user", text, at: 1 });
+    const file = await exportChat(state, format, { knownSecrets: [] });
+    const shown = decodeHTML(await visible(format, file.body)).normalize("NFKC")
+      .replace(/[\p{Default_Ignorable_Code_Point}\p{Cc}]/gu, "");
+    expect(shown).not.toContain("sk-proj-abcDEFghijkLMN0123456789abcdEF");
+    expect(shown).toContain("redacted");
+    if (format === "docx") {
+      const zip = await JSZip.loadAsync(file.body);
+      const xml = await zip.file("word/document.xml")!.async("string");
+      expect(xml).not.toContain("sk-proj-abcDEFghijkLMN0123456789abcdEF");
+      expect(xml).toContain("redacted");
+    }
+  });
+  it.each([
     ["trimmed code suffix", "sk-proj-` abcDEFghijkLMN0123456789abcdEF `"],
     ["trimmed code prefix", "` sk-proj- `abcDEFghijkLMN0123456789abcdEF"],
     ["surrounding text", "before sk-proj-` abcDEFghijkLMN0123456789abcdEF ` after"],

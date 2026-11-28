@@ -109,9 +109,10 @@ function maskPresentationText(text: string, known: readonly KnownSecret[]): stri
   return needles.some(needle => project(masked).includes(needle)) ? redactedMarker("secret") : masked;
 }
 
-function projectPresentationText(value: string): string {
+function projectPresentationText(value: string, stripMarkdown = true): string {
   return decodeReferences(value).replace(/\u00a0/g, "").normalize("NFKD")
-    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
+    .replace(stripMarkdown ? /[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}\ufffe\uffff*_`~\\]/gu
+      : /[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}\ufffe\uffff]/gu, "");
 }
 
 /** Decode references for matching only; the original source offsets stay intact. */
@@ -202,19 +203,24 @@ function exportMarkdownBlocks(text: string): string[] {
   return blocks;
 }
 
+const EXPORT_PROJECTION_SYNTAX = /[*_`~&\[\\<|]| {2}\r?\n|[^\x20-\x7e\r\n]/u;
+
 /** Mask both source forms and the inline presentation of each parsed block. */
 export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
   const known = options.knownSecrets ?? knownSecretsFromEnv();
   // Plain printable ASCII has no presentation transform to project. Controls
   // stay on the slow path because document encoders can remove them.
-  if (/^[\x20-\x7e]*$/.test(text) && !/[*_`~&\[\\<|]/.test(text)) return maskSecrets(text, known);
+  if (/^[\x20-\x7e]*$/.test(text) && !EXPORT_PROJECTION_SYNTAX.test(text)) return maskSecrets(text, known);
   text = maskPresentationText(text, known);
-  if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(text)) return text;
+  if (!EXPORT_PROJECTION_SYNTAX.test(text)) return text;
   const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
   let parserWorkLeft = 32_768;
   return exportMarkdownBlocks(text).map(block => {
-    if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(block)) return block;
+    if (!EXPORT_PROJECTION_SYNTAX.test(block)) return block;
     const projected = projectPresentationText(block);
+    const detectorText = projectPresentationText(block, false);
+    // Encoding can drop controls/ignorables even without a configured key.
+    if (maskSecrets(detectorText, known) !== detectorText || maskSecrets(projected, known) !== projected) return redactedMarker("secret");
     const possibleKey = () => needles.some(needle => {
       let at = 0;
       for (let i = 0; i < projected.length; i += 1) if (projected[i] === needle[at] && ++at === needle.length) return true;
@@ -236,10 +242,12 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
     // Source projection already handles delimiter/entity-only known values.
     // Code spans trim boundary spaces; breaks and cells can join visible text.
     // Their presentation cannot be ruled out by the source-only projection.
-    if (!/[\[`\\|]| {2}\r?\n/.test(block) && maskSecrets(projected, known) === projected) return block;
+    if (!/[\[`*_~\\|]| {2}\r?\n/.test(block) && maskSecrets(projected, known) === projected) return block;
     parserWorkLeft -= block.length;
     return Lexer.lex(block).map(token => {
       const shown = inlineText([token]);
+      const detectorShown = projectPresentationText(shown, false);
+      if (maskSecrets(detectorShown, known) !== detectorShown) return redactedMarker("secret") + (/\n*$/.exec(token.raw)?.[0] ?? "");
       const masked = maskPresentationText(shown, known);
       return masked === shown ? token.raw : masked + (/\n*$/.exec(token.raw)?.[0] ?? "");
     }).join("");
