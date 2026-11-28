@@ -383,14 +383,16 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
-    await waitFor(() => readDownloadJob(dataDir, jobId)?.transferredBytes === 2);
+    const dest = resolveModelFilePath(dataDir, CHAT.id, CHAT.filename);
+    // The gate is set when the body is built, before the worker has read
+    // or written anything; the stop must land once "ab" is on disk.
+    await waitFor(() => partialText(dest) === "ab");
     requestDownloadPause(dataDir, jobId);
     controller.abort();
     releaseGate.release?.();
 
     await pending;
     expect(readDownloadJob(dataDir, jobId)?.status).toBe("paused");
-    const dest = resolveModelFilePath(dataDir, CHAT.id, CHAT.filename);
     expect(readFileSync(resolvePartialPath(dest), "utf-8")).toBe("ab");
     // The request is consumed: a later stop is an ordinary cancel.
     expect(existsSync(join(dataDir, "downloads", `${jobId}.pause`))).toBe(false);
@@ -426,15 +428,15 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
-    const id = downloadJobId("chat", CHAT.id);
-    await waitFor(() => readDownloadJob(dataDir, id)?.transferredBytes === 2);
+    const dest = resolveModelFilePath(dataDir, CHAT.id, CHAT.filename);
+    // Same as the pause case: cancel only once the first chunk is on disk.
+    await waitFor(() => partialText(dest) === "ab");
     controller.abort();
     releaseGate.release?.();
 
     expect(await pending).toBe("cancelled");
     const job = readDownloadJob(dataDir, downloadJobId("chat", CHAT.id));
     expect(job?.status).toBe("cancelled");
-    const dest = resolveModelFilePath(dataDir, CHAT.id, CHAT.filename);
     expect(existsSync(dest)).toBe(false);
     expect(readFileSync(resolvePartialPath(dest), "utf-8")).toBe("ab");
   });
@@ -502,17 +504,18 @@ describe("download-worker", () => {
     // repo no longer serves costs vision, not a multi-GB download. The
     // weights leg is no longer cancelled by the projector's 404.
     const releaseGgufGate: { release: (() => void) | null } = { release: null };
+    const ggufDest = resolveModelFilePath(dataDir, VISION.id, VISION.filename);
+    let projectorAnswered!: () => void;
+    const projectorFailed = new Promise<void>((resolve) => {
+      projectorAnswered = resolve;
+    });
     globalThis.fetch = vi.fn(async (url: unknown) => {
       if (String(url) === VISION.mmprojUrl) {
-        // Hold the weights open until their first chunk has been written
-        // and the projector mock has reached its failure point.
-        const id = downloadJobId("chat", VISION.id);
-        try {
-          await waitFor(() => readDownloadJob(dataDir, id)?.transferredBytes === 2);
-          return new Response(null, { status: 404, statusText: "Not Found" });
-        } finally {
-          releaseGgufGate.release?.();
-        }
+        // Fail only once the weights have bytes on disk, so the test
+        // shows the projector's 404 lands while the GGUF is mid-flight.
+        await waitFor(() => partialText(ggufDest) === "ab");
+        projectorAnswered();
+        return new Response(null, { status: 404, statusText: "Not Found" });
       }
       const body = new ReadableStream({
         async pull(controller) {
@@ -541,6 +544,12 @@ describe("download-worker", () => {
       log: (l) => log.push(l),
       writeIntervalMs: 0,
     });
+    // The weights stay parked at "ab" until the projector has answered:
+    // releasing them earlier let the GGUF finish and rename its partial
+    // away before the projector's check could see it.
+    await projectorFailed;
+    await waitFor(() => releaseGgufGate.release !== null);
+    releaseGgufGate.release?.();
     const outcome = await pending;
 
     expect(outcome).toBe("done");
@@ -755,8 +764,7 @@ describe("download-worker", () => {
     await waitFor(
       () =>
         existsSync(resolveModelFilePath(dataDir, CHAT.id, CHAT.filename)) &&
-        existsSync(resolvePartialPath(mmproj)) &&
-        readFileSync(resolvePartialPath(mmproj), "utf-8") === "ab",
+        partialText(mmproj) === "ab",
     );
     controller.abort();
     releaseGate.release?.();
@@ -777,10 +785,28 @@ describe("download-worker", () => {
   });
 });
 
-async function waitFor(predicate: () => boolean): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+/**
+ * Polls a real condition (bytes on disk, a record field), never a fixed
+ * sleep. The bound only turns a hang into a readable failure; it is well
+ * past anything a loaded CI runner needs and below the 15s test timeout.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 10_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
     if (predicate()) return;
+    if (Date.now() > deadline) throw new Error("waitFor timed out");
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
-  throw new Error("waitFor timed out");
+}
+
+/** What the `.part` file next to `dest` holds now, or null when absent. */
+function partialText(dest: string): string | null {
+  try {
+    return readFileSync(resolvePartialPath(dest), "utf-8");
+  } catch {
+    return null;
+  }
 }

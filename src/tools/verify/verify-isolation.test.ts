@@ -140,21 +140,28 @@ describe("F35 — nothing verification does reaches the workspace", () => {
     expectCopiesGone(copies.dirs);
   });
 
-  it("a service that logs to its directory leaves the workspace byte-identical", async () => {
-    const port = await freePort();
+  // freePort() closes its port before the service binds it, and another
+  // test worker can take the port in between; only EADDRINUSE gets a new one.
+  it("a service that logs to its directory leaves the workspace byte-identical", { timeout: 30_000 }, async () => {
     const before = await snapshotTree(work);
-    const server =
-      "const http=require('http'),fs=require('fs');" +
-      "http.createServer((q,s)=>{ fs.appendFileSync('access.log', q.url+'\\n'); s.end('ok') }).listen(" + port + ")";
     const copies = recordingWorkspaces();
-    const out = await runVerify(
-      { kind: "service", start: { cmd: NODE, args: ["-e", server] }, ready: { port }, requests: [{ path: "/a" }, { path: "/b" }], checks: ["status 200"] },
-      { workingDir: work, config: CONFIG, workspace: copies.workspace },
-    );
-    expect(out.ok).toBe(true);
+    const out = await retryPortRace(async () => {
+      const port = await freePort();
+      const server =
+        "const http=require('http'),fs=require('fs');" +
+        "http.createServer((q,s)=>{ fs.appendFileSync('access.log', q.url+'\\n'); s.end('ok') }).listen(" + port + ")";
+      const result = await runVerify(
+        { kind: "service", start: { cmd: NODE, args: ["-e", server] }, ready: { port }, requests: [{ path: "/a" }, { path: "/b" }], checks: ["status 200"] },
+        { workingDir: work, config: CONFIG, workspace: copies.workspace },
+      );
+      expect(await snapshotTree(work)).toEqual(before);
+      expectCopiesGone(copies.dirs);
+      return result;
+    });
+    expect(out.ok, out.summary).toBe(true);
     expect(await snapshotTree(work)).toEqual(before);
     expectCopiesGone(copies.dirs);
-  }, 30_000);
+  });
 
   it("the copy is removed even when the run is killed on timeout", async () => {
     const before = await snapshotTree(work);
@@ -179,4 +186,30 @@ describe("F35 — nothing verification does reaches the workspace", () => {
     // the fixture's tsconfig on purpose), no stray temp file.
     expect(await snapshotTree(work)).toEqual(before);
   }, 60_000);
+});
+
+/** freePort has a close/bind gap. Retry only EADDRINUSE, at most twice. */
+async function retryPortRace<T extends { ok: boolean; stderrTail?: string }>(attempt: () => Promise<T>): Promise<T> {
+  for (let n = 0; ; n++) {
+    const result = await attempt();
+    if (result.ok || !/\bEADDRINUSE\b/.test(result.stderrTail ?? "") || n === 2) return result;
+  }
+}
+
+it("bounds EADDRINUSE retries and can recover on a new port", async () => {
+  let calls = 0;
+  const busy = { ok: false, stderrTail: "Error: listen EADDRINUSE: address already in use" };
+  expect(await retryPortRace(async () => { calls++; return busy; })).toBe(busy);
+  expect(calls).toBe(3);
+  calls = 0;
+  const recovered = { ok: true, stderrTail: "" };
+  expect(await retryPortRace(async () => ++calls === 1 ? busy : recovered)).toBe(recovered);
+  expect(calls).toBe(2);
+});
+
+it.each(["wrong status 500", "EACCES", "copy EPERM", "assertion failure"])("does not retry behavior or environment failure: %s", async (stderrTail) => {
+  let calls = 0;
+  const result = { ok: false, stderrTail };
+  expect(await retryPortRace(async () => { calls++; return result; })).toBe(result);
+  expect(calls).toBe(1);
 });
