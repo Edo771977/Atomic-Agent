@@ -5,6 +5,8 @@ Owner: docs/reviews/
 
 Base: fork main `7511497b0`. Origin: `https://github.com/Edo771977/Atomic-Agent.git`; upstream: `https://github.com/AtomicBot-ai/atomic-agent.git`. Related issues: #233 and B1 limitations #266.
 
+Post-publication review: [current DNS/start-move corrections and verification](b7b1-review-followup.md). The exact-address-set descriptions below record the initial import tree; the follow-up narrows that comparison to cross-host start admission and supersedes its blanket application to ordinary requests.
+
 ## Provenance and decision
 
 Imported with one `git cherry-pick -x` per upstream commit: `0a076b47cc9f7a358bbf5f5d1bc3c141fb2f5417` and `520893c4562dca64c878fdc3eab133590c7cc769`. Conflicts in OS registration and page fetching preserve the fork's approval adapter, independent egress callback, policy web guard and redirect consent hook. The subsequent adaptation retains gzip and redirects and removes automatic JavaScript rendering.

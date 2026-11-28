@@ -24,3 +24,11 @@ Four [boundary regressions](../../src/tools/os/web/crawl-fork-boundary.test.ts) 
 The optional restriction is confined to `startMoveAllowed`: HTTP(S) stays on the same scheme or upgrades HTTP to HTTPS. Ports must remain effectively equal or become the destination scheme's default. Equality uses effective ports, so an HTTP-to-HTTPS upgrade may keep port 80; changing 8080 to HTTPS port 80 is refused. These checks precede host equivalence and destination robots admission.
 
 The [scope matrix](../../src/tools/os/web/crawl-scope.test.ts) and two real-tool boundary cases observed 10 failed assertions on the preceding source; the source bytes were restored after that pre-change control. All 69 tests in scope, boundary and DNS suites then passed. [Red/green evidence](b7b1-review-scope.json). The README documents this choice and the error-report behavior.
+
+## Final verification
+
+`npm run lint`, `npm run imports:check`, final `npm run typecheck:tests` and `npm run docs:check` pass. The first test typecheck found the new DNS fixture missing `inputTruncated`; the fixture now supplies the complete command-result contract. No debt allowance was added (669 existing diagnostics after merging main).
+
+The full requested command, `npx vitest run src/tools/os/web src/tools/os src/policy`, completed: **6,750 passed, 25 failed, 154 skipped**, in 311 files. All **389 assertions inside the web directory pass**, including the 69 scope/boundary/rotation cases. There are no suite-load errors. The 25 failures outside web match by file/fullName the previously recorded complete main `7511497b0` run; `src/tools/os` and `src/policy` are unchanged in subsequent main `54f81900b`. This is a comparison to that pinned baseline, not a claim that a new complete-main run or the requested selection is green. [Every failure name and report hashes](b7b1-review-comparison.json).
+
+The two main-parity cases also ran directly on clean `54f81900b`, as recorded in the DNS evidence above. No timeout, exclusion or quarantine changed. JavaScript remains deferred, and export/subagent/profile/shared-runner sources remain untouched by these corrections.
