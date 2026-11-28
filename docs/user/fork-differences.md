@@ -277,7 +277,15 @@ The B4a import of upstream #1671 is deferred: a marked child can read/delete a s
 
 ## B7a follow-up hardening
 
-The follow-up to #273/#274/#277 shares guarded export writes, masks presentation-equivalent keys in PDF/HTML/Word, bounds HTTP rendering and refuses tool-child CLI exports. Refusal types use eight fixed literals and params come only from structured fields. TUI startup markers are managed-only, with the existing 90-second pending/no-process ceiling pinned by a regression. [Review and validation](../reviews/b7a-followup-hardening.md).
+The follow-up to #273/#274/#277 shares guarded export writes, masks presentation-equivalent keys in PDF/HTML/Word, bounds HTTP rendering and refuses tool-child CLI exports. Refusal types use twelve fixed literals and params come only from structured fields. TUI startup markers are managed-only, with the existing 90-second pending/no-process ceiling pinned by a regression. [Review and validation](../reviews/b7a-followup-hardening.md).
+
+The next [export/report follow-up](../reviews/b7a-export-followup2.md) decodes HTML references and checks joined Markdown labels, budgets only included export text, uses effective protected roots, documents replacement permissions/concurrency and advisory CLI marking, tightens TUI path syntax, adds four reviewed report types and skips projection for plain printable ASCII.
+
+The [PR 281 review](../reviews/b7a-281-review.md) bounds redaction parsing, shares instruction-loader protection names across nested/ancestor project paths, caps HTTP exports at 20,000 stored turns and rejects Unicode dash/minus path words. Backslash and `<` retain projection. Linked candidate blocks may be conservatively redacted. External Markdown viewers hiding raw HTML tags/comments can still rejoin a key; this pre-existing presentation limit is explicitly documented, and the built-in HTML/PDF/Word formats keep raw HTML inert.
+
+The [second PR 281 review](../reviews/b7a-281-review2.md) retains inline checks where code-span trimming, forced breaks or adjacent cells can join visible text. Literal fallback closes list context with a fence longer than internal runs. NBSP entity projection is covered; the pre-existing extreme-nesting stack/work limit remains documented. Flat and bounded-list-context million-character controls retain a two-second rendering budget.
+
+The [third PR 281 review](../reviews/b7a-281-review3.md) keeps open HTML block contexts and backtick/tilde fences together through closing or end of transcript before choosing fallback. The same limits apply across turns and after the parser budget is exhausted. Detector projection also covers small invisible/control/XML-filtered forms without known keys, and CRLF is normalized before grouping. All previous controls remain alongside million-character HTML/PDF cases for every modeled context.
 
 ## Provider refusal reports
 

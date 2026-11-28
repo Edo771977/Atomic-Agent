@@ -66,6 +66,7 @@ describe("atomic-agent export: what reaches the file", () => {
   const KEY = "9f3c2a7e81d4b06f5ac39e72d18b4f60";
 
   beforeEach(() => {
+    vi.stubEnv("ATOMIC_AGENT_TOOL_CHILD", undefined);
     stateDir = mkdtempSync(join(tmpdir(), "export-cmd-"));
     process.env.ATOMIC_AGENT_STATE_DIR = stateDir;
     writeFileSync(

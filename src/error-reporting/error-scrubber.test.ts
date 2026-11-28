@@ -187,7 +187,7 @@ describe("extractSafeTransportHost", () => {
 });
 
 describe("extractSafeUpstreamErrorType", () => {
-  it("keeps only the eight approved provider error types", () => {
+  it("keeps only the twelve approved provider error types", () => {
     for (const type of [
       "invalid_request_error",
       "authentication_error",
@@ -197,6 +197,10 @@ describe("extractSafeUpstreamErrorType", () => {
       "api_error",
       "overloaded_error",
       "server_error",
+      "exceed_context_size_error",
+      "unavailable_error",
+      "not_supported_error",
+      "insufficient_quota",
     ]) {
       expect(extractSafeUpstreamErrorType({ body: { type } })).toBe(type);
     }

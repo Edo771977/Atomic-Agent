@@ -1,4 +1,5 @@
-import { Marked, type Tokens } from "marked";
+import { Lexer, Marked, type Token, type Tokens } from "marked";
+import { decodeHTML } from "entities";
 
 import {
   knownSecretsFromEnv,
@@ -72,25 +73,23 @@ export interface ChatExportOptions {
 }
 
 /** `text` with every credential the shared detector finds replaced by a marker. */
-export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
-  const known = options.knownSecrets ?? knownSecretsFromEnv();
+function maskPresentationText(text: string, known: readonly KnownSecret[]): string {
   text = maskSecrets(text, known);
   // Match a conservative presentation projection while replacing the original
   // source range: Markdown delimiters/escapes, invisible/control characters and
   // compatibility forms must not hide a key until a renderer joins its pieces.
-  const project = (value: string) => value.normalize("NFKD")
-    .replace(/[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}*_`~\\]/gu, "");
+  const project = projectPresentationText;
   const needles = known.map(secret => project(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
-  if (needles.length === 0) return maskSecrets(text, known);
+  if (needles.length === 0) return text;
+  const candidate = project(text);
+  if (!needles.some(needle => candidate.includes(needle))) return text;
   let projected = "";
   const starts: number[] = [];
   const ends: number[] = [];
-  let offset = 0;
-  for (const char of text) {
-    const value = project(char);
-    for (let i = 0; i < value.length; i += 1) { starts.push(offset); ends.push(offset + char.length); }
+  for (const unit of text.matchAll(/&(?:amp;)*(?:#(?:x[\da-f]+|\d+);?|[a-z][\da-z]+;)|[\s\S]/giu)) {
+    const value = project(unit[0]);
+    for (let i = 0; i < value.length; i += 1) { starts.push(unit.index!); ends.push(unit.index! + unit[0].length); }
     projected += value;
-    offset += char.length;
   }
   const ranges: Array<[number, number]> = [];
   for (const needle of new Set(needles)) {
@@ -106,7 +105,154 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
     out += text.slice(consumed, Math.max(consumed, start)) + redactedMarker("secret");
     consumed = end;
   }
-  return maskSecrets(out + text.slice(consumed), known);
+  const masked = maskSecrets(out + text.slice(consumed), known);
+  return needles.some(needle => project(masked).includes(needle)) ? redactedMarker("secret") : masked;
+}
+
+function projectPresentationText(value: string, stripMarkdown = true): string {
+  return decodeReferences(value).replace(/\u00a0/g, "").normalize("NFKD")
+    .replace(stripMarkdown ? /[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}\ufffe\uffff*_`~\\]/gu
+      : /[\p{M}\p{Default_Ignorable_Code_Point}\p{Cc}\ufffe\uffff]/gu, "");
+}
+
+/** Decode references for matching only; the original source offsets stay intact. */
+function decodeReferences(text: string): string {
+  for (let depth = 0; depth < 4 && text.includes("&"); depth += 1) {
+    const decoded = decodeHTML(text);
+    if (decoded === text) break;
+    text = decoded;
+  }
+  return text;
+}
+
+/** Text a renderer joins, including nested emphasis and link labels, excluding URLs. */
+function inlineText(tokens: readonly Token[]): string {
+  return tokens.map(token => {
+    if (token.type === "list") return (token as Tokens.List).items.map(item => inlineText(item.tokens)).join("\n");
+    if (token.type === "table") {
+      const table = token as Tokens.Table;
+      return [table.header, ...table.rows].map(row => row.map(cell => inlineText(cell.tokens)).join("")).join("\n");
+    }
+    if ("tokens" in token && Array.isArray(token.tokens)) return inlineText(token.tokens);
+    if (token.type === "br") return "";
+    return "text" in token && typeof token.text === "string" ? decodeReferences(token.text) : "";
+  }).join("");
+}
+
+/** Column-zero fences close list context; inner runs cannot close this fence. */
+function literalMarkdownBlock(block: string): string {
+  const closed = block.replace(/\n+$/, "");
+  const firstBreak = closed.indexOf("\n"), lastBreak = closed.lastIndexOf("\n");
+  const opening = closed.slice(0, firstBreak);
+  if (firstBreak >= 3 && lastBreak > firstBreak && /^`+$/.test(opening)
+    && closed.slice(lastBreak + 1) === opening) {
+    const body = closed.slice(firstBreak + 1, lastBreak);
+    let longestBodyRun = 0;
+    for (const run of body.matchAll(/`+/g)) longestBodyRun = Math.max(longestBodyRun, run[0].length);
+    if (longestBodyRun < opening.length) return block;
+  }
+  let longest = 2;
+  for (const run of block.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
+  const fence = "`".repeat(longest + 1);
+  return `\n\n${fence}\n${block}\n${fence}\n\n`;
+}
+
+type ExportBlockContext = { kind: "fence"; marker: string; length: number }
+  | { kind: "html"; end: RegExp };
+
+function openExportBlock(line: string): ExportBlockContext | undefined {
+  const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (fence && (fence[1]![0] === "~" || !fence[2]!.includes("`"))) {
+    return { kind: "fence", marker: fence[1]![0]!, length: fence[1]!.length };
+  }
+  const tag = /^ {0,3}<(script|pre|style|textarea)(?:\s|>|$)/i.exec(line);
+  if (tag) return { kind: "html", end: new RegExp(`</${tag[1]!}>`, "i") };
+  if (/^ {0,3}<!--/.test(line)) return { kind: "html", end: /-->/ };
+  if (/^ {0,3}<\?/.test(line)) return { kind: "html", end: /\?>/ };
+  if (/^ {0,3}<![a-z]/i.test(line)) return { kind: "html", end: />/ };
+  if (/^ {0,3}<!\[CDATA\[/i.test(line)) return { kind: "html", end: /\]\]>/ };
+  return undefined;
+}
+
+/** Blank lines cannot split HTML types 1–5 or a backtick/tilde fence. */
+function exportMarkdownBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let start = 0;
+  let context: ExportBlockContext | undefined;
+  for (const match of text.matchAll(/[^\n]*(?:\n|$)/g)) {
+    const raw = match[0];
+    if (!raw) continue;
+    const at = match.index!, end = at + raw.length;
+    const line = raw.replace(/\r?\n$/, "");
+    if (context) {
+      const fence = context.kind === "fence" ? /^ {0,3}(`+|~+)[\t ]*$/.exec(line) : null;
+      const closes = context.kind === "html" ? context.end.test(line)
+        : !!fence && fence[1]![0] === context.marker && fence[1]!.length >= context.length;
+      if (closes) context = undefined;
+      continue;
+    }
+    context = openExportBlock(line);
+    if (context) {
+      if (context.kind === "html" && context.end.test(line)) context = undefined;
+    } else if (/^[\t ]*$/.test(line)) {
+      if (start < at) blocks.push(text.slice(start, at));
+      blocks.push(raw); start = end;
+    }
+  }
+  if (start < text.length) blocks.push(text.slice(start));
+  return blocks;
+}
+
+const EXPORT_PROJECTION_SYNTAX = /[*_`~&\[\\<|]| {2}\r?\n|[^\x20-\x7e\r\n]/u;
+
+/** Mask both source forms and the inline presentation of each parsed block. */
+export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
+  text = text.replace(/\r\n/g, "\n");
+  const known = options.knownSecrets ?? knownSecretsFromEnv();
+  // Plain printable ASCII has no presentation transform to project. Controls
+  // stay on the slow path because document encoders can remove them.
+  if (/^[\x20-\x7e]*$/.test(text) && !EXPORT_PROJECTION_SYNTAX.test(text)) return maskSecrets(text, known);
+  text = maskPresentationText(text, known);
+  if (!EXPORT_PROJECTION_SYNTAX.test(text)) return text;
+  const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
+  let parserWorkLeft = 32_768;
+  return exportMarkdownBlocks(text).map(block => {
+    if (!EXPORT_PROJECTION_SYNTAX.test(block)) return block;
+    const projected = projectPresentationText(block);
+    const detectorText = projectPresentationText(block, false);
+    // Encoding can drop controls/ignorables even without a configured key.
+    if (maskSecrets(detectorText, known) !== detectorText || maskSecrets(projected, known) !== projected) return redactedMarker("secret");
+    const possibleKey = () => needles.some(needle => {
+      let at = 0;
+      for (let i = 0; i < projected.length; i += 1) if (projected[i] === needle[at] && ++at === needle.length) return true;
+      return false;
+    });
+    // A reference label can be resolved by a definition in another block. Do
+    // not require document-wide lexing to detect that join: fail closed on a
+    // possible key subsequence in linked markup, regardless of reference scope.
+    if (block.includes("[")) {
+      const labels = projected.replace(/\]\[[^\]\r\n]*\]/g, "]").replace(/[\[\]]/g, "");
+      if (possibleKey() || maskSecrets(labels, known) !== labels) return redactedMarker("complex-markdown");
+    }
+    if (block.length > 2_048 || block.length > parserWorkLeft) {
+      if (possibleKey() || maskSecrets(projected, known) !== projected) return redactedMarker("complex-markdown");
+      // Literal code cannot join inline nodes, and keeps adversarial markup out
+      // of the document renderer's inline parser as well as our own parser.
+      return literalMarkdownBlock(block);
+    }
+    // Source projection already handles delimiter/entity-only known values.
+    // Code spans trim boundary spaces; breaks and cells can join visible text.
+    // Their presentation cannot be ruled out by the source-only projection.
+    if (!/[\[`*_~\\|]| {2}\r?\n/.test(block) && maskSecrets(projected, known) === projected) return block;
+    parserWorkLeft -= block.length;
+    return Lexer.lex(block).map(token => {
+      const shown = inlineText([token]);
+      const detectorShown = projectPresentationText(shown, false);
+      if (maskSecrets(detectorShown, known) !== detectorShown) return redactedMarker("secret") + (/\n*$/.exec(token.raw)?.[0] ?? "");
+      const masked = maskPresentationText(shown, known);
+      return masked === shown ? token.raw : masked + (/\n*$/.exec(token.raw)?.[0] ?? "");
+    }).join("");
+  }).join("");
 }
 
 /** The chat's name: its title, else its first prompt cut short, else its id. */

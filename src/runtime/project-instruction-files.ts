@@ -7,10 +7,8 @@ import { readWorkspaceFile, isWithinWorkspace } from "../skills/workspace-files.
  * scopes, priorities, Cursor rules, `@path` imports and the credential guard.
  * The loader in project-instructions.ts decides what is read and when.
  */
-export const rootNames = ["AGENTS.md", "AGENT.md", "CLAUDE.md", ".claude/CLAUDE.md"];
-/** Rules written for other tools: root only, lowest priority, never expanded for imports. */
-export const foreignRootNames = ["GEMINI.md", ".cursorrules", ".github/copilot-instructions.md"];
-export const cursorRulesDir = ".cursor/rules";
+import { cursorRulesDir, foreignRootNames } from "../config/project-instruction-paths.js";
+export { cursorRulesDir, foreignRootNames, rootNames } from "../config/project-instruction-paths.js";
 /** Only this many Cursor rule files (sorted by name) are considered, so a large folder stays bounded. */
 const maxCursorRules = 16;
 const FOREIGN_PRIORITY = 0;

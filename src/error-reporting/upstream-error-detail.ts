@@ -320,6 +320,7 @@ export function classifyUpstreamReason(
 }
 
 /**
+ * @internal Test-only legacy prose parser. Never use it for report fields.
  * The request field the provider blamed: OpenAI's `"param"` first, then
  * the first known field path in the text.
  */

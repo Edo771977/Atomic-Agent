@@ -1,0 +1,301 @@
+{
+  "base": "116bf48d8af7ec3fe47c6ff75ef1a798eb0d1184",
+  "sourceTree": "8ca0ff4211745918cbd8fd24b619c91ec82bf6e0",
+  "origin": "https://github.com/Edo771977/Atomic-Agent.git",
+  "upstream": "https://github.com/AtomicBot-ai/atomic-agent.git",
+  "node": "v26.13.1",
+  "platform": "win32",
+  "checks": {
+    "npmCi": 0,
+    "lint": 0,
+    "importsCheck": 0,
+    "typecheckTests": 0,
+    "docsCheck": 0,
+    "testTypeDebt": 674,
+    "newTestTypeErrors": 0
+  },
+  "dependency": {
+    "name": "entities",
+    "version": "4.5.0",
+    "alreadyProductionTransitive": true,
+    "registryResolutionUnchanged": true,
+    "installedPackageSetUnchanged": true,
+    "preinstall": null,
+    "install": null,
+    "postinstall": null,
+    "prepare": "npm run build",
+    "promotionOffline": true,
+    "promotionIgnoreScripts": true
+  },
+  "points": [
+    {
+      "point": 1,
+      "before": {
+        "passed": 26,
+        "failed": 40,
+        "skipped": 0,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 99,
+        "failed": 0,
+        "skipped": 0,
+        "files": 4
+      },
+      "additionalBefore": {
+        "passed": 70,
+        "failed": 3,
+        "skipped": 0,
+        "files": 1
+      }
+    },
+    {
+      "point": 2,
+      "before": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 12,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 17,
+        "failed": 0,
+        "skipped": 0,
+        "files": 2
+      }
+    },
+    {
+      "point": 3,
+      "before": {
+        "passed": 0,
+        "failed": 2,
+        "skipped": 18,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 47,
+        "failed": 0,
+        "skipped": 2,
+        "files": 5
+      }
+    },
+    {
+      "point": 4,
+      "before": {
+        "passed": 1,
+        "failed": 1,
+        "skipped": 0,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 2,
+        "failed": 0,
+        "skipped": 0,
+        "files": 1
+      }
+    },
+    {
+      "point": 5,
+      "before": {
+        "passed": 2,
+        "failed": 1,
+        "skipped": 0,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 3,
+        "failed": 0,
+        "skipped": 0,
+        "files": 1
+      }
+    },
+    {
+      "point": 6,
+      "before": {
+        "passed": 0,
+        "failed": 1,
+        "skipped": 10,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 11,
+        "failed": 0,
+        "skipped": 0,
+        "files": 1
+      }
+    },
+    {
+      "point": 7,
+      "before": {
+        "passed": 12,
+        "failed": 8,
+        "skipped": 0,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 28,
+        "failed": 0,
+        "skipped": 0,
+        "files": 2
+      }
+    },
+    {
+      "point": 8,
+      "before": {
+        "passed": 150,
+        "failed": 6,
+        "skipped": 0,
+        "files": 3
+      },
+      "focusedAfter": {
+        "passed": 204,
+        "failed": 0,
+        "skipped": 0,
+        "files": 4
+      }
+    },
+    {
+      "point": 9,
+      "before": {
+        "passed": 8,
+        "failed": 1,
+        "skipped": 0,
+        "files": 1
+      },
+      "focusedAfter": {
+        "passed": 92,
+        "failed": 0,
+        "skipped": 0,
+        "files": 4
+      }
+    }
+  ],
+  "suite": {
+    "command": "npx vitest run src/session src/tui src/cli src/http src/error-reporting src/llm",
+    "baseline": {
+      "base": "116bf48d8",
+      "sourceTree": "5ba68369f4a83cd288f739d8cbe770ef369df739",
+      "provenance": "Filtered from the completed #280 nine-area run. main has the identical src tree.",
+      "passed": 12245,
+      "failed": 23,
+      "skipped": 40,
+      "files": 1033
+    },
+    "head": {
+      "passed": 12318,
+      "failed": 23,
+      "skipped": 40,
+      "files": 1034
+    },
+    "sharedFailures": [
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) accepts --role=<role>"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error"
+      },
+      {
+        "file": "src/cli/http-command.test.ts",
+        "name": "refuses token management from an agent tool child"
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL"
+      },
+      {
+        "file": "src/cli/memory-backup.test.ts",
+        "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects closed stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects empty stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects unterminated stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects oversized stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects short stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-auth-process.test.ts",
+        "name": "rejects invalid stdin before starting serve"
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime"
+      },
+      {
+        "file": "src/cli/serve-command.test.ts",
+        "name": "registers the active serve key for masking (undefined)"
+      },
+      {
+        "file": "src/cli/skill-history-command.test.ts",
+        "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) add returns the token once and stores only its hash, owner-only"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) two tokens never come out the same"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) refuses a duplicate name and a bad name"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) remove drops one token and reports an unknown name"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) never writes over a broken file"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens"
+      },
+      {
+        "file": "src/http/http-token-store.test.ts",
+        "name": "does not store a bearer token accidentally supplied as a name"
+      },
+      {
+        "file": "src/http/scoped-auth.test.ts",
+        "name": "scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request"
+      }
+    ],
+    "additionalFailures": [],
+    "recoveredFailures": []
+  },
+  "limitations": [
+    "Points 4 and 5 use the explicitly authorized documentation alternative; their failing controls verify the README contract.",
+    "The parent-directory replacement window remains documented, not removed.",
+    "The CLI tool-child marker remains advisory.",
+    "Two inherited file-symlink tests remain skipped on this Windows account; real hardlinks and directory junctions ran.",
+    "The ASCII shortcut is restricted to printable characters so controls that an encoder can drop retain projection."
+  ],
+  "laterMain": {
+    "commit": "50b6d9601",
+    "reason": "PR 265 merged after the frozen verification started",
+    "scope": "Only src/tools/os and its guide/tests",
+    "requestedAreasAndManifestsUnchanged": true,
+    "notIncludedInBranch": true
+  }
+}

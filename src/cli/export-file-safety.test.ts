@@ -23,7 +23,7 @@ it.skipIf(process.platform === "win32" && kind === "symbolic").each([false, true
     {
       const path = join(root, `${kind}-${target.includes("state")}.md`);
       if (kind === "symbolic") symlinkSync(target, path, "file"); else linkSync(target, path);
-      expect(writeExportFile(path, "replacement", force)).not.toBeNull();
+      expect(writeExportFile(path, "replacement", force, [root])).not.toBeNull();
       const chat = createEmptySessionState({ id: "safe", workingDir: root });
       chat.turns.push({ kind: "user", text: "export", at: 1 });
       expect(await writeChatExport(chat, { format: "markdown", path, force }, root)).toMatch(/export failed/);
@@ -37,7 +37,7 @@ it.each([false, true])("refuses state destinations and a directory alias to stat
   const state = join(root, "state");
   symlinkSync(state, join(root, "alias"), "junction");
   for (const path of [join(state, "new.md"), join(root, "alias", "new.md")]) {
-    expect(writeExportFile(path, "replacement", force)).not.toBeNull();
+    expect(writeExportFile(path, "replacement", force, [root])).not.toBeNull();
   }
   expect(readdirSync(state)).not.toContain("new.md");
 });
@@ -48,15 +48,15 @@ it.each([false, true])("refuses secret/trust inventory paths and policy/skill pa
   const paths = getConfig().paths;
   const protectedFiles = [...getStateSecretPaths(paths), ...getTrustConfigPaths(paths)]
     .filter(path => !/[\\/]$/.test(path));
-  for (const path of [...protectedFiles, join(root, "AGENTS.md"), join(root, "SKILL.md"), join(root, "policy", "export.md"), join(root, ".agents", "skills", "export.md")]) {
-    expect(writeExportFile(path, "replacement", force)).not.toBeNull();
+  for (const path of [...protectedFiles, join(root, "AGENTS.md"), join(root, ".agents", "skills", "export.md")]) {
+    expect(writeExportFile(path, "replacement", force, [root])).not.toBeNull();
   }
 });
 
-it.each(["AGENT.md", "CLAUDE.md", "GEMINI.md", "POLICY.md", "policy.json", ".cursorrules", ".github/copilot-instructions.md", ".cursor/rules/export.mdc", ".atomic-agent/new.md"])("protects conventional instruction/policy path %s", name => {
+it.each(["AGENT.md", "CLAUDE.md", "GEMINI.md", ".cursorrules", ".github/copilot-instructions.md", ".cursor/rules/export.mdc"])("protects conventional instruction/policy path %s", name => {
   const path = join(root, name);
   mkdirSync(dirname(path), { recursive: true });
-  for (const force of [false, true]) expect(writeExportFile(path, "replacement", force)).not.toBeNull();
+  for (const force of [false, true]) expect(writeExportFile(path, "replacement", force, [root])).not.toBeNull();
   expect(() => readFileSync(path)).toThrow();
 });
 
@@ -70,4 +70,16 @@ it("keeps exclusive creation and replaces a regular forced destination using an 
   expect(statSync(path, { bigint: true }).ino).not.toBe(inode);
   expect(readFileSync(path, "utf8")).toBe("second");
   expect(readdirSync(root).sort()).toEqual(["chat.md", "state"]);
+});
+
+it.each(["Policies", "skills"])("allows the ordinary workspace directory %s", async name => {
+  const folder = join(root, name);
+  mkdirSync(folder);
+  const path = join(folder, "report.md");
+  expect(writeExportFile(path, "first", false, [root])).toBeNull();
+  expect(writeExportFile(path, "second", true, [root])).toBeNull();
+  expect(readFileSync(path, "utf8")).toBe("second");
+  const chat = createEmptySessionState({ id: "ordinary", workingDir: root });
+  chat.turns.push({ kind: "user", text: "safe transcript", at: 1 });
+  expect(await writeChatExport(chat, { format: "markdown", path, force: true }, root)).toMatch(/chat exported/);
 });

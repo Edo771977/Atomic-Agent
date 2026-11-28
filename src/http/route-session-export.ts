@@ -1,4 +1,5 @@
-import { exportChat, isIncognitoSession, parseChatExportFormat } from "../session/index.js";
+import { exportChat, isIncognitoSession, parseChatExportFormat, type SessionState } from "../session/index.js";
+import { readSessionTitle } from "../session/session-title.js";
 import { getConfig } from "../config/index.js";
 import { runtimeKnownSecrets } from "../runtime/runtime-known-secrets.js";
 import { describeToolCall } from "../tools/describe-tool-call.js";
@@ -6,23 +7,26 @@ import { openaiError } from "./openai-errors.js";
 import { sendError, sendJson, type HttpHandler } from "./request-context.js";
 
 /** Bound Markdown parsing, redaction and document layout on the HTTP event loop. */
-function exportTooLarge(state: { turns: readonly unknown[] }): boolean {
-  if (state.turns.length > 2_000) return true;
-  let charsLeft = 1_000_000;
-  let nodesLeft = 20_000;
-  const exceeds = (value: unknown, depth: number): boolean => {
-    if (--nodesLeft < 0 || depth > 32) return true;
-    if (typeof value === "string") return (charsLeft -= value.length) < 0;
-    if (value !== null && typeof value === "object") {
-      for (const key in value) {
-        if (!Object.hasOwn(value, key)) continue;
-        charsLeft -= key.length;
-        if (charsLeft < 0 || exceeds((value as Record<string, unknown>)[key], depth + 1)) return true;
+function exportTooLarge(state: SessionState, includeTools: boolean): boolean {
+  // Tool-result matching also scans stored turns, even if tools=0. Bound
+  // that work independently of the smaller requested-transcript budget.
+  if (state.turns.length > 20_000) return true;
+  let records = 0;
+  let chars = (readSessionTitle(state.metadata)?.length ?? 60) + 100;
+  for (const turn of state.turns) {
+    if (turn.kind === "user") chars += turn.text.length + 100;
+    else if (turn.kind === "assistant_reply") {
+      chars += (turn.stopped ? 20 : turn.text.length) + 100;
+      if (!turn.stopped) for (const path of turn.attachments ?? []) {
+        chars += path.length + 8;
+        if (chars > 1_000_000) return true;
       }
-    }
-    return false;
-  };
-  return exceeds(state, 0);
+    } else if (turn.kind === "assistant_tool_call" && includeTools) {
+      chars += describeToolCall({ name: turn.tool, args: turn.args, ok: true }).line.length + 100;
+    } else continue;
+    if (++records > 2_000 || chars > 1_000_000) return true;
+  }
+  return chars > 1_000_000;
 }
 
 /**
@@ -66,12 +70,13 @@ export function createExportSessionHandler(): HttpHandler {
       sendError(res, 409, openaiError("an incognito chat cannot be exported", "invalid_request_error", null, "incognito_session"));
       return;
     }
-    if (exportTooLarge(state)) {
+    const includeTools = url.searchParams.get("tools") !== "0";
+    if (exportTooLarge(state, includeTools)) {
       sendError(res, 413, openaiError("chat is too large for HTTP export; use export from your terminal", "invalid_request_error", null, "export_too_large"));
       return;
     }
     const file = await exportChat(state, format, {
-      includeTools: url.searchParams.get("tools") !== "0",
+      includeTools,
       // The config's stored keys too, not only the .env ones (ATO-1077
       // set); read per request, so a key added mid-session is covered.
       knownSecrets: runtimeKnownSecrets(getConfig()),

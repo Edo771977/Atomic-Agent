@@ -19,6 +19,17 @@ function chat(text = "Plan a trip"): SessionState {
 }
 
 describe("/export arguments (ATO-1054)", () => {
+  it.each(["\u2010", "\u2011", "\u2012", "\u2015", "\u2e17", "\u2e1a", "\u30a0", "\ufe58", "\ufe63", "\uff0d", "\u2212"])("rejects Unicode dash/minus path words: %s", dash => {
+    expect(parseExportCommand(`md ${dash}notes.md`).error).toBeTruthy();
+    expect(parseExportCommand(`md "${dash}notes.md"`).error).toBeTruthy();
+    expect(parseExportCommand(`md ./${dash}notes.md`).error).toBeUndefined();
+  });
+  it.each(["md -notes.md", "md —notes.md", "md –notes.md", "md --", 'md "unfinished', "md 'unfinished", 'md "-notes.md"'])("rejects ambiguous or unfinished path syntax: %s", args => {
+    expect(parseExportCommand(args).error).toBeTruthy();
+  });
+  it("joins path words once after removing an intervening flag", () => {
+    expect(parseExportCommand("md my --force notes.md")).toEqual({ format: "markdown", path: "my notes.md", force: true });
+  });
   it.each(["pdf --force --confirm-incognito chat.pdf", "pdf chat.pdf --force --confirm-incognito", "--force pdf --confirm-incognito chat.pdf"])("accepts flags around the format and path: %s", args => {
     expect(parseExportCommand(args)).toEqual({ format: "pdf", path: "chat.pdf", force: true, incognitoConfirmed: true });
   });
