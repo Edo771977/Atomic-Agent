@@ -22,6 +22,8 @@ W1.1 selectively imports upstream #1776 and #1788: a static own-computer persona
 
 W1.2 imports only the model-routing regression tests from upstream #1864/#1908 and removes their four resolved type-debt entries (five diagnostics), confirmed by typecheck:tests:reduce on the fork. The escalation test maps upstream turnModel to the existing fork model/pinModel fields. Fork fixture levels, team member selection, receipt attribution and production code are preserved; no C1/B7b prerequisite is imported. Both new tests pass on main and fail under temporary assertion inversions. [Verification](../reviews/w12-verification.json).
 
+W4.1 imports upstream #1799 and #1805 with one `cherry-pick -x` per source commit. When the managed chat engine is certainly gone, requests carry no key and a 401 gets no authenticated retry; its diagnosis is fixed, without response text, cause or foreign identity. Start/load liveness, the fork’s 90/270-second wait ceilings and managed-only marker remain intact. A stopped Core server retains its record until it releases the process and port; the next load waits under the operation lock before opening Core, and pending records cannot provide or refresh keys, be revived by delayed status, or trigger orphan recovery. [Tests and adaptations](../reviews/w41-engine-state.md).
+
 These imports are new commits, so GitHub's "commits behind" count against upstream does not go down. The triage is the reference for what is imported.
 
 Selective imports for offline use and chat data cleanup:

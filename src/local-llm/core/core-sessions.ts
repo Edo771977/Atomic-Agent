@@ -53,14 +53,21 @@ export async function loadCoreSession(dataDir: string, options: {
   signal?: AbortSignal;
   /** Bound for an unloaded server still holding `port` (ATO-1748); `PENDING_EXIT_WAIT_MS` by default. */
   pendingExitWaitMs?: number;
+  /** Windows release wait after cancellation unloads a newly created session. */
+  releaseWaitMs?: number;
 }): Promise<CoreSession> {
   return withCoreOperation(dataDir, async () => {
   const backend = readCoreBackend(dataDir);
   if (!backend) throw new CoreUnavailableError({ stage: "start", reasonCode: "not_installed", detail: "its inference backend is not installed yet" });
+  // Wait before opening Core: a new Core may reap journaled children on startup.
+  await waitForPendingExitOnPort(dataDir, options.port, options.pendingExitWaitMs);
+  const previous = readCoreJson<CoreSessionRecord>(coreSessionPath(dataDir, options.role));
+  if (previous?.awaitingExit && previous.port !== options.port) {
+    await waitForPendingExitOnPort(dataDir, previous.port, options.pendingExitWaitMs);
+  }
   return withCoreClient(dataDir, backend.coreVersion, async client => {
     // An earlier stop left a server that had not exited on this port: a new one
     // beside it would leave our client meeting the old key's server (ATO-1748).
-    await waitForPendingExitOnPort(dataDir, options.port, options.pendingExitWaitMs);
     const path = `/models/${backend.provider}/${encodeURIComponent(options.modelId)}`;
     const before = (await client.snapshot()).sessions.find(s => s.provider === backend.provider && s.model_id === options.modelId);
     const cancel = () => { void client.call(`${path}/load/cancel`, {}).catch(() => {}); };
@@ -95,7 +102,12 @@ export async function loadCoreSession(dataDir: string, options: {
           // Persist before cleanup so an unsuccessful unload remains recoverable.
           writeCoreJson(coreSessionPath(dataDir, options.role), { ...live, coreVersion: backend.coreVersion, instanceId: client.instanceId });
           const stopped = await client.call<{ success: boolean }>(`${path}/unload`, {}, { timeoutMs: 30_000 });
-          if (stopped.success) unlinkSync(coreSessionPath(dataDir, options.role));
+          if (stopped.success) {
+            if (process.platform === "win32") {
+              const released = await waitForProcessRelease(live.pid, live.port, { timeoutMs: options.releaseWaitMs ?? RELEASE_WAIT_MS });
+              settleUnloadedSession(dataDir, options.role, { ...live, coreVersion: backend.coreVersion, instanceId: client.instanceId }, released);
+            } else unlinkSync(coreSessionPath(dataDir, options.role));
+          }
           else throw new Error("Model startup was interrupted; Core could not stop the model. Retry Stop models.");
         }
       }
@@ -219,7 +231,7 @@ export async function recoverOrphanedCoreSessions(dataDir: string): Promise<bool
 
 export async function coreSessionStatus(dataDir: string, role: "chat" | "embedding"): Promise<CoreSession | null> {
   const record = readCoreJson<CoreSessionRecord>(coreSessionPath(dataDir, role));
-  if (!record) return null;
+  if (!record || record.awaitingExit) return null;
   /* ATO-920: a record from a Core this build does not know (a newer
      desktop wrote it into the shared folder) is not a session this build
      can ask about, the same as `readCoreSession` treats it. Connecting
@@ -260,7 +272,7 @@ export async function refreshCoreKeyForUrl(dataDir: string, url: string, status:
   if (port === null) return null;
   for (const role of ["chat", "embedding"] as const) {
     const record = readCoreJson<CoreSessionRecord>(coreSessionPath(dataDir, role));
-    if (!record || String(record.port) !== port) continue;
+    if (!record || record.awaitingExit || String(record.port) !== port) continue;
     try {
       const session = await status(dataDir, role);
       return typeof session?.api_key === "string" && session.api_key ? session.api_key : null;

@@ -25,8 +25,8 @@ export type OwnEngineState = "running" | "gone" | "unknown";
  * send the person to restart a model that is not there.
  */
 export const FOREIGN_KEY_REFUSAL_MESSAGE =
-  "Another program answers on the local model's address and refuses the agent's key; " +
-  "the agent's own model is not running there (for example Atomic Chat or a second copy of the engine holds the port).";
+  "Another program answers on the local model's address; " +
+  "the agent's own model is not running there.";
 
 /** What to do, with no commands in it, the same advice as `LocalPortTakenError`. */
 export const FOREIGN_KEY_REFUSAL_ADVICE =

@@ -54,3 +54,5 @@ When GBNF is skipped, its reasoning prelude no longer enforces a think-token bou
 - [Loop tests](../agent-loop.test.ts), [detector tests](../loop-detector.test.ts), [step tests](../step-executor.test.ts), [repair cap tests](../step/step-parsing.test.ts).
 
 B7a5 also recognizes a live chat-start.pending marker before the engine lock is acquired. CLI, daemon and TUI starts hold it for their whole operation. A marker without a model process uses the existing 90-second no-process ceiling; it does not invent a live lock owner. Stale, pre-boot and dead-owner markers are ignored. The existing live-lock-owner ceiling remains unchanged.
+
+When the managed chat port is known to have no engine, the client sends no credential and never refreshes or replays a 401. The foreign-port diagnosis uses fixed wording only: response text, cause and foreign process identity are discarded (W4.1). Unknown/start/load liveness retains the existing bounded wait and diagnostics.

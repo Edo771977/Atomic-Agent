@@ -23,7 +23,9 @@ beforeEach(() => {
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 it("unloads a newly ready model when cancellation wins before its reply is handled", async () => {
   const abort = new AbortController();
-  fake.snapshot.mockResolvedValueOnce({ sessions: [] }).mockResolvedValue({ sessions: [session] });
+  // This server has already exited when the successful unload returns.
+  const releasedSession = { ...session, pid: 2_147_483_647 };
+  fake.snapshot.mockResolvedValueOnce({ sessions: [] }).mockResolvedValue({ sessions: [releasedSession] });
   fake.call.mockImplementation(async (path: string) => {
     if (path.endsWith("/load")) { abort.abort(); return { session, created: true }; }
     if (path.endsWith("/load/cancel")) return { cancelled: false };

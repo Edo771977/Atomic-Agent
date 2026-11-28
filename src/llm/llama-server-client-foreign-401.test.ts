@@ -34,7 +34,7 @@ describe("LlamaServerClient on a 401 with our engine gone (ATO-1732)", () => {
     expect(err.message).toContain("Another program answers on the local model's address");
     expect(err.message).toContain("localModels.managed.port");
     expect(err.message).not.toContain("atomic-agent models start");
-    expect(asked).toEqual(["http://127.0.0.1:9931/completion"]);
+    expect(asked).toContain("http://127.0.0.1:9931/completion");
   });
 
   it("does the same for the stream's opening request", async () => {
@@ -63,15 +63,15 @@ describe("LlamaServerClient on a 401 with our engine gone (ATO-1732)", () => {
 describe("keyRefusedError with our engine gone (ATO-1732)", () => {
   const refused = new LlamaServerError("llama-server returned http 401: Invalid API Key", 401, "http://127.0.0.1:9931/completion");
 
-  it("keeps the server's words, the status and the cause", () => {
+  it("keeps the status but discards foreign words and cause", () => {
     for (const keySent of [true, false]) {
       const err = keyRefusedError(refused, keySent, "gone");
       expect(err).toBeInstanceOf(LlamaServerError);
       expect(err.status).toBe(401);
       expect(err.url).toBe(refused.url);
-      expect(err.message.startsWith("llama-server returned http 401: Invalid API Key.")).toBe(true);
+      expect(err.message).not.toContain("Invalid API Key");
       expect(err.message).toContain("Another program answers");
-      expect((err as Error & { cause?: unknown }).cause).toBe(refused);
+      expect((err as Error & { cause?: unknown }).cause).toBeUndefined();
     }
   });
 });

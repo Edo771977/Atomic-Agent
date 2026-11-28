@@ -2130,6 +2130,7 @@ export class LlamaServerClient {
       accept: stream ? "text/event-stream" : "application/json",
     };
     const config = getConfig();
+    if (this.readOwnEngine(this.baseUrlOverride ?? config.localModels.url) === "gone") return headers;
     const coreKey = coreKeyForUrl(config.paths.localModelsDataDir, this.baseUrlOverride ?? config.localModels.url);
     const apiKey = coreKey ?? this.apiKeyOverride ?? config.localModels.apiKey;
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
@@ -2199,6 +2200,8 @@ export class LlamaServerClient {
         // otherwise be treated as a transient network failure.
         if (signal?.aborted) throw err;
         if (headers && isUnauthorized(err)) {
+          const ownEngine = this.readOwnEngine(url);
+          if (ownEngine === "gone") throw keyRefusedError(err, false, ownEngine);
           if (!keyRefreshed) {
             keyRefreshed = true;
             if (await this.refreshKey(url, headers)) {
@@ -2493,6 +2496,7 @@ export function keyRefusedError(
       "for your own server, check localModels.apiKey or ATOMIC_AGENT_LLAMA_API_KEY."
     : "The local model server needs an API key and the agent has none for it. " +
       "Set ATOMIC_AGENT_LLAMA_API_KEY (or localModels.apiKey) to the key the server was started with.";
+  if (ownEngine === "gone") return new LlamaServerError(advice, 401, err.url);
   return new LlamaServerError(
     `${err.message}. ${advice}`,
     401,

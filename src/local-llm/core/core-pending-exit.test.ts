@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { createServer, type AddressInfo } from "node:net";
 import { join } from "node:path";
 import { CORE_VERSION, coreDataDir, coreKeyForUrl, coreSessionPath, coreVersionDir, orphanedCoreSession, readCoreSession, writeCoreJson } from "./core-state.js";
-import { loadCoreSession, recoverOrphanedCoreSessions, stopCoreSession } from "./core-sessions.js";
+import { coreSessionStatus, refreshCoreKeyForUrl, loadCoreSession, recoverOrphanedCoreSessions, stopCoreSession } from "./core-sessions.js";
 import { connectCore, ensureCore } from "./core-client.js";
 
-const fake = vi.hoisted(() => ({ call: vi.fn(), snapshot: vi.fn(), instanceId: "owned" }));
+const fake = vi.hoisted(() => ({ call: vi.fn(), snapshot: vi.fn(), connect: vi.fn(), instanceId: "owned" }));
 vi.mock("./core-client.js", () => ({
-  withCoreClient: async (_d: string, _v: string, fn: (client: typeof fake) => Promise<unknown>) => fn(fake),
+  withCoreClient: async (_d: string, _v: string, fn: (client: typeof fake) => Promise<unknown>) => { fake.connect(); return fn(fake); },
   connectCore: vi.fn(),
   ensureCore: vi.fn(),
 }));
@@ -111,11 +111,63 @@ describe("a Core model server that has not exited after its stop (ATO-1748)", ()
     await stopOnWindows();
     const started = Date.now();
     fake.call.mockImplementation(async (path: string) => {
-      if (path.endsWith("/load")) return { session: { ...base, pid: process.pid, port: port + 1, api_key: "new-key" }, created: true };
+      if (path.endsWith("/load")) return { session: { ...base, pid: process.pid, port: port + 1, is_embedding: true, api_key: "new-key" }, created: true };
       throw new Error("unexpected route");
     });
-    await loadCoreSession(dir, { role: "chat", modelId: "test", modelPath: "/test.gguf", port: port + 1, args: [], pendingExitWaitMs: 5_000 });
+    await loadCoreSession(dir, { role: "embedding", modelId: "test", modelPath: "/test.gguf", port: port + 1, args: [], pendingExitWaitMs: 5_000 });
+    expect(record()).toMatchObject({ port, awaitingExit: true });
     expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it("does not connect or start Core while a stopped server still owns the requested port", async () => {
+    const { port } = await lingeringSession();
+    await stopOnWindows();
+    await expect(loadCoreSession(dir, { role: "chat", modelId: "test", modelPath: "/test.gguf", port, args: [], pendingExitWaitMs: 0 })).rejects.toThrow(/has not released/);
+    expect(fake.connect).not.toHaveBeenCalled();
+  });
+
+  it("never refreshes a key or revives a pending record from a delayed Core snapshot", async () => {
+    const { pid, port } = await lingeringSession();
+    await stopOnWindows();
+    fake.snapshot.mockResolvedValue({ instance_id: "owned", sessions: [{ ...base, pid, port, api_key: "late-key" }] });
+    await expect(coreSessionStatus(dir, "chat")).resolves.toBeNull();
+    const status = vi.fn();
+    await expect(refreshCoreKeyForUrl(dir, `http://127.0.0.1:${port}`, status)).resolves.toBeNull();
+    expect(status).not.toHaveBeenCalled();
+    expect(record()).toMatchObject({ awaitingExit: true, api_key: "old-key" });
+  });
+
+  it("keeps ownership when a cancelled load unloads a server that has not exited", async () => {
+    const { pid, port } = await lingeringSession();
+    const abort = new AbortController();
+    fake.snapshot.mockResolvedValueOnce({ sessions: [] }).mockResolvedValue({ sessions: [{ ...base, pid, port }] });
+    fake.call.mockImplementation(async (path: string) => {
+      if (path.endsWith("/load")) { abort.abort(); return { session: { ...base, pid, port }, created: true }; }
+      if (path.endsWith("/unload")) return { success: true };
+      return {};
+    });
+    await expect(loadCoreSession(dir, { role: "chat", modelId: "test", modelPath: "/test.gguf", port, args: [], signal: abort.signal, releaseWaitMs: 0 })).rejects.toThrow();
+    expect(record()).toMatchObject({ pid, port, awaitingExit: true });
+    expect(orphanedCoreSession(dir, "chat")).toBeNull();
+  });
+
+  it("keeps the old role record even if a new load asks for another port", async () => {
+    const { port } = await lingeringSession();
+    await stopOnWindows();
+    await expect(loadCoreSession(dir, { role: "chat", modelId: "test", modelPath: "/test.gguf", port: port + 1, args: [], pendingExitWaitMs: 0 })).rejects.toThrow(/has not released/);
+    expect(record()).toMatchObject({ port, awaitingExit: true });
+    expect(loadCalls()).toBe(0);
+  });
+
+  it("never unloads or signals a session whose owner changed", async () => {
+    await lingeringSession();
+    const kill = vi.spyOn(process, "kill");
+    fake.snapshot.mockResolvedValue({ instance_id: "someone-else", sessions: [{ ...base, pid: child!.pid, port: 9931 }] });
+    await expect(stopCoreSession(dir, "chat")).rejects.toThrow(/session changed/);
+    expect(fake.call).not.toHaveBeenCalled();
+    expect(kill.mock.calls.every(([, signal]) => signal === 0)).toBe(true);
+    expect(existsSync(coreSessionPath(dir, "chat"))).toBe(true);
+    expect(existsSync(join(dir, "core", "operation.lock"))).toBe(false);
   });
 
   it("a later stop waits for it again and forgets it once it is gone, without a second unload", async () => {
