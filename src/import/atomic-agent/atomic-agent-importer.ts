@@ -7,7 +7,6 @@ import {
   resetConfigCache,
   writeUserConfigFileSync,
 } from "../../config/index.js";
-import { ConfigValidationError } from "../../config/config-validation-error.js";
 import { setDotenvKey } from "../../config/dotenv-writer.js";
 import { readLlmBlockOrDefault } from "../../config/llm-provider-commands.js";
 import type { McpServerConfig } from "../../mcp/mcp-types.js";
@@ -36,6 +35,8 @@ import {
   type ImportItemResult,
   type ImportReport,
 } from "../import-report.js";
+import { stripUnknownKeySources } from "../../setup-share/known-provider-env.js";
+import { providerImportReason } from "./provider-import-reason.js";
 
 /**
  * "Atomic Agent" as an import source: another Atomic Agent data folder
@@ -51,7 +52,9 @@ import {
  *  - skills     `<source>/skills/<name>/SKILL.md`.
  *  - mcp        `config.json` `mcp.servers`, added by name.
  *  - providers  `config.json` `llm.providers`, added by id; the active
- *               provider here is not changed. Inline keys only with secrets.
+ *               provider here is not changed. Inline keys only with secrets;
+ *               an `apiKeyCommand` never, a key variable name only when it
+ *               is the known one for the endpoint (provider-import-reason.ts).
  *  - cron       `tasks.sqlite`, scheduled jobs included. Off by default.
  *  - secrets    `<source>/.env` keys missing here. Off by default.
  */
@@ -246,8 +249,8 @@ export class AtomicAgentImporter {
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           raw = parsed as Record<string, unknown>;
         }
-      } catch (err) {
-        items.push({ kind: "mcp", status: "error", reason: `cannot parse ${sourcePath}: ${errorMessage(err)}` });
+      } catch {
+        items.push({ kind: "mcp", status: "error", reason: "cannot parse source configuration" });
         return;
       }
     }
@@ -289,11 +292,18 @@ export class AtomicAgentImporter {
         const p = { ...(entry as Record<string, unknown>) };
         const id = p.id;
         if (typeof id !== "string" || !id) continue;
+        if (!/^[A-Za-z0-9._-]{1,128}$/.test(id)) {
+          items.push({ kind: "providers", status: "error", reason: "invalid provider identifier in source configuration" });
+          continue;
+        }
         if (have.has(id)) {
           items.push({ kind: "providers", source: id, destination: id, status: "skipped", reason: "already set up here" });
           continue;
         }
         have.add(id);
+        // ATO-1716: a key command is a program to run, never copied, secrets or not;
+        // a key variable name next to a foreign baseUrl would send that key there.
+        const droppedKeySources = stripUnknownKeySources(p);
         // A key saved inline in the source's config is a secret: only with the secrets option.
         // So is a key sent as a header (`Authorization`, the entry's `apiKeyHeader`).
         let keyless = false;
@@ -314,13 +324,16 @@ export class AtomicAgentImporter {
             else delete p.headers;
           }
         }
-        providers.push(p);
+        // Do not let deletion of an imported URL activate the kind's implicit
+        // default key/endpoint. Re-create this entry manually after review.
+        const withheld = droppedKeySources.includes("baseUrl");
+        if (!withheld) providers.push(p);
         mine.push({
           kind: "providers",
           source: id,
           destination: id,
-          status: "migrated",
-          ...(keyless ? { reason: "without its API key (secrets off)" } : {}),
+          status: withheld ? "skipped" : "migrated",
+          ...providerImportReason(id, sourcePath, { keyless, droppedKeySources }),
         });
       }
     }
@@ -339,11 +352,10 @@ export class AtomicAgentImporter {
       const validated = parseUserConfigFile(next);
       writeUserConfigFileSync(this.deps.userConfigFile, validated);
       resetConfigCache();
-    } catch (err) {
-      const reason = err instanceof ConfigValidationError ? `${err.field}: ${err.message}` : errorMessage(err);
+    } catch {
       for (const item of mine) {
         item.status = "error";
-        item.reason = `config write failed: ${reason}`;
+        item.reason = "config write failed: invalid configuration or unavailable destination";
       }
     }
   }

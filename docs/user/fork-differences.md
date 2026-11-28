@@ -247,6 +247,8 @@ B7a4 defers upstream #1576 local-fallback consent. The candidate persistence own
   - Fixes found in real Windows test runs: native Anthropic provider, verified prices and the local runtime ([#18](https://github.com/Edo771977/atomic-agent/pull/18), [#20](https://github.com/Edo771977/atomic-agent/pull/20), [#21](https://github.com/Edo771977/atomic-agent/pull/21), [#23](https://github.com/Edo771977/atomic-agent/pull/23), [#31](https://github.com/Edo771977/atomic-agent/pull/31), [#36](https://github.com/Edo771977/atomic-agent/pull/36)).
   - A Windows core CI gate.
 
+W5.1b imports upstream #1829 for configuration credentials. Imported key commands and unknown key-variable names are discarded; a foreign provider destination withholds that entry rather than activating an implicit native fallback. Helpers receive a filtered child environment; reports and errors omit credential values, commands and URLs with userinfo. The fork origin restrictions from #241 remain; there is no import confirmation/unlock API, facts import or subscription sign-in. [Configuration-import review](../reviews/w51b-disarmed-import.md).
+
 The B4c Composio account CLI/TUI import (#1687/#1688) is deferred: connected accounts are readable from a marked child, and account selection changes the stable prompt prefix. Existing ATO-548 configuration and session pins are unchanged. [Review and reopening requirements](../reviews/b4c-composio-accounts.md).
 
 ## Hermes Python plugins

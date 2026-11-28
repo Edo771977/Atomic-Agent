@@ -10,13 +10,18 @@
  *   under the token's hour) and re-run when the cache runs out or the
  *   service answers 401 (`openAiFetch` calls `invalidate`).
  * - The output is never logged and never put into an error message: a
- *   failure names the command and how it failed, not what it printed.
+ *   failure describes how it failed without command bytes or labels.
  *   The latest value per provider is offered to the secret scrubber
  *   through {@link commandIssuedSecrets}, so a token echoed back into
  *   tool output or a trace is masked like a stored key.
+ * - It runs without the agent's other keys in its environment
+ *   (`buildApiKeyCommandEnv`, ATO-1716), built per run from the live env.
  */
 
 import { execFile } from "node:child_process";
+
+import { buildApiKeyCommandEnv } from "./api-key-command-env.js";
+import type { KeyCommandCredentials } from "./api-key-command-credentials.js";
 
 /** How long one command output is reused before the command runs again. */
 export const API_KEY_COMMAND_TTL_MS = 5 * 60 * 1000;
@@ -33,10 +38,11 @@ export interface ApiKeySource {
   invalidate(): void;
 }
 
-/** Runs `argv` and resolves its stdout. Injected by tests. */
+/** Runs `argv` with `env` and resolves its stdout. Injected by tests. */
 export type RunKeyCommand = (
   argv: readonly string[],
   timeoutMs: number,
+  env: NodeJS.ProcessEnv,
 ) => Promise<string>;
 
 export interface ApiKeyCommandOptions {
@@ -46,6 +52,10 @@ export interface ApiKeyCommandOptions {
   readonly timeoutMs?: number;
   readonly now?: () => number;
   readonly run?: RunKeyCommand;
+  /** The environment the command's own one is filtered from; defaults to `process.env`. */
+  readonly baseEnv?: () => NodeJS.ProcessEnv;
+  /** Current explicitly configured credential names and values, never logged. */
+  readonly credentials?: () => KeyCommandCredentials;
 }
 
 /** The latest output of each provider's key command, for the scrubber. */
@@ -61,7 +71,7 @@ export function commandIssuedSecrets(): { label: string; value: string }[] {
 }
 
 /** One source per provider and command, shared by every provider instance. */
-const shared = new Map<string, ApiKeySource>();
+const shared = new Map<string, { source: ApiKeySource; credentials: () => KeyCommandCredentials }>();
 
 /**
  * The source for `label`'s command, created once per process. A provider
@@ -71,14 +81,18 @@ const shared = new Map<string, ApiKeySource>();
 export function sharedApiKeyCommandSource(
   argv: readonly string[],
   label: string,
+  credentials: () => KeyCommandCredentials = () => ({}),
 ): ApiKeySource {
   const key = `${label}\0${argv.join("\0")}`;
-  let source = shared.get(key);
-  if (!source) {
-    source = createApiKeyCommandSource(argv, { label });
-    shared.set(key, source);
+  let current = shared.get(key);
+  if (!current) {
+    const context = { credentials };
+    const source = createApiKeyCommandSource(argv, { label, credentials: () => context.credentials() });
+    current = Object.assign(context, { source });
+    shared.set(key, current);
   }
-  return source;
+  current.credentials = credentials;
+  return current.source;
 }
 
 /** Test seam: forget every issued value and shared source. */
@@ -92,12 +106,13 @@ export function createApiKeyCommandSource(
   options: ApiKeyCommandOptions,
 ): ApiKeySource {
   if (argv.length === 0 || argv.some((part) => part.length === 0)) {
-    throw new Error(`apiKeyCommand for "${options.label}" must be a non-empty list of non-empty strings`);
+    throw new Error("apiKeyCommand must be a non-empty list of non-empty strings");
   }
   const ttlMs = options.ttlMs ?? API_KEY_COMMAND_TTL_MS;
   const timeoutMs = options.timeoutMs ?? API_KEY_COMMAND_TIMEOUT_MS;
   const now = options.now ?? Date.now;
   const run = options.run ?? runKeyCommand;
+  const baseEnv = options.baseEnv ?? (() => process.env);
   const secretLabel = `${options.label}-key-command`;
   let cached: { value: string; at: number } | null = null;
   // Concurrent turns share one run instead of starting the command twice.
@@ -106,17 +121,20 @@ export function createApiKeyCommandSource(
   const refresh = async (): Promise<string> => {
     let stdout: string;
     try {
-      stdout = await run(argv, timeoutMs);
+      const credentials = options.credentials?.() ?? {};
+      stdout = await run(argv, timeoutMs, buildApiKeyCommandEnv(baseEnv(), {
+        ...credentials, values: [...(credentials.values ?? []), ...issued.values()],
+      }));
     } catch (err) {
       throw new Error(
-        `apiKeyCommand for "${options.label}" failed (${argv[0]}): ${describeRunFailure(err)}`,
+        `apiKeyCommand failed: ${describeRunFailure(err)}`,
       );
     }
     const value = stdout.trim();
     if (value.length === 0 || /\s/.test(value)) {
       // Never echo the output: it may be a token with a stray line.
       throw new Error(
-        `apiKeyCommand for "${options.label}" printed ${value.length === 0 ? "nothing" : "more than one token"} (${argv[0]})`,
+        `apiKeyCommand printed ${value.length === 0 ? "nothing" : "more than one token"}`,
       );
     }
     issued.set(secretLabel, value);
@@ -148,17 +166,17 @@ function describeRunFailure(err: unknown): string {
   if (e?.code === "ENOENT") return "command not found";
   if (e?.killed || e?.signal === "SIGTERM") return "timed out";
   if (typeof e?.code === "number") return `exit code ${e.code}`;
-  if (typeof e?.code === "string") return e.code;
   return "could not run";
 }
 
-const runKeyCommand: RunKeyCommand = (argv, timeoutMs) =>
+const runKeyCommand: RunKeyCommand = (argv, timeoutMs, env) =>
   new Promise((resolve, reject) => {
     execFile(
       argv[0]!,
       argv.slice(1),
       {
         timeout: timeoutMs,
+        env,
         maxBuffer: API_KEY_COMMAND_MAX_BUFFER,
         windowsHide: true,
         encoding: "utf8",

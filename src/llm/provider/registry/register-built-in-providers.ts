@@ -15,6 +15,7 @@ import { resolveExtraApiKeys, resolveLlmProviderApiKey } from "../../../config/r
 import type { StructuredLogger } from "../../../tracing/index.js";
 import { isExternalEngineEntry } from "../openai/json-schema-tool-mode.js";
 import { sharedApiKeyCommandSource } from "../openai/api-key-command.js";
+import { apiKeyCommandCredentials } from "../openai/api-key-command-credentials.js";
 import type { ProviderCapabilities } from "../llm-provider.js";
 import { resolveCloudModelAudio } from "../model-audio.js";
 import { resolveCloudModelVision } from "../model-vision.js";
@@ -234,7 +235,7 @@ export function registerBuiltInProviderKinds(): void {
       // A short-lived token printed by a command (Vertex AI) replaces the
       // stored key on every request; see `openai/api-key-command.ts`.
       ...(entry.apiKeyCommand && entry.apiKeyCommand.length > 0
-        ? { apiKeySource: sharedApiKeyCommandSource(entry.apiKeyCommand, entry.id) }
+        ? { apiKeySource: sharedApiKeyCommandSource(entry.apiKeyCommand, entry.id, () => apiKeyCommandCredentials(ctx.config)) }
         : {}),
       ...(chatModel ? modelVisionOptions(entry, chatModel) : {}),
       ...(chatModel ? modelAudioOptions(entry, chatModel) : {}),

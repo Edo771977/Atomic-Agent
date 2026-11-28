@@ -50,3 +50,5 @@ B7a3 reads Google array-form error bodies and status alongside the fork's param 
 Local provider errors retain their parsed type for local handling. External refusal reports admit only the [closed type vocabulary](../error-reporting/README.md); for example `exceed_context_size_error` stays local and is omitted from report tags.
 
 C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
+
+Provider key helpers run with a filtered environment built for each invocation and the agent tool-child marker. Other provider keys and sensitive ATOMIC_AGENT variables are excluded; password-manager sessions and explicitly named cloud CLI sign-ins remain. Helper failures contain fixed diagnostics, without command text, provider labels or raw error codes. This does not isolate a helper from files the OS permits it to read.
