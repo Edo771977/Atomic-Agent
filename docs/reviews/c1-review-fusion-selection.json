@@ -1,0 +1,10 @@
+[
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "never promotes deletion of ignored standalone files"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "rejects a declared provide that only exists under an ignored path"
+  }
+]

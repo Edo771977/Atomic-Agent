@@ -1,0 +1,63 @@
+[
+  {
+    "point": 1,
+    "before": {
+      "passed": 2,
+      "failed": 2,
+      "skipped": 0,
+      "failedNames": [
+        "src/agent-profiles/builtin-catalog.test.ts :: C1 review 1: research survives a disabled browser and its worker cannot use browser tools",
+        "src/agent-profiles/builtin-catalog.test.ts :: C1 review 1: missing all optional tools never turns a builtin into an unrestricted worker"
+      ]
+    },
+    "after": {
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "failedNames": []
+    }
+  },
+  {
+    "point": 2,
+    "before": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 2,
+      "failedNames": [
+        "src/agent-profiles/settings-import.test.ts :: C1 review 2: rejects invalid person profiles and retains the valid builtin fallback"
+      ]
+    },
+    "after": {
+      "passed": 23,
+      "failed": 0,
+      "skipped": 0,
+      "failedNames": []
+    }
+  },
+  {
+    "point": 3,
+    "before": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 2,
+      "failedNames": [
+        "src/agent-profiles/settings-import.test.ts :: C1d: rereads config bytes without moving an open session's stable prefix"
+      ]
+    },
+    "after": {
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0,
+      "failedNames": []
+    }
+  },
+  {
+    "point": 4,
+    "after": {
+      "passed": 15,
+      "failed": 0,
+      "skipped": 0,
+      "failedNames": []
+    }
+  }
+]
