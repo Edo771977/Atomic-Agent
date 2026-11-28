@@ -3,6 +3,10 @@
 Status: current
 Owner: docs/reviews/
 
+Snapshot note: the [third PR 281 review](b7a-281-review3.md) makes fallback safe
+across open block contexts and extends detector projection/line normalization.
+The counts and timings below remain tied to this earlier recorded source tree.
+
 This continues PR #281 on its existing branch after the [first review](b7a-281-review.md).
 Main `104b6f7e6` was integrated in `18ada828b`. That main advance adds C2a/C2b
 deferral evidence/tests and documentation; it does not change production behavior.

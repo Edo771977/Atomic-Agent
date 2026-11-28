@@ -1,0 +1,540 @@
+{
+  "base": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "integration": "275388b93",
+  "beforeCorrections": "275388b93",
+  "sourceTree": "b8c7625d261d32450a0a8b8e163e8e2835832ec4",
+  "origin": "https://github.com/Edo771977/Atomic-Agent.git",
+  "upstream": "https://github.com/AtomicBot-ai/atomic-agent.git",
+  "node": "v26.13.1",
+  "platform": "win32",
+  "checks": {
+    "lint": 0,
+    "importsCheck": 0,
+    "typecheckTests": 0,
+    "docsCheck": 0,
+    "existingTypeDebt": 669,
+    "newTypeErrors": 0
+  },
+  "suite": "npx vitest run src/session src/tui src/cli src/http src/error-reporting src/llm src/runtime/project-instructions.test.ts",
+  "main": {
+    "passed": 12307,
+    "failed": 31,
+    "skipped": 44,
+    "files": 1042
+  },
+  "final": {
+    "passed": 12885,
+    "failed": 31,
+    "skipped": 44,
+    "files": 1047
+  },
+  "mainFailures": [
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for admin until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for anonymous until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for member until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for operator until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for owner until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for viewer until transport ownership and expiry are enforced",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+  ],
+  "finalFailures": [
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) accepts --role=<role>",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+    "src/cli/http-command.test.ts :: atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+    "src/cli/http-command.test.ts :: refuses token management from an agent tool child",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+    "src/cli/memory-backup.test.ts :: atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+    "src/cli/serve-auth-process.test.ts :: rejects closed stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects empty stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects invalid stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects oversized stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects short stdin before starting serve",
+    "src/cli/serve-auth-process.test.ts :: rejects unterminated stdin before starting serve",
+    "src/cli/serve-command.test.ts :: registers the active serve key for masking (undefined)",
+    "src/cli/serve-command.test.ts :: serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+    "src/cli/skill-history-command.test.ts :: skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+    "src/http/http-token-store.test.ts :: does not store a bearer token accidentally supplied as a name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) add returns the token once and stores only its hash, owner-only",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) never writes over a broken file",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) refuses a duplicate name and a bad name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) remove drops one token and reports an unknown name",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) the serve source reloads after add and remove, and a broken file yields no tokens",
+    "src/http/http-token-store.test.ts :: http token store (ATO-583) two tokens never come out the same",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for admin until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for anonymous until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for member until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for operator until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for owner until transport ownership and expiry are enforced",
+    "src/http/mcp-http-deferred.test.ts :: keeps MCP HTTP absent for viewer until transport ownership and expiry are enforced",
+    "src/http/scoped-auth.test.ts :: scoped auth: roles against route scopes applies scope on registered routes and revokes the persisted token on the next request",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+    "src/runtime/project-instructions.test.ts :: cloud project instructions loads a rule file once when another tool's file links to an own root rule"
+  ],
+  "addedFailures": [],
+  "resolvedFailures": [],
+  "controls": [
+    {
+      "point": 1,
+      "before": {
+        "report": "b7ar3-red-1-corrected.json",
+        "passed": 119,
+        "failed": 77,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-literal-context.test.ts :: docx contains the entire open CDATA context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open backtick fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open backtick fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open backtick fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open declaration context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open processing instruction context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open textarea context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open tilde fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open tilde fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: docx contains the entire open tilde fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open CDATA context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open CDATA context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open CDATA context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open backtick fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open backtick fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open backtick fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open comment context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open comment context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open comment context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open declaration context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open declaration context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open declaration context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open pre context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open pre context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open pre context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open processing instruction context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open processing instruction context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open processing instruction context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open script context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open script context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open script context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open style context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open style context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open style context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open textarea context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open textarea context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open textarea context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open tilde fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open tilde fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: html contains the entire open tilde fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: html renders one million characters with an open backtick fence within two seconds",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open CDATA context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open CDATA context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open backtick fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open backtick fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open comment context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open comment context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open comment context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open declaration context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open declaration context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open pre context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open pre context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open pre context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open processing instruction context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open processing instruction context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open script context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open script context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open script context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open style context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open style context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open style context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open textarea context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open textarea context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open tilde fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: markdown contains the entire open tilde fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open CDATA context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open backtick fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open backtick fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open backtick fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open declaration context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open declaration context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open processing instruction context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open textarea context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open tilde fence context in literal fallback (budget)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open tilde fence context in literal fallback (large)",
+          "src/session/export-literal-context.test.ts :: pdf contains the entire open tilde fence context in literal fallback (previous turn)",
+          "src/session/export-literal-context.test.ts :: pdf renders one million characters with an open backtick fence within two seconds"
+        ]
+      },
+      "after": {
+        "report": "b7ar3-green-1.json",
+        "passed": 462,
+        "failed": 0,
+        "skipped": 0,
+        "files": 5,
+        "failures": []
+      },
+      "note": "Comparable red controls use corrected Word XML text extraction on unchanged previous head."
+    },
+    {
+      "point": 2,
+      "before": {
+        "report": "b7ar3-red-2.json",
+        "passed": 155,
+        "failed": 15,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: NUL",
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: SOH",
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: compatibility forms",
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: word joiner",
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: zero-width space",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: NUL",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: SOH",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: compatibility forms",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: word joiner",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: zero-width space",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: NUL",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: SOH",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: compatibility forms",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: word joiner",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: zero-width space"
+        ]
+      },
+      "xmlBefore": {
+        "report": "b7ar3-red-2-xml.json",
+        "passed": 170,
+        "failed": 8,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: XML noncharacter FFFE",
+          "src/session/export-render-redaction.test.ts :: docx projects small vendor-shaped text without known values: XML noncharacter FFFF",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: XML noncharacter FFFE",
+          "src/session/export-render-redaction.test.ts :: html projects small vendor-shaped text without known values: XML noncharacter FFFF",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: XML noncharacter FFFE",
+          "src/session/export-render-redaction.test.ts :: markdown projects small vendor-shaped text without known values: XML noncharacter FFFF",
+          "src/session/export-render-redaction.test.ts :: pdf projects small vendor-shaped text without known values: XML noncharacter FFFE",
+          "src/session/export-render-redaction.test.ts :: pdf projects small vendor-shaped text without known values: XML noncharacter FFFF"
+        ]
+      },
+      "prefixBefore": {
+        "report": "b7ar3-red-2-prefixes.json",
+        "passed": 182,
+        "failed": 16,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-render-redaction.test.ts :: docx preserves structural underscores in projected detector prefixes: GitHub XML noncharacter",
+          "src/session/export-render-redaction.test.ts :: docx preserves structural underscores in projected detector prefixes: GitHub control",
+          "src/session/export-render-redaction.test.ts :: docx preserves structural underscores in projected detector prefixes: GitHub emphasis",
+          "src/session/export-render-redaction.test.ts :: docx preserves structural underscores in projected detector prefixes: GitHub emphasis and control",
+          "src/session/export-render-redaction.test.ts :: docx preserves structural underscores in projected detector prefixes: named HTTP token",
+          "src/session/export-render-redaction.test.ts :: html preserves structural underscores in projected detector prefixes: GitHub XML noncharacter",
+          "src/session/export-render-redaction.test.ts :: html preserves structural underscores in projected detector prefixes: GitHub control",
+          "src/session/export-render-redaction.test.ts :: html preserves structural underscores in projected detector prefixes: GitHub emphasis",
+          "src/session/export-render-redaction.test.ts :: html preserves structural underscores in projected detector prefixes: GitHub emphasis and control",
+          "src/session/export-render-redaction.test.ts :: html preserves structural underscores in projected detector prefixes: named HTTP token",
+          "src/session/export-render-redaction.test.ts :: markdown preserves structural underscores in projected detector prefixes: GitHub XML noncharacter",
+          "src/session/export-render-redaction.test.ts :: markdown preserves structural underscores in projected detector prefixes: GitHub control",
+          "src/session/export-render-redaction.test.ts :: markdown preserves structural underscores in projected detector prefixes: GitHub emphasis",
+          "src/session/export-render-redaction.test.ts :: markdown preserves structural underscores in projected detector prefixes: GitHub emphasis and control",
+          "src/session/export-render-redaction.test.ts :: markdown preserves structural underscores in projected detector prefixes: named HTTP token",
+          "src/session/export-render-redaction.test.ts :: pdf preserves structural underscores in projected detector prefixes: GitHub XML noncharacter"
+        ]
+      },
+      "initialAfter": {
+        "report": "b7ar3-green-2.json",
+        "passed": 182,
+        "failed": 0,
+        "skipped": 0,
+        "files": 2,
+        "failures": []
+      }
+    },
+    {
+      "point": 3,
+      "before": {
+        "report": "b7ar3-red-3.json",
+        "passed": 12,
+        "failed": 4,
+        "skipped": 0,
+        "files": 1,
+        "failures": [
+          "src/session/export-redaction-fast-path.test.ts :: never passes CRLF source to the bounded block parser",
+          "src/session/export-redaction-fast-path.test.ts :: normalizes CRLF before grouping export blocks: <pre>\r\n\r\nliteral\r\n</pre>",
+          "src/session/export-redaction-fast-path.test.ts :: normalizes CRLF before grouping export blocks: plain\r\n\r\ntext",
+          "src/session/export-redaction-fast-path.test.ts :: normalizes CRLF before grouping export blocks: ~~~fixture\r\n\r\nliteral\r\n~~~"
+        ]
+      }
+    },
+    {
+      "allPointsAfter": {
+        "report": "b7ar3-focused-final.json",
+        "passed": 514,
+        "failed": 0,
+        "skipped": 0,
+        "files": 5,
+        "failures": []
+      }
+    }
+  ],
+  "performance": {
+    "previousControls": [
+      {
+        "format": "markdown",
+        "kind": "links",
+        "elapsedMs": 1.9741999999999962,
+        "mainMs": 6.61239999999998
+      },
+      {
+        "format": "markdown",
+        "kind": "delimiters",
+        "elapsedMs": 1.842899999999986,
+        "mainMs": 3.831299999999942
+      },
+      {
+        "format": "html",
+        "kind": "links",
+        "elapsedMs": 3.3746000000001004,
+        "mainMs": 476.68589999999995
+      },
+      {
+        "format": "html",
+        "kind": "delimiters",
+        "elapsedMs": 3.4325999999998658,
+        "mainMs": 51.315799999999854
+      },
+      {
+        "format": "pdf",
+        "kind": "links",
+        "elapsedMs": 8.642100000000028,
+        "mainMs": 478.0801999999999
+      },
+      {
+        "format": "pdf",
+        "kind": "delimiters",
+        "elapsedMs": 6.404100000000199,
+        "mainMs": 52.57800000000043
+      },
+      {
+        "format": "markdown",
+        "kind": "ordinary-1000-pairs",
+        "elapsedMs": 3.963000000000193,
+        "mainMs": 10.189899999999852,
+        "ratio": 0.38891451339073496
+      }
+    ],
+    "flatMillion": [
+      {
+        "format": "markdown",
+        "pattern": "ordinary words ",
+        "elapsedMs": 27.32000000000005
+      },
+      {
+        "format": "markdown",
+        "pattern": "[x](",
+        "elapsedMs": 44.98289999999997
+      },
+      {
+        "format": "markdown",
+        "pattern": "*_`~",
+        "elapsedMs": 33.72809999999993
+      },
+      {
+        "format": "markdown",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 35.41030000000001
+      },
+      {
+        "format": "html",
+        "pattern": "ordinary words ",
+        "elapsedMs": 50.19100000000003
+      },
+      {
+        "format": "html",
+        "pattern": "[x](",
+        "elapsedMs": 71.58349999999996
+      },
+      {
+        "format": "html",
+        "pattern": "*_`~",
+        "elapsedMs": 62.32830000000001
+      },
+      {
+        "format": "html",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 70.18020000000001
+      },
+      {
+        "format": "pdf",
+        "pattern": "ordinary words ",
+        "elapsedMs": 126.91959999999995
+      },
+      {
+        "format": "pdf",
+        "pattern": "[x](",
+        "elapsedMs": 172.25750000000016
+      },
+      {
+        "format": "pdf",
+        "pattern": "*_`~",
+        "elapsedMs": 129.66349999999989
+      },
+      {
+        "format": "pdf",
+        "pattern": "before ` code ` after ",
+        "elapsedMs": 140.8832
+      }
+    ],
+    "literalMillion": [
+      {
+        "format": "html",
+        "context": "bulleted",
+        "elapsedMs": 77.22249999999985
+      },
+      {
+        "format": "html",
+        "context": "ordered",
+        "elapsedMs": 78.14870000000064
+      },
+      {
+        "format": "pdf",
+        "context": "bulleted",
+        "elapsedMs": 168.72279999999955
+      },
+      {
+        "format": "pdf",
+        "context": "ordered",
+        "elapsedMs": 170.22239999999965
+      }
+    ],
+    "openContextMillion": [
+      {
+        "format": "html",
+        "context": "comment",
+        "elapsedMs": 83.07950000000005
+      },
+      {
+        "format": "html",
+        "context": "pre",
+        "elapsedMs": 79.31780000000003
+      },
+      {
+        "format": "html",
+        "context": "script",
+        "elapsedMs": 79.39550000000008
+      },
+      {
+        "format": "html",
+        "context": "style",
+        "elapsedMs": 79.78160000000025
+      },
+      {
+        "format": "html",
+        "context": "textarea",
+        "elapsedMs": 78.97899999999981
+      },
+      {
+        "format": "html",
+        "context": "CDATA",
+        "elapsedMs": 78.64909999999963
+      },
+      {
+        "format": "html",
+        "context": "processing instruction",
+        "elapsedMs": 74.52649999999994
+      },
+      {
+        "format": "html",
+        "context": "declaration",
+        "elapsedMs": 79.08349999999973
+      },
+      {
+        "format": "html",
+        "context": "backtick fence",
+        "elapsedMs": 78.99659999999994
+      },
+      {
+        "format": "html",
+        "context": "tilde fence",
+        "elapsedMs": 80.99000000000024
+      },
+      {
+        "format": "pdf",
+        "context": "comment",
+        "elapsedMs": 177.92239999999993
+      },
+      {
+        "format": "pdf",
+        "context": "pre",
+        "elapsedMs": 163.8510000000001
+      },
+      {
+        "format": "pdf",
+        "context": "script",
+        "elapsedMs": 167.73970000000008
+      },
+      {
+        "format": "pdf",
+        "context": "style",
+        "elapsedMs": 164.73269999999957
+      },
+      {
+        "format": "pdf",
+        "context": "textarea",
+        "elapsedMs": 164.53060000000005
+      },
+      {
+        "format": "pdf",
+        "context": "CDATA",
+        "elapsedMs": 188.8099999999995
+      },
+      {
+        "format": "pdf",
+        "context": "processing instruction",
+        "elapsedMs": 170.4459999999999
+      },
+      {
+        "format": "pdf",
+        "context": "declaration",
+        "elapsedMs": 180.89980000000014
+      },
+      {
+        "format": "pdf",
+        "context": "backtick fence",
+        "elapsedMs": 167.1950999999999
+      },
+      {
+        "format": "pdf",
+        "context": "tilde fence",
+        "elapsedMs": 171.4983000000002
+      }
+    ]
+  },
+  "limitations": [
+    "The pre-existing extreme-nesting stack/work limit remains; this correction models block contexts rather than adding a depth cap.",
+    "The documented small-inline-HTML presentation limit for external Markdown viewers remains.",
+    "Literal/redacted fallback can change formatting; the modeled open contexts are kept together through closing or end of transcript."
+  ]
+}

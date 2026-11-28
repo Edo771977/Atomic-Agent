@@ -207,6 +207,7 @@ const EXPORT_PROJECTION_SYNTAX = /[*_`~&\[\\<|]| {2}\r?\n|[^\x20-\x7e\r\n]/u;
 
 /** Mask both source forms and the inline presentation of each parsed block. */
 export function maskChatExportText(text: string, options: ChatExportOptions = {}): string {
+  text = text.replace(/\r\n/g, "\n");
   const known = options.knownSecrets ?? knownSecretsFromEnv();
   // Plain printable ASCII has no presentation transform to project. Controls
   // stay on the slow path because document encoders can remove them.

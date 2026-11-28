@@ -1,9 +1,21 @@
 import { afterEach, expect, it, vi } from "vitest";
+import { Lexer } from "marked";
 import { maskChatExportText, type ChatExportOptions } from "./chat-export.js";
 
 afterEach(() => vi.restoreAllMocks());
 const value = "OpaqueCredential731";
 const options = { knownSecrets: [{ label: "fixture", value }] };
+it.each(["plain\r\n\r\ntext", "<pre>\r\n\r\nliteral\r\n</pre>", "~~~fixture\r\n\r\nliteral\r\n~~~"])("normalizes CRLF before grouping export blocks: %s", text => {
+  const output = maskChatExportText(text, options);
+  expect(output).not.toContain("\r");
+  expect(output).toBe(maskChatExportText(text.replace(/\r\n/g, "\n"), options));
+});
+it("never passes CRLF source to the bounded block parser", () => {
+  const lex = vi.spyOn(Lexer, "lex");
+  maskChatExportText("[ordinary](https://example.invalid)\r\n\r\nplain", options);
+  expect(lex).toHaveBeenCalled();
+  expect(lex.mock.calls.every(call => !call[0].includes("\r"))).toBe(true);
+});
 function measure(text: string, opts: ChatExportOptions) {
   const normalizations = vi.spyOn(String.prototype, "normalize");
   const output = maskChatExportText(text, opts);

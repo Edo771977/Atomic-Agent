@@ -162,6 +162,8 @@ Large literal fallback uses a column-zero code fence longer than every internal 
 
 Blank lines split export blocks only outside HTML blocks of types 1–5 and backtick/tilde fences. A linear line scanner keeps the opening, content and closing together, including contexts started in a previous turn; an unclosed context extends to the end. This complete block receives the 2,048-character limit and the remaining 32K parser budget, so fallback cannot be inserted inside an already-open comment, pre/script/style/textarea, CDATA, processing instruction, declaration or fence. The million-character HTML/PDF controls cover every listed context. Internal contexts do not create extra split points in an existing block.
 
+CRLF is normalized to LF before source matching, block grouping and bounded parsing. Exported Markdown and parser inputs therefore use the same line boundaries for Windows and LF transcripts.
+
 Markdown viewers can hide raw HTML tags and comments and rejoin pieces of a known secret split around that markup. The export projection does not interpret raw HTML; this is a pre-existing limitation of Markdown presentation masking. When sharing chat text containing raw HTML, prefer the built-in HTML, PDF or Word export: raw HTML is displayed as inert text there. The Markdown file itself is not a guarantee about how an external viewer will hide or execute HTML.
 
 Export protection shares instruction/profile names with their loaders. It covers those names at any depth inside the project and cwd ancestors through the Git top level, all PROJECT_AGENT_DIRS, and case-equivalent names on Darwin/Windows. Ordinary Policies and skills folders remain writable.

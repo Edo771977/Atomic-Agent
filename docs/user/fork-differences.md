@@ -285,6 +285,8 @@ The [PR 281 review](../reviews/b7a-281-review.md) bounds redaction parsing, shar
 
 The [second PR 281 review](../reviews/b7a-281-review2.md) retains inline checks where code-span trimming, forced breaks or adjacent cells can join visible text. Literal fallback closes list context with a fence longer than internal runs. NBSP entity projection is covered; the pre-existing extreme-nesting stack/work limit remains documented. Flat and bounded-list-context million-character controls retain a two-second rendering budget.
 
+The [third PR 281 review](../reviews/b7a-281-review3.md) keeps open HTML block contexts and backtick/tilde fences together through closing or end of transcript before choosing fallback. The same limits apply across turns and after the parser budget is exhausted. Detector projection also covers small invisible/control/XML-filtered forms without known keys, and CRLF is normalized before grouping. All previous controls remain alongside million-character HTML/PDF cases for every modeled context.
+
 ## Provider refusal reports
 
 B7a3 imports upstream #1727 refusal tags, with a stricter closed vocabulary for provider error codes. Structural paths cannot carry user-chosen names; offline, reporting opt-out and incognito suppress delivery as before. [Review](../reviews/b7a3-provider-refusals.md).
