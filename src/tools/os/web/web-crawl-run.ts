@@ -7,6 +7,8 @@
 import { CurlUnavailableError } from "./ensure-curl.js";
 import { extractPageLinks, inCrawlScope, normaliseCrawlUrl, parseSitemap } from "./crawl-links.js";
 import type { CrawlPoliteness, RobotsDecision } from "./crawl-politeness.js";
+import { startMoveAllowed } from "./crawl-scope.js";
+import { decodeSitemapBody } from "./sitemap-body.js";
 import { detectChallenge } from "./web-fetch-challenge.js";
 import { extractWebContent } from "./web-fetch-extract.js";
 import type { FetchOutcome } from "./web-fetch.js";
@@ -18,16 +20,32 @@ export const MAX_SITEMAP_FILES = 3;
 export const MAX_QUEUE = 2_000;
 /** Failures in a row after which the crawl stops instead of burning the budget. */
 export const MAX_CONSECUTIVE_ERRORS = 5;
+/** Times the start page may move the crawl to a new origin; os.web.fetch's own redirect cap. */
+export const MAX_START_MOVES = 3;
+
+/**
+ * The site being crawled. Mutable: when the start page redirects within the
+ * same site (`example.com` -> `www.example.com`) the crawl moves with it, and
+ * the caller's fetcher reads the new origin from here.
+ */
+export interface CrawlScope {
+  start: URL;
+  robots: RobotsDecision;
+}
 
 export interface RunCrawlInput {
   args: CrawlArgs;
-  start: URL;
-  robots: RobotsDecision;
+  scope: CrawlScope;
   politeness: CrawlPoliteness;
   signal: AbortSignal;
   now: () => number;
   deadline: number;
-  fetchPage: (url: string) => Promise<FetchOutcome>;
+  /** `binary` keeps the body as bytes (sitemaps, which may be gzipped). */
+  fetchPage: (url: string, opts?: { binary?: boolean }) => Promise<FetchOutcome>;
+  /** robots.txt of a new origin the start page moved to. */
+  robotsFor: (url: URL) => Promise<RobotsDecision>;
+  /** Before robots or transport at a new origin; validates DNS identity and consent. */
+  authorizeMove: (target: URL) => Promise<void>;
 }
 
 interface QueueItem {
@@ -36,12 +54,15 @@ interface QueueItem {
 }
 
 export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
-  const { args, start, robots, politeness } = input;
+  const { args, scope, politeness } = input;
   const queue: QueueItem[] = [];
   const seen = new Set<string>();
   const pages: CrawledPage[] = [];
   const blockedByRobots: string[] = [];
   const errors: { url: string; message: string }[] = [];
+  const notes: string[] = [];
+  let startMoves = 0;
+  let startSettled = false;
   let overflow = 0;
   let sitemapPages = 0;
   let sitemapLoaded = !args.useSitemap || args.maxDepth < 1;
@@ -53,11 +74,11 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
   };
 
   const enqueue = (url: URL, depth: number): boolean => {
-    if (!inCrawlScope(url, start, args.pathPrefix)) return false;
+    if (!inCrawlScope(url, scope.start, args.pathPrefix)) return false;
     const key = normaliseCrawlUrl(url);
     if (seen.has(key)) return false;
     seen.add(key);
-    if (!politeness.allows(robots, url)) {
+    if (!politeness.allows(scope.robots, url)) {
       blockedByRobots.push(key);
       return false;
     }
@@ -72,50 +93,108 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
   // The start page is checked against robots.txt by the caller; it may sit
   // outside `pathPrefix` (a docs index linking into /docs/), so it is queued
   // directly rather than through the scope filter.
-  const startKey = normaliseCrawlUrl(start);
+  const startKey = normaliseCrawlUrl(scope.start);
   seen.add(startKey);
   queue.push({ url: startKey, depth: 0 });
+
+  /**
+   * The start page redirected to another origin. Within the same site the
+   * crawl moves there (new scope, its robots.txt, the page queued again);
+   * to another site it stops and says where the page went. Like Crawlee,
+   * which scopes links by the page's loaded URL after redirects.
+   */
+  const moveStart = async (from: string, target: URL): Promise<boolean> => {
+    startMoves++;
+    const verdict = startMoveAllowed(scope.start, target);
+    if (!verdict.ok || startMoves > MAX_START_MOVES) {
+      const why = verdict.ok ? "it kept redirecting" : verdict.reason;
+      notes.push(
+        `The start page ${from} was not followed: ${why}. A crawl stays on one site; ` +
+          `crawl ${target.toString()} directly if that is the site meant.`,
+      );
+      stoppedBecause = "start-moved";
+      return false;
+    }
+    let robots: RobotsDecision;
+    try {
+      await input.authorizeMove(target);
+      robots = target.origin === scope.start.origin ? scope.robots : await input.robotsFor(target);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      errors.push({ url: target.href, message });
+      notes.push(`The start page ${from} was not followed: admission of ${target.toString()} failed (${message}).`);
+      stoppedBecause = "start-moved";
+      return false;
+    }
+    if (!politeness.allows(robots, target)) {
+      notes.push(`The start page ${from} redirects to ${target.toString()}, which robots.txt of ${target.host} does not allow.`);
+      block(normaliseCrawlUrl(target));
+      stoppedBecause = "start-moved";
+      return false;
+    }
+    notes.push(`The start page ${from} redirects to ${target.toString()}; crawled ${target.host} instead.`);
+    scope.start = target;
+    scope.robots = robots;
+    politeness.pacer.resetStrikes(target.host);
+    const key = normaliseCrawlUrl(target);
+    seen.add(key);
+    queue.unshift({ url: key, depth: 0 });
+    return true;
+  };
 
   while (queue.length > 0) {
     if (input.signal.aborted) { stoppedBecause = "aborted"; break; }
     if (pages.length >= args.maxPages) { stoppedBecause = "page-limit"; break; }
     if (input.now() >= input.deadline) { stoppedBecause = "time-budget"; break; }
-    if (politeness.pacer.isThrottled(start.host)) { stoppedBecause = "throttled"; break; }
+    if (politeness.pacer.isThrottled(scope.start.host)) { stoppedBecause = "throttled"; break; }
     if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) { stoppedBecause = "errors"; break; }
 
     const item = queue.shift()!;
+    const isStart = !startSettled;
     let res: FetchOutcome;
     try {
       res = await input.fetchPage(item.url);
     } catch (err) {
       if (err instanceof CurlUnavailableError) throw err;
+      startSettled = true;
       errors.push({ url: item.url, message: (err as Error).message });
       consecutiveErrors++;
       continue;
     }
 
-    if (res.refusedRedirect !== undefined) {
+    // An off-site hop is refused before it is requested (the caller's
+    // fetcher); `finalUrl` off the origin is the backstop for one that was not.
+    const offSite =
+      res.refusedRedirect !== undefined
+        ? new URL(res.refusedRedirect)
+        : new URL(res.finalUrl).origin !== scope.start.origin
+          ? new URL(res.finalUrl)
+          : null;
+    if (offSite !== null && offSite.origin === scope.start.origin) {
       // A same-site redirect into a robots.txt-disallowed path: not requested.
-      block(normaliseCrawlUrl(new URL(res.refusedRedirect)));
+      startSettled = true;
+      block(normaliseCrawlUrl(offSite));
       continue;
     }
+    if (offSite !== null) {
+      if (isStart) {
+        if (await moveStart(item.url, offSite)) continue;
+        break;
+      }
+      errors.push({ url: item.url, message: `redirected off the site to ${offSite.origin}; not followed` });
+      continue;
+    }
+    startSettled = true;
     const finalUrl = new URL(res.finalUrl);
     const finalKey = normaliseCrawlUrl(finalUrl);
     seen.add(finalKey);
-    if (finalUrl.origin !== start.origin) {
-      // Usually example.com -> www.example.com on the start page: the model
-      // can crawl again from where the site sent it.
-      const hint = item.depth === 0 ? `; crawl again from ${res.finalUrl}` : "";
-      errors.push({ url: item.url, message: `redirected off the site to ${finalUrl.origin}${hint}` });
-      continue;
-    }
     // Backstop for a redirect that ended on a disallowed path anyway (e.g. a
     // fetcher without the per-hop check): the page is dropped, not returned.
-    if (finalKey !== item.url && !politeness.allows(robots, finalUrl)) {
+    if (finalKey !== item.url && !politeness.allows(scope.robots, finalUrl)) {
       block(finalKey);
       continue;
     }
-    if (res.status === 429 || res.status === 503) politeness.pacer.notePageThrottled(start.host);
+    if (res.status === 429 || res.status === 503) politeness.pacer.notePageThrottled(scope.start.host);
     const challenge = detectChallenge({ status: res.status, contentType: res.contentType, body: res.body });
     if (challenge.challenged) {
       errors.push({ url: item.url, message: `bot-protection challenge (HTTP ${res.status})` });
@@ -129,13 +208,14 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
     }
     consecutiveErrors = 0;
 
+    const page = { body: res.body, contentType: res.contentType, truncated: res.truncated };
     const extracted = extractWebContent({
-      body: res.body,
-      contentType: res.contentType,
+      body: page.body,
+      contentType: page.contentType,
       url: res.finalUrl,
       mode: args.mode,
     });
-    const truncated = res.truncated || extracted.text.length > args.maxCharsPerPage;
+    const truncated = page.truncated || extracted.text.length > args.maxCharsPerPage;
     pages.push({
       url: res.finalUrl,
       title: extracted.title,
@@ -146,39 +226,47 @@ export async function runCrawl(input: RunCrawlInput): Promise<CrawlReport> {
     });
 
     if (item.depth < args.maxDepth) {
-      for (const link of extractPageLinks(res.body, res.contentType, finalUrl).links) {
+      for (const link of extractPageLinks(page.body, page.contentType, finalUrl).links) {
         enqueue(link, item.depth + 1);
       }
     }
     if (!sitemapLoaded) {
       sitemapLoaded = true;
-      sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1));
+      sitemapPages = await loadSitemap(input, (url) => enqueue(url, 1), notes);
     }
   }
 
   // An unexplored queue at the end means one of the stop reasons fired.
   if (stoppedBecause === "done" && queue.length > 0) stoppedBecause = "page-limit";
   return {
-    start: startKey,
+    start: normaliseCrawlUrl(scope.start),
     pages,
-    robotsSource: input.robots.source,
+    robotsSource: scope.robots.source,
     blockedByRobots,
     leftUnread: queue.length + overflow,
     sitemapPages,
     errors,
     stoppedBecause,
-    delayMs: politeness.pacer.hostDelay(start.host),
+    delayMs: politeness.pacer.hostDelay(scope.start.host),
+    notes,
   };
 }
 
 /**
  * Read the sitemap(s) named in robots.txt, else `/sitemap.xml`, following
- * one level of sitemap index, and queue the in-scope pages. Returns how many
+ * one level of sitemap index, and queue the in-scope pages. Gzipped
+ * sitemaps (`.xml.gz`, a gzip Content-Type or Content-Encoding) are
+ * unzipped with a size cap. Returns how many
  * were queued. Failures are quiet: a site without a sitemap is normal.
  */
-async function loadSitemap(input: RunCrawlInput, add: (url: URL) => boolean): Promise<number> {
-  const listed = input.robots.policy.sitemaps;
-  const pending = listed.length > 0 ? [...listed] : [`${input.start.origin}/sitemap.xml`];
+async function loadSitemap(
+  input: RunCrawlInput,
+  add: (url: URL) => boolean,
+  notes: string[],
+): Promise<number> {
+  const { scope } = input;
+  const listed = scope.robots.policy.sitemaps;
+  const pending = listed.length > 0 ? [...listed] : [`${scope.start.origin}/sitemap.xml`];
   let files = 0;
   let queued = 0;
   while (pending.length > 0 && files < MAX_SITEMAP_FILES && !input.signal.aborted) {
@@ -190,17 +278,24 @@ async function loadSitemap(input: RunCrawlInput, add: (url: URL) => boolean): Pr
       continue;
     }
     // Sitemaps on another host are not fetched: the crawl stays on one site.
-    if (sitemapUrl.origin !== input.start.origin) continue;
-    if (!input.politeness.allows(input.robots, sitemapUrl)) continue;
+    if (sitemapUrl.origin !== scope.start.origin) continue;
+    if (!input.politeness.allows(scope.robots, sitemapUrl)) continue;
     files++;
     let res: FetchOutcome;
     try {
-      res = await input.fetchPage(sitemapUrl.toString());
-    } catch {
+      // As bytes: `.xml.gz` and gzip-typed sitemaps are unzipped here (ATO-970).
+      res = await input.fetchPage(sitemapUrl.toString(), { binary: true });
+    } catch (err) {
+      notes.push(`Sitemap ${sitemapUrl.toString()} could not be fetched: ${err instanceof Error ? err.message : String(err)}.`);
       continue;
     }
     if (res.status < 200 || res.status >= 300) continue;
-    const entries = parseSitemap(res.body);
+    const text = decodeSitemapBody({ ...(res.bodyBytes ? { bytes: res.bodyBytes } : {}), body: res.body });
+    if (!text.ok) {
+      notes.push(`Sitemap ${sitemapUrl.toString()}: ${text.reason}.`);
+      continue;
+    }
+    const entries = parseSitemap(text.xml);
     pending.push(...entries.sitemaps);
     for (const page of entries.pages) {
       try {

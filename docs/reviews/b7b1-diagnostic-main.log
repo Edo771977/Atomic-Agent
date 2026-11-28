@@ -1,0 +1,19 @@
+
+ RUN  v4.1.12 <checkout>
+
+ ✓ src/tools/fusion/candidate-integration.test.ts (53 tests | 52 skipped) 10140ms
+   ✓ journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable  10139ms
+ ✓ src/tools/fusion/merge-gate.test.ts (19 tests | 18 skipped) 10280ms
+     ✓ holds back a task whose own check fails, saves its patch, and merges the green one  10279ms
+ ✓ src/tools/fusion/branch-isolation-safety.test.ts (28 tests | 27 skipped) 8154ms
+     ✓ does not charge an unchanged tracked file to the copy budget  8153ms
+ ✓ src/llm/provider/subscription-oauth/subscription-signin-deferred.test.ts (3 tests | 2 skipped) 25816ms
+   ✓ keeps chatgpt login/logout absent offline and in a marked child, with no token or chat state  25815ms
+
+ Test Files  4 passed (4)
+      Tests  4 passed | 99 skipped (103)
+   Start at  23:54:15
+   Duration  62.59s (transform 5.70s, setup 106ms, import 7.10s, tests 54.39s, environment 0ms)
+
+JSON report written to C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/b7b1-diagnostic-main.json
+[atomic-agent] created default config at C:\Users\edoar\AppData\Local\Packages\openai.codex_2p2nqsd0c76g0\AC\#!sandbox.{17fb5347-ef8a-40ec-95d8-37302564dc01}\Temp\atomic-agent-test-WUBcXs\config.json
