@@ -175,13 +175,11 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
   const diagnostics: string[] = [];
   const withheld: string[] = [];
   const byName = new Map<string, AgentProfile>();
-  const rejectedNames = new Set<string>();
   /** A file path, a settings key, or the source alone. */
   const origin = (p: AgentProfile): string =>
     p.file ?? (p.source === "settings" ? `${SETTINGS_AGENT_PROFILES_KEY}.${p.name}` : p.source);
   /** First one in wins; a later copy of the name is reported as shadowed. */
   const offer = (profile: AgentProfile): void => {
-    if (rejectedNames.has(profile.name)) return;
     const existing = byName.get(profile.name);
     if (existing === undefined) {
       if (options.toolPolicy !== undefined && profile.tools !== undefined) {
@@ -196,7 +194,6 @@ export function loadAgentProfiles(options: AgentProfileLoadOptions): AgentProfil
           || (matching.length === 0 && profile.source !== "builtin")
           || matching.some(name => !allows(name)));
         if (invalid) {
-          rejectedNames.add(profile.name);
           diagnostics.push(`agent profile ${profile.name}: rejected unknown or forbidden tool selection`);
           return;
         }

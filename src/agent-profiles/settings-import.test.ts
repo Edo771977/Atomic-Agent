@@ -7,6 +7,7 @@ import { readSettingsAgentProfiles } from "./settings-profiles.js";
 import { buildPrompt } from "../prompt/build-prompt.js";
 import { createEmptySessionState, recordTurn } from "../session/session-state.js";
 import { userTurn } from "../session/conversation-turn.js";
+import { isWorkerVisibleTool } from "../tools/fusion/worker-tool-policy.js";
 
 it("C1d: loads fresh settings on each profile load", () => {
   const root = mkdtempSync(join(tmpdir(), "c1d-profiles-"));
@@ -55,16 +56,18 @@ it("C1d: rereads config bytes without moving an open session's stable prefix", (
   }
 });
 
-it("C1d: rejects unknown or forbidden profile tools with a diagnostic", () => {
+it("C1 review 2: rejects invalid person profiles and retains the valid builtin fallback", () => {
   const root = mkdtempSync(join(tmpdir(), "c1d-tool-admission-"));
   try {
-    for (const tools of [["os.fs.read", "unknown.tool"], ["memory.notes.store"], ["os.*"], ["Not A Tool"]]) {
+    for (const tools of [["os.fs.read", "unknown.tool"], ["memory.notes.store"], ["os.*"], ["Not A Tool"], ["fusion.delegate"]]) {
       const profiles = loadAgentProfiles({
         workingDir: root, stateDir: root, configFile: join(root, "config.json"), startupTrust: undefined,
-        settingsProfiles: () => ({ review: { prompt: "Review", tools } }),
-        toolPolicy: { names: ["os.fs.read", "os.screen.click", "memory.notes.store"], allows: name => name === "os.fs.read" },
+        settingsProfiles: () => ({ review: { prompt: "Invalid replacement", tools }, custom: { prompt: "Invalid custom profile", tools } }),
+        toolPolicy: { names: ["os.fs.read", "os.screen.click", "memory.notes.store"], allows: isWorkerVisibleTool },
       });
-      expect(profiles.get("review")).toBeUndefined();
+      expect(profiles.get("review")).toMatchObject({ source: "builtin", tools: ["os.fs.read"] });
+      expect(profiles.get("review")?.prompt).not.toContain("Invalid replacement");
+      expect(profiles.get("custom")).toBeUndefined();
       expect(profiles.diagnostics.join("\n")).toMatch(/review.*rejected.*tool/i);
     }
   } finally {
