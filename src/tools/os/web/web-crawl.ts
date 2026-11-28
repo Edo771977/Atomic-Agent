@@ -152,12 +152,17 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
           approvedUrls.add(url.href);
         }
       };
+      // During a start move this remains the previous host until its new
+      // robots policy is admitted. Afterwards ordinary DNS rotation is safe:
+      // fetchRawPage still rejects any private answer and pins every attempt.
+      let currentScope: Pick<CrawlScope, "start"> = { start };
       const validateAddresses = (url: URL, addresses: readonly string[]): void => {
-        // Names alone do not establish site identity. Be conservative:
-        // every address must equal the start host's validated DNS set.
-        const resolved = new Set(addresses);
-        if (resolved.size !== siteAddresses.size || [...resolved].some(ip => !siteAddresses.has(ip))) {
-          throw new Error(`${url.host}: resolved addresses differ from the crawl's starting site`);
+        // Compare site identity only when admitting a move to another host.
+        if (url.hostname !== currentScope.start.hostname) {
+          const resolved = new Set(addresses);
+          if (resolved.size !== siteAddresses.size || [...resolved].some(ip => !siteAddresses.has(ip))) {
+            throw new Error(`${url.host}: resolved addresses differ from the crawl's starting site`);
+          }
         }
         assertEgress();
       };
@@ -222,6 +227,7 @@ export function buildOsWebCrawlTool(options: OsWebCrawlOptions = {}): ToolDefini
 
       // Mutable: a start page that redirects within the site moves it.
       const scope: CrawlScope = { start, robots };
+      currentScope = scope;
       const report = await runCrawl({
         args,
         scope,

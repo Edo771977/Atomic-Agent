@@ -255,7 +255,7 @@ The HTTP MCP endpoint from upstream #1705 remains deferred in B3. Its transport 
 
 ## Crawling a site
 
-B7b1 imports upstream #1714 gzip sitemaps and start redirects. A move requires both the site-name check and the exact validated public DNS address set of the start host; the actual curl pin is checked again after each resolution. Every URL passes offline, organization policy, project egress and URL-data consent before transport, including robots, sitemap and cached-page reuse. Sitemap admission is capped at 2,000,000 decompressed bytes. Automatic crawl JavaScript rendering remains deferred. [Review](../reviews/b7b1-crawl.md).
+B7b1 imports upstream #1714 gzip sitemaps and start redirects. A start move that changes host requires both the site-name check and the exact validated public DNS address set of the start host. On the current host, public DNS rotation is allowed; every request/retry still rejects an entire answer containing a private address and pins curl to the freshly checked public set. Every URL passes offline, organization policy, project egress and URL-data consent before transport, including robots, sitemap and cached-page reuse. Sitemap admission is capped at 2,000,000 decompressed bytes. Automatic crawl JavaScript rendering remains deferred. [Review](../reviews/b7b1-crawl.md), [review corrections](../reviews/b7b1-review-followup.md).
 
 ## Folder constraints for confidential data
 

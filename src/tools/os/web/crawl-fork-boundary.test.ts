@@ -93,6 +93,19 @@ describe("B7b1 crawl URL and response boundaries", () => {
     await expect(f.tool.run({ url: origin, maxDepth: 0 }, f.ctx)).rejects.toThrow(/resolved addresses differ/);
     expect(f.requested.some(url => url.startsWith(moved))).toBe(false);
   });
+  it("allows public DNS rotation on pages after the new host's robots admission", async () => {
+    let movedLookups = 0;
+    const f = fixture(url => url.endsWith("/robots.txt") ? robots : url === origin + "/" ? { status: 302, location: moved + "/guide" } : { status: 200, body: html + '<a href="/next">Next</a>' }, async host => {
+      const address = !host.startsWith("www.") || ++movedLookups <= 3 ? "93.184.216.34" : movedLookups === 4 ? "8.8.8.8" : "1.1.1.1";
+      return [{ address, family: 4 }];
+    });
+    const result = await f.tool.run({ url: origin, maxPages: 2, maxDepth: 1, useSitemap: false }, f.ctx);
+    expect(result.status).toBe("ok");
+    expect(result.details.pages).toHaveLength(2);
+    expect(f.pins.filter(pin => pin.startsWith("www.docs.example.com:"))).toEqual([
+      "www.docs.example.com:443:93.184.216.34", "www.docs.example.com:443:8.8.8.8", "www.docs.example.com:443:1.1.1.1",
+    ]);
+  });
   it("requires the fork's URL-data consent before a same-site redirect or its robots request", async () => {
     const destination = moved + "/guide?payload=" + "x".repeat(300);
     const emitted: string[] = [];
