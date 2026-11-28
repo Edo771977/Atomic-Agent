@@ -563,7 +563,7 @@ Procedere una sottoserie alla volta; ogni riga numerata è un port separato, con
 | W2.1, lifecycle | #1761, #1841 | Coordinare il turno runtime dopo C1; conservare runTurn/ownership. |
 | W2.2, scheduler e packer | #1868 | Dopo #281 per il proprietario conversation-turn; due fix, due verifiche. |
 | W3.1, installazione/idle | #1777, #1798 | Importati #1777/#1798 da origin/main aggiornato in checkout dedicato; messaggi fissi e lifecycle verificato, B7b3 ancora assente. [Prove](../reviews/w31-core-install-idle.md). |
-| W3.2, race nei test | #1778, #1913 | Catene complete; #1913 esclude il duplicato download. |
+| W3.2, race nei test | #1778, #1913 | Importate le catene complete #1778/#1913; un solo fix download, prove negative delle asserzioni e retry porta circoscritto. [Prove](../reviews/w32-test-races.md). |
 | W4.1, stato engine | #1799, #1805 | Dopo stabilizzazione B7b e marcatori già adattati. |
 | W4.2, scelta e retry | #1870, #1906 | Non riabilita l'endpoint #283. |
 | W5.1, difese credenziali | #1794, #1829 | B1 e vincolo origine #241; API #260/#261 assenti. |
