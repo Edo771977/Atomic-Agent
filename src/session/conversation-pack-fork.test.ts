@@ -25,6 +25,22 @@ const task = (result: ConversationTurn): ConversationTurn[] => [
 ];
 
 describe("W2 packer preserves fork retention", () => {
+  it.each(["os.http.request", "os.shell.run", "os.fs.read"])("cuts %s only between complete Unicode characters", (tool) => {
+    const summary = `${"😀".repeat(5_000)}${tool === "os.shell.run" ? "\nexit: 0" : ""}`;
+    const original = resultFor(tool, summary);
+    if (original.kind !== "tool_result") throw new Error("fixture");
+    for (const budget of [100, 500, 1_000, 2_000]) {
+      const before = renderToolResultBody(original, { inCurrentMacroTurn: true });
+      expect(before).not.toMatch(/[\uD800-\uDFFF]/u);
+      const packed = packConversation(task(original), budget).visibleTurns[2];
+      if (packed?.kind !== "tool_result") throw new Error("missing result");
+      const after = renderToolResultBody(packed, { inCurrentMacroTurn: true });
+      expect(after, `${tool}/${budget}`).not.toMatch(/[\uD800-\uDFFF]/u);
+      expect(after.length).toBeLessThanOrEqual(before.length);
+      if (tool === "os.shell.run") expect(after.endsWith("exit: 0")).toBe(true);
+    }
+  });
+
   it("retains exact paging offsets and full hidden-line counts through a second read cut", () => {
     const turns = [
       userTurn("inspect both files", 1),

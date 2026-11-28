@@ -569,7 +569,8 @@ function isGogShellResult(
 function capSummary(summary: string, capChars: number): string {
   if (summary.length <= capChars) return summary;
   const keep = Math.max(1, capChars - 40);
-  return `${summary.slice(0, keep)}\n… [rendering-truncated ${summary.length - keep} chars]`;
+  const shown = sliceAtCharacterBoundaries(summary, 0, keep);
+  return `${shown}\n… [rendering-truncated ${summary.length - shown.length} chars]`;
 }
 
 /**
@@ -581,7 +582,18 @@ function capSummary(summary: string, capChars: number): string {
 function capSummaryToTail(summary: string, capChars: number): string {
   if (summary.length <= capChars) return summary;
   const keep = Math.max(1, capChars - 40);
-  return `… [rendering-truncated ${summary.length - keep} chars]\n${summary.slice(-keep)}`;
+  const shown = sliceAtCharacterBoundaries(summary, summary.length - keep);
+  return `… [rendering-truncated ${summary.length - shown.length} chars]\n${shown}`;
+}
+
+/** Narrow a UTF-16 slice inward when an endpoint splits a surrogate pair. */
+function sliceAtCharacterBoundaries(text: string, start: number, end = text.length): string {
+  const splitsPair = (index: number): boolean => {
+    const before = text.charCodeAt(index - 1);
+    const after = text.charCodeAt(index);
+    return before >= 0xd800 && before <= 0xdbff && after >= 0xdc00 && after <= 0xdfff;
+  };
+  return text.slice(splitsPair(start) ? start + 1 : start, splitsPair(end) ? end - 1 : end);
 }
 
 /**
@@ -1194,7 +1206,7 @@ function boundSummary(
   if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, readStartLine);
   if (turn.tool === "os.shell.run") {
     const note = `[context window: part of this result is not shown; ${summary.startsWith("[output clipped;") ? "read the saved output file instead" : "do not rerun the command solely to recover output"}]`;
-    if (isGogShellResult(turn)) return `${summary.slice(0, chars)}\n… ${note}`;
+    if (isGogShellResult(turn)) return `${sliceAtCharacterBoundaries(summary, 0, chars)}\n… ${note}`;
     // The spill pointer is the first line; a tail-only cut must keep it
     // as well as the command's final output. It was already visible in
     // the renderer's projection, and the caller still rejects growth.
@@ -1202,10 +1214,11 @@ function boundSummary(
     const spill = summary.startsWith("[output clipped;") && firstBreak >= 0
       ? `${summary.slice(0, firstBreak)}\n`
       : "";
-    return `${spill}… ${note}\n${summary.slice(-chars)}`;
+    return `${spill}… ${note}\n${sliceAtCharacterBoundaries(summary, summary.length - chars)}`;
   }
-  const note = `[context window: ${summary.length - chars} more chars of this result are not shown; repeat the call with a narrower request to see them]`;
-  return `${summary.slice(0, chars)}\n… ${note}`;
+  const shown = sliceAtCharacterBoundaries(summary, 0, chars);
+  const note = `[context window: ${summary.length - shown.length} more chars of this result are not shown; repeat the call with a narrower request to see them]`;
+  return `${shown}\n… ${note}`;
 }
 
 /**
