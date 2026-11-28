@@ -7,6 +7,8 @@ Read [AGENTS.md](AGENTS.md) before script changes. [Bundling](docs/bundling.md) 
 
 [Test types](check-test-types.mjs) reject new diagnostics against the explicit ledger; [self-test](check-test-types.selftest.mjs) uses temporary fixtures. [Test runner](run-tests.mjs) shares the quarantine registry with CI; [registry self-test](run-tests.selftest.mjs) verifies exclusions and workflow checks. See [local verification](../docs/testing/local-ci.md).
 
+The native [Windows core gate](run-windows-core-tests.mjs) classifies each Fusion and verification test file explicitly. The shared worker-core and origin tests are critical whole-file checks, alongside the existing worker runner; C1 adds no exclusion or deferred test.
+
 [Import checker](check-imports.mjs) resolves production dependencies with TypeScript, checks ownership even for type-only imports, and rejects runtime cycles. [Self-test](check-imports.selftest.mjs) uses disposable projects. [Boundary policy](../docs/architecture/import-boundaries.md) records scope and limitations.
 
 [Offline process smoke](smoke-e2e.mjs): after `npm run build`, run `npm run smoke:e2e` (optional `-- --output /tmp/atomic-e2e-report`). It starts actual built CLI/sidecar processes, a loopback scripted LLM server and disposable state/workspaces. Assertions cover tools, approvals, streaming, repair, FIFO, steering, cancellation, persistence and clean exit. It starts with offline mode enabled and asserts zero outbound attempts, including telemetry, flags and updates. CI provides a loopback-only network namespace. No credentials or model downloads are needed. See [the smoke report](../docs/testing/e2e-smoke.md) for the separately performed CLI, native provider and PTY checks and the limits of canned completions.

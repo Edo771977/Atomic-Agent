@@ -1,0 +1,55 @@
+{
+  "pr": 298,
+  "main": "c9aaeedadad412242b00ed230da369ffb7223f81",
+  "mainMerge": "21af7f860a6a903926389f0f4466553cf63b8a73",
+  "testedSource": "2534377edd2d188197a03666b4f7ebe79b741ab4",
+  "fixes": [
+    "db7982fad413f7e26080910818423edd1db80a6f",
+    "2534377edd2d188197a03666b4f7ebe79b741ab4"
+  ],
+  "checks": {
+    "lint": 0,
+    "imports": 0,
+    "typecheckTests": 0,
+    "docs": 0,
+    "existingTypeDebt": 667,
+    "newAllowances": 0
+  },
+  "requested": {
+    "command": "npx vitest run src/agent-profiles src/agent src/runtime src/config src/tools/fusion",
+    "passed": 6754,
+    "failed": 7,
+    "skipped": 12,
+    "files": 467,
+    "exitCode": 1
+  },
+  "currentMainControl": {
+    "passed": 93,
+    "failed": 6,
+    "skipped": 1,
+    "commonFailures": 6
+  },
+  "remainingCase": {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "stages a worktree candidate whose source directory has mode 448",
+    "baseline": "passed",
+    "candidate": "passed",
+    "maxWorkers": 1,
+    "timeoutChanged": false
+  },
+  "additionalUnexplainedFailures": 0,
+  "c1eAbsenceTests": {
+    "passed": 3,
+    "failed": 0
+  },
+  "evidence": [
+    "c1-review2-before-after.json",
+    "c1-review2-platform-comparison.json",
+    "c1-review2-fusion-selection.json",
+    "c1-review2-fusion-comparison.json"
+  ],
+  "limitations": [
+    "The required Windows selection exits 1; six failures match fresh main and the seventh passes reruns on both versions.",
+    "Historical first-review fallback behavior is revoked; missing optional builtin tools remain safely pruned."
+  ]
+}

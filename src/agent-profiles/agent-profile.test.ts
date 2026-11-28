@@ -4,6 +4,7 @@ import {
   MAX_PROFILE_PROMPT_CHARS,
   normaliseProfileName,
   parseAgentProfileFile,
+  parseSettingsAgentProfile,
 } from "./agent-profile.js";
 
 describe("parseAgentProfileFile (ATO-566)", () => {
@@ -29,9 +30,9 @@ describe("parseAgentProfileFile (ATO-566)", () => {
     expect(parsed).toMatchObject({ ok: true, profile: { name: "explorer", tools: ["os.fs.read"] } });
   });
 
-  it("treats an empty tools list as no allowlist", () => {
+  it("preserves an explicit empty tools list for admission to reject", () => {
     const parsed = parseAgentProfileFile("---\ntools: []\n---\nBody", "x");
-    expect(parsed.ok && parsed.profile.tools).toBe(undefined);
+    expect(parsed.ok && parsed.profile.tools).toEqual([]);
   });
 
   it("loads a file with no frontmatter as a body named after the file", () => {
@@ -66,5 +67,25 @@ describe("parseAgentProfileFile (ATO-566)", () => {
     expect(normaliseProfileName("../evil")).toBeNull();
     expect(normaliseProfileName("")).toBeNull();
     expect(normaliseProfileName("a".repeat(65))).toBeNull();
+  });
+});
+
+describe("parseSettingsAgentProfile (ATO-1668)", () => {
+  it("takes the key as the name and reads the fields like a file's frontmatter", () => {
+    expect(
+      parseSettingsAgentProfile("Writer", { description: " d ", prompt: " P ", model: "review", tools: ["Read", "Read", ""], color: "red" }),
+    ).toEqual({ ok: true, profile: { name: "writer", description: "d", prompt: "P", model: "review", tools: ["Read"] } });
+  });
+
+  it("refuses by the file rules, never throwing", () => {
+    expect(parseSettingsAgentProfile("x", null)).toMatchObject({ ok: false });
+    expect(parseSettingsAgentProfile("x", { prompt: 3 })).toMatchObject({ ok: false });
+    expect(parseSettingsAgentProfile("x", { prompt: "" })).toMatchObject({ ok: false, error: expect.stringContaining("empty") });
+    expect(parseSettingsAgentProfile("bad name!", { prompt: "P" })).toMatchObject({ ok: false, error: expect.stringContaining("name") });
+    expect(parseSettingsAgentProfile("x", { prompt: "a".repeat(MAX_PROFILE_PROMPT_CHARS + 1) })).toMatchObject({ ok: false });
+  });
+
+  it("ignores a name field inside the entry: the key names the profile", () => {
+    expect(parseSettingsAgentProfile("writer", { name: "other", prompt: "P" })).toMatchObject({ ok: true, profile: { name: "writer" } });
   });
 });

@@ -1,0 +1,138 @@
+[
+  {
+    "file": "src/session/session-worktree.test.ts",
+    "name": "session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions"
+  },
+  {
+    "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+    "name": "frozen disposable-directory policy discards newly created ignored directories and never merges existing caches in worktree"
+  },
+  {
+    "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+    "name": "frozen disposable-directory policy freezes project, info and global rules before dispatch, including for a repository subdirectory"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+    "name": "actual tracked working-tree snapshot preserves actual bytes despite cached-clean CRLF normalization"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+    "name": "actual tracked working-tree snapshot preserves actual bytes despite eol attribute normalization"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+    "name": "snapshot line ending identity preserves original \"\\n\" bytes with core.autocrlf enabled and merges a single-task edit"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+    "name": "snapshot line ending identity preserves original \"\\r\\n\" bytes with core.autocrlf enabled and merges a single-task edit"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+    "name": "measures exactly the complete unchanged future branch-set copy (Git=true)"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+    "name": "preserves the Git method without mutating or refreshing source metadata"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+    "name": "retains folder fallback for a source with unmerged"
+  },
+  {
+    "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+    "name": "refuses loss of Git after planning instead of falling back to an unreserved folder copy"
+  },
+  {
+    "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+    "name": "refuses the measured whole final copy before workers for untracked payload"
+  },
+  {
+    "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+    "name": "includes tracked byte overlays in the measured final copy"
+  },
+  {
+    "file": "src/tools/fusion/candidate-durability.test.ts",
+    "name": "rejects a genuine permission error from a write-capable flush"
+  },
+  {
+    "file": "src/tools/fusion/candidate-evidence.test.ts",
+    "name": "preserves collected final manifest when original drift rejects promotion"
+  },
+  {
+    "file": "src/tools/fusion/candidate-evidence.test.ts",
+    "name": "leaves actual protected-input integrity unknown when cancellation prevents its completion"
+  },
+  {
+    "file": "src/tools/fusion/candidate-evidence.test.ts",
+    "name": "rejects mutation of otherwise unchanged project code during final checks"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "rolls back partial delivery on failure without overwriting a concurrent user edit"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "rejects cancellation occurring inside the final integration check"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "rejects custom final-check output changes instead of delivering bytes the checks did not test"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "copies held task patches out of the candidate before cleanup"
+  },
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it"
+  },
+  {
+    "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+    "name": "checks a protected PowerShell path-list through the requested root alias (\"=\")"
+  },
+  {
+    "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+    "name": "checks a protected PowerShell path-list through the requested root alias (\" = \")"
+  },
+  {
+    "file": "src/tools/fusion/candidate-path-references.test.ts",
+    "name": "checks a protected PowerShell import with whitespace around the path-list assignment"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "holds passing output when the user changes the original during execution"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "protects a absolute declared input from a worker's filesystem delete at final promotion"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "protects a relative declared input from a worker's filesystem shrink at final promotion"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "enforces original saved path denies and absolute declared inputs on actual candidate file tools"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "uses native case identity for the basename of absolute declared inputs during fswrite"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "privately verifies a protected input under excluded node_modules with the built-in runner"
+  },
+  {
+    "file": "src/tools/fusion/fusion-delegate.test.ts",
+    "name": "fusion.delegate hands each worker session the operator's whole request, which its brief may clip"
+  },
+  {
+    "file": "src/tools/os/git/git-remote-sync.test.ts",
+    "name": "os.git remote sync tools add → push → fetch → pull round-trips through the bare remote with git_remote approvals"
+  },
+  {
+    "file": "src/tools/os/git/git-remote-sync.test.ts",
+    "name": "os.git remote sync tools a pull reports what it did to the tree even when the diffstat is long"
+  }
+]

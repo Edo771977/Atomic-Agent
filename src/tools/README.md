@@ -43,3 +43,5 @@ Read docs/contracts.md for tool additions/changes and ../agent/docs/batching.md 
 ## Validation
 
 `npx vitest run src/tools`; `npm run lint`; `npm run docs:check`. The production typecheck excludes tests; see [development checks](../../docs/development.md).
+
+C1e keeps subagent.run absent from registration, the production catalog and grammar. Upstream's unpriced cloud accounting and active-turn child ledger do not meet the fork's hard limits. [Candidate audit](../../docs/reviews/c1e-subagent-run.md).

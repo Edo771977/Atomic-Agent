@@ -32,6 +32,8 @@ export const criticalFiles = [
   'src/tools/fusion/syntax-pass.test.ts',
   'src/tools/fusion/worker-changes.test.ts',
   'src/tools/fusion/worker-runner.test.ts',
+  'src/tools/fusion/worker-runner-core.test.ts',
+  'src/tools/fusion/worker-runner-origin.test.ts',
   'src/tools/fusion/worker-workspace.test.ts',
   'src/tools/verify/check-typescript-syntax.test.ts',
   'src/tools/verify/check-script-syntax.test.ts',

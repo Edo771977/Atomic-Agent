@@ -349,6 +349,33 @@ describe("runtime turn ownership recipes", () => {
     expect(fixture.loop.runTurn).not.toHaveBeenCalled();
   });
 
+  it("a known local server model requires a worker stamp, including for subagent origin (ATO-1669)", async () => {
+    const local = resolveLlmConfig(fixture.config).providers[0]!;
+    fixture.config.llm = {
+      activeTextProvider: "local-llama",
+      activeEmbeddingProvider: "local-llama-embed",
+      toolTransport: "auto",
+      providers: [
+        local,
+        { id: "lmstudio", kind: "openai-compatible", baseUrl: "http://127.0.0.1:1234/v1", apiKey: "k", defaultChatModel: "default-model", userModels: [{ id: "role-model" }] },
+      ],
+    } as never;
+    const registry = fixture.providers.providerRegistry;
+    await registry.mergeProvidersFromConfig(fixture.config, { config: fixture.config, logger: fixture.deps.logger } as never);
+
+    await expect(fixture.service.runTurn(session("person"), "request", { providerId: "lmstudio", model: "role-model" }))
+      .rejects.toThrow(/local model, which is shared by all projects/);
+    expect(fixture.loop.runTurn).not.toHaveBeenCalled();
+
+    await expect(fixture.service.runTurn(session("spoofed-worker"), "request", { origin: "subagent", providerId: "lmstudio", model: "role-model" })).rejects.toThrow(/local model/);
+    for (const origin of ["fusion", "subagent"] as const) {
+      const worker = createFusionWorkerSession({ workingDir: dir, meta: { parentSessionId: "parent", taskId: origin } });
+      await fixture.service.runTurn(worker, "request", { origin, providerId: "lmstudio", model: "role-model" });
+    }
+    expect(fixture.loop.runTurn).toHaveBeenCalledTimes(2);
+    expect(fixture.loop.runTurn.mock.calls[1]?.[1]).toMatchObject({ providerId: "lmstudio", model: "role-model" });
+  });
+
   it("same-session queued callbacks load state when they acquire the lock", async () => {
     const gate = deferred<void>();
     fixture.loop.runTurn.mockImplementationOnce(async (value, options) => { await gate.promise; return result(value, options); });
@@ -521,6 +548,20 @@ describe("runtime turn ownership recipes", () => {
     await fixture.service.runTurn(session("human"), "request");
     expect(getAnalytics).toHaveBeenCalledTimes(1);
     expect(capture).toHaveBeenCalledWith(null, fixture.deps.telemetry.analyticsStateStore, expect.objectContaining({ outcome: "reply", stepCount: 1 }));
+  });
+
+  it("telemetry excludes subagent worker turns like fusion ones (ATO-1669)", async () => {
+    const getAnalytics = vi.spyOn(fixture.deps.telemetry.observability, "getAnalytics");
+    const capture = vi.spyOn(analytics, "captureMessageSent");
+    const begin = vi.spyOn(fixture.deps.telemetry.turnUsageMeter, "begin");
+    await fixture.service.runTurn(session("subagent"), "request", { origin: "subagent" });
+    expect(fixture.loop.runTurn).toHaveBeenCalledTimes(1);
+    expect(getAnalytics).not.toHaveBeenCalled();
+    expect(capture).not.toHaveBeenCalled();
+    expect(begin).not.toHaveBeenCalled();
+    await fixture.service.runTurn(session("human"), "request");
+    expect(begin).toHaveBeenCalledTimes(1);
+    expect(capture).toHaveBeenCalledTimes(1);
   });
 
   it("hands a person's turn its metered token totals, and leaves them off when nothing was reported (ATO-276)", async () => {

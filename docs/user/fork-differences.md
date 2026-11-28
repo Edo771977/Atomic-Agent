@@ -349,3 +349,15 @@ Stdio MCP sandboxing from upstream #1630 remains deferred in B6b: the client req
 La sesta revisione B1 usa selettori espliciti per il codice Node, compreso NODE_OPTIONS, e mantiene ordinari i flag lunghi operativi. Make legge gruppi corti e abbreviazioni GNU univoche; /dev/null e uno script vuoto per Make e shell. Il reset che rimuove i metadati registrati da una policy locale caricata e intenzionalmente rifiutato, con indicazioni per conservare le variabili ereditate. La guida esplicita limiti sed e differenze personali stdin.
 
 La settima revisione B1 normalizza solo i nomi delle opzioni Node nella policy organizzativa e distingue valori separati, reporter data: e stdin ambiguo, anche tramite NODE_OPTIONS e verify. Il parser personale mantiene le proprie tabelle. I glob letterali in --allow-fs-* vanno quotati per conservare la prudenza del lexer condiviso. Make, reset dell'ambiente e /dev/null mantengono i contratti verificati.
+
+## C1 worker sessions
+
+C1a imports upstream #1722 (`69dc95c37`) with `cherry-pick -x`. Depth is added without dropping the fork's original operator request or provider/egress/host policy stamp. Only depth becomes required on a read stamp. [Review](../reviews/c1a-worker-depth.md).
+
+C1b imports #1728 (`d08f26746`, `87de14b16`, `34fa9b554`) with cherry-pick -x. The shared runner retains request-budget ownership, original project rules, trust directory, declared-input, taint and verification hooks. Subagent origins skip usage analytics, suggestions and experience formation. Local model overrides still require a real worker stamp and a known configured model.
+
+C1c imports #1731 (`53d1c7a73`, `8acf38c32`, `45c916771`) with cherry-pick -x: settings profile parsing, comma-separated tool lists, diagnostics and preservation of skipped disk entries. Existing Fusion team/reasoning compatibility and config protections are retained.
+
+C1d imports #1732 (`f60f1141c`, `77fceafae`) with cherry-pick -x. Profiles are reread from config.json on every load. Rejected tool selections reserve the profile name against all lower-priority copies; fusion.delegate fails with unknown-profile and visibly identifies the source/file and offending tool. Explicit empty lists are preserved and rejected, never inherited as all tools. Built-ins alone omit unregistered optional tools and keep the worker ceiling; a disabled browser does not remove research. Stable-prefix bytes stay unchanged with the real catalog and loaded profile. [Second review corrections](../reviews/c1-review2-corrections.md).
+
+C1e keeps upstream #1733 deferred after auditing all 15 specified commits: an unpriced cloud worker escapes a hard spend ceiling, and the bounded ledger evicts active turn child counts. No subagent.run execution, hook alias or grammar surface is enabled. [Reproduction and reopening requirements](../reviews/c1e-subagent-run.md).

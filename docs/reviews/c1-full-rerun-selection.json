@@ -1,0 +1,30 @@
+[
+  {
+    "file": "src/local-llm/downloads/download-file-parallel.test.ts",
+    "name": "download-file parallel segments restarts from zero when a segment comes back with a different ETag"
+  },
+  {
+    "file": "src/local-llm/server/managed-api-key.test.ts",
+    "name": "managed llama-server api key (#582) heals at once past a fresh heal lock whose holder has exited"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "promotes the final checked fanout and preserves original rules and dirty files"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "archives check-run records and only delivered candidate manifests (pass=true)"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "archives check-run records and only delivered candidate manifests (pass=false)"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "verifies every worktree receipt from the original project (candidate=true)"
+  },
+  {
+    "file": "src/tools/fusion/fusion-candidate.test.ts",
+    "name": "enforces original saved path denies and relative declared inputs on actual candidate file tools"
+  }
+]

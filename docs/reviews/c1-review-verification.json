@@ -1,0 +1,58 @@
+{
+  "pr": 298,
+  "initialMain": "54f81900b9220268e6f88a8276d00feb4769f603",
+  "initialMainMerge": "247566f3ba5dee02b00c43b5f9af76e292ab734f",
+  "fullRequestedSource": "f7dd536c4c4f5bc759836af314ae4ba0ab617ce9",
+  "finalMain": "d60d715468dcf2f2cb7ce7bd0e231b26d62ae261",
+  "finalMainMerge": "62e1eb7e585f18046815034216b82d3f0c1aabfd",
+  "requestedDirectoriesChangedByFinalMerge": [],
+  "checks": {
+    "lint": 0,
+    "imports": 0,
+    "typecheckTests": 0,
+    "docs": 0,
+    "existingTypeDebt": 667,
+    "newAllowances": 0
+  },
+  "requested": {
+    "command": "npx vitest run src/agent src/runtime src/policy src/approval src/tools src/config src/session src/llm src/prompt src/sidecar src/agent-profiles",
+    "firstAttempt": "interrupted-without-final-report",
+    "completedAttempt": "c1-review-requested-retry.json",
+    "passed": 20189,
+    "failed": 17,
+    "skipped": 546,
+    "files": 1290,
+    "exitCode": 1
+  },
+  "currentMainPlatformControl": {
+    "passed": 142,
+    "failed": 15,
+    "skipped": 85,
+    "matchedFailures": 15
+  },
+  "remainingCases": [
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "never promotes deletion of ignored standalone files",
+      "baseline": "passed",
+      "candidate": "passed"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rejects a declared provide that only exists under an ignored path",
+      "baseline": "passed",
+      "candidate": "passed"
+    }
+  ],
+  "postFinalMergeTargeted": {
+    "passed": 95,
+    "failed": 0,
+    "files": 8
+  },
+  "c1e": "deferred-and-absent",
+  "beforeAfter": "c1-review-before-after.json",
+  "limitations": [
+    "Requested Windows selection exits 1; fifteen failures match current-main controls and two additional cases pass both reruns.",
+    "The final main merge changes Core outside the requested source directories; its changed tests and affected seams are rerun separately."
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "baseline": {
+    "total": 105,
+    "passed": 7,
+    "failed": 0,
+    "skipped": 98,
+    "failedSuites": 0,
+    "success": true
+  },
+  "candidate": {
+    "total": 105,
+    "passed": 7,
+    "failed": 0,
+    "skipped": 98,
+    "failedSuites": 0,
+    "success": true
+  },
+  "common": [],
+  "additional": [],
+  "baselineOnly": [],
+  "baselineFailuresOutsideCandidateSelection": [],
+  "newC1Tests": []
+}

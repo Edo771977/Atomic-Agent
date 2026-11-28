@@ -5798,14 +5798,6 @@
     },
     {
       "path": "src/memory/voting/vote-runner.test.ts",
-      "code": 2339,
-      "message": "Property 'targetId' does not exist on type 'VoteTraceEvent'.   Property 'targetId' does not exist on type '{ type: \"run\"; sessionId: string; outcome: \"failed\" | \"skipped\"; candidates?: number | undefined; reason: string; }'.",
-      "anchor": "targetId",
-      "line": 402,
-      "count": 2
-    },
-    {
-      "path": "src/memory/voting/vote-runner.test.ts",
       "code": 2349,
       "message": "This expression is not callable.   Type 'never' has no call signatures.",
       "anchor": "release",

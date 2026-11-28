@@ -26,6 +26,8 @@ export interface FusionWorkerMeta {
   parentSessionId: string;
   /** The orchestrator's task id for this subtask (its own bookkeeping). */
   taskId: string;
+  /** Operator = 0; a worker has its parent depth plus one. Legacy workers default to 1. */
+  depth?: number;
   /**
    * The operator's request the fan-out quotes, unclipped. A local
    * worker's brief quotes only its first 6,000 chars, but the input
@@ -41,6 +43,15 @@ export interface FusionWorkerMeta {
    * while any constraint exists. Never re-derived from the worker folder.
    */
   providerPolicy?: WorkerProviderPolicyStamp | null;
+}
+
+/** Only depth is required on read; fork request and policy fields stay optional. */
+export type StampedFusionWorkerMeta = FusionWorkerMeta & { depth: number };
+
+export const FUSION_WORKER_DEFAULT_DEPTH = 1;
+
+function isValidDepth(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 1;
 }
 
 /** The serialisable provider policy a worker carries (`ProviderPolicyStamp`). */
@@ -85,7 +96,10 @@ export function createFusionWorkerSession(input: {
   return createEmptySessionState({
     id: `${FUSION_WORKER_ID_PREFIX}${randomUUID()}`,
     workingDir: input.workingDir,
-    metadata: { [FUSION_WORKER_METADATA_KEY]: { ...input.meta } },
+    metadata: { [FUSION_WORKER_METADATA_KEY]: {
+      ...input.meta,
+      depth: isValidDepth(input.meta.depth) ? input.meta.depth : FUSION_WORKER_DEFAULT_DEPTH,
+    } },
   });
 }
 
@@ -97,14 +111,15 @@ export function createFusionWorkerSession(input: {
  */
 export function readFusionWorkerMeta(
   metadata: Record<string, unknown> | undefined,
-): FusionWorkerMeta | null {
+): StampedFusionWorkerMeta | null {
   const raw = metadata?.[FUSION_WORKER_METADATA_KEY];
   if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
     return null;
   }
-  const { parentSessionId, taskId, operatorRequest, providerPolicy } = raw as {
+  const { parentSessionId, taskId, operatorRequest, providerPolicy, depth: rawDepth } = raw as {
     parentSessionId?: unknown;
     taskId?: unknown;
+    depth?: unknown;
     operatorRequest?: unknown;
     providerPolicy?: unknown;
   };
@@ -119,9 +134,18 @@ export function readFusionWorkerMeta(
   const policy = stamp === "malformed"
     ? { providerPolicy: { key: "(unreadable fusion worker policy)", allowedProviders: [], allowedEgress: [], matchedDir: "" } }
     : stamp === undefined ? {} : { providerPolicy: stamp };
+  const depth = isValidDepth(rawDepth) ? rawDepth : FUSION_WORKER_DEFAULT_DEPTH;
   return typeof operatorRequest === "string"
-    ? { parentSessionId, taskId, operatorRequest, ...policy }
-    : { parentSessionId, taskId, ...policy };
+    ? { parentSessionId, taskId, depth, operatorRequest, ...policy }
+    : { parentSessionId, taskId, depth, ...policy };
+}
+
+export function readSessionDepth(metadata: Record<string, unknown> | undefined): number {
+  return readFusionWorkerMeta(metadata)?.depth ?? 0;
+}
+
+export function childFusionWorkerDepth(parentMetadata: Record<string, unknown> | undefined): number {
+  return readSessionDepth(parentMetadata) + 1;
 }
 
 /** Whether `id` was minted by `createFusionWorkerSession`. */

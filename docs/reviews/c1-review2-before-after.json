@@ -1,0 +1,51 @@
+[
+  {
+    "point": 1,
+    "before": {
+      "passed": 1,
+      "failed": 4,
+      "skipped": 116,
+      "failedNames": [
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: rejected profile names refuses 'auditor' rather than silently using an unrestricted 'settings' copy",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: rejected profile names refuses 'review' rather than silently using an unrestricted 'settings' copy",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: rejected profile names refuses 'explore' rather than silently using an unrestricted 'plugin' copy",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: rejected profile names shows a rejected profile diagnostic even when a different valid profile runs"
+      ]
+    },
+    "after": {
+      "passed": 179,
+      "failed": 1,
+      "skipped": 0,
+      "failedNames": [
+        "src/agent-profiles/profile-loader.test.ts :: loadAgentProfiles (ATO-566) does not follow a project profile folder out of the workspace"
+      ]
+    },
+    "targeted": {
+      "passed": 128,
+      "failed": 0,
+      "skipped": 0
+    }
+  },
+  {
+    "point": 2,
+    "before": {
+      "passed": 0,
+      "failed": 6,
+      "skipped": 155,
+      "failedNames": [
+        "src/agent-profiles/agent-profile.test.ts :: parseAgentProfileFile (ATO-566) preserves an explicit empty tools list for admission to reject",
+        "src/config/agent-profiles-schema.test.ts :: parseAgentProfilesConfig (ATO-1667) preserves an explicit empty tools list for admission to reject",
+        "src/config/agent-profiles-schema.test.ts :: parseAgentProfilesConfig (ATO-1667) splits a comma-separated tools string like profile frontmatter",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: empty settings allowlists rejects 'empty array' visibly instead of inheriting all tools",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: empty settings allowlists rejects 'blank array' visibly instead of inheriting all tools",
+        "src/tools/fusion/fusion-delegate.test.ts :: C1 second review: empty settings allowlists rejects 'blank comma list' visibly instead of inheriting all tools"
+      ]
+    },
+    "after": {
+      "passed": 174,
+      "failed": 0,
+      "skipped": 0,
+      "failedNames": []
+    }
+  }
+]

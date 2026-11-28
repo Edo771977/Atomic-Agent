@@ -1,0 +1,6 @@
+[
+  {
+    "file": "src/tools/fusion/candidate-integration.test.ts",
+    "name": "stages a worktree candidate whose source directory has mode 448"
+  }
+]

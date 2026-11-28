@@ -1,0 +1,494 @@
+{
+  "summary": {
+    "total": 43,
+    "passed": 42,
+    "reproducedOnBaseline": 1,
+    "unresolved": 0
+  },
+  "cases": [
+    {
+      "file": "src/session/session-worktree.test.ts",
+      "name": "session worktree (ATO-576) cleanup removes only idle, merged, clean worktrees of inactive sessions",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+      "name": "frozen disposable-directory policy discards newly created ignored directories and never merges existing caches in worktree",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-ignore-policy.test.ts",
+      "name": "frozen disposable-directory policy freezes project, info and global rules before dispatch, including for a repository subdirectory",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+      "name": "actual tracked working-tree snapshot preserves actual bytes despite cached-clean CRLF normalization",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+      "name": "actual tracked working-tree snapshot preserves actual bytes despite eol attribute normalization",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+      "name": "snapshot line ending identity preserves original \"/n\" bytes with core.autocrlf enabled and merges a single-task edit",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-autocrlf.test.ts",
+      "name": "snapshot line ending identity preserves original \"/r/n\" bytes with core.autocrlf enabled and merges a single-task edit",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+      "name": "measures exactly the complete unchanged future branch-set copy (Git=true)",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "failed",
+      "baselineStatus": "failed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "reproduced-on-baseline"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+      "name": "preserves the Git method without mutating or refreshing source metadata",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+      "name": "retains folder fallback for a source with unmerged",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/branch-workspace-copy-plan.test.ts",
+      "name": "refuses loss of Git after planning instead of falling back to an unreserved folder copy",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "refuses the measured whole final copy before workers for untracked payload",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "failed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-copy-budget.test.ts",
+      "name": "includes tracked byte overlays in the measured final copy",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-durability.test.ts",
+      "name": "rejects a genuine permission error from a write-capable flush",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-evidence.test.ts",
+      "name": "preserves collected final manifest when original drift rejects promotion",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-evidence.test.ts",
+      "name": "leaves actual protected-input integrity unknown when cancellation prevents its completion",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-evidence.test.ts",
+      "name": "rejects mutation of otherwise unchanged project code during final checks",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rolls back partial delivery on failure without overwriting a concurrent user edit",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rejects cancellation occurring inside the final integration check",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "rejects custom final-check output changes instead of delivering bytes the checks did not test",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "copies held task patches out of the candidate before cleanup",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-integration.test.ts",
+      "name": "refuses agent state spelled \".atomic-agent.\", as a case-insensitive or Win32 filesystem opens it",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks a protected PowerShell path-list through the requested root alias (\"=\")",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-aliases.test.ts",
+      "name": "checks a protected PowerShell path-list through the requested root alias (\" = \")",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/candidate-path-references.test.ts",
+      "name": "checks a protected PowerShell import with whitespace around the path-list assignment",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "holds passing output when the user changes the original during execution",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "protects a absolute declared input from a worker's filesystem delete at final promotion",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "protects a relative declared input from a worker's filesystem shrink at final promotion",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "enforces original saved path denies and absolute declared inputs on actual candidate file tools",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "uses native case identity for the basename of absolute declared inputs during fswrite",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "privately verifies a protected input under excluded node_modules with the built-in runner",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-delegate.test.ts",
+      "name": "fusion.delegate hands each worker session the operator's whole request, which its brief may clip",
+      "initialFailures": [
+        "focused",
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools add → push → fetch → pull round-trips through the bare remote with git_remote approvals",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/os/git/git-remote-sync.test.ts",
+      "name": "os.git remote sync tools a pull reports what it did to the tree even when the diffstat is long",
+      "initialFailures": [
+        "focused"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "scripts/gen-settings-reference.test.ts",
+      "name": "generated settings reference is up to date with the schema's JSDoc, and every key has some",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "evidence": "c1-full-fixes.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "scripts/run-windows-core-tests.test.ts",
+      "name": "Windows core gate scope classifies every test file in its directories as critical or deferred",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "evidence": "c1-full-fixes.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/local-llm/downloads/download-file-parallel.test.ts",
+      "name": "download-file parallel segments restarts from zero when a segment comes back with a different ETag",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/local-llm/server/managed-api-key.test.ts",
+      "name": "managed llama-server api key (#582) heals at once past a fresh heal lock whose holder has exited",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "promotes the final checked fanout and preserves original rules and dirty files",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "archives check-run records and only delivered candidate manifests (pass=true)",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "archives check-run records and only delivered candidate manifests (pass=false)",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "verifies every worktree receipt from the original project (candidate=true)",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    },
+    {
+      "file": "src/tools/fusion/fusion-candidate.test.ts",
+      "name": "enforces original saved path denies and relative declared inputs on actual candidate file tools",
+      "initialFailures": [
+        "full"
+      ],
+      "candidateStatus": "passed",
+      "baselineStatus": "passed",
+      "evidence": "c1-full-paired-differences-candidate.json",
+      "resolution": "passed-after-rerun-or-correction"
+    }
+  ]
+}

@@ -70,4 +70,8 @@ B7a5 recognizes start_pending before the managed engine lock exists. A free-lock
 
 C2b keeps upstream #1606 deferred: ATOMIC_AGENT_NEXT_STEP_URL, ATOMIC_AGENT_NEXT_STEP_MODEL and ATOMIC_AGENT_NEXT_STEP_API_KEY are not supported settings. Suggestions continue through the configured model; a separate endpoint requires the same provider policy, privacy and credential controls. [Candidate evidence and reopening tests](../../docs/reviews/c2b-next-step-endpoint.md).
 
+C1b treats the subagent turn origin as Fusion for human-turn analytics, suggestions and experience formation. Public worker turns still use runTurn; the sidecar executeTurn seam remains already locked. Local model permissions are based on worker metadata and configured models, never solely on the origin string.
+
+The profile loader receives the live tool catalog and worker ceiling. Loading a profile never grants tool execution: the worker filter, dispatch, approval, original-input and provider guards still apply.
+
 B7b3 keeps the external llama.cpp `/props` served-model callback unavailable. Existing provider policy and configured routing remain in place; a future probe must pass provider/host/project egress/offline admission before the request and retain credential origin and response limits. [Review](../../docs/reviews/b7b3-external-llama.md).

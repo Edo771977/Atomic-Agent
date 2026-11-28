@@ -17,6 +17,10 @@ import { createEmptySessionState, type SessionState } from "../../session/sessio
 import { createRuntimeSessionFactories } from "../../runtime/composition/runtime-session-services.js";
 import { FUSION_WORKER_ID_PREFIX, type FusionWorkerMeta } from "../../session/fusion-worker-session.js";
 import { StructuredLogger } from "../../tracing/structured-logger.js";
+import { loadAgentProfiles } from "../../agent-profiles/profile-loader.js";
+import { readSettingsAgentProfiles } from "../../agent-profiles/settings-profiles.js";
+import { DEFAULT_TOOL_DESCRIPTORS } from "../../prompt/tool-descriptors.js";
+import { isWorkerVisibleTool } from "./worker-tool-policy.js";
 import type { ToolContext } from "../tool-registry.js";
 import {
   buildFusionDelegateTool,
@@ -131,6 +135,101 @@ const TASKS = [
   { id: "t1", title: "One", instructions: "Do one" },
   { id: "t2", title: "Two", instructions: "Do two" },
 ];
+
+describe("C1 second review: rejected profile names", () => {
+  it.each([
+    { name: "auditor", tools: "os.fs.read, no.such.tool", bad: "no.such.tool", lower: "settings" },
+    { name: "review", tools: "fusion.delegate", bad: "fusion.delegate", lower: "settings" },
+    { name: "explore", tools: "Bogus", bad: "Bogus", lower: "plugin" },
+  ])("refuses $name rather than silently using an unrestricted $lower copy", async ({ name, tools, bad, lower }) => {
+    const root = mkdtempSync(join(tmpdir(), "c1-profile-rejected-"));
+    try {
+      mkdirSync(join(root, "agents"));
+      const file = join(root, "agents", `${name}.md`);
+      writeFileSync(file, `---\ntools: ${tools}\n---\nLimited user instructions`);
+      const profiles = loadAgentProfiles({ workingDir: root, stateDir: root, configFile: join(root, "config.json"), startupTrust: [],
+        settingsProfiles: () => lower === "settings" ? { [name]: { prompt: "UNRESTRICTED SETTINGS" } } : {},
+        pluginProfiles: () => lower === "plugin" ? [{ name, description: "", prompt: "UNRESTRICTED PLUGIN", source: "plugin", file: "plugin/agents/explore.md" }] : [],
+        toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool },
+      });
+      const runTurn = vi.fn(async () => turnResult());
+      const result = await buildFusionDelegateTool(deps({ resolveAgentProfiles: () => profiles, runTurn })).run(
+        { tasks: [{ id: "r", instructions: "Read only", profile: name }] }, ctx({ workingDir: root }));
+      expect(result.details.reason).toBe("unknown-profile");
+      expect(result.status).toBe("error");
+      expect(runTurn).not.toHaveBeenCalled();
+      expect(profiles.get(name)).toBeUndefined();
+      expect(result.summary).toContain("Warning:");
+      expect(result.summary).toContain(file);
+      expect(result.summary).toContain(bad);
+      expect(result.details.profileWarnings).toEqual(expect.arrayContaining([expect.stringContaining(bad)]));
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("keeps a valid user profile ahead of an unrestricted settings copy and its builtin", async () => {
+    const root = mkdtempSync(join(tmpdir(), "c1-profile-valid-"));
+    try {
+      mkdirSync(join(root, "agents"));
+      writeFileSync(join(root, "agents", "explore.md"), "---\ntools: os.fs.read\n---\nUSER READ ONLY");
+      const profiles = loadAgentProfiles({ workingDir: root, stateDir: root, configFile: join(root, "config.json"), startupTrust: [],
+        settingsProfiles: () => ({ explore: { prompt: "UNRESTRICTED SETTINGS" } }),
+        toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool } });
+      const runTurn = vi.fn<FusionDelegateDeps["runTurn"]>(async (_session, brief, options) => {
+        expect(brief).toContain("USER READ ONLY");
+        expect(options.toolFilter?.("os.fs.read")).toBe(true);
+        expect(options.toolFilter?.("os.shell.run")).toBe(false);
+        expect(options.toolFilter?.("os.fs.write")).toBe(false);
+        return turnResult();
+      });
+      const result = await buildFusionDelegateTool(deps({ resolveAgentProfiles: () => profiles, runTurn })).run(
+        { tasks: [{ id: "r", instructions: "Read only", profile: "explore" }] }, ctx({ workingDir: root }));
+      expect(result.status).toBe("ok");
+      expect(runTurn).toHaveBeenCalledOnce();
+      expect(profiles.get("explore")?.source).toBe("user");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+
+  it("shows a rejected profile diagnostic even when a different valid profile runs", async () => {
+    const root = mkdtempSync(join(tmpdir(), "c1-profile-warning-"));
+    try {
+      const profiles = loadAgentProfiles({ workingDir: root, stateDir: root, configFile: join(root, "config.json"), startupTrust: [],
+        settingsProfiles: () => ({ invalid: { prompt: "Bad", tools: ["no.such.tool"] }, valid: { prompt: "Read", tools: ["os.fs.read"] } }),
+        toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool } });
+      const result = await buildFusionDelegateTool(deps({ resolveAgentProfiles: () => profiles })).run(
+        { tasks: [{ id: "r", instructions: "Read", profile: "valid" }] }, ctx({ workingDir: root }));
+      expect(result.status).toBe("ok");
+      expect(result.summary).toContain("Warning:");
+      expect(result.summary).toContain("llm.runMode.agentProfiles.invalid");
+      expect(result.summary).toContain("no.such.tool");
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
+
+describe("C1 second review: empty settings allowlists", () => {
+  it.each([
+    { label: "empty array", tools: [] },
+    { label: "blank array", tools: [" ", ""] },
+    { label: "blank comma list", tools: " , " },
+  ])("rejects $label visibly instead of inheriting all tools", async ({ tools }) => {
+    const root = mkdtempSync(join(tmpdir(), "c1-empty-profile-"));
+    try {
+      const configFile = join(root, "config.json");
+      writeFileSync(configFile, JSON.stringify({ llm: { runMode: { agentProfiles: { auditor: { prompt: "No tools", tools } } } } }));
+      expect(readSettingsAgentProfiles(configFile, () => undefined)?.auditor?.tools).toEqual([]);
+      const profiles = loadAgentProfiles({ workingDir: root, stateDir: root, configFile, startupTrust: [],
+        settingsProfiles: () => readSettingsAgentProfiles(configFile, () => undefined),
+        toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool } });
+      const runTurn = vi.fn(async () => turnResult());
+      const result = await buildFusionDelegateTool(deps({ resolveAgentProfiles: () => profiles, runTurn })).run(
+        { tasks: [{ id: "r", instructions: "Read", profile: "auditor" }] }, ctx({ workingDir: root }));
+      expect(profiles.get("auditor")).toBeUndefined();
+      expect(result.details.reason).toBe("unknown-profile");
+      expect(result.summary).toContain("llm.runMode.agentProfiles.auditor");
+      expect(result.summary).toMatch(/empty tools/i);
+      expect(runTurn).not.toHaveBeenCalled();
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  });
+});
 
 interface ObservedTaskEvidence {
   id: string;
@@ -369,8 +468,8 @@ describe("fusion.delegate", () => {
       { tasks: [...TASKS] }, ctx());
     expect(result.status).toBe("ok");
     expect(create.mock.calls.map((call) => call[0])).toEqual([
-      { parentSessionId: "s-parent", taskId: "t1", operatorRequest: full },
-      { parentSessionId: "s-parent", taskId: "t2", operatorRequest: full },
+      { parentSessionId: "s-parent", taskId: "t1", depth: 1, operatorRequest: full },
+      { parentSessionId: "s-parent", taskId: "t2", depth: 1, operatorRequest: full },
     ]);
   });
 

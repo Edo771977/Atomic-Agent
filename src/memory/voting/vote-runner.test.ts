@@ -399,7 +399,7 @@ describe("createVoteRunner", () => {
       eventLogMaxRows: 0,
       metrics: h.metrics,
       emitTrace: (event) => {
-        traced.push({ type: event.type, targetId: event.targetId });
+        traced.push({ type: event.type, targetId: "targetId" in event ? event.targetId : null });
       },
     });
 
@@ -440,7 +440,7 @@ describe("createVoteRunner", () => {
       emitTrace: (event) => {
         traced.push({
           type: event.type,
-          targetId: event.targetId,
+          targetId: "targetId" in event ? event.targetId : null,
           ...(event.type === "rejected" ? { reason: event.reason } : {}),
         });
       },
