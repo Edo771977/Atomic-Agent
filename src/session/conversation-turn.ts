@@ -1180,10 +1180,20 @@ function boundSummary(
   const { summary } = turn;
   if (summary.length <= chars) return summary;
   if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, undefined);
+  if (turn.tool === "os.shell.run") {
+    const note = `[context window: part of this result is not shown; ${summary.startsWith("[output clipped;") ? "read the saved output file instead" : "do not rerun the command solely to recover output"}]`;
+    if (isGogShellResult(turn)) return `${summary.slice(0, chars)}\n… ${note}`;
+    // The spill pointer is the first line; a tail-only cut must keep it
+    // as well as the command's final output. It was already visible in
+    // the renderer's projection, and the caller still rejects growth.
+    const firstBreak = summary.indexOf("\n");
+    const spill = summary.startsWith("[output clipped;") && firstBreak >= 0
+      ? `${summary.slice(0, firstBreak)}\n`
+      : "";
+    return `${spill}… ${note}\n${summary.slice(-chars)}`;
+  }
   const note = `[context window: ${summary.length - chars} more chars of this result are not shown; repeat the call with a narrower request to see them]`;
-  return turn.tool === "os.shell.run" && !isGogShellResult(turn)
-    ? `… ${note}\n${summary.slice(-chars)}`
-    : `${summary.slice(0, chars)}\n… ${note}`;
+  return `${summary.slice(0, chars)}\n… ${note}`;
 }
 
 /**

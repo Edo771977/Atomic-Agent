@@ -25,6 +25,33 @@ const task = (result: ConversationTurn): ConversationTurn[] => [
 ];
 
 describe("W2 packer preserves fork retention", () => {
+  it.each([500, 1_000, 2_000])("keeps the shell spill pointer in the prompt at budget %s", async (budget) => {
+    const base = mkdtempSync(join(tmpdir(), "w2-pack-spill-pointer-"));
+    try {
+      const registry = new ToolRegistry({ outputSpill: new ToolOutputSpill({ baseDir: base }) });
+      registry.register({ name: "os.shell.run", description: "fixture", readonly: false,
+        run: async () => compressToolResult({ tool: "os.shell.run", status: "ok", output: body }, { maxSummaryLength: 5_000, maxTailLines: 2_000 }),
+      });
+      const result = await registry.invoke("os.shell.run", {}, {
+        workingDir: base, sessionId: "w2-spill-pointer", stepIndex: 0,
+        signal: new AbortController().signal, modelMode: "local",
+      });
+      const path = result.details[FULL_OUTPUT_PATH_DETAIL] as string;
+      expect(path).toBeTruthy();
+      expect(result.summary.length).toBeLessThan(8_000);
+      const spillNote = result.summary.split("\n")[0]!;
+      const turns = task(resultFor("os.shell.run", result.summary));
+      const packed = packConversation(turns, budget);
+      const rendered = packedConversationTurns(packed)[2];
+      if (rendered?.kind !== "tool_result") throw new Error("missing result");
+      expect(rendered.body).toContain(spillNote);
+      expect(rendered.body).toContain(path);
+      expect(rendered.body).not.toContain("repeat the call");
+      expect(rendered.body.length).toBeLessThanOrEqual(result.summary.length);
+      expect(turns[2]?.kind === "tool_result" && turns[2].summary).toBe(result.summary);
+    } finally { rmSync(base, { recursive: true, force: true }); }
+  });
+
   it("never expands a short body when the truncation note would cost more than it saves", () => {
     const original = resultFor("os.http.request", "x".repeat(250));
     if (original.kind !== "tool_result") throw new Error("fixture");
