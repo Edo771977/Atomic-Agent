@@ -16,7 +16,7 @@ small local models (Qwen3.5 4B / 9B / 27B, Q4_K_M) with a 32K or 64K window?
 |---|---|
 | `matrix.json` | Models, windows, thinking on/off, repeats, **all llama-server flags**, named profiles |
 | `thresholds.json` | Pass-rate minimums per model size for the gate |
-| `tasks/` | 16 tasks: prompt, fixture generator, deterministic checker, timeout, reference solution |
+| `tasks/` | 17 tasks: prompt, fixture generator, deterministic checker, timeout, reference solution |
 | `run.mjs` | Runner: fresh temp workspace + fresh agent state dir per run, checker, `results.jsonl` |
 | `summary.mjs` | Markdown tables + `--gate` exit code |
 | `small-models.test.ts` | Unit tests for checkers, fixtures, plan, summary, gate (no model) |
@@ -35,10 +35,20 @@ No dependencies beyond Node 22+, `python3` and `bash` (some checkers run the age
 | h3 | core | project-wide search over ~80 files with decoys (`send_webhook_legacy`, stale notes, other constants) |
 | h4 | core | `./build.sh` fails twice with planted errors; the agent has to read the error, fix the cause, rerun |
 | h5 | core | write HTML; a literal `\n` sequence instead of real newlines fails (seen on Nemotron 21.10) |
+| o1 | core | RAM of a fictional computer: read only `computer.json` in the temporary workspace (fixed 16 GiB); reply within 1 GiB or decimal GB and without "no access", "cannot access", "don't have access", "cloud". No host hardware or files outside the workspace are needed (ATO-1723 / ATO-1706). |
 | n32k, n64k, n128k, n512k, n1m | stress | needle + count question in a log of ~32K…1M tokens, generated per run from a seed (never committed, 0.1–3.5 MB). Pass needs the right answer **and** a search tool, `grep/head/tail/sed -n`, or a ranged read in the trace |
 | l1 | stress | multi-turn session that reads ~1.5x the window (13 turns at 32K, 16 at 64K), then writes all codes collected along the way; compaction has to happen and the agent has to finish (ATO-895) |
 
 Core tasks are gated. Stress tasks are reported but not gated until we have a baseline.
+
+The fork's o1 is a synthetic fixture, not a hardware-access benchmark. Its fixture
+writes only `computer.json` under the supplied temporary workspace; the checker and
+reference solution use a constant and the captured reply, never `os.totalmem()` or
+host files. The prompt explicitly limits the task to that workspace file. The
+ordinary bench runner still reads its matrix and checkout assets and creates its
+isolated state/report directories as described below; that is harness setup, not
+an o1 input. These scripts remain outside production lint/import checks and the
+default Vitest suite. No dependencies, lockfile or install hooks are added.
 
 Checker fix vs the old private stand: t5 used `grep -rl` and on GNU grep it counted
 `__pycache__/*.pyc`, so correct renames failed. The checker now scans `*.py` sources only.
@@ -154,9 +164,9 @@ Numbers below are estimates, **not measured yet**; the first release run replace
 
 | Profile | Runs | Worst case (every run times out) | Guess (~20% of timeout) |
 |---|---|---|---|
-| `quick` (4B, 32K, core, 1 repeat) | 10 | 2.0 h | ~25 min |
-| `release` (3 models x 2 windows, thinking off, all tasks, 3 repeats) | 288 | 79.5 h | ~16 h serial |
-| `full` (+ thinking on) | 576 | 159 h | ~32 h serial |
+| `quick` (4B, 32K, core, 1 repeat) | 11 | 2.1 h | ~25 min |
+| `release` (3 models x 2 windows, thinking off, all tasks, 3 repeats) | 306 | 81 h | ~16 h serial |
+| `full` (+ thinking on) | 612 | 162 h | ~32 h serial |
 
 - **Second Mac (MacBook Pro M5, 32 GB):** fine for 4B and 9B. 27B Q4 (~16.5 GB) plus a 64K
   f16 KV cache is tight: macOS lets the GPU use about 2/3 of RAM by default. Run 27B on a
@@ -189,8 +199,10 @@ Numbers below are estimates, **not measured yet**; the first release run replace
 
 ## Adding a task
 
-Add an object to `tasks/core.mjs`, `tasks/hard.mjs` or `tasks/stress.mjs` with `id`, `set`,
+Add an object to `tasks/core.mjs`, `tasks/hard.mjs`, `tasks/own-computer.mjs` or `tasks/stress.mjs` with `id`, `set`,
 `title`, `timeoutSec`, `maxSteps`, `turns(ctx)`, `fixture(dir, ctx) -> meta`,
 `check(dir, meta, ctx) -> { pass, reason }` and a reference `solve(dir, meta, ctx)`.
 The unit test checks every task both ways: untouched fixture fails, reference solution passes.
+A task whose answer is the chat reply (like `o1`) reads `ctx.run.stdout` (one line per turn) in
+`check`, and its `solve` sets `ctx.run.stdout` to the reference reply.
 Fixtures must be generated from a seed; do not commit large files.

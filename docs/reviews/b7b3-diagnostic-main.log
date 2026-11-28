@@ -1,0 +1,12 @@
+
+ RUN  v4.1.12 <checkout>
+
+ ✓ src/tools/fusion/candidate-integration.test.ts (53 tests | 52 skipped) 8070ms
+   ✓ journals each promotion step durably with pre-image backups so a crash mid-delivery is recoverable  8070ms
+
+ Test Files  1 passed (1)
+      Tests  1 passed | 52 skipped (53)
+   Start at  23:57:19
+   Duration  10.50s (transform 1.92s, setup 47ms, import 2.18s, tests 8.07s, environment 0ms)
+
+JSON report written to C:/Users/edoar/OneDrive/Documenti/ChatGPT/Fusion/b7b3-diagnostic-main.json

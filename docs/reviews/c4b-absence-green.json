@@ -1,0 +1,17 @@
+{
+  "report": "atomic-c4b-absence-green.json",
+  "success": true,
+  "tests": {
+    "passed": 9,
+    "failed": 0,
+    "pending": 0,
+    "total": 9
+  },
+  "suites": {
+    "passed": 4,
+    "failed": 0,
+    "pending": 0
+  },
+  "failures": [],
+  "suiteErrors": []
+}
