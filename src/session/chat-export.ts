@@ -140,11 +140,12 @@ function inlineText(tokens: readonly Token[]): string {
 
 /** Column-zero fences close list context; inner runs cannot close this fence. */
 function literalMarkdownBlock(block: string): string {
-  const firstBreak = block.indexOf("\n"), lastBreak = block.lastIndexOf("\n");
-  const opening = block.slice(0, firstBreak);
+  const closed = block.replace(/\n+$/, "");
+  const firstBreak = closed.indexOf("\n"), lastBreak = closed.lastIndexOf("\n");
+  const opening = closed.slice(0, firstBreak);
   if (firstBreak >= 3 && lastBreak > firstBreak && /^`+$/.test(opening)
-    && block.slice(lastBreak + 1) === opening) {
-    const body = block.slice(firstBreak + 1, lastBreak);
+    && closed.slice(lastBreak + 1) === opening) {
+    const body = closed.slice(firstBreak + 1, lastBreak);
     let longestBodyRun = 0;
     for (const run of body.matchAll(/`+/g)) longestBodyRun = Math.max(longestBodyRun, run[0].length);
     if (longestBodyRun < opening.length) return block;
@@ -153,6 +154,52 @@ function literalMarkdownBlock(block: string): string {
   for (const run of block.matchAll(/`+/g)) longest = Math.max(longest, run[0].length);
   const fence = "`".repeat(longest + 1);
   return `\n\n${fence}\n${block}\n${fence}\n\n`;
+}
+
+type ExportBlockContext = { kind: "fence"; marker: string; length: number }
+  | { kind: "html"; end: RegExp };
+
+function openExportBlock(line: string): ExportBlockContext | undefined {
+  const fence = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(line);
+  if (fence && (fence[1]![0] === "~" || !fence[2]!.includes("`"))) {
+    return { kind: "fence", marker: fence[1]![0]!, length: fence[1]!.length };
+  }
+  const tag = /^ {0,3}<(script|pre|style|textarea)(?:\s|>|$)/i.exec(line);
+  if (tag) return { kind: "html", end: new RegExp(`</${tag[1]!}>`, "i") };
+  if (/^ {0,3}<!--/.test(line)) return { kind: "html", end: /-->/ };
+  if (/^ {0,3}<\?/.test(line)) return { kind: "html", end: /\?>/ };
+  if (/^ {0,3}<![a-z]/i.test(line)) return { kind: "html", end: />/ };
+  if (/^ {0,3}<!\[CDATA\[/i.test(line)) return { kind: "html", end: /\]\]>/ };
+  return undefined;
+}
+
+/** Blank lines cannot split HTML types 1–5 or a backtick/tilde fence. */
+function exportMarkdownBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let start = 0;
+  let context: ExportBlockContext | undefined;
+  for (const match of text.matchAll(/[^\n]*(?:\n|$)/g)) {
+    const raw = match[0];
+    if (!raw) continue;
+    const at = match.index!, end = at + raw.length;
+    const line = raw.replace(/\r?\n$/, "");
+    if (context) {
+      const fence = context.kind === "fence" ? /^ {0,3}(`+|~+)[\t ]*$/.exec(line) : null;
+      const closes = context.kind === "html" ? context.end.test(line)
+        : !!fence && fence[1]![0] === context.marker && fence[1]!.length >= context.length;
+      if (closes) context = undefined;
+      continue;
+    }
+    context = openExportBlock(line);
+    if (context) {
+      if (context.kind === "html" && context.end.test(line)) context = undefined;
+    } else if (/^[\t ]*$/.test(line)) {
+      if (start < at) blocks.push(text.slice(start, at));
+      blocks.push(raw); start = end;
+    }
+  }
+  if (start < text.length) blocks.push(text.slice(start));
+  return blocks;
 }
 
 /** Mask both source forms and the inline presentation of each parsed block. */
@@ -165,7 +212,7 @@ export function maskChatExportText(text: string, options: ChatExportOptions = {}
   if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(text)) return text;
   const needles = known.map(secret => projectPresentationText(secret.value)).filter(value => value.length >= MIN_KNOWN_SECRET_LENGTH);
   let parserWorkLeft = 32_768;
-  return text.split(/(\n[\t ]*\n)/).map(block => {
+  return exportMarkdownBlocks(text).map(block => {
     if (!/[*_`~&\[\\<|]| {2}\r?\n/.test(block)) return block;
     const projected = projectPresentationText(block);
     const possibleKey = () => needles.some(needle => {
