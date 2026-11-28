@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import { compressToolResult } from "../compressor/result-compressor.js";
 import { buildPrompt } from "../prompt/build-prompt.js";
+import type { BuildPromptInput } from "../prompt/build-prompt-types.js";
 import { packedConversationTurns } from "../prompt/build-prompt-world-conversation.js";
 import { estimateTokens } from "../prompt/token-budget.js";
 import { ToolRegistry } from "../tools/tool-registry.js";
@@ -84,11 +85,12 @@ describe("W2 packer preserves fork retention", () => {
 
   it("changes only conversation while stable prefix and following mutable sections keep their order", () => {
     const session = createEmptySessionState({ id: "w2-prefix", workingDir: "/work" });
-    const input = {
-      session: { ...session, turns: task(resultFor("os.http.request")), profileFacts: [],
+    const input: BuildPromptInput = {
+      session: { ...session, turns: task(resultFor("os.http.request")),
         recalledLessons: [{ id: 42, activation: "Keep the output", tags: [], workingDir: null, updatedAt: 1 }] },
       capabilities: { platform: "linux", arch: "x64", workingDir: "/work", browserChannel: "chrome", hasClipboard: false, hasWmctrl: false, hasNotifications: false },
-      toolDescriptors: [], skillCatalog: [], tokenBudget: 100_000, modelMode: "local" as const,
+      toolDescriptors: [], skillCatalog: [], tokenBudget: 100_000,
+      modelMode: { mode: "local", source: "legacy", providerId: "local", modelId: null },
     };
     const wide = buildPrompt({ ...input, conversationMaxTokens: 90_000 });
     const bounded = buildPrompt({ ...input, conversationMaxTokens: 2_000 });

@@ -1101,7 +1101,7 @@ export function packConversation(
  * overflows `limit`; the turns untouched otherwise. Only the pins make
  * such a suffix (a cut alone always fits), and the cap depends on the
  * budget only, so a bounded body renders the same on every step.
- * A result that renders as a repeated-read pointer is left alone.
+ * Repeated reads keep rendering as pointers to the same bounded copy.
  */
 function boundPinnedToolBodies(
   turns: readonly ConversationTurn[],
@@ -1117,13 +1117,25 @@ function boundPinnedToolBodies(
   const visible = turns.slice(startIndex);
   const { tokenCosts, repeats, limit, capTokens, currentStart } = args;
   if (suffixTokens(tokenCosts, repeats, startIndex) <= limit) return visible;
-  return visible.map((turn, offset) => {
+  for (let offset = 0; offset < visible.length; offset += 1) {
+    const turn = visible[offset];
     const i = startIndex + offset;
-    if (turn.kind !== "tool_result") return turn;
-    if ((repeats.previous[i] ?? -1) >= startIndex) return turn;
-    if ((tokenCosts[i] ?? 0) <= capTokens) return turn;
-    return boundToolResult(turn, capTokens, i >= currentStart);
-  });
+    if (turn?.kind !== "tool_result") continue;
+    const previous = repeats.previous[i] ?? -1;
+    if (previous >= startIndex) {
+      // Repeat detection also compares summaries. Carry the same cut to
+      // every copy, or bounding the first would expand later pointers
+      // back into full results when the prompt renders this projection.
+      const earlier = visible[previous - startIndex];
+      if (earlier?.kind === "tool_result" && earlier.summary !== turn.summary) {
+        visible[offset] = { ...turn, summary: earlier.summary };
+      }
+      continue;
+    }
+    if ((tokenCosts[i] ?? 0) <= capTokens) continue;
+    visible[offset] = boundToolResult(turn, capTokens, i >= currentStart);
+  }
+  return visible;
 }
 
 /** Minimum body kept by `boundToolResult`, so a result never renders empty. */
@@ -1131,24 +1143,34 @@ const BOUNDED_BODY_MIN_CHARS = 200;
 
 /**
  * A copy of `turn` whose body renders within about `capTokens`. Cut from
- * the end a tool reads from: a shell result keeps its tail (the `exit:`
- * line), a file read cuts on a line break with its paging hint, anything
- * else keeps its head. The note says how to get the rest.
+ * the end a tool reads from: an ordinary shell result keeps its tail
+ * (the `exit:` line), a file read cuts on a line break with its paging
+ * hint, anything else keeps its head. The note says how to get the rest.
  */
 function boundToolResult(
   turn: Extract<ConversationTurn, { kind: "tool_result" }>,
   capTokens: number,
   fresh: boolean,
 ): ConversationTurn {
+  // Narrow the existing renderer's projection, never the stored body:
+  // in particular a fresh gog shell result keeps its head, whereas an
+  // ordinary shell result keeps its tail. A new cap must not reveal
+  // bytes that the fork's existing tool-specific cap already hid.
+  const sourceBody = renderToolResultBody(turn, { inCurrentMacroTurn: fresh });
+  const source = { ...turn, summary: sourceBody };
   let chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(capTokens * 3.6));
   let bounded = turn;
   for (let attempt = 0; attempt < 4; attempt += 1) {
-    bounded = { ...turn, summary: boundSummary(turn, chars) };
+    bounded = { ...turn, summary: boundSummary(source, chars) };
     if (tokenCostForTurn(bounded, fresh) <= capTokens) break;
     if (chars <= BOUNDED_BODY_MIN_CHARS) break;
     chars = Math.max(BOUNDED_BODY_MIN_CHARS, Math.floor(chars / 2));
   }
-  return bounded;
+  const boundedBody = renderToolResultBody(bounded, { inCurrentMacroTurn: fresh });
+  return boundedBody.length <= sourceBody.length &&
+    tokenCostForTurn(bounded, fresh) < tokenCostForTurn(turn, fresh)
+    ? bounded
+    : turn;
 }
 
 function boundSummary(
@@ -1159,7 +1181,7 @@ function boundSummary(
   if (summary.length <= chars) return summary;
   if (turn.tool === "os.fs.read") return capReadSummary(summary, chars, undefined);
   const note = `[context window: ${summary.length - chars} more chars of this result are not shown; repeat the call with a narrower request to see them]`;
-  return turn.tool === "os.shell.run"
+  return turn.tool === "os.shell.run" && !isGogShellResult(turn)
     ? `… ${note}\n${summary.slice(-chars)}`
     : `${summary.slice(0, chars)}\n… ${note}`;
 }
