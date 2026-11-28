@@ -7,7 +7,10 @@ import { readSettingsAgentProfiles } from "./settings-profiles.js";
 import { buildPrompt } from "../prompt/build-prompt.js";
 import { createEmptySessionState, recordTurn } from "../session/session-state.js";
 import { userTurn } from "../session/conversation-turn.js";
-import { isWorkerVisibleTool } from "../tools/fusion/worker-tool-policy.js";
+import { isWorkerVisibleTool, workerToolFilterFor } from "../tools/fusion/worker-tool-policy.js";
+import { DEFAULT_TOOL_DESCRIPTORS } from "../prompt/tool-descriptors.js";
+import { applyTaskProfiles } from "../tools/fusion/task-profiles.js";
+import { renderWorkerBrief } from "../tools/fusion/worker-prompt.js";
 
 it("C1d: loads fresh settings on each profile load", () => {
   const root = mkdtempSync(join(tmpdir(), "c1d-profiles-"));
@@ -30,25 +33,42 @@ it("C1d: rereads config bytes without moving an open session's stable prefix", (
   try {
     const configFile = join(root, "config.json");
     const options = { workingDir: root, stateDir: root, configFile, startupTrust: undefined,
-      settingsProfiles: () => readSettingsAgentProfiles(configFile, () => undefined) };
+      settingsProfiles: () => readSettingsAgentProfiles(configFile, () => undefined),
+      toolPolicy: { names: DEFAULT_TOOL_DESCRIPTORS.map(tool => tool.name), allows: isWorkerVisibleTool } };
     for (const mode of ["local", "cloud"] as const) {
       let session = createEmptySessionState({ id: `profile-reload-${mode}`, workingDir: root });
-      const build = () => buildPrompt({ session, toolDescriptors: [], skillCatalog: [], toolTransport: "grammar",
+      const build = (toolDescriptors: typeof DEFAULT_TOOL_DESCRIPTORS) => buildPrompt({ session, toolDescriptors,
+        skillCatalog: [], toolTransport: "grammar", toolRole: "builder",
         modelMode: { mode, source: "provider", providerId: "test", modelId: null }, capabilities: {
           platform: "linux", arch: "x64", browserChannel: "none", workingDir: root,
           hasClipboard: false, hasWmctrl: false, hasNotifications: false,
         } });
-      const prefix = build().stablePrefix;
+      let prefix: string | undefined;
       for (const prompt of ["First profile instructions", "Second profile instructions"]) {
-        const bytes = JSON.stringify({ llm: { runMode: { agentProfiles: { auditor: { prompt } } } } });
+        const bytes = JSON.stringify({ llm: { runMode: { agentProfiles: {
+          auditor: { prompt, tools: ["os.fs.read", "os.web.fetch"] },
+        } } } });
         writeFileSync(configFile, bytes);
-        const loaded = loadAgentProfiles(options).get("auditor");
+        const profiles = loadAgentProfiles(options);
+        const loaded = profiles.get("auditor");
         expect(loaded?.prompt).toBe(prompt);
-        session = recordTurn(session, userTurn(`Task brief: ${loaded!.prompt}`));
-        const next = build();
+        const applied = applyTaskProfiles([{ id: "audit", title: "Audit", instructions: "Read and report", profile: "auditor" }], profiles, []);
+        if (!applied.ok) throw new Error(applied.error);
+        const task = applied.tasks[0]!;
+        expect(task.agentProfile).toMatchObject({ source: "settings", prompt, tools: ["os.fs.read", "os.web.fetch"] });
+        const filter = workerToolFilterFor(task.agentProfile?.tools);
+        const catalog = DEFAULT_TOOL_DESCRIPTORS.filter(tool => filter(tool.name));
+        expect(catalog.map(tool => tool.name)).toEqual(expect.arrayContaining(["os.fs.read", "os.web.fetch"]));
+        session = recordTurn(session, userTurn(renderWorkerBrief(task, { workingDir: root, localLeg: mode === "local" })));
+        const next = build(catalog);
         expect(next.text).toContain(prompt);
+        expect(next.text).toContain("PROFILE auditor (settings)");
+        expect(next.stablePrefix).toContain("os.fs.read");
+        prefix ??= next.stablePrefix;
         expect(next.stablePrefix).toBe(prefix);
         expect(next.stablePrefix).not.toContain(prompt);
+        // Sensitivity control: a real catalog change must change prefix bytes.
+        expect(build(catalog.filter(tool => tool.name !== "os.web.fetch")).stablePrefix).not.toBe(prefix);
       }
     }
   } finally {
