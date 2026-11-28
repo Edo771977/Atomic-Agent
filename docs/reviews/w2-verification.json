@@ -1,0 +1,479 @@
+{
+  "base": "54f81900b9220268e6f88a8276d00feb4769f603",
+  "date": "2026-11-28",
+  "runs": {
+    "red-upstream": {
+      "passed": 21,
+      "failed": 5,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "Scheduler sidecars (ATO-601) ticks sidecars on interval ticks this process leads, never on tickOnce",
+          "reason": "AssertionError: expected \"vi.fn()\" to not be called at all, but actually been called 1 times"
+        },
+        {
+          "name": "Scheduler sidecars (ATO-601) hands sidecars over without both processes starting them on one tick (#1735)",
+          "reason": "AssertionError: expected [ 'A', 'A' ] to deeply equal [ 'A' ]"
+        },
+        {
+          "name": "packConversation bounds pinned tool bodies (#1735) keeps a short request plus a fresh 90 000-char HTTP result within the budget",
+          "reason": "AssertionError: expected 25236 to be less than or equal to 2000"
+        },
+        {
+          "name": "packConversation bounds pinned tool bodies (#1735) keeps the tail of a shell result, where its exit line is",
+          "reason": "AssertionError: expected 2339 to be less than or equal to 1000"
+        },
+        {
+          "name": "packConversation bounds pinned tool bodies (#1735) drops older tasks first and bounds only what the pins keep",
+          "reason": "AssertionError: expected 25236 to be less than or equal to 1960"
+        }
+      ]
+    },
+    "red-fork": {
+      "passed": 1,
+      "failed": 5,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention keeps repeated reads as pointers after bounding their first visible copy",
+          "reason": "AssertionError: expected 8509 to be less than 4000"
+        },
+        {
+          "name": "W2 packer preserves fork retention bounds the prompt with incognito=false while preserving existing spill behavior",
+          "reason": "AssertionError: expected 12314 to be less than 12314"
+        },
+        {
+          "name": "W2 packer preserves fork retention bounds the prompt with incognito=true while preserving existing spill behavior",
+          "reason": "AssertionError: expected 11999 to be less than 11999"
+        },
+        {
+          "name": "W2 packer preserves fork retention changes only conversation while stable prefix and following mutable sections keep their order",
+          "reason": "AssertionError: expected 39213 to be less than or equal to 2000"
+        },
+        {
+          "name": "W2 waits a tick after the Telegram owner acquires the real scheduler lock",
+          "reason": "AssertionError: expected [ 1001, 1001 ] to deeply equal [ 1001 ]"
+        }
+      ]
+    },
+    "port": {
+      "passed": 30,
+      "failed": 2,
+      "skipped": 0,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention only removes payload already visible under each tool's renderer",
+          "reason": "AssertionError: expected '$ gog mail list\\nrow 0: data data dat…' to contain 'row 1998: data'"
+        },
+        {
+          "name": "W2 packer preserves fork retention keeps repeated reads as pointers after bounding their first visible copy",
+          "reason": "AssertionError: expected 'row 0: data data data data data data …' to contain 'unchanged since your earlier read'"
+        }
+      ]
+    },
+    "adapted": {
+      "passed": 32,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "seams": {
+      "passed": 82,
+      "failed": 3,
+      "skipped": 1,
+      "failures": [
+        {
+          "name": "ToolOutputSpill (ATO-663) refuses a session folder that is a symlink",
+          "reason": "Windows EPERM creating a temporary test symlink; rerun with required permissions is recorded separately"
+        },
+        {
+          "name": "ToolOutputSpill (ATO-663) neither sweeps nor removes through a base folder that is a link",
+          "reason": "Windows EPERM creating a temporary test symlink; rerun with required permissions is recorded separately"
+        },
+        {
+          "name": "read scope for saved tool outputs does not follow a symlink planted in the folder out of scope",
+          "reason": "Windows EPERM creating a temporary test symlink; rerun with required permissions is recorded separately"
+        }
+      ]
+    },
+    "spill-elevated": {
+      "passed": 23,
+      "failed": 0,
+      "skipped": 1,
+      "failures": []
+    },
+    "focused-final": {
+      "passed": 122,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "final-guards": {
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "short-body-red": {
+      "passed": 0,
+      "failed": 1,
+      "skipped": 5,
+      "failures": [
+        {
+          "name": "W2 packer preserves fork retention never expands a short body when the truncation note would cost more than it saves",
+          "reason": "AssertionError: expected 316 to be less than or equal to 250"
+        }
+      ]
+    },
+    "broad-initial": {
+      "completed": false,
+      "result": "Execution environment interrupted before JSON report; not counted as a passing or failing suite",
+      "command": "npx vitest run src/runtime src/sidecar src/cli src/scheduler src/session src/tasks src/agent/turn --reporter=json --outputFile=../w2-suite.json"
+    },
+    "suite-elevated": {
+      "files": 379,
+      "passed": 4233,
+      "failed": 21,
+      "skipped": 33,
+      "failures": [
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) accepts --role=<role>",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "refuses token management from an agent tool child",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+          "reason": "external test command failed"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects closed stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects empty stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects unterminated stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects oversized stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects short stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects invalid stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "registers the active serve key for masking (undefined)",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/skill-history-command.test.ts",
+          "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/skill.test.ts",
+          "name": "skillCommand real CLI refuses a tool child's global install and allows the operator install",
+          "reason": "test or hook timeout; see paired rerun"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        },
+        {
+          "file": "src/runtime/project-trust.test.ts",
+          "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        },
+        {
+          "file": "src/runtime/composition/runtime-channels.test.ts",
+          "name": "catalog channels (ATO-1169) registers the primaries and every catalog adapter, starting only the enabled ones",
+          "reason": "test or hook timeout; see paired rerun"
+        },
+        {
+          "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+          "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+          "reason": "assertion mismatch"
+        }
+      ]
+    },
+    "baseline-first": {
+      "files": 2,
+      "passed": 48,
+      "failed": 4,
+      "skipped": 2,
+      "failures": [
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+          "reason": "external test command failed"
+        },
+        {
+          "file": "src/cli/memory-backup.test.ts",
+          "name": "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        },
+        {
+          "file": "src/runtime/project-instructions.test.ts",
+          "name": "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        }
+      ]
+    },
+    "baseline-second": {
+      "files": 4,
+      "passed": 38,
+      "failed": 4,
+      "skipped": 3,
+      "failures": [
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-command.test.ts",
+          "name": "registers the active serve key for masking (undefined)",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/skill-history-command.test.ts",
+          "name": "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/runtime/project-trust.test.ts",
+          "name": "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+          "reason": "Windows EPERM creating a temporary test symlink"
+        }
+      ]
+    },
+    "baseline-third": {
+      "files": 3,
+      "passed": 19,
+      "failed": 11,
+      "skipped": 6,
+      "failures": [
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) accepts --role=<role>",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/http-command.test.ts",
+          "name": "refuses token management from an agent tool child",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects closed stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects empty stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects unterminated stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects oversized stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects short stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/cli/serve-auth-process.test.ts",
+          "name": "rejects invalid stdin before starting serve",
+          "reason": "assertion mismatch"
+        },
+        {
+          "file": "src/runtime/composition/runtime-egress-guard.test.ts",
+          "name": "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+          "reason": "assertion mismatch"
+        }
+      ]
+    },
+    "baseline-skill": {
+      "files": 1,
+      "passed": 38,
+      "failed": 0,
+      "skipped": 0,
+      "failures": []
+    },
+    "rerun": {
+      "files": 2,
+      "passed": 2,
+      "failed": 0,
+      "skipped": 46,
+      "failures": []
+    }
+  },
+  "checks": {
+    "npm ci": {
+      "exitCode": 0,
+      "packages": 557,
+      "auditVulnerabilities": 0
+    },
+    "npm run lint": {
+      "exitCode": 0
+    },
+    "npm run imports:check": {
+      "exitCode": 0,
+      "runtimeCycles": 0,
+      "exceptions": 0
+    },
+    "npm run typecheck:tests": {
+      "exitCode": 0,
+      "existingDebtDiagnostics": 669,
+      "newErrors": 0
+    },
+    "npm run docs:check": {
+      "exitCode": 0,
+      "note": "Final report update checked again before publication"
+    },
+    "requested vitest selection": {
+      "exitCode": 1,
+      "completed": true,
+      "passed": 4233,
+      "failed": 21,
+      "skipped": 33,
+      "result": "19 failures reproduced on main; other 2 pass on main and on candidate rerun with maxWorkers=1; full suite remains non-green"
+    }
+  },
+  "sourceCommits": [
+    "657187d267a4aa7aa3aadded96491afd5b6e953f",
+    "ace8e9d2760e2ee56c2bc18f9661c08b646b8c24"
+  ],
+  "adaptationCommit": "aa83d898a",
+  "reservedAreaChecks": [
+    {
+      "pr": 281,
+      "state": "open",
+      "head": "5522cb3d6d492197c0421267cf437f9ef4da1d6c",
+      "sharedFiles": [
+        "docs/user/fork-differences.md"
+      ]
+    },
+    {
+      "pr": 298,
+      "state": "open",
+      "head": "6ac2ac6ab3caa00238c9302b137038c06fa5fc84",
+      "sharedFiles": [
+        "docs/user/fork-differences.md",
+        "docs/user/upstream-2026-11-triage.md"
+      ]
+    }
+  ],
+  "deferredW21": {
+    "reason": "#1761 shares runtime-turn-service.ts and its test with open C1 #298; keep three commits together and defer #1841 in the same W2.1 series",
+    "sourceCommits": [
+      "f6068f4824db2b3192660ebddab2e64a3fde2057",
+      "10f775bbfb83a96a67b458ea9b93dd95f03d87b8",
+      "940e9f45aa56936d01795470e4e9825f838c17f6",
+      "377cb0cf124270542e90f3dbc0a3839942ffa7ad"
+    ],
+    "tested": false
+  },
+  "comparison": {
+    "mainBase": "54f81900b9220268e6f88a8276d00feb4769f603",
+    "fullCandidateFailures": 21,
+    "reproducedOnMain": [
+      "atag http tokens (ATO-583) accepts --role=<role>",
+      "atag http tokens (ATO-583) add prints the token once on stdout; list never shows it",
+      "atag http tokens (ATO-583) remove revokes; a second remove is a failure, not a usage error",
+      "atomic-agent memory backup (ATO-46) no memory yet is a plain failure; the default folder sits under the state dir",
+      "atomic-agent memory backup (ATO-46) publishes Windows files with only the current user's ACL",
+      "cloud project instructions expands relative imports once, reports cycles and skips external imports/symlinks",
+      "cloud project instructions loads a rule file once when another tool's file links to an own root rule",
+      "project folder trust (ATO-298 soft trust) keys the answer by the real folder: a symlink alias or another letter case shares it",
+      "refuses token management from an agent tool child",
+      "registers the active serve key for masking (undefined)",
+      "rejects closed stdin before starting serve",
+      "rejects empty stdin before starting serve",
+      "rejects invalid stdin before starting serve",
+      "rejects oversized stdin before starting serve",
+      "rejects short stdin before starting serve",
+      "rejects unterminated stdin before starting serve",
+      "runtime egress guard (issue #33) adds the write-out rule, exempting only a fusion worker's own temp copy",
+      "serve --tunnel without cloudflared exits 1 with an install hint, and never boots a runtime",
+      "skill history / restore / curate skill learned lists pending drafts, approve and discard them; skill list --json marks them pending (ATO-67)"
+    ],
+    "passedOnBothInFocusedRerun": [
+      "catalog channels (ATO-1169) registers the primaries and every catalog adapter, starting only the enabled ones",
+      "skillCommand real CLI refuses a tool child's global install and allows the operator install"
+    ],
+    "unclassified": [],
+    "timeoutsIncreased": false,
+    "quarantineAdded": false,
+    "fullSuiteGreen": false
+  }
+}
